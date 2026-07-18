@@ -1,12 +1,595 @@
 ---
-import Layout from '../layouts/Layout.astro';
+// Landing page implemented from the Claude Design mockup "Eva Landing Page".
+// Markup keeps the design's inline styles for fidelity; the <style> block below
+// adds base styles and responsive overrides the mockup didn't define.
 ---
 
-<Layout title="Eva — the first AI made for women">
-  <main>
-    <h1>Eva</h1>
-    <p>The first AI made for women. An assistant for every woman's Prime Era.</p>
-    <!-- TODO: replace with the real App Store link once the app is published -->
-    <a href="#" aria-disabled="true">Download on the App Store — coming soon</a>
-  </main>
-</Layout>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <meta name="generator" content={Astro.generator} />
+  <title>Eva — the first AI made for women</title>
+  <meta name="description" content="Eva is the first AI assistant built around a woman's physiology — your cycle, energy, and goals. Enter your Prime Era on your own terms." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<div style="max-width:100%; overflow-x:hidden;">
+
+  <!-- NAV -->
+  <header style="position:sticky; top:0; z-index:50; background:rgba(251,248,251,.82); backdrop-filter:blur(14px); border-bottom:1px solid #EFE6ED;">
+    <nav style="max-width:1200px; margin:0 auto; padding:16px 32px; display:flex; align-items:center; justify-content:space-between; gap:24px;">
+      <a href="/"><img src="/assets/eva-logo.png" alt="Eva" style="height:34px; width:auto; display:block;" /></a>
+      <div class="nav-links" style="display:flex; align-items:center; gap:34px; font-size:15px; font-weight:500; color:#5A4B55;">
+        <a href="#how" style="color:#5A4B55;">How it works</a>
+        <a href="#features" style="color:#5A4B55;">Features</a>
+        <a href="#science" style="color:#5A4B55;">Science</a>
+        <a href="#mission" style="color:#5A4B55;">Mission</a>
+        <a href="#faq" style="color:#5A4B55;">FAQ</a>
+      </div>
+      <a href="#download" style="background:linear-gradient(135deg,#8E2C57,#C96A93); color:#fff; padding:11px 22px; border-radius:999px; font-size:15px; font-weight:600; box-shadow:0 8px 20px -8px rgba(142,44,87,.6); white-space:nowrap;">Get the app</a>
+    </nav>
+  </header>
+
+  <!-- HERO -->
+  <section style="position:relative; overflow:hidden;">
+    <div style="position:absolute; top:-160px; right:-120px; width:520px; height:520px; border-radius:50%; background:radial-gradient(circle,#EFEAF6,transparent 68%); z-index:0;"></div>
+    <div style="position:absolute; bottom:-180px; left:-140px; width:460px; height:460px; border-radius:50%; background:radial-gradient(circle,#E6F0E9,transparent 70%); z-index:0;"></div>
+    <div class="hero-grid" style="position:relative; z-index:1; max-width:1200px; margin:0 auto; padding:72px 32px 88px; display:grid; grid-template-columns:1.05fr .95fr; gap:56px; align-items:center;">
+      <div>
+        <span style="display:inline-flex; align-items:center; gap:8px; background:#FBEDF3; color:#8E2C57; padding:7px 15px; border-radius:999px; font-size:13.5px; font-weight:600; letter-spacing:.01em;">
+          <span style="width:7px; height:7px; border-radius:50%; background:#C96A93;"></span>Meet Eva — your AI health companion
+        </span>
+        <h1 style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:66px; line-height:1.03; color:#3A2233; margin:22px 0 0; letter-spacing:-.01em; text-wrap:balance;">Enter your <span style="font-style:italic; color:#8E2C57;">Prime Era</span>, on your own terms.</h1>
+        <p style="font-size:19px; line-height:1.6; margin:24px 0 0; max-width:520px; color:#6E5E69;">Eva is the first AI assistant built around a woman's physiology — your cycle, energy, and goals. Stop fighting your body. Start working <em>with</em> it.</p>
+
+        <div style="margin:34px 0 0; display:flex; gap:14px; flex-wrap:wrap;">
+          <a href="#download" style="display:inline-flex; align-items:center; gap:11px; background:#3A2233; color:#fff; padding:14px 20px; border-radius:14px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M16.5 12.6c0-2 1.6-3 1.7-3.1-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7s-1.6-.7-2.6-.7c-1.3 0-2.6.8-3.3 2-1.4 2.4-.4 6 1 8 .7 1 1.4 2 2.5 2s1.4-.6 2.6-.6 1.5.6 2.6.6 1.8-1 2.4-2c.8-1.1 1.1-2.2 1.1-2.3-.1 0-2.1-.8-2.1-3.1zM14.6 6.2c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.6 1 .1 2-.5 2.5-1.2z"/></svg>
+            <span style="text-align:left; line-height:1.1;"><span style="display:block; font-size:11px; opacity:.8;">Download on the</span><span style="display:block; font-size:17px; font-weight:600;">App Store</span></span>
+          </a>
+          <a href="#download" style="display:inline-flex; align-items:center; gap:11px; background:#fff; color:#3A2233; padding:14px 20px; border-radius:14px; border:1px solid #EADFE8;">
+            <svg width="22" height="22" viewBox="0 0 24 24"><path d="M3.6 2.4c-.3.2-.5.6-.5 1.1v17c0 .5.2.9.5 1.1l9.2-9.6-9.2-9.6z" fill="#C96A93"/><path d="M16.4 8.9 12.8 12l3.6 3.1 3.9-2.2c.7-.4.7-1.4 0-1.8l-3.9-2.2z" fill="#8E2C57"/><path d="M12.8 12 3.6 2.4c.3-.2.7-.2 1.1 0l11.7 6.5-3.6 3.1z" fill="#E1A6C2"/><path d="m12.8 12 3.6 3.1L4.7 21.6c-.4.2-.8.2-1.1 0l9.2-9.6z" fill="#7E9BBE"/></svg>
+            <span style="text-align:left; line-height:1.1;"><span style="display:block; font-size:11px; color:#98868F;">GET IT ON</span><span style="display:block; font-size:17px; font-weight:600;">Google Play</span></span>
+          </a>
+        </div>
+
+        <div style="margin:32px 0 0; display:flex; align-items:center; gap:14px;">
+          <div style="display:flex;">
+            <span style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#C96A93,#E9C4D6); border:2px solid #FBF8FB; display:grid; place-items:center; color:#fff; font-weight:700; font-size:14px;">M</span>
+            <span style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#8FB09A,#CADFCE); border:2px solid #FBF8FB; margin-left:-12px; display:grid; place-items:center; color:#fff; font-weight:700; font-size:14px;">S</span>
+            <span style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#7E9BBE,#C4D4E6); border:2px solid #FBF8FB; margin-left:-12px; display:grid; place-items:center; color:#fff; font-weight:700; font-size:14px;">A</span>
+            <span style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#8E2C57,#C96A93); border:2px solid #FBF8FB; margin-left:-12px; display:grid; place-items:center; color:#fff; font-weight:700; font-size:12px;">+9k</span>
+          </div>
+          <p style="font-size:14.5px; color:#7A6A75;"><strong style="color:#3A2233;">Joined by 12,000+ women</strong><br />building their Glow Up with Eva.</p>
+        </div>
+      </div>
+
+      <!-- PHONE MOCKUP -->
+      <div style="position:relative; display:flex; justify-content:center;">
+        <div style="position:absolute; inset:6% 14%; background:radial-gradient(circle at 50% 40%,#EFEAF6,transparent 70%); filter:blur(10px);"></div>
+        <div style="position:relative; width:310px; height:635px; background:#2B1A26; border-radius:46px; padding:11px; box-shadow:0 40px 80px -30px rgba(58,34,51,.5); animation:floaty 6s ease-in-out infinite;">
+          <div style="position:relative; width:100%; height:100%; background:#FBF7FA; border-radius:36px; overflow:hidden;">
+            <!-- status bar -->
+            <div style="position:absolute; top:0; left:0; right:0; z-index:3; display:flex; justify-content:space-between; align-items:center; padding:14px 22px 6px; font-size:12.5px; font-weight:600; color:#3A2233;">
+              <span>9:41</span>
+              <span style="width:78px; height:22px; background:#2B1A26; border-radius:0 0 14px 14px; position:absolute; left:50%; top:0; transform:translateX(-50%);"></span>
+              <span style="display:flex; gap:5px; align-items:center;">
+                <svg width="17" height="11" viewBox="0 0 17 11" fill="#3A2233"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4" y="5" width="3" height="6" rx="1"/><rect x="8" y="3" width="3" height="8" rx="1"/><rect x="12" y="1" width="3" height="10" rx="1"/></svg>
+                <svg width="18" height="11" viewBox="0 0 18 11" fill="none"><rect x="1" y="1" width="14" height="9" rx="2.5" stroke="#3A2233" stroke-width="1.2"/><rect x="2.6" y="2.6" width="9" height="5.8" rx="1.2" fill="#3A2233"/><rect x="16" y="4" width="1.6" height="3.5" rx=".8" fill="#3A2233"/></svg>
+              </span>
+            </div>
+
+            <!-- app content -->
+            <div style="position:absolute; inset:0; padding:52px 18px 74px; overflow:hidden;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <p style="font-size:13px; color:#98868F;">Good morning,</p>
+                  <p style="font-family:'Cormorant Garamond',serif; font-size:26px; font-weight:600; color:#3A2233; line-height:1;">Maya</p>
+                </div>
+                <span style="width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg,#C96A93,#E9C4D6); display:grid; place-items:center; color:#fff; font-weight:700;">M</span>
+              </div>
+
+              <!-- cycle card -->
+              <div style="margin-top:16px; background:linear-gradient(140deg,#8E2C57,#C96A93); border-radius:22px; padding:18px; color:#fff; display:flex; align-items:center; gap:16px; box-shadow:0 16px 30px -14px rgba(142,44,87,.7);">
+                <div style="position:relative; width:78px; height:78px; flex-shrink:0;">
+                  <svg width="78" height="78" viewBox="0 0 78 78" style="position:absolute; inset:0; transform:rotate(-90deg);">
+                    <circle cx="39" cy="39" r="32" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="7"/>
+                    <circle cx="39" cy="39" r="32" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="90"/>
+                  </svg>
+                  <div style="position:absolute; inset:0; display:grid; place-items:center; text-align:center; line-height:1;">
+                    <div><div style="font-size:22px; font-weight:700;">14</div><div style="font-size:9px; opacity:.85;">DAY</div></div>
+                  </div>
+                </div>
+                <div>
+                  <p style="font-size:15px; font-weight:700;">Ovulation phase</p>
+                  <p style="font-size:12.5px; opacity:.9; margin-top:3px; line-height:1.4;">Peak energy — a great day for a strength session.</p>
+                </div>
+              </div>
+
+              <!-- shortcuts -->
+              <div style="margin-top:16px; display:grid; grid-template-columns:repeat(4,1fr); gap:9px;">
+                <div style="background:#EFEAF6; border-radius:16px; padding:11px 6px; text-align:center;">
+                  <div style="width:30px; height:30px; margin:0 auto 5px; border-radius:9px; background:#fff; display:grid; place-items:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E2C57" stroke-width="2"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div>
+                  <span style="font-size:9.5px; color:#5A4B55; font-weight:600;">Cycle</span>
+                </div>
+                <div style="background:#E6F0E9; border-radius:16px; padding:11px 6px; text-align:center;">
+                  <div style="width:30px; height:30px; margin:0 auto 5px; border-radius:9px; background:#fff; display:grid; place-items:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6E9C7E" stroke-width="2"><path d="M12 21c5-3 8-7 8-11a5 5 0 0 0-8-4 5 5 0 0 0-8 4c0 4 3 8 8 11z"/></svg></div>
+                  <span style="font-size:9.5px; color:#5A4B55; font-weight:600;">Nutrition</span>
+                </div>
+                <div style="background:#FBEDF3; border-radius:16px; padding:11px 6px; text-align:center;">
+                  <div style="width:30px; height:30px; margin:0 auto 5px; border-radius:9px; background:#fff; display:grid; place-items:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C96A93" stroke-width="2"><path d="M6.5 6.5 4 9m2.5-2.5L9 4M17.5 17.5 20 15m-2.5 2.5L15 20m-8-3 10-10"/></svg></div>
+                  <span style="font-size:9.5px; color:#5A4B55; font-weight:600;">Trainer</span>
+                </div>
+                <div style="background:#E7EDF5; border-radius:16px; padding:11px 6px; text-align:center;">
+                  <div style="width:30px; height:30px; margin:0 auto 5px; border-radius:9px; background:#fff; display:grid; place-items:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6E8CB0" stroke-width="2"><path d="M12 3a6 6 0 0 0-6 6c0 2 1 3 1 5h10c0-2 1-3 1-5a6 6 0 0 0-6-6zM9 20h6M10 22h4"/></svg></div>
+                  <span style="font-size:9.5px; color:#5A4B55; font-weight:600;">Mind</span>
+                </div>
+              </div>
+
+              <!-- chat -->
+              <div style="margin-top:15px; background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:13px;">
+                <div style="display:flex; gap:8px; align-items:flex-start;">
+                  <span style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg,#8E2C57,#C96A93); flex-shrink:0; display:grid; place-items:center; color:#fff; font-size:12px; font-weight:700;">E</span>
+                  <p style="font-size:12px; line-height:1.5; color:#5A4B55; background:#F7F1F5; padding:9px 11px; border-radius:12px 12px 12px 3px;">Your iron looks a little low this week. Want a menu that helps?</p>
+                </div>
+                <div style="margin-top:11px; display:flex; align-items:center; gap:8px; background:#F7F1F5; border-radius:12px; padding:8px 12px;">
+                  <span style="font-size:12px; color:#A695A0; flex:1;">Ask Eva anything…</span>
+                  <span style="width:26px; height:26px; border-radius:50%; background:linear-gradient(135deg,#8E2C57,#C96A93); display:grid; place-items:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="#fff"><path d="M3 20.5 21 12 3 3.5 6 12l-3 8.5z"/></svg></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- tab bar -->
+            <div style="position:absolute; bottom:0; left:0; right:0; height:60px; background:#fff; border-top:1px solid #EFE6ED; display:flex; justify-content:space-around; align-items:center; padding:0 14px;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="#8E2C57"><path d="M12 3 3 10v10h6v-6h6v6h6V10z"/></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C3B4BE" stroke-width="2"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18"/></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C3B4BE" stroke-width="2"><path d="M4 19V9l8-5 8 5v10M9 19v-6h6v6"/></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C3B4BE" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LOGO STRIP / VALUES -->
+  <section style="border-top:1px solid #EFE6ED; border-bottom:1px solid #EFE6ED; background:#fff;">
+    <div style="max-width:1200px; margin:0 auto; padding:26px 32px; display:flex; flex-wrap:wrap; justify-content:space-between; gap:20px; align-items:center;">
+      <span style="font-size:13.5px; letter-spacing:.14em; text-transform:uppercase; color:#A695A0; font-weight:600;">Designed around her, not the default</span>
+      <div style="display:flex; flex-wrap:wrap; gap:28px 36px; font-size:14.5px; font-weight:600; color:#5A4B55;">
+        <span style="display:flex; align-items:center; gap:8px;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Hormone-aware</span>
+        <span style="display:flex; align-items:center; gap:8px;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Science-backed</span>
+        <span style="display:flex; align-items:center; gap:8px;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Private by design</span>
+        <span style="display:flex; align-items:center; gap:8px;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Made with women</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROBLEM / INVISIBLE WOMEN -->
+  <section id="science" class="section-pad" style="max-width:1200px; margin:0 auto; padding:92px 32px;">
+    <div style="text-align:center; max-width:720px; margin:0 auto;">
+      <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">The invisible gap</span>
+      <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:46px; line-height:1.1; color:#3A2233; margin:14px 0 0; text-wrap:balance;">For decades, the world was built for the male body.</h2>
+      <p style="font-size:18px; line-height:1.6; margin:18px 0 0; color:#6E5E69;">In <em>Invisible Women</em>, Caroline Criado Perez documents how a data gap left women's needs an afterthought — in medicine, safety, and technology.</p>
+    </div>
+
+    <div class="stats-grid" style="margin-top:52px; display:grid; grid-template-columns:repeat(4,1fr); gap:20px;">
+      <div style="background:#fff; border:1px solid #EFE6ED; border-radius:20px; padding:26px 22px;">
+        <p style="font-family:'Cormorant Garamond',serif; font-size:48px; font-weight:700; color:#8E2C57; line-height:1;">5°C</p>
+        <p style="font-size:14.5px; line-height:1.55; margin-top:12px; color:#6E5E69;">Standard office temperatures can run ~5°C colder than what's comfortable for women.</p>
+      </div>
+      <div style="background:#fff; border:1px solid #EFE6ED; border-radius:20px; padding:26px 22px;">
+        <p style="font-family:'Cormorant Garamond',serif; font-size:48px; font-weight:700; color:#8E2C57; line-height:1;">47%</p>
+        <p style="font-size:14.5px; line-height:1.55; margin-top:12px; color:#6E5E69;">More likely to be seriously injured in comparable crashes — female dummies arrived only in 2011.</p>
+      </div>
+      <div style="background:#fff; border:1px solid #EFE6ED; border-radius:20px; padding:26px 22px;">
+        <p style="font-family:'Cormorant Garamond',serif; font-size:48px; font-weight:700; color:#8E2C57; line-height:1;">70%</p>
+        <p style="font-size:14.5px; line-height:1.55; margin-top:12px; color:#6E5E69;">Speech recognition was up to 70% more accurate at understanding male voices.</p>
+      </div>
+      <div style="background:linear-gradient(150deg,#8E2C57,#C96A93); border-radius:20px; padding:26px 22px; color:#fff;">
+        <p style="font-family:'Cormorant Garamond',serif; font-size:48px; font-weight:700; line-height:1;">Eva</p>
+        <p style="font-size:14.5px; line-height:1.55; margin-top:12px; opacity:.95;">Closes the gap on a personal level — an assistant that finally accounts for <em>you</em>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW / FEATURES GRID -->
+  <section id="features" style="background:#F4EFF5;">
+    <div class="section-pad" style="max-width:1200px; margin:0 auto; padding:92px 32px;">
+      <div style="text-align:center; max-width:680px; margin:0 auto;">
+        <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">One companion, every day</span>
+        <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:46px; line-height:1.1; color:#3A2233; margin:14px 0 0;">Everything Eva does for you</h2>
+        <p style="font-size:18px; line-height:1.6; margin:16px 0 0; color:#6E5E69;">Eva reads your physiology, hormonal cycle, emotional state, habits and goals — then guides your day with them, not against them.</p>
+      </div>
+
+      <div id="how" class="features-grid" style="margin-top:54px; display:grid; grid-template-columns:repeat(3,1fr); gap:22px;">
+        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
+          <div style="width:52px; height:52px; border-radius:15px; background:#EFEAF6; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8E2C57" stroke-width="2"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div>
+          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Cycle-aware calendar</h3>
+          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Track your cycle, sex life and training in one view — and see how each phase shapes your energy.</p>
+        </div>
+        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
+          <div style="width:52px; height:52px; border-radius:15px; background:#E6F0E9; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6E9C7E" stroke-width="2"><path d="M12 21c5-3 8-7 8-11a5 5 0 0 0-8-4 5 5 0 0 0-8 4c0 4 3 8 8 11z"/></svg></div>
+          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Nutrition adviser</h3>
+          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Calorie and nutrient guidance tuned to your goals, preferences, deficiencies and cycle phase.</p>
+        </div>
+        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
+          <div style="width:52px; height:52px; border-radius:15px; background:#FBEDF3; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#C96A93" stroke-width="2"><path d="M6.5 6.5 4 9m2.5-2.5L9 4M17.5 17.5 20 15m-2.5 2.5L15 20m-8-3 10-10"/></svg></div>
+          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Personal trainer</h3>
+          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">A training program built for your frequency and goals — with the principles of training for women.</p>
+        </div>
+        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
+          <div style="width:52px; height:52px; border-radius:15px; background:#E7EDF5; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6E8CB0" stroke-width="2"><path d="M12 3a6 6 0 0 0-6 6c0 2 1 3 1 5h10c0-2 1-3 1-5a6 6 0 0 0-6-6zM9 20h6M10 22h4"/></svg></div>
+          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Mental well-being coach</h3>
+          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Coaching to handle stress, sharpen concentration, and get genuinely restful sleep.</p>
+        </div>
+        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
+          <div style="width:52px; height:52px; border-radius:15px; background:#EFEAF6; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8E2C57" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Smart dashboard & chat</h3>
+          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Shortcuts, daily tips and a chat that knows your context — ask Eva anything, anytime.</p>
+        </div>
+        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
+          <div style="width:52px; height:52px; border-radius:15px; background:#E6F0E9; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6E9C7E" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 9h6M8 13h8M8 17h5"/></svg></div>
+          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Science-backed blog</h3>
+          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Every recommendation links back to the research behind it. The science stays transparent.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURE DEEP DIVE 1: Calendar -->
+  <section class="split" style="max-width:1100px; margin:0 auto; padding:92px 32px 40px; display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center;">
+    <div>
+      <span style="font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#8E2C57; font-weight:700;">Calendar</span>
+      <h3 class="h3" style="font-family:'Cormorant Garamond',serif; font-size:38px; font-weight:600; color:#3A2233; margin:12px 0 0; line-height:1.12;">Your whole rhythm, in one place</h3>
+      <p style="font-size:17px; line-height:1.65; margin:16px 0 0;">Log your cycle, intimacy and workouts together. Eva overlays them so you can finally see the patterns — and plan around the days you feel your best.</p>
+      <ul style="list-style:none; margin:22px 0 0; padding:0; display:flex; flex-direction:column; gap:12px;">
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Cycle, sex-life & training tracking</li>
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Phase-based energy forecasts</li>
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Gentle, private reminders</li>
+      </ul>
+    </div>
+    <div style="background:linear-gradient(160deg,#EFEAF6,#FBEDF3); border-radius:26px; padding:30px; border:1px solid #EADFEB;">
+      <p style="font-size:13px; font-weight:700; color:#8E2C57; text-transform:uppercase; letter-spacing:.1em;">October</p>
+      <div style="margin-top:16px; display:grid; grid-template-columns:repeat(7,1fr); gap:8px; text-align:center;">
+        <span style="font-size:11px; color:#A695A0; font-weight:600;">M</span><span style="font-size:11px; color:#A695A0; font-weight:600;">T</span><span style="font-size:11px; color:#A695A0; font-weight:600;">W</span><span style="font-size:11px; color:#A695A0; font-weight:600;">T</span><span style="font-size:11px; color:#A695A0; font-weight:600;">F</span><span style="font-size:11px; color:#A695A0; font-weight:600;">S</span><span style="font-size:11px; color:#A695A0; font-weight:600;">S</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">7</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#fff; background:#E08FB0; border-radius:9px;">8</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#fff; background:#E08FB0; border-radius:9px;">9</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">10</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">11</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#5A7A64; background:#CADFCE; border-radius:9px;">12</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">13</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#fff; background:#8E2C57; border-radius:9px; font-weight:700; box-shadow:0 6px 12px -4px rgba(142,44,87,.6);">14</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">15</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#5A7A64; background:#CADFCE; border-radius:9px;">16</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">17</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">18</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">19</span>
+        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">20</span>
+      </div>
+      <div style="margin-top:18px; display:flex; gap:16px; font-size:12px; color:#7A6A75;">
+        <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px; height:10px; border-radius:3px; background:#E08FB0;"></span>Period</span>
+        <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px; height:10px; border-radius:3px; background:#8E2C57;"></span>Ovulation</span>
+        <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px; height:10px; border-radius:3px; background:#CADFCE;"></span>Training</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURE DEEP DIVE 2: Nutrition (reversed) -->
+  <section class="split" style="max-width:1100px; margin:0 auto; padding:40px 32px; display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center;">
+    <div class="order-2" style="order:2;">
+      <span style="font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#6E9C7E; font-weight:700;">Nutrition adviser</span>
+      <h3 class="h3" style="font-family:'Cormorant Garamond',serif; font-size:38px; font-weight:600; color:#3A2233; margin:12px 0 0; line-height:1.12;">Fuel that fits your phase</h3>
+      <p style="font-size:17px; line-height:1.65; margin:16px 0 0;">Tell Eva your goals, preferences and deficiencies. She calculates what your body needs for the activity ahead and the phase you're in — no more generic meal plans.</p>
+      <ul style="list-style:none; margin:22px 0 0; padding:0; display:flex; flex-direction:column; gap:12px;">
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Cycle- & activity-aware calories</li>
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Deficiency-aware suggestions</li>
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Respects your food preferences</li>
+      </ul>
+    </div>
+    <div class="order-1" style="order:1; background:linear-gradient(160deg,#E6F0E9,#F1F7F2); border-radius:26px; padding:28px; border:1px solid #DBEADF;">
+      <div style="background:#fff; border-radius:18px; padding:18px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <p style="font-size:14px; font-weight:700; color:#3A2233;">Today's target</p>
+          <span style="font-size:12px; color:#6E9C7E; font-weight:600; background:#E6F0E9; padding:4px 10px; border-radius:999px;">Ovulation</span>
+        </div>
+        <p style="font-family:'Cormorant Garamond',serif; font-size:40px; font-weight:700; color:#3A2233; margin-top:6px; line-height:1;">2,080 <span style="font-size:16px; color:#98868F; font-family:'Hanken Grotesk';">kcal</span></p>
+        <div style="margin-top:18px; display:flex; flex-direction:column; gap:13px;">
+          <div><div style="display:flex; justify-content:space-between; font-size:12.5px; color:#5A4B55; margin-bottom:5px;"><span>Protein</span><span>128 g</span></div><div style="height:7px; background:#EFEAF6; border-radius:999px;"><div style="width:78%; height:100%; background:#8E2C57; border-radius:999px;"></div></div></div>
+          <div><div style="display:flex; justify-content:space-between; font-size:12.5px; color:#5A4B55; margin-bottom:5px;"><span>Iron</span><span>Focus today</span></div><div style="height:7px; background:#EFEAF6; border-radius:999px;"><div style="width:46%; height:100%; background:#C96A93; border-radius:999px;"></div></div></div>
+          <div><div style="display:flex; justify-content:space-between; font-size:12.5px; color:#5A4B55; margin-bottom:5px;"><span>Hydration</span><span>2.1 L</span></div><div style="height:7px; background:#EFEAF6; border-radius:999px;"><div style="width:64%; height:100%; background:#6E8CB0; border-radius:999px;"></div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURE DEEP DIVE 3: Trainer -->
+  <section class="split" style="max-width:1100px; margin:0 auto; padding:40px 32px; display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center;">
+    <div>
+      <span style="font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#C96A93; font-weight:700;">Personal trainer</span>
+      <h3 class="h3" style="font-family:'Cormorant Garamond',serif; font-size:38px; font-weight:600; color:#3A2233; margin:12px 0 0; line-height:1.12;">Train with your body's clock</h3>
+      <p style="font-size:17px; line-height:1.65; margin:16px 0 0;">Eva builds a program around your goals and how often you want to move — then explains the principles behind training designed for women, so every session has a reason.</p>
+      <ul style="list-style:none; margin:22px 0 0; padding:0; display:flex; flex-direction:column; gap:12px;">
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Adaptive weekly programming</li>
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Recovery matched to your phase</li>
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>The 'why' behind every workout</li>
+      </ul>
+    </div>
+    <div style="background:linear-gradient(160deg,#FBEDF3,#FDF6F9); border-radius:26px; padding:28px; border:1px solid #F1DEE8; display:flex; flex-direction:column; gap:12px;">
+      <div style="background:#fff; border-radius:16px; padding:16px; display:flex; align-items:center; gap:14px;">
+        <span style="width:44px; height:44px; border-radius:13px; background:#8E2C57; display:grid; place-items:center; color:#fff; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700;">M</span>
+        <div style="flex:1;"><p style="font-size:14.5px; font-weight:700; color:#3A2233;">Mon · Strength</p><p style="font-size:12.5px; color:#98868F;">Lower body · 45 min</p></div>
+        <span style="font-size:12px; color:#6E9C7E; font-weight:600; background:#E6F0E9; padding:4px 9px; border-radius:999px;">Done</span>
+      </div>
+      <div style="background:#fff; border-radius:16px; padding:16px; display:flex; align-items:center; gap:14px; border:1.5px solid #C96A93;">
+        <span style="width:44px; height:44px; border-radius:13px; background:linear-gradient(135deg,#8E2C57,#C96A93); display:grid; place-items:center; color:#fff; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700;">W</span>
+        <div style="flex:1;"><p style="font-size:14.5px; font-weight:700; color:#3A2233;">Wed · Power</p><p style="font-size:12.5px; color:#98868F;">Peak energy — go heavy</p></div>
+        <span style="font-size:12px; color:#8E2C57; font-weight:600; background:#FBEDF3; padding:4px 9px; border-radius:999px;">Today</span>
+      </div>
+      <div style="background:#fff; border-radius:16px; padding:16px; display:flex; align-items:center; gap:14px;">
+        <span style="width:44px; height:44px; border-radius:13px; background:#C4D4E6; display:grid; place-items:center; color:#3A2233; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700;">F</span>
+        <div style="flex:1;"><p style="font-size:14.5px; font-weight:700; color:#3A2233;">Fri · Mobility</p><p style="font-size:12.5px; color:#98868F;">Gentle flow · 25 min</p></div>
+        <span style="font-size:12px; color:#98868F; font-weight:600; background:#F4EFF5; padding:4px 9px; border-radius:999px;">Planned</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURE DEEP DIVE 4: Mental (reversed) -->
+  <section class="split" style="max-width:1100px; margin:0 auto; padding:40px 32px 92px; display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center;">
+    <div class="order-2" style="order:2;">
+      <span style="font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#6E8CB0; font-weight:700;">Mental well-being coach</span>
+      <h3 class="h3" style="font-family:'Cormorant Garamond',serif; font-size:38px; font-weight:600; color:#3A2233; margin:12px 0 0; line-height:1.12;">A calmer, clearer mind</h3>
+      <p style="font-size:17px; line-height:1.65; margin:16px 0 0;">A personal coaching program to help you handle stress, improve focus and rest well — with check-ins that adapt to how you're actually feeling.</p>
+      <ul style="list-style:none; margin:22px 0 0; padding:0; display:flex; flex-direction:column; gap:12px;">
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Guided stress & focus sessions</li>
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Sleep & recovery support</li>
+        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Mood check-ins that learn</li>
+      </ul>
+    </div>
+    <div class="order-1" style="order:1; background:linear-gradient(160deg,#E7EDF5,#F3F6FB); border-radius:26px; padding:30px; border:1px solid #DAE4F0;">
+      <p style="font-size:13px; font-weight:700; color:#6E8CB0; text-transform:uppercase; letter-spacing:.1em;">How are you today?</p>
+      <div style="margin-top:18px; display:flex; justify-content:space-between; gap:8px;">
+        <span style="flex:1; aspect-ratio:1; border-radius:14px; background:#fff; display:grid; place-items:center; font-size:22px;">😔</span>
+        <span style="flex:1; aspect-ratio:1; border-radius:14px; background:#fff; display:grid; place-items:center; font-size:22px;">😐</span>
+        <span style="flex:1; aspect-ratio:1; border-radius:14px; background:linear-gradient(135deg,#6E8CB0,#9DB4CE); display:grid; place-items:center; font-size:22px; box-shadow:0 8px 16px -6px rgba(110,140,176,.6);">🙂</span>
+        <span style="flex:1; aspect-ratio:1; border-radius:14px; background:#fff; display:grid; place-items:center; font-size:22px;">😄</span>
+      </div>
+      <div style="margin-top:16px; background:#fff; border-radius:16px; padding:16px;">
+        <p style="font-size:13px; font-weight:700; color:#3A2233;">Today's session</p>
+        <p style="font-size:14px; color:#6E5E69; margin-top:5px; line-height:1.5;">A 6-minute breathing reset for the afternoon dip.</p>
+        <div style="margin-top:12px; height:6px; background:#E7EDF5; border-radius:999px;"><div style="width:40%; height:100%; background:#6E8CB0; border-radius:999px;"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MISSION -->
+  <section id="mission" style="background:linear-gradient(150deg,#3A2233,#7A2A50 60%,#8E2C57);">
+    <div class="section-pad" style="max-width:900px; margin:0 auto; padding:100px 32px; text-align:center; color:#fff;">
+      <span style="font-size:13px; letter-spacing:.18em; text-transform:uppercase; color:#E9C4D6; font-weight:700;">Our mission</span>
+      <p class="h2" style="font-family:'Cormorant Garamond',serif; font-size:44px; font-weight:500; line-height:1.25; margin:22px 0 0; text-wrap:balance;">"Instead of fighting their bodies, women learn to understand their unique needs — and use them to their advantage."</p>
+      <p style="font-size:18px; line-height:1.7; margin:28px auto 0; max-width:640px; opacity:.9;">Eva exists to help every woman achieve her Glow Up, build a more comfortable life, and enter her Prime Era on her own terms.</p>
+      <a href="#download" style="display:inline-block; margin-top:36px; background:#fff; color:#8E2C57; padding:15px 34px; border-radius:999px; font-weight:700; font-size:16px;">Begin your Prime Era</a>
+    </div>
+  </section>
+
+  <!-- BLOG / SCIENCE -->
+  <section class="section-pad" style="max-width:1200px; margin:0 auto; padding:92px 32px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:20px;">
+      <div style="max-width:560px;">
+        <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">Rooted in science</span>
+        <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:44px; line-height:1.1; color:#3A2233; margin:12px 0 0;">Every recommendation, traceable to research</h2>
+        <p style="font-size:17px; line-height:1.6; margin:14px 0 0;">The blog is Eva's open library — the evidence behind her advice, always accessible to you.</p>
+      </div>
+      <a href="#" style="font-weight:600; font-size:15.5px; display:inline-flex; align-items:center; gap:7px;">Explore the library <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+    </div>
+
+    <div class="blog-grid" style="margin-top:46px; display:grid; grid-template-columns:repeat(3,1fr); gap:24px;">
+      <article style="background:#fff; border:1px solid #EFE6ED; border-radius:22px; overflow:hidden;">
+        <div style="height:160px; background:linear-gradient(140deg,#8E2C57,#C96A93); position:relative;"><span style="position:absolute; bottom:14px; left:16px; background:rgba(255,255,255,.9); color:#8E2C57; font-size:12px; font-weight:700; padding:5px 11px; border-radius:999px;">Hormones</span></div>
+        <div style="padding:22px;">
+          <h3 style="font-size:18.5px; font-weight:700; color:#3A2233; line-height:1.3;">Why your energy isn't the same every week</h3>
+          <p style="font-size:14.5px; line-height:1.55; margin:9px 0 0;">The four phases of your cycle — and how each one changes what your body can do.</p>
+          <p style="font-size:13px; color:#A695A0; margin-top:14px;">6 min read</p>
+        </div>
+      </article>
+      <article style="background:#fff; border:1px solid #EFE6ED; border-radius:22px; overflow:hidden;">
+        <div style="height:160px; background:linear-gradient(140deg,#6E9C7E,#A9C9B4); position:relative;"><span style="position:absolute; bottom:14px; left:16px; background:rgba(255,255,255,.9); color:#4E7A5E; font-size:12px; font-weight:700; padding:5px 11px; border-radius:999px;">Nutrition</span></div>
+        <div style="padding:22px;">
+          <h3 style="font-size:18.5px; font-weight:700; color:#3A2233; line-height:1.3;">Iron, energy and the second half of your cycle</h3>
+          <p style="font-size:14.5px; line-height:1.55; margin:9px 0 0;">What the research says about fuelling the luteal phase and beyond.</p>
+          <p style="font-size:13px; color:#A695A0; margin-top:14px;">5 min read</p>
+        </div>
+      </article>
+      <article style="background:#fff; border:1px solid #EFE6ED; border-radius:22px; overflow:hidden;">
+        <div style="height:160px; background:linear-gradient(140deg,#6E8CB0,#A9C1DA); position:relative;"><span style="position:absolute; bottom:14px; left:16px; background:rgba(255,255,255,.9); color:#4E6C8E; font-size:12px; font-weight:700; padding:5px 11px; border-radius:999px;">Mind</span></div>
+        <div style="padding:22px;">
+          <h3 style="font-size:18.5px; font-weight:700; color:#3A2233; line-height:1.3;">Stress, sleep and the science of recovery</h3>
+          <p style="font-size:14.5px; line-height:1.55; margin:9px 0 0;">Small, evidence-based habits that protect your focus and rest.</p>
+          <p style="font-size:13px; color:#A695A0; margin-top:14px;">7 min read</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- TESTIMONIALS -->
+  <section style="background:#F4EFF5;">
+    <div class="section-pad" style="max-width:1200px; margin:0 auto; padding:92px 32px;">
+      <div style="text-align:center; max-width:620px; margin:0 auto;">
+        <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">Loved by her</span>
+        <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:44px; line-height:1.1; color:#3A2233; margin:12px 0 0;">Women who stopped guessing</h2>
+      </div>
+      <div class="blog-grid" style="margin-top:48px; display:grid; grid-template-columns:repeat(3,1fr); gap:24px;">
+        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
+          <div style="display:flex; gap:3px; color:#E0A44A;">★★★★★</div>
+          <p style="font-size:16px; line-height:1.6; color:#4A3A44; margin:16px 0 0;">"For the first time an app actually accounts for my cycle. My training finally feels like it's working <em>with</em> me."</p>
+          <div style="margin-top:22px; display:flex; align-items:center; gap:12px;">
+            <span style="width:44px; height:44px; border-radius:50%; background:linear-gradient(135deg,#C96A93,#E9C4D6); display:grid; place-items:center; color:#fff; font-weight:700;">L</span>
+            <div><p style="font-size:15px; font-weight:700; color:#3A2233;">Lena K.</p><p style="font-size:13px; color:#98868F;">Using Eva for 4 months</p></div>
+          </div>
+        </div>
+        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
+          <div style="display:flex; gap:3px; color:#E0A44A;">★★★★★</div>
+          <p style="font-size:16px; line-height:1.6; color:#4A3A44; margin:16px 0 0;">"The nutrition advice changes with my phase and I feel the difference in my energy. It just gets me."</p>
+          <div style="margin-top:22px; display:flex; align-items:center; gap:12px;">
+            <span style="width:44px; height:44px; border-radius:50%; background:linear-gradient(135deg,#8FB09A,#CADFCE); display:grid; place-items:center; color:#fff; font-weight:700;">S</span>
+            <div><p style="font-size:15px; font-weight:700; color:#3A2233;">Sofia M.</p><p style="font-size:13px; color:#98868F;">Using Eva for 7 months</p></div>
+          </div>
+        </div>
+        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
+          <div style="display:flex; gap:3px; color:#E0A44A;">★★★★★</div>
+          <p style="font-size:16px; line-height:1.6; color:#4A3A44; margin:16px 0 0;">"I love that every tip links to the science. I finally trust the advice I'm getting about my own body."</p>
+          <div style="margin-top:22px; display:flex; align-items:center; gap:12px;">
+            <span style="width:44px; height:44px; border-radius:50%; background:linear-gradient(135deg,#7E9BBE,#C4D4E6); display:grid; place-items:center; color:#fff; font-weight:700;">A</span>
+            <div><p style="font-size:15px; font-weight:700; color:#3A2233;">Amara T.</p><p style="font-size:13px; color:#98868F;">Using Eva for 2 months</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq" class="section-pad" style="max-width:820px; margin:0 auto; padding:92px 32px;">
+    <div style="text-align:center;">
+      <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">Questions</span>
+      <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:44px; line-height:1.1; color:#3A2233; margin:12px 0 0;">Good to know</h2>
+    </div>
+    <div style="margin-top:44px; display:flex; flex-direction:column; gap:12px;">
+      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
+        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">Is Eva a medical service?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
+        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">Eva is a personal wellness assistant, not a substitute for medical care. She helps you understand your body and build sustainable habits, and always points to the science behind her guidance.</p>
+      </details>
+      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
+        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">How does Eva personalise her advice?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
+        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">During sign-up you share your age, measurements, goals, lifestyle, sports and anything affecting your hormones. Eva combines this with your cycle and daily check-ins to tailor nutrition, training and coaching.</p>
+      </details>
+      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
+        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">Is my data private?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
+        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">Your health data is personal and treated that way. You control what you share, and you can update or delete your profile at any time from Settings.</p>
+      </details>
+      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
+        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">Do I need to track my cycle for Eva to help?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
+        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">No — Eva is useful from day one for nutrition, training and mental well-being. Cycle tracking simply makes her guidance even more precise over time.</p>
+      </details>
+      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
+        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">Which devices is Eva available on?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
+        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">Eva is available on iOS and Android. Sign in with Apple, Google, or an email and password to sync across your devices.</p>
+      </details>
+      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
+        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">How much does Eva cost?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
+        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">You can start for free and explore the core features. Deeper coaching and personalised programs are part of Eva's premium plan.</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- DOWNLOAD CTA -->
+  <section id="download" style="max-width:1200px; margin:0 auto; padding:0 32px 92px;">
+    <div class="cta-pad" style="position:relative; overflow:hidden; background:linear-gradient(150deg,#8E2C57,#C96A93); border-radius:32px; padding:72px 48px; text-align:center; color:#fff;">
+      <div style="position:absolute; top:-80px; left:-60px; width:280px; height:280px; border-radius:50%; background:rgba(255,255,255,.08);"></div>
+      <div style="position:absolute; bottom:-100px; right:-40px; width:320px; height:320px; border-radius:50%; background:rgba(255,255,255,.08);"></div>
+      <div style="position:relative;">
+        <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:52px; line-height:1.08; text-wrap:balance;">Start your Glow Up today</h2>
+        <p style="font-size:19px; line-height:1.6; margin:18px auto 0; max-width:520px; opacity:.94;">Download Eva and meet the first AI assistant that finally understands your body.</p>
+        <div style="margin:34px 0 0; display:flex; gap:14px; flex-wrap:wrap; justify-content:center;">
+          <a href="#" style="display:inline-flex; align-items:center; gap:11px; background:#fff; color:#3A2233; padding:14px 22px; border-radius:14px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#3A2233"><path d="M16.5 12.6c0-2 1.6-3 1.7-3.1-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7s-1.6-.7-2.6-.7c-1.3 0-2.6.8-3.3 2-1.4 2.4-.4 6 1 8 .7 1 1.4 2 2.5 2s1.4-.6 2.6-.6 1.5.6 2.6.6 1.8-1 2.4-2c.8-1.1 1.1-2.2 1.1-2.3-.1 0-2.1-.8-2.1-3.1zM14.6 6.2c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.6 1 .1 2-.5 2.5-1.2z"/></svg>
+            <span style="text-align:left; line-height:1.1;"><span style="display:block; font-size:11px; opacity:.7;">Download on the</span><span style="display:block; font-size:17px; font-weight:700;">App Store</span></span>
+          </a>
+          <a href="#" style="display:inline-flex; align-items:center; gap:11px; background:#fff; color:#3A2233; padding:14px 22px; border-radius:14px;">
+            <svg width="22" height="22" viewBox="0 0 24 24"><path d="M3.6 2.4c-.3.2-.5.6-.5 1.1v17c0 .5.2.9.5 1.1l9.2-9.6-9.2-9.6z" fill="#C96A93"/><path d="M16.4 8.9 12.8 12l3.6 3.1 3.9-2.2c.7-.4.7-1.4 0-1.8l-3.9-2.2z" fill="#8E2C57"/><path d="M12.8 12 3.6 2.4c.3-.2.7-.2 1.1 0l11.7 6.5-3.6 3.1z" fill="#E1A6C2"/><path d="m12.8 12 3.6 3.1L4.7 21.6c-.4.2-.8.2-1.1 0l9.2-9.6z" fill="#7E9BBE"/></svg>
+            <span style="text-align:left; line-height:1.1;"><span style="display:block; font-size:11px; opacity:.7;">GET IT ON</span><span style="display:block; font-size:17px; font-weight:700;">Google Play</span></span>
+          </a>
+        </div>
+        <p style="font-size:14px; margin-top:20px; opacity:.85;">Free to start · iOS &amp; Android · Cancel anytime</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer style="background:#2B1A26; color:#C9B7C2;">
+    <div style="max-width:1200px; margin:0 auto; padding:64px 32px 40px;">
+      <div class="footer-grid" style="display:grid; grid-template-columns:1.4fr 1fr 1fr 1fr; gap:40px;">
+        <div>
+          <p style="font-family:'Cormorant Garamond',serif; font-size:32px; font-weight:700; background:linear-gradient(120deg,#E9C4D6,#C96A93); -webkit-background-clip:text; background-clip:text; color:transparent;">Eva</p>
+          <p style="font-size:14.5px; line-height:1.6; margin-top:12px; max-width:280px;">The first AI assistant built for every woman's Prime Era.</p>
+        </div>
+        <div>
+          <p style="font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:#8C7683; font-weight:700;">Product</p>
+          <div style="margin-top:16px; display:flex; flex-direction:column; gap:11px; font-size:14.5px;">
+            <a href="#features" style="color:#C9B7C2;">Features</a>
+            <a href="#how" style="color:#C9B7C2;">How it works</a>
+            <a href="#science" style="color:#C9B7C2;">Science</a>
+            <a href="#download" style="color:#C9B7C2;">Download</a>
+          </div>
+        </div>
+        <div>
+          <p style="font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:#8C7683; font-weight:700;">Company</p>
+          <div style="margin-top:16px; display:flex; flex-direction:column; gap:11px; font-size:14.5px;">
+            <a href="#mission" style="color:#C9B7C2;">Mission</a>
+            <a href="#" style="color:#C9B7C2;">Blog</a>
+            <a href="#" style="color:#C9B7C2;">Careers</a>
+            <a href="#" style="color:#C9B7C2;">Contact</a>
+          </div>
+        </div>
+        <div>
+          <p style="font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:#8C7683; font-weight:700;">Legal</p>
+          <div style="margin-top:16px; display:flex; flex-direction:column; gap:11px; font-size:14.5px;">
+            <a href="/privacy" style="color:#C9B7C2;">Privacy</a>
+            <a href="/terms" style="color:#C9B7C2;">Terms</a>
+            <a href="#" style="color:#C9B7C2;">Data & security</a>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:48px; padding-top:24px; border-top:1px solid #4A3540; display:flex; justify-content:space-between; flex-wrap:wrap; gap:14px; font-size:13.5px; color:#8C7683;">
+        <span>© 2026 Eva. All rights reserved.</span>
+        <span>Made with care, for her.</span>
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+<style is:global>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#FBF8FB; font-family:'Hanken Grotesk',system-ui,sans-serif; color:#6E5E69; -webkit-font-smoothing:antialiased; }
+  a { color:#8E2C57; text-decoration:none; }
+  a:hover { color:#C96A93; }
+  ::selection { background:#E9C4D6; color:#3A2233; }
+  details > summary { list-style:none; cursor:pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  details[open] .faq-plus { transform:rotate(45deg); }
+  @keyframes floaty { 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-14px); } }
+
+  /* Responsive overrides (the mockup is desktop-only; !important is needed to
+     beat the inline styles preserved from the design) */
+  @media (max-width: 960px) {
+    .hero-grid, .split, .stats-grid, .features-grid, .blog-grid, .footer-grid {
+      grid-template-columns: 1fr !important;
+    }
+    .stats-grid, .features-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .footer-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .split { gap: 36px !important; }
+    .split .order-1 { order: 2 !important; }
+    .split .order-2 { order: 1 !important; }
+    .hero-grid h1 { font-size: 46px !important; }
+  }
+  @media (max-width: 640px) {
+    .nav-links { display: none !important; }
+    .stats-grid, .features-grid, .footer-grid { grid-template-columns: 1fr !important; }
+    .hero-grid { padding: 48px 24px 64px !important; }
+    .hero-grid h1 { font-size: 38px !important; }
+    .section-pad { padding: 60px 24px !important; }
+    .split { padding-left: 24px !important; padding-right: 24px !important; }
+    .h2 { font-size: 32px !important; }
+    .h3 { font-size: 29px !important; }
+    .cta-pad { padding: 48px 24px !important; }
+  }
+</style>
+
+</body>
+</html>
