@@ -1,0 +1,14 @@
+{
+  "hosting": {
+    "public": "website/dist",
+    "ignore": ["firebase.json", "**/.*"],
+    "cleanUrls": true
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}

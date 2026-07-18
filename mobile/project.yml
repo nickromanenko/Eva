@@ -1,0 +1,32 @@
+name: Eva
+options:
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGN_STYLE: Automatic
+    # DEVELOPMENT_TEAM: XXXXXXXXXX   # set when signing for a real device
+# Firebase iOS SDK (later phase):
+# packages:
+#   firebase-ios-sdk:
+#     url: https://github.com/firebase/firebase-ios-sdk
+#     from: "12.0.0"
+targets:
+  Eva:
+    type: application
+    platform: iOS
+    sources: [Eva]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.evaapp.ios
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.1.0"
+    # dependencies:
+    #   - package: firebase-ios-sdk
+    #     product: FirebaseAuth

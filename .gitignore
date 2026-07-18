@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Node / Bun (api, website)
+node_modules/
+dist/
+*.log
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Xcode / XcodeGen (mobile) — .xcodeproj is generated, never committed
+mobile/*.xcodeproj
+mobile/DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Firebase
+.firebase/
+firebase-debug.log
+
+# Claude Code session files
+.claude/
+
+# Astro generated
+.astro/
