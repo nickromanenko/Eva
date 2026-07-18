@@ -65,7 +65,13 @@ for role in roles/run.admin roles/cloudbuild.builds.editor roles/artifactregistr
     --member "serviceAccount:github-deployer@PROJECT_ID.iam.gserviceaccount.com" --role "$role"
 done
 
-# 4. Workload Identity Federation pool + GitHub OIDC provider
+# 4. Artifact Registry repo for Cloud Run source deploys
+#    (github-deployer only has artifactregistry.writer — it can push images but
+#    not create the repo, so create it once here with admin credentials)
+gcloud artifacts repositories create cloud-run-source-deploy \
+  --repository-format=docker --location=us-central1 --project PROJECT_ID
+
+# 5. Workload Identity Federation pool + GitHub OIDC provider
 gcloud iam workload-identity-pools create github --location global --project PROJECT_ID
 gcloud iam workload-identity-pools providers create-oidc github-actions \
   --location global --workload-identity-pool github --project PROJECT_ID \
@@ -73,13 +79,13 @@ gcloud iam workload-identity-pools providers create-oidc github-actions \
   --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository" \
   --attribute-condition "assertion.repository == 'GITHUB_USER/Eva'"
 
-# 5. Let the GitHub repo impersonate the service account
+# 6. Let the GitHub repo impersonate the service account
 gcloud iam service-accounts add-iam-policy-binding \
   github-deployer@PROJECT_ID.iam.gserviceaccount.com --project PROJECT_ID \
   --role roles/iam.workloadIdentityUser \
   --member "principalSet://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/GITHUB_USER/Eva"
 
-# 6. GitHub repo variables
+# 7. GitHub repo variables
 gh variable set GCP_PROJECT_ID --body "PROJECT_ID"
 gh variable set GCP_REGION --body "us-central1"
 gh variable set GCP_DEPLOY_SA --body "github-deployer@PROJECT_ID.iam.gserviceaccount.com"
