@@ -7,7 +7,6 @@ struct AboutYouStepView: View {
     var body: some View {
         OnboardingStepLayout(buttonTitle: "Continue", onContinue: onContinue) {
             QuestionnaireHeading(
-                kicker: "Questionnaire · 1 of 4",
                 title: "A little about you",
                 subtitle: "This helps Eva personalise your plan."
             )

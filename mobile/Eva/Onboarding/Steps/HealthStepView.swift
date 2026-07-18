@@ -12,7 +12,7 @@ struct HealthStepView: View {
 
     var body: some View {
         OnboardingStepLayout(buttonTitle: "Continue", onContinue: onContinue) {
-            QuestionnaireHeading(kicker: "Questionnaire · 3 of 4", title: "Your health")
+            QuestionnaireHeading(title: "Your health")
 
             sectionLabel("Any conditions we should know about?")
                 .padding(.top, 22)

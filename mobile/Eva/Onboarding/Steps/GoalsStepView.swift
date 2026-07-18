@@ -9,7 +9,6 @@ struct GoalsStepView: View {
     var body: some View {
         OnboardingStepLayout(buttonTitle: "Continue", onContinue: onContinue) {
             QuestionnaireHeading(
-                kicker: "Questionnaire · 2 of 4",
                 title: "What do you want to improve?",
                 subtitle: "Choose all that matter to you."
             )

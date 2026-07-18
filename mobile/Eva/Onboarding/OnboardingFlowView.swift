@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Container for the 8-step onboarding flow: welcome → why Eva → sign-up →
-/// questionnaire (about you, goals, health, lifestyle) → done.
+/// Container for the onboarding flow: welcome → info screens → sign-up (or email
+/// form) → 4-step questionnaire → done.
 struct OnboardingFlowView: View {
     @State private var model = OnboardingModel()
     let onFinished: () -> Void
@@ -16,8 +16,10 @@ struct OnboardingFlowView: View {
                 .id(model.step)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if model.step.showsHeader {
-                progressHeader
+            if model.step.showsPublicHeader {
+                publicHeader
+            } else if model.step.questionnaireIndex != nil {
+                questionnaireHeader
             }
         }
         .animation(.easeInOut(duration: 0.3), value: model.step)
@@ -27,12 +29,15 @@ struct OnboardingFlowView: View {
     private var stepContent: some View {
         switch model.step {
         case .welcome:
-            // "Log in" goes to the sign-up step for now; a real login flow comes with auth.
-            WelcomeStepView(onGetStarted: model.next, onLogIn: { model.step = .signUp })
-        case .whyEva:
-            WhyEvaStepView(onContinue: model.next)
+            WelcomeStepView(onGetStarted: model.getStarted, onLogIn: model.authenticate)
+        case .infoScience:
+            InfoScienceStepView(onContinue: model.next)
+        case .infoSolution:
+            InfoSolutionStepView(onContinue: model.next)
         case .signUp:
-            SignUpStepView(onContinue: model.next)
+            SignUpStepView(onAuthenticated: model.authenticate, onEmailSignUp: model.chooseEmailSignUp)
+        case .emailSignUp:
+            EmailSignUpStepView(model: model)
         case .aboutYou:
             AboutYouStepView(model: model, onContinue: model.next)
         case .goals:
@@ -46,24 +51,50 @@ struct OnboardingFlowView: View {
         }
     }
 
-    private var progressHeader: some View {
-        HStack(spacing: 14) {
-            Button(action: model.back) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.evaInk)
-                    .frame(width: 38, height: 38)
-                    .background(.white, in: .circle)
-                    .shadow(color: .evaInk.opacity(0.18), radius: 6, y: 3)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-
-            ProgressView(value: model.progress)
-                .progressViewStyle(EvaProgressBarStyle())
+    /// Floating back button only — public screens before authentication.
+    private var publicHeader: some View {
+        HStack {
+            backButton
+            Spacer()
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 8)
+    }
+
+    /// Back + progress bar + step caption — questionnaire screens.
+    private var questionnaireHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 14) {
+                backButton
+                    .opacity(model.step == .aboutYou ? 0 : 1)
+                    .disabled(model.step == .aboutYou)
+                ProgressView(value: model.questionnaireProgress)
+                    .progressViewStyle(EvaProgressBarStyle())
+            }
+            if let index = model.step.questionnaireIndex {
+                Text("Set up your plan · Step \(index + 1) of 4")
+                    .font(.system(size: 11.5, weight: .bold))
+                    .kerning(0.7)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color.evaFaint)
+                    .padding(.leading, 52)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 8)
+    }
+
+    private var backButton: some View {
+        Button(action: model.back) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.evaInk)
+                .frame(width: 38, height: 38)
+                .background(.white, in: .circle)
+                .shadow(color: .evaInk.opacity(0.18), radius: 6, y: 3)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
     }
 
     private var stepTransition: AnyTransition {

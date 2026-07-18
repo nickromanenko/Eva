@@ -8,7 +8,7 @@ struct LifestyleStepView: View {
 
     var body: some View {
         OnboardingStepLayout(buttonTitle: "Build my plan", onContinue: onContinue) {
-            QuestionnaireHeading(kicker: "Questionnaire · 4 of 4", title: "Your lifestyle")
+            QuestionnaireHeading(title: "Your lifestyle")
 
             sectionLabel("How active is your day-to-day?")
                 .padding(.top, 22)

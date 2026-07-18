@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct SignUpStepView: View {
-    let onContinue: () -> Void
+    let onAuthenticated: () -> Void
+    let onEmailSignUp: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,9 +19,9 @@ struct SignUpStepView: View {
 
                     VStack(spacing: 12) {
                         // TODO: wire to Firebase Auth (Apple / Google / email+password) in the auth phase
-                        authButton(title: "Continue with Apple", systemImage: "apple.logo", style: .filled)
-                        authButton(title: "Continue with Google", systemImage: "g.circle", style: .outlined)
-                        authButton(title: "Sign up with email", systemImage: "envelope", style: .outlined)
+                        authButton(title: "Continue with Apple", systemImage: "apple.logo", style: .filled, action: onAuthenticated)
+                        authButton(title: "Continue with Google", systemImage: "g.circle", style: .outlined, action: onAuthenticated)
+                        authButton(title: "Sign up with email", systemImage: "envelope", style: .outlined, action: onEmailSignUp)
                     }
                     .padding(.top, 24)
                 }
@@ -41,8 +42,8 @@ struct SignUpStepView: View {
 
     private enum AuthButtonStyle { case filled, outlined }
 
-    private func authButton(title: String, systemImage: String, style: AuthButtonStyle) -> some View {
-        Button(action: onContinue) {
+    private func authButton(title: String, systemImage: String, style: AuthButtonStyle, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: systemImage)
                     .font(.system(size: 17, weight: .medium))
@@ -63,6 +64,6 @@ struct SignUpStepView: View {
 }
 
 #Preview {
-    SignUpStepView(onContinue: {})
+    SignUpStepView(onAuthenticated: {}, onEmailSignUp: {})
         .background(LinearGradient.evaScreenBackground)
 }

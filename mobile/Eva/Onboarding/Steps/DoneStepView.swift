@@ -32,13 +32,6 @@ struct DoneStepView: View {
                 .padding(.top, 12)
                 .padding(.horizontal, 12)
 
-            HStack(spacing: 8) {
-                tag("Cycle-aware", text: .evaPlum, background: .evaSoftPink, border: Color(hex: 0xF1DEE8))
-                tag("Nutrition", text: .evaGreenInk, background: .evaGreenTint, border: Color(hex: 0xD8E9DE))
-                tag("Training", text: .evaBlueInk, background: .evaBlueTint, border: Color(hex: 0xD8E4F0))
-            }
-            .padding(.top, 22)
-
             Spacer()
 
             PrimaryButton(title: "Enter Eva", action: onFinish)
@@ -65,15 +58,6 @@ struct DoneStepView: View {
         }
     }
 
-    private func tag(_ label: String, text: Color, background: Color, border: Color) -> some View {
-        Text(label)
-            .font(.system(size: 12.5, weight: .semibold))
-            .foregroundStyle(text)
-            .padding(.vertical, 7)
-            .padding(.horizontal, 13)
-            .background(background, in: .capsule)
-            .overlay(Capsule().strokeBorder(border, lineWidth: 1))
-    }
 }
 
 #Preview {
