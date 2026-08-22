@@ -40,6 +40,26 @@ scripts/e2e.sh                  # full stack against real Firebase (slow, create
 scripts/verify.sh               # everything above except e2e
 ```
 
+## Workflow
+
+Ideas do not live in chat. They become backlog items, and backlog items become PRs.
+
+| Command | Does |
+|---|---|
+| `/explore <idea>` | Investigate against the codebase. No code changes. |
+| `/backlog <idea>` | File a GitHub issue with Context / Scope / Acceptance criteria / Risks / Questions / Dependencies |
+| `/goal <issue>` | Take one `state:ready` issue to a PR, gated by [docs/AUTONOMY.md](docs/AUTONOMY.md) |
+
+Issues carry one `area:` label (`api`, `mobile`, `website`, `infra`, `docs`) and one
+`state:` label:
+
+```
+new → refining → needs-answer → ready → implementing → review → done
+```
+
+`state:ready` means the spec is complete and no Question is open — nothing else may be
+picked up by `/goal`.
+
 ## Conventions
 
 - **Bun, not npm/node.** `bun install`, `bun test`, `bun run`.
