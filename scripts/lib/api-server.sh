@@ -1,9 +1,9 @@
 # Shared helper: make sure the Eva API is reachable, and export where it lives.
 #
 # - If EVA_API_URL is set and healthy, use it as-is.
-# - Otherwise boot `api/` on the first free port from EVA_API_PORT (default 3003).
-#   Port 3003 is often taken by something else; the health check makes sure we
-#   never point the tests at a stranger's server.
+# - Otherwise boot `api/` on the first free port from EVA_API_PORT (default 3003,
+#   matching the app's DEBUG base URL). Local ports are shared with whatever else
+#   is running, so the probe below confirms it is *our* API before using one.
 #
 # Exports API_URL and EVA_API_URL (api/test reads the latter).
 

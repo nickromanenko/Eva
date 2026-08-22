@@ -60,7 +60,9 @@ Each rule is stated so a reviewer can check it mechanically.
 19. New Swift files go in the right folder under `mobile/Eva/`; `sources: [Eva]` picks
     them up automatically, no project edit needed.
 20. Colors, fonts, and spacing come from the tokens in [DESIGN.md](DESIGN.md). No
-    literal hex, no ad-hoc font sizes, no re-implemented primary button.
+    literal hex, no ad-hoc font sizes, no re-implemented primary button. New UI follows
+    the Claude Design canvas, not the drifted existing screens (DESIGN.md §9), and
+    user-facing copy follows the voice rules in DESIGN.md §8.
 21. Keep the DEBUG hooks working: `EVA_ONBOARDING_STEP`, `EVA_UITEST_RESET`,
     `EVA_API_BASE_URL`. Tooling and e2e depend on them.
 22. Interactive elements need a stable `accessibilityIdentifier`. Renaming one means
