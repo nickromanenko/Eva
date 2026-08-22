@@ -170,7 +170,13 @@ This applies to every user-facing string an engineer writes, not just marketing 
 ## 9. Drift: implemented vs designed
 
 The onboarding flow in `mobile/Eva/` was built against an earlier direction and does
-**not** match the canvas. Known differences:
+**not** match the canvas.
+
+**As of #1 the canvas tokens exist in code** (`Eva/Theme/EvaColors.swift`,
+`EvaTypography.swift`, `EvaMetrics.swift`, `EvaGlass.swift`) — but no view uses them
+yet. Every screen still renders from the legacy set at the bottom of `EvaColors.swift`,
+so everything below is still true on screen. #2 moves the components across, #3 the
+screens; the legacy tokens go away with #3.
 
 | Aspect | Canvas | `mobile/Eva/Theme/` today |
 |---|---|---|
@@ -189,9 +195,56 @@ The onboarding flow in `mobile/Eva/` was built against an earlier direction and 
 the canvas is its own tracked change; until it lands, match the canvas for anything
 new and leave existing screens alone unless the issue says otherwise.
 
+## 9a. Where the canvas and iOS disagree
+
+Found while implementing #1. These are platform limits, not bugs to fix in code:
+
+- **Display 46/48 is unreachable.** Montserrat's own line box at 46pt is 56.07pt, so
+  the canvas asks for tighter leading than the font provides and SwiftUI cannot take a
+  negative `lineSpacing`. Multi-line Display renders at 56pt leading. Single-line is
+  unaffected, and Display is marketing-only.
+- **Blur radii are not settable.** SwiftUI has no `backdrop-filter`; the canvas' 20/24/28
+  collapse onto `.ultraThin`/`.thin`/`.regular` materials. Ordering is preserved, exact
+  values are not, and `saturate(1.7)` has no equivalent. Material also carries its own
+  tint under the white fill, so glass reads more opaque than the CSS — most visible at L1.
+- **CSS shadow spread has no SwiftUI expression.** The card shadow renders wider and
+  softer than `0 16px 36px -22px`.
+- **Address Montserrat cuts by PostScript name, not family plus weight.** The four
+  files disagree in their `name` tables — Medium and SemiBold carry `"Montserrat
+  Medium"`/`"Montserrat SemiBold"` in nameID 1 with subfamily `Regular`, and only reach
+  `"Montserrat"` through nameID 16. Measured in the app process, Core Text prefers
+  nameID 16 and does collapse them into one family (`UIFont.familyNames` reports a
+  single `Montserrat` with four members, and `UIFontDescriptor(family:weight:)`
+  resolves correctly), so this is a naming hazard rather than a broken family. Whether
+  SwiftUI's `Font.custom(...).weight()` follows suit is untested. PostScript names are
+  unambiguous either way, and `EvaTests` locks them in.
+
+## 9b. Unspecified in the canvas
+
+Values the implementation had to choose. Each should be resolved on the canvas rather
+than left to code:
+
+- §2 says the glass surface is 66%; §4 says L2 is 68%. Both are in the code, commented.
+- Semantic colours have one hex each — the tint (12%), border (32%) and ink used for
+  cards and banners are derived, not specified.
+- "Cream" in the blush→cream and pistachio→cream gradients is not a palette token; read
+  as Warm Background `#FFF9F6`.
+- Those two washes and pink→pistachio have no angle; implemented on the plain diagonal.
+- The white-highlight-over-pink wash has no opacity or stops; implemented at 28% fading
+  out at 55% height. **This is the least defensible number in the token set** — check it
+  against the canvas before any screen leans on it.
+- The card's inset top/bottom white lines have no opacities; top reuses the 72% border
+  value, bottom is 30%.
+
 ## 10. Implementation conventions
 
-- Tokens live in `mobile/Eva/Theme/`; views never inline a hex, a font size or a radius.
+- Tokens live in `mobile/Eva/Theme/` — `EvaColors.swift` (palette and gradients),
+  `EvaTypography.swift` (`EvaTextStyle` + `Font.eva*`; use `.evaTextStyle(.h1)` to get
+  font, leading and tracking together), `EvaMetrics.swift` (`EvaSpacing`, `EvaRadius`,
+  `EvaMetrics.minimumTouchTarget`) and `EvaGlass.swift` (`.evaGlass(.card)` and the
+  card/sheet surfaces). Views never inline a hex, a font size or a radius.
+- Type is anchored to Dynamic Type (`Font.custom(_:size:relativeTo:)` per row), so the
+  canvas' exact points hold at the default content size and scale from there.
 - Every view file ends with a `#Preview`.
 - Interactive elements need a stable `accessibilityIdentifier` — `EvaUITests` and
   screenshot tooling navigate by them.

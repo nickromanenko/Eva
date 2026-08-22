@@ -24,6 +24,16 @@ targets:
       properties:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Montserrat statics from Eva/Resources/Fonts. XcodeGen adds each file to Copy
+        # Bundle Resources as an individual reference, not a folder reference, so they
+        # land flat at the bundle root — no directory prefix here. OFL.txt sits in the
+        # same folder and ships with them (licence obligation) but is deliberately not
+        # listed: it is a licence, not a font.
+        UIAppFonts:
+          - Montserrat-Regular.ttf
+          - Montserrat-Medium.ttf
+          - Montserrat-SemiBold.ttf
+          - Montserrat-Bold.ttf
         # Allows http://localhost for DEBUG/e2e runs; no effect on remote hosts.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -35,6 +45,24 @@ targets:
     # dependencies:
     #   - package: firebase-ios-sdk
     #     product: FirebaseAuth
+  EvaTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [EvaTests]
+    dependencies:
+      - target: Eva
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.evaapp.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        # Hosted in the Eva app process, deliberately. The design-token tests read
+        # Bundle.main's UIAppFonts and ask Core Text to resolve the registered
+        # Montserrat faces; only a test running inside the app can see the app
+        # bundle's font registrations. A UI-test runner is a separate process and
+        # would resolve nothing.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Eva.app/$(BUNDLE_LOADER_NAME)"
+        BUNDLE_LOADER_NAME: Eva
+        BUNDLE_LOADER: "$(TEST_HOST)"
   EvaUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -57,4 +85,5 @@ schemes:
     test:
       config: Debug
       targets:
+        - EvaTests
         - EvaUITests
