@@ -3,9 +3,23 @@ import SwiftUI
 /// Selectable chip used for questionnaire options — DESIGN.md §6.
 ///
 /// The canvas gives four appearances: **default** glass, **selected** pink gradient,
-/// **severe** solid deep pink with a bar glyph, and **disabled** muted. Metrics are
+/// **severe** solid pink with a bar glyph, and **disabled** muted. Metrics are
 /// min-height 44 (`EvaMetrics.minimumTouchTarget`, the canvas' minimum touch target)
 /// and radius 14 (`EvaRadius.chip`).
+///
+/// The label is the §3 **Control** row, 13/600 — the row the artboard actually draws
+/// chips at. It first shipped at Label 12, because §3's transcription had no 13 row;
+/// #16 added one and this reverses the shrink.
+///
+/// ## The pink is deepened where a white label sits on it — #12, not the canvas
+///
+/// Selected and severe are the two appearances that put white on pink, and both fail
+/// WCAG AA at the canvas' values: white on the selected gradient's `#EE93B1` top stop
+/// measures **2.22:1**, and on severe's `#C95F86` **3.84:1**, against 4.5:1. So selected
+/// takes `LinearGradient.evaActionPink` (`#B45276`→`#96486A`, 4.76:1 at its worst point)
+/// and severe takes `Color.evaChipSevere` (`#7E3B58`, 7.91:1). Default and disabled
+/// are unchanged — nothing white sits on either. See the `evaActionPink…` note in
+/// `EvaColors.swift`.
 ///
 /// `isSevere` and `isDisabled` are additive and default to `false`, so the existing
 /// `ChipToggleButton(label:isSelected:action:)` and
@@ -25,8 +39,8 @@ struct ChipToggleButton: View {
     /// Centres the label instead of leading-aligning it. Grid chips centre; full-width
     /// list chips do not.
     var isCentered: Bool = false
-    /// Renders the canvas' "severe" appearance: solid `evaDeepPink` with a bar glyph
-    /// before the label. The glyph is the non-colour half of the cue required by
+    /// Renders the canvas' "severe" appearance: solid `evaChipSevere` with a bar
+    /// glyph before the label. The glyph is the non-colour half of the cue required by
     /// DESIGN.md §1 ("never colour alone").
     var isSevere: Bool = false
     /// Renders the muted, non-interactive appearance and turns the button off.
@@ -80,7 +94,7 @@ struct ChipToggleButton: View {
                 }
 
                 Text(label)
-                    .evaTextStyle(.label)
+                    .evaTextStyle(.control)
                     .foregroundStyle(appearance.labelColor)
                     .multilineTextAlignment(isCentered ? .center : .leading)
             }
@@ -122,24 +136,34 @@ extension ChipToggleButton {
     fileprivate enum Appearance: Equatable {
         /// Glass fill, hairline border, primary-text label.
         case `default`
-        /// Pink gradient fill, white label, pink drop shadow.
+        /// Action-pink gradient fill, white label, pink drop shadow.
         case selected
-        /// Solid `evaDeepPink`, darker border, white label, bar glyph.
+        /// Solid `evaChipSevere`, border, white label, bar glyph.
         case severe
         /// Muted fill and border, disabled-ink label.
         case disabled
 
+        /// Selected and severe use the action ramp rather than the canvas pinks
+        /// (`LinearGradient.evaChipSelected` / `Color.evaDeepPink`), because both carry
+        /// a white label. See the `ChipToggleButton` type comment for the measurements.
         var fill: AnyShapeStyle {
             switch self {
             case .default: AnyShapeStyle(Color.evaChipFill)
-            case .selected: AnyShapeStyle(LinearGradient.evaChipSelected)
-            case .severe: AnyShapeStyle(Color.evaDeepPink)
+            case .selected: AnyShapeStyle(LinearGradient.evaActionPink)
+            case .severe: AnyShapeStyle(Color.evaChipSevere)
             case .disabled: AnyShapeStyle(Color.evaChipFillDisabled)
             }
         }
 
         /// `nil` where the canvas specifies no border. Selected carries its contrast
         /// in the fill, the white label and the shadow instead.
+        ///
+        /// Severe carries `evaChipSevereBorder` (`#5F2C3F`), deepened alongside its fill
+        /// so it still draws an edge. The artboard's pairing (`#C95F86` fill, `#A94A6C`
+        /// border) does not survive the #12 action ramp: the ramp moves the fill onto the
+        /// border's hex. Severe is told apart from selected by being flat rather than a
+        /// gradient, by this border, by its bar glyph, and by sitting ~80 channel-units
+        /// deeper.
         var borderColor: Color? {
             switch self {
             case .default: Color.evaControlBorder
@@ -170,13 +194,15 @@ private enum ChipBorder {
     static let width: CGFloat = 1
 }
 
-/// The severe chip's bar glyph.
+/// The severe chip's bar glyph — 9 × 2, radius 1.
 ///
-/// DESIGN.md §6 calls for "a bar glyph" but gives no dimensions. These are sized to
-/// read beside the 12pt label without competing with it; confirm against
-/// "Eva Design System.dc.html" §05 before a screen leans on them.
+/// DESIGN.md §6 only says "a bar glyph"; the artboard draws `9×2px, radius 1`, and the
+/// 10 × 2 this first shipped as was a guess sized by eye. Corrected by #16.
+///
+/// The radius needs no constant: the glyph is drawn as a `Capsule`, whose radius is half
+/// the shorter side, and half of 2 is exactly the 1 the artboard asks for.
 private enum ChipSevereGlyph {
-    static let width: CGFloat = 10
+    static let width: CGFloat = 9
     static let height: CGFloat = 2
 }
 
@@ -185,13 +211,18 @@ private enum ChipSevereGlyph {
 /// SwiftUI's shadow has no spread, so the -12px contraction cannot be expressed and
 /// the shadow renders wider than the canvas — the same limitation `EvaGlass` records
 /// for the card shadow. CSS blur 18 maps to SwiftUI radius 9 on that file's convention.
+///
+/// The colour is the ramp's darkest stop at 70%, not the artboard's
+/// `rgba(201,95,134,.8)`. That value is *lighter* than the deepened fill it sits under,
+/// so it renders as a glow rather than a shadow — mildly true at the canvas values too,
+/// and plainly wrong once #12's ramp darkened the chip.
 private struct ChipShadow {
     let color: Color
     let radius: CGFloat
     let offsetY: CGFloat
 
     static let selected = ChipShadow(
-        color: .evaDeepPink.opacity(0.8),
+        color: .evaActionPinkPressedBottom.opacity(0.7),
         radius: 9,
         offsetY: 8
     )

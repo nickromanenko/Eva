@@ -90,10 +90,90 @@ struct EvaControlMetricsTests {
         #expect(EvaRadius.chip == 14)
         #expect(EvaDestructiveButtonKind.outlined.cornerRadius == EvaRadius.control)
         #expect(EvaDestructiveButtonKind.solid.cornerRadius == EvaRadius.control)
-        // §5's "44/13" for the row variant names a radius no token has; the nearest,
-        // `EvaRadius.chip`, stands in. Locked here so the substitution is visible in a
-        // diff rather than silently becoming 17 or 13.
-        #expect(EvaDestructiveButtonKind.row.cornerRadius == EvaRadius.chip)
+        // §5's "44/13" turned out to mean both a radius and a font size: the artboard
+        // draws the row variant as `min-height:44px; border-radius:13px; font:600 13px`.
+        // It shipped as `EvaRadius.chip` (14) on the guess that 13 was the radius alone;
+        // #16 corrected it to a token of its own. One point, and invisible in a
+        // screenshot, which is why it is pinned rather than eyeballed.
+        #expect(EvaRadius.destructiveRow == 13)
+        #expect(EvaDestructiveButtonKind.row.cornerRadius == EvaRadius.destructiveRow)
+        #expect(EvaDestructiveButtonKind.row.cornerRadius != EvaRadius.chip)
+    }
+
+    // MARK: The type row each control gives its label
+
+    /// The advance of ten `M`s as `build` sets them — see `evaLabelAdvance`.
+    ///
+    /// A control's label style is applied inside the component and the appearance types
+    /// are private, so this is the only way to ask a chip what size it set its label in.
+    /// Ten glyphs turn the 1pt difference between the Control and Label rows into
+    /// something like 8 points, well clear of layout noise.
+    private func advance<V: View>(_ build: (String) -> V) -> CGFloat {
+        evaLabelAdvance(build)
+    }
+
+    private func advance(at style: EvaTextStyle) -> CGFloat {
+        evaLabelAdvance { Text($0).evaTextStyle(style) }
+    }
+
+    @Test("The four semibold rows are far enough apart to be told apart by measurement")
+    func theTypeRowsAreDistinguishableAtTenGlyphs() {
+        // Guards the three tests below: if two candidate rows measured the same, those
+        // tests would pass no matter which the control used, which is worse than not
+        // having them.
+        let widths = [
+            advance(at: .button), advance(at: .textButton),
+            advance(at: .control), advance(at: .label)
+        ]
+        for i in widths.indices {
+            for j in widths.indices where j > i {
+                #expect(abs(widths[i] - widths[j]) > 2,
+                        "two type rows measure \(widths[i]) and \(widths[j]) — indistinguishable")
+            }
+        }
+    }
+
+    @Test("A chip sets its label in Control 13, not Label 12")
+    func chipLabelIsTheControlRow() {
+        // #16: the artboard draws chips at `font:600 13px`. They shipped at Label 12
+        // because §3's transcription had no 13 row, which shrank the label on the
+        // Goals, Health and Lifestyle questionnaire screens. Reversed here.
+        // `fixedSize` because the chip is `maxWidth: .infinity` — without it both probes
+        // report the offered width and the difference is zero, which would pass forever.
+        let chip = advance {
+            ChipToggleButton(label: $0, isSelected: false) {}
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        #expect(abs(chip - advance(at: .control)) < 1,
+                "the chip label measures \(chip); Control 13 is \(advance(at: .control)), Label 12 is \(advance(at: .label))")
+    }
+
+    @Test("The row-level destructive sets its label in Control 13, the others in Button 14.5")
+    func destructiveLabelRows() {
+        // #16: the row variant's "13" is a font size as well as a radius. The full-size
+        // variants stay on the Button row like every other 52-high control.
+        let row = advance { DestructiveButton(title: $0, kind: .row) {} }
+        // The solid variant is full-width; see `chipLabelIsTheControlRow`.
+        let solid = advance {
+            DestructiveButton(title: $0, kind: .solid) {}
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        #expect(abs(row - advance(at: .control)) < 1,
+                "the row destructive's label measures \(row); Control 13 is \(advance(at: .control))")
+        #expect(abs(solid - advance(at: .button)) < 1,
+                "the solid destructive's label measures \(solid); Button 14.5 is \(advance(at: .button))")
+        #expect(EvaDestructiveButtonKind.row.textStyle == .control)
+        #expect(EvaDestructiveButtonKind.outlined.textStyle == .button)
+        #expect(EvaDestructiveButtonKind.solid.textStyle == .button)
+    }
+
+    @Test("The text button sets its label in 14, not the 14.5 of the filled buttons")
+    func textButtonLabelIsFourteen() {
+        // #16: the artboard draws this one variant at `font:600 14px`. Half a point,
+        // which is why nothing caught it until the CSS was read.
+        let text = advance { TextButton(title: $0) {} }
+        #expect(abs(text - advance(at: .textButton)) < 1,
+                "the text button's label measures \(text); 14 is \(advance(at: .textButton)), 14.5 is \(advance(at: .button))")
     }
 
     @Test("Press feedback is scale .97")

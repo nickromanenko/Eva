@@ -49,10 +49,37 @@ enum EvaControlPalette {
     /// Focused: border #C95F86 + 3px rgba(201,95,134,.16) ring."
     static let inputs: [EvaColorExpectation] = [
         EvaColorExpectation("Input fill", "#FFFFFF", alpha: 0.75, .evaInputFill),
-        EvaColorExpectation("Input focus ring", "#C95F86", alpha: 0.16, .evaInputFocusRing)
+        EvaColorExpectation("Input focus ring", "#C95F86", alpha: 0.16, .evaInputFocusRing),
+        // The three the transcription lost and #16 restored from the artboard: the
+        // field goes fully opaque on focus, a half-step up on error, and its disabled
+        // border is 7% rather than the buttons' 6%.
+        EvaColorExpectation("Input fill · focused", "#FFFFFF", .evaInputFillFocused),
+        EvaColorExpectation("Input fill · error", "#FFFFFF", alpha: 0.8, .evaInputFillError),
+        EvaColorExpectation("Input border · disabled", "#282126", alpha: 0.07,
+                            .evaInputBorderDisabled)
     ]
 
-    static let everyDocumentedValue: [EvaColorExpectation] = buttons + inputs
+    /// The #12 action ramp. **Not artboard values** — an approved deviation, the whole
+    /// reason this branch exists. White on the canvas pink fails WCAG AA everywhere it
+    /// carries a label (2.22:1 at `#EE93B1`), so the label-bearing surfaces move to a
+    /// deeper ramp and the pale brand pinks stay for washes, tints and decorative fills.
+    ///
+    /// The contrast these are supposed to buy is asserted in `EvaContrastTests`, on
+    /// pixels. These are just the hexes.
+    static let actionPink: [EvaColorExpectation] = [
+        EvaColorExpectation("Action pink · resting top", "#B45276", .evaActionPinkTop),
+        EvaColorExpectation("Action pink · resting bottom", "#96486A", .evaActionPinkBottom),
+        EvaColorExpectation("Action pink · pressed top", "#994664", .evaActionPinkPressedTop),
+        EvaColorExpectation("Action pink · pressed bottom", "#803D5A",
+                            .evaActionPinkPressedBottom),
+        EvaColorExpectation("Action pink · solid", "#A94A6C", .evaActionPinkSolid),
+        // Severe is deeper still than the ramp: `#A94A6C` would land on the selected
+        // chip's own gradient and the two states would stop being distinguishable.
+        EvaColorExpectation("Chip · severe fill", "#7E3B58", .evaChipSevere),
+        EvaColorExpectation("Chip · severe border", "#5F2C3F", .evaChipSevereBorder)
+    ]
+
+    static let everyDocumentedValue: [EvaColorExpectation] = buttons + inputs + actionPink
 }
 
 @MainActor
@@ -187,14 +214,111 @@ struct EvaControlColorTests {
 
     // MARK: Chips (§6)
 
-    @Test("The severe chip is solid Deep Pink")
-    func severeChipIsDeepPink() {
-        // §6: "severe solid #C95F86 with a bar glyph". The only chip state the canvas
-        // gives a hex for.
-        #expect(Color.evaDeepPink.evaTestHex == "#C95F86")
+    @Test("The severe chip is its own deep hex, and its border is darker still")
+    func severeChipIsItsOwnDeepPink() {
+        // §6 gives severe as solid `#C95F86` with a `#A94A6C` border. Both moved: white
+        // on `#C95F86` is 3.84:1, and the #12 ramp's `#A94A6C` stand-in would have put
+        // the fill onto the border's own hex. Approved deviation.
+        #expect(Color.evaChipSevere.evaTestHex == "#7E3B58")
+        #expect(Color.evaChipSevereBorder.evaTestHex == "#5F2C3F")
         #expect(Color.evaChipSevereBorder.evaTestRGBA.relativeLuminance
-                < Color.evaDeepPink.evaTestRGBA.relativeLuminance,
+                < Color.evaChipSevere.evaTestRGBA.relativeLuminance,
                 "the severe chip's border does not read as darker than its fill")
+        // The brand hex it used to be is untouched — the deviation is scoped to the
+        // chip, not applied to the palette.
+        #expect(Color.evaDeepPink.evaTestHex == "#C95F86")
+    }
+
+    @Test("Severe is far enough below selected to read as the graver of the two")
+    func severeIsDistinguishableFromSelected() {
+        // The previous pass put severe at `#A94A6C` and the selected gradient's
+        // midpoint at `#A54D6E` — four channel-units apart, which is not a state
+        // change, it is a rounding error. This is the assertion that keeps them apart
+        // whatever the two are recoloured to next.
+        //
+        // Measured on the *midpoint* of the selected gradient rather than either stop,
+        // because that is the fairest single colour to compare a flat fill against; the
+        // rendered-pixel version of this, across the whole chip, is in
+        // `EvaControlRenderTests.severeAndSelectedChipsAreNotTheSameColourAnywhere`.
+        let severe = Color.evaChipSevere.evaTestRGBA
+        let selectedMid = EvaRGBA(
+            red: (Color.evaActionPinkTop.evaTestRGBA.red
+                  + Color.evaActionPinkBottom.evaTestRGBA.red) / 2,
+            green: (Color.evaActionPinkTop.evaTestRGBA.green
+                    + Color.evaActionPinkBottom.evaTestRGBA.green) / 2,
+            blue: (Color.evaActionPinkTop.evaTestRGBA.blue
+                   + Color.evaActionPinkBottom.evaTestRGBA.blue) / 2,
+            alpha: 1
+        )
+        let distance = max(
+            abs(severe.red - selectedMid.red),
+            abs(severe.green - selectedMid.green),
+            abs(severe.blue - selectedMid.blue)
+        ) * 255
+        #expect(distance >= 16,
+                "severe \(severe.hexString) and the selected midpoint \(selectedMid.hexString) are \(Int(distance)) channel-units apart")
+        #expect(severe.relativeLuminance < selectedMid.relativeLuminance,
+                "severe is not darker than selected")
+    }
+
+    @Test("The action ramp descends, and pressed is darker than resting at both stops")
+    func actionRampIsOrdered() {
+        // The same two properties §5 states for the canvas ramp, which the deviation
+        // has to preserve or the button stops reading as lit from above and stops
+        // acknowledging a press.
+        #expect(Color.evaActionPinkTop.evaTestRGBA.relativeLuminance
+                > Color.evaActionPinkBottom.evaTestRGBA.relativeLuminance)
+        #expect(Color.evaActionPinkPressedTop.evaTestRGBA.relativeLuminance
+                > Color.evaActionPinkPressedBottom.evaTestRGBA.relativeLuminance)
+        #expect(Color.evaActionPinkPressedTop.evaTestRGBA.relativeLuminance
+                < Color.evaActionPinkTop.evaTestRGBA.relativeLuminance)
+        #expect(Color.evaActionPinkPressedBottom.evaTestRGBA.relativeLuminance
+                < Color.evaActionPinkBottom.evaTestRGBA.relativeLuminance)
+    }
+
+    @Test("Deepening the action surfaces left the brand pinks exactly where they were")
+    func theBrandPinksAreUntouched() {
+        // The deviation is scoped: pale pink stays for washes, tints and decorative
+        // fills, which is the whole reason it was acceptable. A later pass "tidying" it
+        // by overwriting `evaPrimaryButtonTop` with the ramp is the failure this
+        // catches — the palette would be self-consistent and the brand would be gone.
+        #expect(Color.evaPrimaryPink.evaTestHex == "#E982A5")
+        #expect(Color.evaDeepPink.evaTestHex == "#C95F86")
+        #expect(Color.evaPrimaryButtonTop.evaTestHex == "#EE93B1")
+        #expect(Color.evaChipSelectedTop.evaTestHex == "#EE93B1")
+        #expect(Color.evaChipSelectedBottom.evaTestHex == "#DC7C9E")
+        #expect(Color.evaPrimaryButtonPressedTop.evaTestHex == "#D9799C")
+        #expect(Color.evaPrimaryButtonPressedBottom.evaTestHex == "#B45276")
+    }
+
+    @Test("The input fill lifts from resting to error to focused")
+    func inputFillsAscend() {
+        // §6 as the artboard states it: 75% at rest, 80% when wrong, fully opaque when
+        // focused. The ordering is the meaning — the field gets more solid as it takes
+        // attention — and it is what a careless edit that sets all three to
+        // `evaInputFill` would lose while every hex stayed white.
+        #expect(Color.evaInputFill.evaTestAlpha == 0.75)
+        #expect(Color.evaInputFillError.evaTestAlpha == 0.8)
+        #expect(Color.evaInputFillFocused.evaTestAlpha == 1.0)
+        let ladder = [
+            Color.evaInputFill.evaTestAlpha,
+            Color.evaInputFillError.evaTestAlpha,
+            Color.evaInputFillFocused.evaTestAlpha
+        ]
+        #expect(ladder == ladder.sorted())
+        #expect(Set(ladder).count == 3)
+    }
+
+    @Test("The disabled input border is its own 7%, fainter than an enabled hairline")
+    func disabledInputBorderIsSeparate() {
+        // The artboard gives the disabled *input* border as rgba(40,33,38,.07) where
+        // the disabled *button* border is .06. Two values a hair apart is exactly the
+        // kind of thing that gets folded together, so the distinctness is asserted.
+        #expect(Color.evaInputBorderDisabled.evaTestHex == Color.evaPrimaryText.evaTestHex)
+        #expect(Color.evaInputBorderDisabled.evaTestAlpha == 0.07)
+        #expect(Color.evaInputBorderDisabled.evaTestAlpha < Color.evaControlBorder.evaTestAlpha)
+        #expect(Color.evaInputBorderDisabled.evaTestAlpha
+                != Color.evaControlBorderDisabled.evaTestAlpha)
     }
 
     @Test("The chip states are four distinct fills")
@@ -203,9 +327,11 @@ struct EvaControlColorTests {
         // "selected" unreadable while every individual token still looked right.
         let fills: [(String, EvaRGBA)] = [
             ("default", Color.evaChipFill.evaTestRGBA),
-            ("selected top", Color.evaChipSelectedTop.evaTestRGBA),
-            ("selected bottom", Color.evaChipSelectedBottom.evaTestRGBA),
-            ("severe", Color.evaDeepPink.evaTestRGBA),
+            // The chip's selected gradient is the action ramp since #12, not
+            // `evaChipSelected` — see `ChipToggleButton.Appearance.fill`.
+            ("selected top", Color.evaActionPinkTop.evaTestRGBA),
+            ("selected bottom", Color.evaActionPinkBottom.evaTestRGBA),
+            ("severe", Color.evaChipSevere.evaTestRGBA),
             ("disabled", Color.evaChipFillDisabled.evaTestRGBA)
         ]
         for i in fills.indices {
@@ -217,8 +343,8 @@ struct EvaControlColorTests {
         // §6 gives the selected chip as a gradient; a gradient whose stops match is a
         // flat fill with extra steps.
         #expect(
-            Color.evaChipSelectedTop.evaTestRGBA.relativeLuminance
-                > Color.evaChipSelectedBottom.evaTestRGBA.relativeLuminance
+            Color.evaActionPinkTop.evaTestRGBA.relativeLuminance
+                > Color.evaActionPinkBottom.evaTestRGBA.relativeLuminance
         )
     }
 }

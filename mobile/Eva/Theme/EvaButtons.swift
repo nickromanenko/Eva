@@ -183,6 +183,10 @@ struct SecondaryButton: View {
 ///
 /// §5 gives no pressed appearance. The label fades rather than gaining a fill, since a
 /// fill would make it read as a secondary button.
+///
+/// **Its label is 14, not the 14.5 of the full-size buttons.** The artboard draws this
+/// one variant at `font:600 14px` — corrected by #16, which first shipped as the §3
+/// Button row.
 struct EvaTextButtonStyle: ButtonStyle {
 
     /// Forces a state a preview cannot reach by touch. Never set this in app code.
@@ -194,6 +198,18 @@ struct EvaTextButtonStyle: ButtonStyle {
     /// Opacity of the label while pressed. Not a canvas value — see the type comment.
     private static let pressedLabelOpacity: Double = 0.7
 
+    /// The text button's label row — Montserrat SemiBold 14, single-line.
+    ///
+    /// The §3 scale has no 14 row: it steps 14.5 (Button) → 13 (Control) → 12 (Label),
+    /// and 14 is used by this one variant. Rather than reach past the type system for a
+    /// bare `Font.custom(_:size:)`, the row is built as an `EvaTextStyle` here, so it
+    /// still resolves the PostScript name through `EvaFont` and still carries leading
+    /// and tracking the way every other label in the file does — `EvaTextStyle.font` is
+    /// itself the `.custom` call.
+    ///
+    /// If a second variant ever wants 14, this belongs in `EvaTypography.swift` as a
+    /// scale row instead. Adding one is a design decision, so it is reported rather than
+    /// taken here.
     func makeBody(configuration: Configuration) -> some View {
         let state = previewState ?? EvaButtonState.resolved(
             isPressed: configuration.isPressed,
@@ -202,7 +218,7 @@ struct EvaTextButtonStyle: ButtonStyle {
         )
 
         return configuration.label
-            .evaTextStyle(.button)
+            .evaTextStyle(EvaTextStyle.textButton)
             .foregroundStyle(Self.label(for: state))
             .frame(minHeight: EvaButtonHeight.text)
             .padding(.horizontal, EvaSpacing.sm)
@@ -212,10 +228,13 @@ struct EvaTextButtonStyle: ButtonStyle {
             .animation(.easeOut(duration: EvaButtonPress.duration), value: state)
     }
 
+    /// The artboard's `#C95F86` measures 3.68:1 on the warm background — under AA for a
+    /// 14pt semibold label. `evaActionPinkTop` is the same decision as the #12 ramp,
+    /// applied to a label instead of a fill: 4.57:1, and it is already in the palette.
     private static func label(for state: EvaButtonState) -> Color {
         switch state {
-        case .normal, .focused: .evaDeepPink
-        case .pressed: Color.evaDeepPink.opacity(pressedLabelOpacity)
+        case .normal, .focused: .evaActionPinkTop
+        case .pressed: Color.evaActionPinkTop.opacity(pressedLabelOpacity)
         case .disabled: .evaDisabledText
         }
     }
@@ -251,10 +270,11 @@ enum EvaDestructiveButtonKind: Hashable {
     /// The row-level variant, for a destructive action sitting in a list of settings
     /// rows. §5 gives it as "44/13".
     ///
-    /// 44 is the height. 13 has no token — it is neither an existing radius (14 chip /
-    /// 17 control) nor a font size in the §3 scale — so `EvaRadius.chip` stands in as
-    /// the nearest radius. **Confirm against the canvas**; if 13 turns out to be a font
-    /// size instead, this needs a scale row rather than a radius.
+    /// Reading the artboard settled what "44/13" meant, and the answer was *both*: the
+    /// button is `height:44; border-radius:13px; font:600 13px`. It first shipped as
+    /// radius `EvaRadius.chip` (14) with the 14.5 Button label, on the guess that 13 was
+    /// a radius alone. Corrected by #16 — the radius is 13 and the label is the §3
+    /// Control row.
     case row
 
     var height: CGFloat {
@@ -267,7 +287,19 @@ enum EvaDestructiveButtonKind: Hashable {
     var cornerRadius: CGFloat {
         switch self {
         case .outlined, .solid: EvaRadius.control
-        case .row: EvaRadius.chip
+        case .row: EvaRadius.destructiveRow
+        }
+    }
+
+    /// The row of the §3 scale this variant's label uses.
+    ///
+    /// The full-size variants take the Button row (14.5/600) like every other 52-high
+    /// control. The row-level variant takes Control (13/600), which is what the artboard
+    /// draws it at — the same row the chips and dialog buttons use.
+    var textStyle: EvaTextStyle {
+        switch self {
+        case .outlined, .solid: .button
+        case .row: .control
         }
     }
 
@@ -284,12 +316,23 @@ enum EvaDestructiveButtonKind: Hashable {
         case .solid:
             switch state {
             case .normal, .focused: .evaDestructive
-            // §5 gives no pressed fill for the solid destructive. The darker of the two
-            // destructive hexes is reused rather than deriving a new one — confirm.
+            // STILL A GUESS. The artboard gives no pressed fill for the solid
+            // destructive, so the darker of the two destructive hexes stands in rather
+            // than a newly derived one. Measured, it barely works as feedback:
+            // `#A9524A` against the resting `#B85248` is **1.09:1**, which is below the
+            // threshold most people can see as a state change at all — the 0.97 press
+            // scale is doing all the work. Logged on #12; left as-is here deliberately,
+            // because replacing it means inventing a value rather than reading one.
             case .pressed: .evaDestructiveInk
-            // Mirrors the primary's disabled recipe (§5: the hue at 28%, label stays
-            // white). Also not specified for destructive.
-            case .disabled: Color.evaDestructive.opacity(0.28)
+            // The artboard's own disabled rule: `background:#B85248; opacity:.5`. It
+            // first shipped as the primary's 28% recipe, which was borrowed, not read.
+            // Corrected by #16.
+            //
+            // Note the artboard applies `opacity` to the whole element, which would fade
+            // the white label with the fill; here it is applied to the fill only, so the
+            // label keeps its own colour and `label(for:)` stays the single place a
+            // label colour is decided.
+            case .disabled: Color.evaDestructive.opacity(0.5)
             }
         }
     }
@@ -316,8 +359,11 @@ enum EvaDestructiveButtonKind: Hashable {
 
     func label(for state: EvaButtonState) -> Color {
         switch self {
-        // §5: on a filled control the label stays white, disabled included.
-        case .solid: .evaTextOnDark
+        // §5 keeps the label white on a filled control, disabled included — but white on
+        // `#B85248` at 50% over the warm background measures 2.10:1. This is the same
+        // defect #17 fixed on the primary's disabled state, so it takes the same answer:
+        // Primary Text, 7.49:1. A deliberate deviation from the artboard.
+        case .solid: state == .disabled ? .evaPrimaryText : .evaTextOnDark
         case .outlined, .row: state == .disabled ? .evaDisabledText : .evaDestructiveInk
         }
     }
@@ -341,7 +387,7 @@ struct EvaDestructiveButtonStyle: ButtonStyle {
         )
 
         return configuration.label
-            .evaTextStyle(.button)
+            .evaTextStyle(kind.textStyle)
             .foregroundStyle(kind.label(for: state))
             .frame(maxWidth: kind.isFullWidth ? .infinity : nil, minHeight: kind.height)
             .padding(.horizontal, EvaSpacing.md)

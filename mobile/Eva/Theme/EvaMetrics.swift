@@ -44,6 +44,9 @@ enum EvaControl {
 }
 
 enum EvaRadius {
+    /// 13 — the row-level destructive button. Off the 14/17/24/30 scale, but it is
+    /// what the artboard draws (`min-height:44px;border-radius:13px`).
+    static let destructiveRow: CGFloat = 13
     /// 14 — chips, and text buttons (§5).
     static let chip: CGFloat = 14
     /// 17 — controls: primary/secondary buttons, inputs, dropdowns (§5, §6).
