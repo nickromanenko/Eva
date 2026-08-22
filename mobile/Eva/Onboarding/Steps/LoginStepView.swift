@@ -29,8 +29,12 @@ struct LoginStepView: View {
                         .padding(.top, 10)
 
                     VStack(alignment: .leading, spacing: 16) {
-                        field(label: "Email") {
-                            TextField("you@email.com", text: $email)
+                        EvaInputField(
+                            label: "Email",
+                            placeholder: "you@email.com",
+                            isFocused: focusedField == .email
+                        ) { prompt in
+                            TextField("Email", text: $email, prompt: prompt)
                                 .keyboardType(.emailAddress)
                                 .textContentType(.emailAddress)
                                 .textInputAutocapitalization(.never)
@@ -40,19 +44,21 @@ struct LoginStepView: View {
                                 .onSubmit { focusedField = .password }
                                 .accessibilityIdentifier("login.email")
                         }
-                        field(label: "Password") {
-                            SecureField("Your password", text: $password)
+                        // Sign-in failures arrive on submit and name neither field, so
+                        // they hang off the last one — where they used to be drawn.
+                        EvaInputField(
+                            label: "Password",
+                            placeholder: "Your password",
+                            isFocused: focusedField == .password,
+                            errorMessage: errorMessage,
+                            errorIdentifier: "login.error"
+                        ) { prompt in
+                            SecureField("Password", text: $password, prompt: prompt)
                                 .textContentType(.password)
                                 .focused($focusedField, equals: .password)
                                 .submitLabel(.go)
                                 .onSubmit { submit() }
                                 .accessibilityIdentifier("login.password")
-                        }
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(Color.evaPlum)
-                                .accessibilityIdentifier("login.error")
                         }
                     }
                     .padding(.top, 24)
@@ -100,25 +106,6 @@ struct LoginStepView: View {
                 errorMessage = error.localizedDescription
             }
             isLoading = false
-        }
-    }
-
-    private func field(label: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label)
-                .font(.system(size: 12.5, weight: .bold))
-                .kerning(0.8)
-                .textCase(.uppercase)
-                .foregroundStyle(Color.evaMuted)
-            content()
-                .font(.system(size: 15.5))
-                .foregroundStyle(Color.evaInk)
-                .padding(15)
-                .background(.white, in: .rect(cornerRadius: 14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(Color.evaChipBorder, lineWidth: 1.5)
-                )
         }
     }
 }

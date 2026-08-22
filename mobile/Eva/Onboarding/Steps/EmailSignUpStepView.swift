@@ -25,8 +25,12 @@ struct EmailSignUpStepView: View {
                         .padding(.top, 10)
 
                     VStack(alignment: .leading, spacing: 16) {
-                        field(label: "Email") {
-                            TextField("you@email.com", text: $model.email)
+                        EvaInputField(
+                            label: "Email",
+                            placeholder: "you@email.com",
+                            isFocused: focusedField == .email
+                        ) { prompt in
+                            TextField("Email", text: $model.email, prompt: prompt)
                                 .keyboardType(.emailAddress)
                                 .textContentType(.emailAddress)
                                 .textInputAutocapitalization(.never)
@@ -36,29 +40,30 @@ struct EmailSignUpStepView: View {
                                 .onSubmit { focusedField = .password }
                                 .accessibilityIdentifier("signup.email")
                         }
-                        field(label: "Password") {
+                        // The form's errors all arrive on submit, so they hang off the
+                        // last field — which keeps them exactly where they used to sit.
+                        EvaInputField(
+                            label: "Password",
+                            placeholder: "At least 8 characters",
+                            isFocused: focusedField == .password,
+                            errorMessage: errorMessage,
+                            errorIdentifier: "signup.error"
+                        ) { prompt in
                             // .password, not .newPassword: the automatic strong-password
                             // overlay breaks both UI tests and manual typing in simulators.
-                            SecureField("At least 8 characters", text: $model.password)
+                            SecureField("Password", text: $model.password, prompt: prompt)
                                 .textContentType(.password)
                                 .focused($focusedField, equals: .password)
                                 .submitLabel(.done)
                                 .onSubmit { submit() }
                                 .accessibilityIdentifier("signup.password")
                         }
-                        if let errorMessage {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(errorMessage)
-                                    .font(.system(size: 12.5))
-                                    .foregroundStyle(Color.evaPlum)
-                                    .accessibilityIdentifier("signup.error")
-                                if showLoginLink {
-                                    Button("Log in instead", action: onGoToLogin)
-                                        .font(.system(size: 12.5, weight: .bold))
-                                        .foregroundStyle(Color.evaPlum)
-                                }
-                            }
-                        } else {
+                        if showLoginLink {
+                            Button("Log in instead", action: onGoToLogin)
+                                .font(.system(size: 12.5, weight: .bold))
+                                .foregroundStyle(Color.evaPlum)
+                        }
+                        if errorMessage == nil {
                             Text(model.isEmailFormValid
                                  ? "Looks good — you're ready to continue."
                                  : "Enter a valid email and a password of 8+ characters.")
@@ -117,25 +122,6 @@ struct EmailSignUpStepView: View {
         model.isEmailFormValid
             ? AnyShapeStyle(LinearGradient.evaPlumPink)
             : AnyShapeStyle(Color(hex: 0xD7C3D1))
-    }
-
-    private func field(label: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label)
-                .font(.system(size: 12.5, weight: .bold))
-                .kerning(0.8)
-                .textCase(.uppercase)
-                .foregroundStyle(Color.evaMuted)
-            content()
-                .font(.system(size: 15.5))
-                .foregroundStyle(Color.evaInk)
-                .padding(15)
-                .background(.white, in: .rect(cornerRadius: 14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(Color.evaChipBorder, lineWidth: 1.5)
-                )
-        }
     }
 }
 

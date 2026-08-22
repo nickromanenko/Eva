@@ -172,11 +172,11 @@ This applies to every user-facing string an engineer writes, not just marketing 
 The onboarding flow in `mobile/Eva/` was built against an earlier direction and does
 **not** match the canvas.
 
-**As of #1 the canvas tokens exist in code** (`Eva/Theme/EvaColors.swift`,
-`EvaTypography.swift`, `EvaMetrics.swift`, `EvaGlass.swift`) — but no view uses them
-yet. Every screen still renders from the legacy set at the bottom of `EvaColors.swift`,
-so everything below is still true on screen. #2 moves the components across, #3 the
-screens; the legacy tokens go away with #3.
+**As of #1 the canvas tokens exist in code**, and **as of #2 the controls use them** —
+buttons, chips and inputs are on the canvas system. Everything around them is not:
+screens still draw their backgrounds, headings and body copy from the legacy set at the
+bottom of `EvaColors.swift`, so the app currently reads as canvas controls on mauve
+screens. #3 re-skins the screens and removes the legacy tokens with it.
 
 | Aspect | Canvas | `mobile/Eva/Theme/` today |
 |---|---|---|
@@ -187,8 +187,9 @@ screens; the legacy tokens go away with #3.
 | Second brand colour | Pistachio family | none |
 | Surfaces | Translucent glass, 3 levels | Flat white |
 | Screen title | 28/34 Montserrat 600 | 31 serif semibold |
-| Primary button | 52 high, radius 17, 180° gradient | 16pt padding, radius 16, 135° gradient |
-| Chips | 44 min-height, radius 14 | 14pt padding, radius 14 |
+| ~~Primary button~~ | 52 high, radius 17, 180° gradient | **done (#2)** |
+| ~~Chips~~ | 44 min-height, radius 14 | **done (#2)** |
+| ~~Inputs~~ | 52 high, radius 17, focus ring | **done (#2)** |
 | Semantic colours | Four, with marks | Green/blue tints, no marks |
 
 **Do not resolve this drift screen-by-screen inside unrelated work.** Re-skinning to
@@ -245,6 +246,13 @@ than left to code:
   card/sheet surfaces). Views never inline a hex, a font size or a radius.
 - Type is anchored to Dynamic Type (`Font.custom(_:size:relativeTo:)` per row), so the
   canvas' exact points hold at the default content size and scale from there.
+- Controls live beside the tokens: `PrimaryButton.swift` and `EvaButtons.swift`
+  (secondary glass, text, destructive, plus the shared press/focus pieces),
+  `EvaInputField.swift`, and `Onboarding/Components/ChipToggleButton.swift`. Heights and
+  the focus-ring width come from `EvaControl` in `EvaMetrics.swift` — one home, so the
+  buttons and the inputs cannot drift apart.
+- `EVA_SPECIMEN=1` renders every token and component on one screen in DEBUG. Adding a
+  token or a component means adding it there too — see `mobile/CLAUDE.md`.
 - Every view file ends with a `#Preview`.
 - Interactive elements need a stable `accessibilityIdentifier` — `EvaUITests` and
   screenshot tooling navigate by them.

@@ -30,6 +30,19 @@ enum EvaSpacing {
 ///
 /// Use `.continuous` rounded rectangles throughout — the canvas corners are
 /// superelliptical, not circular arcs.
+/// Control heights and the focus ring, shared by every interactive control.
+///
+/// The canvas gives these per component (§5 buttons, §6 inputs); they agree, so they
+/// live once here rather than being restated in each component file.
+enum EvaControl {
+    /// 52 — primary and secondary buttons, full-size destructive, and inputs (§5, §6).
+    static let height: CGFloat = 52
+    /// 48 — text button (§5).
+    static let textButtonHeight: CGFloat = 48
+    /// 3pt, drawn outside the border like a CSS `box-shadow: 0 0 0 3px` ring (§5, §6).
+    static let focusRingWidth: CGFloat = 3
+}
+
 enum EvaRadius {
     /// 14 — chips, and text buttons (§5).
     static let chip: CGFloat = 14

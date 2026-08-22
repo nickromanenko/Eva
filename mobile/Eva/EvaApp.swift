@@ -6,19 +6,22 @@ struct EvaApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                switch session.state {
-                case .loading:
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(LinearGradient.evaScreenBackground.ignoresSafeArea())
-                case .signedOut, .needsQuestionnaire:
-                    OnboardingFlowView(session: session)
-                case .ready:
-                    ContentView(session: session)
-                }
+            // The design specimen replaces the whole app when EVA_SPECIMEN=1, so token
+            // and component review needs no navigation and no account. Both the branch
+            // and everything it reaches are inside `#if DEBUG`; a Release build has no
+            // `EvaSpecimenLaunch` to ask and no `EvaSpecimenView` to show.
+            //
+            // Without the variable this is exactly `EvaRootView(session:)`, which is the
+            // switch that used to live here — the normal launch path is untouched.
+            #if DEBUG
+            if EvaSpecimenLaunch.isEnabled {
+                EvaSpecimenView()
+            } else {
+                EvaRootView(session: session)
             }
-            .task { await session.bootstrap() }
+            #else
+            EvaRootView(session: session)
+            #endif
         }
     }
 }

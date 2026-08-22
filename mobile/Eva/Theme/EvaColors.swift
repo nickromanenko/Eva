@@ -98,6 +98,90 @@ extension Color {
     private static let semanticBorderOpacity: Double = 0.32
 }
 
+// MARK: - Control states (DESIGN.md §5, §6)
+//
+// The canvas gives each control's states as literal CSS. These are those values, not
+// derivations — where a value is an opacity of a palette colour it is written that way,
+// and where the canvas gives a discrete hex it is a hex.
+
+extension Color {
+
+    // MARK: Primary button
+
+    /// `#D9799C` — pressed gradient top (§5).
+    static let evaPrimaryButtonPressedTop = Color(hex: 0xD9799C)
+    /// `#B45276` — pressed gradient bottom (§5).
+    static let evaPrimaryButtonPressedBottom = Color(hex: 0xB45276)
+    /// `rgba(201,95,134,.28)` — disabled fill; label stays white (§5).
+    static let evaPrimaryButtonDisabled = Color.evaDeepPink.opacity(0.28)
+    /// `rgba(40,33,38,.6)` — the 3pt focus ring (§5).
+    static let evaFocusRing = Color(hex: 0x282126).opacity(0.6)
+
+    // MARK: Secondary glass button
+
+    /// `rgba(255,255,255,.7)` (§5).
+    static let evaSecondaryFill = Color.white.opacity(0.7)
+    /// `rgba(248,243,240,.9)` — pressed (§5).
+    static let evaSecondaryFillPressed = Color(hex: 0xF8F3F0).opacity(0.9)
+    /// `rgba(255,255,255,.5)` — disabled (§5).
+    static let evaSecondaryFillDisabled = Color.white.opacity(0.5)
+
+    // MARK: Control borders and disabled ink
+
+    /// `rgba(40,33,38,.1)` — the default hairline on controls and inputs (§5, §6).
+    static let evaControlBorder = Color(hex: 0x282126).opacity(0.1)
+    /// `rgba(40,33,38,.14)` — pressed (§5).
+    static let evaControlBorderPressed = Color(hex: 0x282126).opacity(0.14)
+    /// `rgba(40,33,38,.06)` — disabled (§5).
+    static let evaControlBorderDisabled = Color(hex: 0x282126).opacity(0.06)
+    /// `#C8BFC3` — label colour on a disabled control (§5).
+    static let evaDisabledText = Color(hex: 0xC8BFC3)
+
+    // MARK: Destructive
+
+    /// `#B85248` — solid destructive, **in modals only** (§5).
+    static let evaDestructive = Color(hex: 0xB85248)
+    /// `#A9524A` — destructive text and outline label (§5).
+    static let evaDestructiveInk = Color(hex: 0xA9524A)
+    /// `rgba(184,82,72,.5)` — outlined destructive border (§5).
+    static let evaDestructiveBorder = Color(hex: 0xB85248).opacity(0.5)
+    /// `rgba(196,100,90,.3)` — row-level destructive border (§5).
+    static let evaDestructiveRowBorder = Color.evaError.opacity(0.3)
+
+    // MARK: Authentication buttons
+
+    /// `#1C1A1B` — Continue with Apple (§5).
+    static let evaAuthApple = Color(hex: 0x1C1A1B)
+    /// `rgba(255,255,255,.85)` — Continue with Google, glass (§5).
+    static let evaAuthGoogleFill = Color.white.opacity(0.85)
+
+    // MARK: Inputs (§6)
+
+    /// `rgba(255,255,255,.75)` — input fill.
+    static let evaInputFill = Color.white.opacity(0.75)
+    /// `rgba(201,95,134,.16)` — 3pt focus ring; the border itself becomes `evaDeepPink`.
+    static let evaInputFocusRing = Color.evaDeepPink.opacity(0.16)
+    /// `rgba(196,100,90,.14)` — 3pt error ring; the border itself becomes `evaError`.
+    static let evaInputErrorRing = Color.evaError.opacity(0.14)
+    /// `rgba(248,243,240,.8)` — disabled input fill.
+    static let evaInputFillDisabled = Color(hex: 0xF8F3F0).opacity(0.8)
+    /// `#B3A9AE` — disabled input text.
+    static let evaInputTextDisabled = Color(hex: 0xB3A9AE)
+
+    // MARK: Chips (§6)
+
+    /// `rgba(255,255,255,.72)` — default chip fill.
+    static let evaChipFill = Color.white.opacity(0.72)
+    /// `#EE93B1` — selected chip gradient top.
+    static let evaChipSelectedTop = Color(hex: 0xEE93B1)
+    /// `#DC7C9E` — selected chip gradient bottom.
+    static let evaChipSelectedBottom = Color(hex: 0xDC7C9E)
+    /// `#A94A6C` — border on the "severe" chip, whose fill is `evaDeepPink`.
+    static let evaChipSevereBorder = Color(hex: 0xA94A6C)
+    /// `rgba(248,243,240,.8)` — disabled chip fill; label is `evaDisabledText`.
+    static let evaChipFillDisabled = Color(hex: 0xF8F3F0).opacity(0.8)
+}
+
 // MARK: - Canvas gradients (DESIGN.md §2, §5)
 
 extension LinearGradient {
@@ -140,6 +224,21 @@ extension LinearGradient {
             .init(color: .white.opacity(0.28), location: 0),
             .init(color: .white.opacity(0), location: 0.55)
         ],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+
+    /// Primary button, pressed — `linear-gradient(180deg, #D9799C, #B45276)` (§5).
+    /// Pair with a 0.97 scale.
+    static let evaPrimaryButtonPressed = LinearGradient(
+        colors: [.evaPrimaryButtonPressedTop, .evaPrimaryButtonPressedBottom],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+
+    /// Selected chip fill — `linear-gradient(180deg, #EE93B1, #DC7C9E)` (§6).
+    static let evaChipSelected = LinearGradient(
+        colors: [.evaChipSelectedTop, .evaChipSelectedBottom],
         startPoint: .top,
         endPoint: .bottom
     )
