@@ -25,6 +25,7 @@ firebase-debug.log
 # not session state, so they are tracked.
 .claude/*
 !.claude/agents/
+!.claude/commands/
 
 # Astro generated
 .astro/
