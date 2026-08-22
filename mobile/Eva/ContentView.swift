@@ -1,26 +1,48 @@
 import SwiftUI
 
+/// Placeholder dashboard (the designed dashboard lands in a later phase).
 struct ContentView: View {
+    let session: AppSession
+
     @State private var apiStatus: APIStatus = .checking
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Eva")
-                .font(.largeTitle.bold())
+        ZStack {
+            LinearGradient.evaScreenBackground
+                .ignoresSafeArea()
 
-            switch apiStatus {
-            case .checking:
-                ProgressView("Connecting to API…")
-            case .ok(let status):
-                Label("API status: \(status)", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            case .failed(let message):
-                Label(message, systemImage: "xmark.circle.fill")
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
+            VStack(spacing: 16) {
+                Text("Eva")
+                    .font(.system(size: 40, weight: .bold, design: .serif))
+                    .foregroundStyle(LinearGradient.evaPlumPink)
+                    .accessibilityIdentifier("dashboard.title")
+
+                if let email = session.user?.email {
+                    Text(email)
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.evaMuted)
+                }
+
+                switch apiStatus {
+                case .checking:
+                    ProgressView("Connecting to API…")
+                case .ok(let status):
+                    Label("API status: \(status)", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                case .failed(let message):
+                    Label(message, systemImage: "xmark.circle.fill")
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                }
+
+                Button("Log out", action: session.logOut)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.evaFaint)
+                    .padding(.top, 24)
+                    .accessibilityIdentifier("dashboard.logout")
             }
+            .padding()
         }
-        .padding()
         .task { await checkAPI() }
     }
 
@@ -46,10 +68,10 @@ private struct HealthResponse: Decodable {
 }
 
 enum API {
-    static let baseURL = URL(string: "https://eva-api-uwkxxorika-uc.a.run.app")!
-    static let healthURL = baseURL.appending(path: "health")
+    static var baseURL: URL { APIClient.default.baseURL }
+    static var healthURL: URL { baseURL.appending(path: "health") }
 }
 
 #Preview {
-    ContentView()
+    ContentView(session: AppSession())
 }

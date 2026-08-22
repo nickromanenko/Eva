@@ -19,14 +19,42 @@ targets:
     type: application
     platform: iOS
     sources: [Eva]
+    info:
+      path: Eva/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Allows http://localhost for DEBUG/e2e runs; no effect on remote hosts.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.evaapp.ios
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "0.1.0"
     # dependencies:
     #   - package: firebase-ios-sdk
     #     product: FirebaseAuth
+  EvaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [EvaUITests]
+    dependencies:
+      - target: Eva
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.evaapp.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Eva
+
+schemes:
+  Eva:
+    build:
+      targets:
+        Eva: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - EvaUITests

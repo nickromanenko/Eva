@@ -1,8 +1,9 @@
 import SwiftUI
 
 struct SignUpStepView: View {
-    let onAuthenticated: () -> Void
     let onEmailSignUp: () -> Void
+
+    @State private var showComingSoon = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,12 +19,21 @@ struct SignUpStepView: View {
                         .padding(.top, 10)
 
                     VStack(spacing: 12) {
-                        // TODO: wire to Firebase Auth (Apple / Google / email+password) in the auth phase
-                        authButton(title: "Continue with Apple", systemImage: "apple.logo", style: .filled, action: onAuthenticated)
-                        authButton(title: "Continue with Google", systemImage: "g.circle", style: .outlined, action: onAuthenticated)
+                        // Apple/Google arrive in a later phase; email is live.
+                        authButton(title: "Continue with Apple", systemImage: "apple.logo", style: .filled) {
+                            showComingSoon = true
+                        }
+                        authButton(title: "Continue with Google", systemImage: "g.circle", style: .outlined) {
+                            showComingSoon = true
+                        }
                         authButton(title: "Sign up with email", systemImage: "envelope", style: .outlined, action: onEmailSignUp)
                     }
                     .padding(.top, 24)
+                    .alert("Coming soon", isPresented: $showComingSoon) {
+                        Button("OK", role: .cancel) {}
+                    } message: {
+                        Text("Apple and Google sign-in are on the way. For now, sign up with email.")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 26)
@@ -60,10 +70,11 @@ struct SignUpStepView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("signup.method.\(title)")
     }
 }
 
 #Preview {
-    SignUpStepView(onAuthenticated: {}, onEmailSignUp: {})
+    SignUpStepView(onEmailSignUp: {})
         .background(LinearGradient.evaScreenBackground)
 }
