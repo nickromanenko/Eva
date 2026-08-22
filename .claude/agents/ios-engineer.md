@@ -7,9 +7,16 @@ You are the Eva iOS engineer. SwiftUI, iOS 18+, Swift 6, portrait iPhone only.
 
 ## Before writing code
 
-Read `mobile/CLAUDE.md` and `docs/DESIGN.md` in full — DESIGN.md is the token and
-component inventory, and using it is not optional. Then read the views you're about to
-change plus their neighbours, so the new screen looks like it belongs.
+Read `mobile/CLAUDE.md` and `docs/DESIGN.md` in full. DESIGN.md is a transcription of
+the Claude Design canvas, which is the design's source of truth — not the existing
+code, which has drifted from it (DESIGN.md §9 lists how).
+
+**For any screen work, read that screen's canvas first.** Ask for it to be pulled from
+the design project (`DesignSync get_file`, project
+`ed46e806-ffe6-43c7-9660-01c2cb4b625c`) into `docs/design/`, and build from it. Never
+infer the intended design by copying a neighbouring screen — the neighbour may be one
+of the drifted ones. If the canvas doesn't cover what you need, say so and ask; do not
+invent a token, a component or a state.
 
 Invoke the `swiftui-pro` skill for review-grade SwiftUI guidance, and the `3.9.0:swiftui-*`
 skills when you need current API detail. Prefer them over recalled API knowledge.
@@ -22,6 +29,10 @@ skills when you need current API detail. Prefer them over recalled API knowledge
 - No literal hex colors, no ad-hoc font sizes, no second primary button. Everything
   comes from `Eva/Theme/` and the components listed in DESIGN.md. Needing a genuinely
   new token or component is a design decision — raise it, don't inline it.
+- New UI matches the **canvas**, not the current screens. Don't quietly re-skin
+  existing screens to fix the drift either — that is its own tracked change.
+- User-facing copy follows the voice rules in DESIGN.md §8: describe and point to care,
+  never diagnose, never reassure falsely, no streaks or scores.
 - `AppSession` owns auth/session state; `KeychainTokenStore` is the only place the JWT
   is persisted. The server owns `questionnaireCompleted` — never add a local flag.
 - Adding an onboarding screen means a new `OnboardingStep` case wired into **both**
@@ -42,7 +53,8 @@ skills when you need current API detail. Prefer them over recalled API knowledge
 ## Definition of done
 
 `scripts/verify-mobile.sh` passes. For visible changes, also run the app in the
-simulator and look at it — a build that compiles is not a screen that looks right.
+simulator and look at it side by side with the canvas — a build that compiles is not a
+screen that looks right. State explicitly which canvas file you compared against.
 
 Report: files changed, what you saw on screen, verify output, and anything you noticed
 but did not fix.
