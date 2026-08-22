@@ -4,7 +4,21 @@ import SwiftUI
 /// form) → 4-step questionnaire → done.
 struct OnboardingFlowView: View {
     @State private var model = OnboardingModel()
-    let onFinished: () -> Void
+    let session: AppSession
+
+    init(session: AppSession) {
+        self.session = session
+        // Returning user with an unfinished questionnaire lands directly on it.
+        if session.state == .needsQuestionnaire {
+            _model = State(initialValue: {
+                let model = OnboardingModel()
+                if model.step.rawValue < OnboardingStep.aboutYou.rawValue {
+                    model.step = .aboutYou
+                }
+                return model
+            }())
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -29,15 +43,30 @@ struct OnboardingFlowView: View {
     private var stepContent: some View {
         switch model.step {
         case .welcome:
-            WelcomeStepView(onGetStarted: model.getStarted, onLogIn: model.authenticate)
+            WelcomeStepView(onGetStarted: model.getStarted, onLogIn: model.chooseLogIn)
         case .infoScience:
             InfoScienceStepView(onContinue: model.next)
         case .infoSolution:
             InfoSolutionStepView(onContinue: model.next)
         case .signUp:
-            SignUpStepView(onAuthenticated: model.authenticate, onEmailSignUp: model.chooseEmailSignUp)
+            SignUpStepView(onEmailSignUp: model.chooseEmailSignUp)
         case .emailSignUp:
-            EmailSignUpStepView(model: model)
+            EmailSignUpStepView(
+                model: model,
+                onSubmit: { email, password in
+                    try await session.signUp(email: email, password: password)
+                    model.startQuestionnaire()
+                },
+                onGoToLogin: model.chooseLogIn
+            )
+        case .logIn:
+            LoginStepView { email, password in
+                try await session.signIn(email: email, password: password)
+                if session.state == .needsQuestionnaire {
+                    model.startQuestionnaire()
+                }
+                // .ready is handled by EvaApp switching to the dashboard.
+            }
         case .aboutYou:
             AboutYouStepView(model: model, onContinue: model.next)
         case .goals:
@@ -45,9 +74,12 @@ struct OnboardingFlowView: View {
         case .health:
             HealthStepView(model: model, onContinue: model.next)
         case .lifestyle:
-            LifestyleStepView(model: model, onContinue: model.next)
+            LifestyleStepView(model: model) {
+                try await session.submitQuestionnaire(model.profilePayload)
+                model.next()
+            }
         case .done:
-            DoneStepView(onFinish: onFinished)
+            DoneStepView(onFinish: session.enterDashboard)
         }
     }
 
@@ -106,5 +138,5 @@ struct OnboardingFlowView: View {
 }
 
 #Preview {
-    OnboardingFlowView(onFinished: {})
+    OnboardingFlowView(session: AppSession())
 }

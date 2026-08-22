@@ -4,16 +4,21 @@ import SwiftUI
 struct PrimaryButton: View {
     let title: String
     var showsArrow = false
+    var isLoading = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 16.5, weight: .bold))
-                if showsArrow {
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 15, weight: .bold))
+                if isLoading {
+                    ProgressView().tint(.white)
+                } else {
+                    Text(title)
+                        .font(.system(size: 16.5, weight: .bold))
+                    if showsArrow {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 15, weight: .bold))
+                    }
                 }
             }
             .foregroundStyle(.white)
@@ -23,6 +28,8 @@ struct PrimaryButton: View {
             .shadow(color: .evaPlum.opacity(0.45), radius: 15, y: 9)
         }
         .buttonStyle(.plain)
+        .disabled(isLoading)
+        .accessibilityIdentifier("primary.\(title)")
     }
 }
 

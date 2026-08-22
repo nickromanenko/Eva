@@ -3,6 +3,7 @@ import SwiftUI
 /// Shared scaffold for onboarding steps: scrollable content pinned above a primary CTA.
 struct OnboardingStepLayout<Content: View>: View {
     let buttonTitle: String
+    var isLoading = false
     let onContinue: () -> Void
     @ViewBuilder let content: Content
 
@@ -19,7 +20,7 @@ struct OnboardingStepLayout<Content: View>: View {
             }
             .scrollIndicators(.hidden)
 
-            PrimaryButton(title: buttonTitle, action: onContinue)
+            PrimaryButton(title: buttonTitle, isLoading: isLoading, action: onContinue)
                 .padding(.horizontal, 26)
                 .padding(.bottom, 16)
         }

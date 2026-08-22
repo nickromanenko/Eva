@@ -22,7 +22,7 @@ Backend services: Firestore, Firebase Auth, Firebase Storage.
 ## Quickstart
 
 ```sh
-# API — http://localhost:3000, GET /health
+# API — http://localhost:3003, GET /health
 cd api && bun install && bun run dev
 
 # Website — http://localhost:4321
@@ -93,3 +93,18 @@ gh variable set GCP_WIF_PROVIDER --body "projects/PROJECT_NUMBER/locations/globa
 ```
 
 Also set the real project ID in `.firebaserc`.
+
+## Auth & e2e validation
+
+The API owns auth (see `docs/superpowers/specs/2026-07-18-email-auth-design.md`): it calls
+Firebase Identity Toolkit for email/password credentials, stores users in Firestore
+(`users/{uid}`), and mints a 30-day HS256 JWT (`JWT_SECRET`). Local API config lives in
+`api/.env` (see `api/.env.example`); the local dev service account key is in `api/.secrets/`
+(both gitignored).
+
+Run the full end-to-end validation (API tests + iOS UI sign-up test against the real
+Firebase project, with automatic cleanup of `e2e+*@e2e.evaapp.dev` accounts):
+
+```sh
+scripts/e2e.sh
+```

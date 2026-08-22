@@ -2,12 +2,15 @@ import SwiftUI
 
 struct LifestyleStepView: View {
     @Bindable var model: OnboardingModel
-    let onContinue: () -> Void
+    let onSubmit: () async throws -> Void
+
+    @State private var isLoading = false
+    @State private var errorMessage: String?
 
     private let sportColumns = [GridItem(.flexible(), spacing: 11), GridItem(.flexible(), spacing: 11)]
 
     var body: some View {
-        OnboardingStepLayout(buttonTitle: "Build my plan", onContinue: onContinue) {
+        OnboardingStepLayout(buttonTitle: "Build my plan", isLoading: isLoading, onContinue: submit) {
             QuestionnaireHeading(title: "Your lifestyle")
 
             sectionLabel("How active is your day-to-day?")
@@ -38,6 +41,27 @@ struct LifestyleStepView: View {
                 }
             }
             .padding(.top, 12)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Color.evaPlum)
+                    .padding(.top, 14)
+            }
+        }
+    }
+
+    private func submit() {
+        guard !isLoading else { return }
+        isLoading = true
+        errorMessage = nil
+        Task {
+            do {
+                try await onSubmit()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isLoading = false
         }
     }
 
@@ -57,6 +81,6 @@ struct LifestyleStepView: View {
 }
 
 #Preview {
-    LifestyleStepView(model: OnboardingModel(), onContinue: {})
+    LifestyleStepView(model: OnboardingModel(), onSubmit: {})
         .background(LinearGradient.evaScreenBackground)
 }

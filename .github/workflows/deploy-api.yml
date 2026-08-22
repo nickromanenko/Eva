@@ -31,4 +31,6 @@ jobs:
             --source api \
             --project ${{ vars.GCP_PROJECT_ID }} \
             --region ${{ vars.GCP_REGION }} \
-            --allow-unauthenticated
+            --allow-unauthenticated \
+            --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }}" \
+            --set-secrets "JWT_SECRET=eva-jwt-secret:latest"

@@ -1,32 +1,36 @@
 import SwiftUI
 
-struct EmailSignUpStepView: View {
-    @Bindable var model: OnboardingModel
+/// Email/password sign-in for returning users, reached from "Log in" on welcome.
+struct LoginStepView: View {
     let onSubmit: (_ email: String, _ password: String) async throws -> Void
-    let onGoToLogin: () -> Void
 
+    @State private var email = ""
+    @State private var password = ""
     @State private var errorMessage: String?
-    @State private var showLoginLink = false
     @State private var isLoading = false
 
     private enum Field { case email, password }
     @FocusState private var focusedField: Field?
 
+    private var isValid: Bool {
+        email.wholeMatch(of: /\S+@\S+\.\S+/) != nil && !password.isEmpty
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Sign up with email")
+                    Text("Welcome back")
                         .font(.system(size: 31, weight: .semibold, design: .serif))
                         .foregroundStyle(Color.evaInk)
-                    Text("Create your login — you can add the rest in a moment.")
+                    Text("Log in to continue your Prime Era.")
                         .font(.system(size: 14.5))
                         .foregroundStyle(Color.evaBody)
                         .padding(.top, 10)
 
                     VStack(alignment: .leading, spacing: 16) {
                         field(label: "Email") {
-                            TextField("you@email.com", text: $model.email)
+                            TextField("you@email.com", text: $email)
                                 .keyboardType(.emailAddress)
                                 .textContentType(.emailAddress)
                                 .textInputAutocapitalization(.never)
@@ -34,36 +38,21 @@ struct EmailSignUpStepView: View {
                                 .focused($focusedField, equals: .email)
                                 .submitLabel(.next)
                                 .onSubmit { focusedField = .password }
-                                .accessibilityIdentifier("signup.email")
+                                .accessibilityIdentifier("login.email")
                         }
                         field(label: "Password") {
-                            // .password, not .newPassword: the automatic strong-password
-                            // overlay breaks both UI tests and manual typing in simulators.
-                            SecureField("At least 8 characters", text: $model.password)
+                            SecureField("Your password", text: $password)
                                 .textContentType(.password)
                                 .focused($focusedField, equals: .password)
-                                .submitLabel(.done)
+                                .submitLabel(.go)
                                 .onSubmit { submit() }
-                                .accessibilityIdentifier("signup.password")
+                                .accessibilityIdentifier("login.password")
                         }
                         if let errorMessage {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(errorMessage)
-                                    .font(.system(size: 12.5))
-                                    .foregroundStyle(Color.evaPlum)
-                                    .accessibilityIdentifier("signup.error")
-                                if showLoginLink {
-                                    Button("Log in instead", action: onGoToLogin)
-                                        .font(.system(size: 12.5, weight: .bold))
-                                        .foregroundStyle(Color.evaPlum)
-                                }
-                            }
-                        } else {
-                            Text(model.isEmailFormValid
-                                 ? "Looks good — you're ready to continue."
-                                 : "Enter a valid email and a password of 8+ characters.")
+                            Text(errorMessage)
                                 .font(.system(size: 12.5))
-                                .foregroundStyle(model.isEmailFormValid ? Color.evaGreenIcon : Color.evaFaint)
+                                .foregroundStyle(Color.evaPlum)
+                                .accessibilityIdentifier("login.error")
                         }
                     }
                     .padding(.top, 24)
@@ -79,44 +68,39 @@ struct EmailSignUpStepView: View {
                     if isLoading {
                         ProgressView().tint(.white)
                     } else {
-                        Text("Create account")
+                        Text("Log in")
                     }
                 }
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(background, in: .rect(cornerRadius: 16))
-                .shadow(color: model.isEmailFormValid ? .evaPlum.opacity(0.45) : .clear, radius: 15, y: 9)
+                .background(
+                    isValid ? AnyShapeStyle(LinearGradient.evaPlumPink) : AnyShapeStyle(Color(hex: 0xD7C3D1)),
+                    in: .rect(cornerRadius: 16)
+                )
+                .shadow(color: isValid ? .evaPlum.opacity(0.45) : .clear, radius: 15, y: 9)
             }
             .buttonStyle(.plain)
-            .disabled(!model.isEmailFormValid || isLoading)
-            .accessibilityIdentifier("signup.submit")
+            .disabled(!isValid || isLoading)
+            .accessibilityIdentifier("login.submit")
             .padding(.horizontal, 26)
             .padding(.bottom, 16)
         }
     }
 
     private func submit() {
-        guard model.isEmailFormValid, !isLoading else { return }
+        guard isValid, !isLoading else { return }
         isLoading = true
         errorMessage = nil
-        showLoginLink = false
         Task {
             do {
-                try await onSubmit(model.email, model.password)
+                try await onSubmit(email, password)
             } catch {
                 errorMessage = error.localizedDescription
-                showLoginLink = (error as? APIError)?.code == "EMAIL_EXISTS"
             }
             isLoading = false
         }
-    }
-
-    private var background: AnyShapeStyle {
-        model.isEmailFormValid
-            ? AnyShapeStyle(LinearGradient.evaPlumPink)
-            : AnyShapeStyle(Color(hex: 0xD7C3D1))
     }
 
     private func field(label: String, @ViewBuilder content: () -> some View) -> some View {
@@ -140,6 +124,6 @@ struct EmailSignUpStepView: View {
 }
 
 #Preview {
-    EmailSignUpStepView(model: OnboardingModel(), onSubmit: { _, _ in }, onGoToLogin: {})
+    LoginStepView { _, _ in }
         .background(LinearGradient.evaScreenBackground)
 }

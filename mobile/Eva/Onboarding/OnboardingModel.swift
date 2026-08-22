@@ -2,14 +2,14 @@ import SwiftUI
 
 enum OnboardingStep: Int, CaseIterable {
     // Public flow
-    case welcome, infoScience, infoSolution, signUp, emailSignUp
+    case welcome, infoScience, infoSolution, signUp, emailSignUp, logIn
     // Questionnaire (post-auth)
     case aboutYou, goals, health, lifestyle, done
 
     /// Plain floating back button, no progress (public screens).
     var showsPublicHeader: Bool {
         switch self {
-        case .infoScience, .infoSolution, .signUp, .emailSignUp: true
+        case .infoScience, .infoSolution, .signUp, .emailSignUp, .logIn: true
         default: false
         }
     }
@@ -66,6 +66,20 @@ final class OnboardingModel {
         email.wholeMatch(of: /\S+@\S+\.\S+/) != nil && password.count >= 8
     }
 
+    /// Questionnaire answers as the API payload.
+    var profilePayload: ProfilePayload {
+        ProfilePayload(
+            age: age,
+            weightKg: weightKg,
+            heightCm: heightCm,
+            goals: goals.sorted(),
+            conditions: conditions.sorted(),
+            medications: medications ?? "",
+            lifestyle: lifestyle ?? "",
+            sports: sports.sorted()
+        )
+    }
+
     /// Progress across the 4 questionnaire steps: 25% → 100%.
     var questionnaireProgress: Double {
         guard let index = step.questionnaireIndex else { return 1 }
@@ -76,16 +90,12 @@ final class OnboardingModel {
 
     func getStarted() { step = .infoScience }
 
-    /// "Log in" / Apple / Google — auth is stubbed until the Firebase Auth phase;
-    /// all of them land on the questionnaire.
-    func authenticate() { step = .aboutYou }
-
     func chooseEmailSignUp() { step = .emailSignUp }
 
-    func submitEmailForm() {
-        guard isEmailFormValid else { return }
-        authenticate()
-    }
+    func chooseLogIn() { step = .logIn }
+
+    /// Called after any successful authentication with an incomplete questionnaire.
+    func startQuestionnaire() { step = .aboutYou }
 
     func back() {
         switch step {
@@ -93,6 +103,7 @@ final class OnboardingModel {
         case .infoSolution: step = .infoScience
         case .signUp: step = .infoSolution
         case .emailSignUp: step = .signUp
+        case .logIn: step = .welcome
         case .goals: step = .aboutYou
         case .health: step = .goals
         case .lifestyle: step = .health
@@ -105,7 +116,7 @@ final class OnboardingModel {
         case .welcome: step = .infoScience
         case .infoScience: step = .infoSolution
         case .infoSolution: step = .signUp
-        case .signUp, .emailSignUp: step = .aboutYou
+        case .signUp, .emailSignUp, .logIn: step = .aboutYou
         case .aboutYou: step = .goals
         case .goals: step = .health
         case .health: step = .lifestyle
