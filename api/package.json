@@ -2,12 +2,17 @@
   "name": "api",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "verify": "bash ../scripts/verify-api.sh"
   },
   "dependencies": {
+    "firebase-admin": "^14.2.0",
     "hono": "^4.12.30"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
   }
 }

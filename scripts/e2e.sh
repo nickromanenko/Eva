@@ -15,10 +15,10 @@ API_PID=$!
 trap 'kill $API_PID 2>/dev/null' EXIT
 
 for _ in $(seq 1 20); do
-  curl -sf http://localhost:3000/health >/dev/null && break
+  curl -sf http://localhost:3003/health >/dev/null && break
   sleep 0.5
 done
-curl -sf http://localhost:3000/health >/dev/null || { echo "✗ API failed to start"; cat "$API_LOG"; exit 1; }
+curl -sf http://localhost:3003/health >/dev/null || { echo "✗ API failed to start"; cat "$API_LOG"; exit 1; }
 
 echo "▶ API integration tests"
 (cd api && bun test) || FAILED=1
