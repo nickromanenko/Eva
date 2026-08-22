@@ -18,6 +18,33 @@ xcodegen generate && open Eva.xcodeproj
 `project.yml` and regenerate. New Swift files under `Eva/` are picked up
 automatically (`sources: [Eva]`); no project change needed.
 
+## Design specimen (DEBUG)
+
+`EVA_SPECIMEN=1` replaces the whole app with `EvaSpecimenView` — every token and
+component in `Eva/Theme/` on one scrollable screen, so a change to the design system can
+be looked at against the canvas without building a harness for it. DEBUG only: the view,
+the flag (`Theme/Specimen/EvaSpecimenLaunch.swift`) and the branch in `EvaApp` are all
+inside `#if DEBUG`.
+
+```sh
+UDID=D748EB89-9D96-4D48-9033-9AC0DA65FE7A
+../scripts/verify-mobile.sh --build
+xcrun simctl install $UDID build/Build/Products/Debug-iphonesimulator/Eva.app
+SIMCTL_CHILD_EVA_SPECIMEN=1 xcrun simctl launch --terminate-running-process $UDID com.evaapp.ios
+xcrun simctl io $UDID screenshot /tmp/specimen.png
+```
+
+`simctl launch` has **no `--setenv`** — anything after the bundle id is argv, and the app
+launches normally. Environment goes in the calling environment with a `SIMCTL_CHILD_`
+prefix, as above. Same for the other hooks: `SIMCTL_CHILD_EVA_ONBOARDING_STEP=3`.
+
+`simctl` cannot scroll. To capture below the fold, drive the simulator with the
+`Claude Code iOS Simulator` MCP (`swipe` from `y: 760` to `y: 180`, ~580pt a time, then
+`screenshot`) — start more than 4pt from any edge or the swipe becomes an OS edge
+gesture. `specimen.title` and `specimen.end` mark the two ends of the sweep.
+
+Adding a token or a component means adding it to the specimen too.
+
 ## Structure
 
 | Folder | Owns |
@@ -25,7 +52,8 @@ automatically (`sources: [Eva]`); no project change needed.
 | `Eva/Networking/` | `APIClient` (async JSON), `APIError`, `APIModels` (wire types) |
 | `Eva/Session/` | `AppSession` (all auth/session state), `KeychainTokenStore` (only token storage) |
 | `Eva/Onboarding/` | `OnboardingModel` state machine, `Steps/`, `Components/` |
-| `Eva/Theme/` | Colors, gradients, `PrimaryButton`, progress style |
+| `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field |
+| `Eva/Theme/Specimen/` | DEBUG-only design specimen — see above |
 | `EvaUITests/` | XCUITest — sign-up → questionnaire → dashboard |
 
 ## Rules
@@ -42,7 +70,7 @@ automatically (`sources: [Eva]`); no project change needed.
 - Interactive elements need a stable `accessibilityIdentifier` — UI tests and
   screenshot tooling navigate by it. `PrimaryButton` sets `primary.<title>`.
 - Keep the DEBUG hooks working: `EVA_ONBOARDING_STEP`, `EVA_UITEST_RESET`,
-  `EVA_API_BASE_URL`.
+  `EVA_API_BASE_URL`, `EVA_SPECIMEN`.
 - No Firebase iOS SDK. It stays commented out in `project.yml` until it's a decided
   task.
 

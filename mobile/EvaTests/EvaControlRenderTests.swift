@@ -1,0 +1,460 @@
+import Testing
+import SwiftUI
+@testable import Eva
+
+/// Issue #2 acceptance, checked against what the controls actually draw:
+/// "Primary button: … `linear-gradient(180°, #EE93B1→#C95F86)` … pressed (scale .97,
+/// darker), focused ring, disabled fill", "Chips: … four states", "Inputs: 52 high …
+/// focus ring".
+///
+/// The token suites prove the values exist and are right. They cannot prove a control
+/// uses them — `EvaPrimaryButtonStyle.fill(for:)` and `ChipToggleButton.Appearance` are
+/// both private, so a style that silently painted `Color.red` would pass every other
+/// test in this bundle. These read the pixels back.
+///
+/// See `EvaRenderSupport.swift` for why this is not snapshot testing: no reference
+/// images, nothing recorded, every expectation a hex from DESIGN.md at a named point.
+@MainActor
+@Suite("DESIGN.md §5/§6 controls as rendered")
+struct EvaControlRenderTests {
+
+    /// Sampling tolerance in 0–255 steps. Covers gradient interpolation a pixel inside
+    /// the end stop and CoreGraphics' compositing rounding; far tighter than the gap
+    /// between any two values in the §5/§6 set.
+    private static let tolerance = 6
+
+    // MARK: The gradients themselves
+
+    @Test("The primary fill is #EE93B1 at the top and #C95F86 at the bottom")
+    func primaryGradientIsVerticalAndCorrect() throws {
+        // §5: `linear-gradient(180deg,#EE93B1,#C95F86)`. 180° in CSS is top-to-bottom,
+        // which is the half of the spec a stop-only assertion cannot see.
+        let raster = try EvaRaster(
+            Rectangle().fill(LinearGradient.evaPrimaryButton),
+            size: CGSize(width: 8, height: 100)
+        )
+        #expect(raster.pixel(4, 0).isWithin(Self.tolerance, of: Color(hex: 0xEE93B1).evaTestRGBA),
+                "gradient top is \(raster.pixel(4, 0).hexString), expected #EE93B1")
+        #expect(raster.pixel(4, 99).isWithin(Self.tolerance, of: Color(hex: 0xC95F86).evaTestRGBA),
+                "gradient bottom is \(raster.pixel(4, 99).hexString), expected #C95F86")
+    }
+
+    @Test("The pressed primary fill is #D9799C at the top and #B45276 at the bottom")
+    func pressedGradientIsVerticalAndCorrect() throws {
+        // §5: "Primary · pressed | Darker (#D9799C→#B45276)".
+        let raster = try EvaRaster(
+            Rectangle().fill(LinearGradient.evaPrimaryButtonPressed),
+            size: CGSize(width: 8, height: 100)
+        )
+        #expect(raster.pixel(4, 0).isWithin(Self.tolerance, of: Color(hex: 0xD9799C).evaTestRGBA),
+                "pressed gradient top is \(raster.pixel(4, 0).hexString), expected #D9799C")
+        #expect(raster.pixel(4, 99).isWithin(Self.tolerance, of: Color(hex: 0xB45276).evaTestRGBA),
+                "pressed gradient bottom is \(raster.pixel(4, 99).hexString), expected #B45276")
+    }
+
+    @Test("The selected-chip fill runs light to dark down the chip")
+    func chipGradientIsVertical() throws {
+        // §6 asks for a "selected pink gradient" without stops, so only the direction
+        // and the fact that it *is* a gradient can be asserted from the document.
+        let raster = try EvaRaster(
+            Rectangle().fill(LinearGradient.evaChipSelected),
+            size: CGSize(width: 8, height: 100)
+        )
+        let top = raster.pixel(4, 0)
+        let bottom = raster.pixel(4, 99)
+        #expect(top.relativeLuminance > bottom.relativeLuminance,
+                "selected chip gradient is \(top.hexString) → \(bottom.hexString)")
+    }
+
+    // MARK: The primary button
+
+    /// 200 × 52 with no margin, so the button fills the raster and a coordinate needs
+    /// no arithmetic. x = 60 is well inside the radius-17 corner and well clear of the
+    /// centred label.
+    private func primaryRaster(_ style: EvaPrimaryButtonStyle, background: Color = .black) throws
+        -> EvaRaster {
+        try EvaRaster(
+            Button("Continue") {}.buttonStyle(style).frame(width: 200),
+            size: CGSize(width: 200, height: 52),
+            background: background
+        )
+    }
+
+    @Test("The primary button paints the §5 gradient, top to bottom")
+    func primaryButtonUsesTheGradient() throws {
+        let raster = try primaryRaster(EvaPrimaryButtonStyle(previewState: .normal))
+        #expect(raster.pixel(60, 1).isWithin(Self.tolerance, of: Color(hex: 0xEE93B1).evaTestRGBA),
+                "button top is \(raster.pixel(60, 1).hexString), expected #EE93B1")
+        #expect(raster.pixel(60, 50).isWithin(Self.tolerance, of: Color(hex: 0xC95F86).evaTestRGBA),
+                "button bottom is \(raster.pixel(60, 50).hexString), expected #C95F86")
+    }
+
+    @Test("The pressed primary button paints the darker gradient")
+    func pressedPrimaryButtonUsesThePressedGradient() throws {
+        let raster = try primaryRaster(EvaPrimaryButtonStyle(previewState: .pressed))
+        #expect(raster.pixel(60, 1).isWithin(Self.tolerance, of: Color(hex: 0xD9799C).evaTestRGBA),
+                "pressed button top is \(raster.pixel(60, 1).hexString), expected #D9799C")
+        #expect(raster.pixel(60, 50).isWithin(Self.tolerance, of: Color(hex: 0xB45276).evaTestRGBA),
+                "pressed button bottom is \(raster.pixel(60, 50).hexString), expected #B45276")
+    }
+
+    @Test("The disabled primary button paints Deep Pink at 28%")
+    func disabledPrimaryButtonUsesTheDisabledFill() throws {
+        // §5: "rgba(201,95,134,.28) fill". Rendered over the canvas' own warm
+        // background, which is what it will sit on.
+        let background = Color.evaWarmBackground
+        let raster = try primaryRaster(
+            EvaPrimaryButtonStyle(previewState: .disabled),
+            background: background
+        )
+        let expected = evaComposite(.evaPrimaryButtonDisabled, over: background)
+        for y in [1, 26, 50] {
+            #expect(raster.pixel(60, y).isWithin(Self.tolerance, of: expected),
+                    "disabled fill at y=\(y) is \(raster.pixel(60, y).hexString), expected \(expected.hexString)")
+        }
+    }
+
+    @Test("A genuinely disabled primary button reaches the same disabled fill")
+    func actuallyDisabledPrimaryButtonUsesTheDisabledFill() throws {
+        // The test above forces the state; this one is the path a screen takes —
+        // `.disabled(true)` in the environment, resolved through `\.isEnabled`. They can
+        // diverge: `previewState` bypasses the resolver entirely.
+        let background = Color.evaWarmBackground
+        let raster = try EvaRaster(
+            Button("Continue") {}
+                .buttonStyle(EvaPrimaryButtonStyle())
+                .disabled(true)
+                .frame(width: 200),
+            size: CGSize(width: 200, height: 52),
+            background: background
+        )
+        let expected = evaComposite(.evaPrimaryButtonDisabled, over: background)
+        #expect(raster.pixel(60, 26).isWithin(Self.tolerance, of: expected),
+                "disabled fill is \(raster.pixel(60, 26).hexString), expected \(expected.hexString)")
+    }
+
+    @Test("A loading primary button keeps the enabled fill")
+    func loadingPrimaryButtonStaysEnabledLooking() throws {
+        // `PrimaryButton` disables itself while a request is in flight so it cannot be
+        // double-tapped. The canvas has no loading state, and the style deliberately
+        // keeps the enabled gradient — a spinner on the 28% disabled fill would say
+        // "nothing is happening" when something is. Deliberate deviations need a test
+        // more than transcriptions do, because nothing else records them.
+        let background = Color.evaWarmBackground
+        let raster = try EvaRaster(
+            PrimaryButton(title: "Continue", isLoading: true) {}.frame(width: 200),
+            size: CGSize(width: 200, height: 52),
+            background: background
+        )
+        let disabled = evaComposite(.evaPrimaryButtonDisabled, over: background)
+        #expect(!raster.pixel(30, 26).isWithin(Self.tolerance, of: disabled),
+                "the loading button is wearing the disabled fill")
+        #expect(raster.pixel(30, 1).isWithin(Self.tolerance, of: Color(hex: 0xEE93B1).evaTestRGBA),
+                "loading button top is \(raster.pixel(30, 1).hexString), expected #EE93B1")
+    }
+
+    @Test("The focused primary button draws a 3pt ring outside its edge")
+    func focusedPrimaryButtonDrawsTheRing() throws {
+        // §5: "Primary · focused | 3px rgba(40,33,38,.6) ring". Drawn *outside* the
+        // control, so focus never reflows the layout — which is why the ring is looked
+        // for in the margin rather than on the button.
+        //
+        // The margin is not plain background: the button's `0 12px 26px` pink shadow
+        // reaches into it. So the two renders are compared against each other instead —
+        // the shadow is identical in both, and the ring has to be exactly the §5 colour
+        // laid over whatever the unfocused button already put there.
+        let background = Color.evaWarmBackground
+        let size = CGSize(width: 240, height: 92)
+        func raster(_ state: EvaButtonState) throws -> EvaRaster {
+            try EvaRaster(
+                Button("Continue") {}
+                    .buttonStyle(EvaPrimaryButtonStyle(previewState: state))
+                    .frame(width: 200),
+                size: size,
+                background: background
+            )
+        }
+        let focused = try raster(.focused)
+        let normal = try raster(.normal)
+
+        // The button is centred: 200 × 52 in 240 × 92 puts its left edge at x = 20 and
+        // its vertical centre at y = 46. The ring occupies x = 17...19.
+        for x in [17, 18, 19] {
+            let under = normal.pixel(x, 46)
+            let expected = evaComposite(.evaFocusRing, over: Color(
+                red: under.red, green: under.green, blue: under.blue
+            ))
+            #expect(focused.pixel(x, 46).isWithin(Self.tolerance, of: expected),
+                    "ring pixel at x=\(x) is \(focused.pixel(x, 46).hexString), expected \(expected.hexString)")
+        }
+        // …and stops there: 4 points out is untouched.
+        #expect(focused.pixel(16, 46).isWithin(Self.tolerance, of: normal.pixel(16, 46)),
+                "the ring is wider than 3 points — x=16 differs between the two states")
+        #expect(!focused.pixel(18, 46).isWithin(Self.tolerance, of: normal.pixel(18, 46)),
+                "an unfocused and a focused button drew the same thing at the ring's position")
+    }
+
+    @Test("Pressing scales the control to .97 of its width without changing its layout")
+    func pressShrinksTheDrawnControl() throws {
+        // §5: "scale .97". Measured on the solid destructive because it is the one
+        // variant with a flat fill and no drop shadow, so the drawn edge is the
+        // control's edge; every Eva button style applies the same
+        // `EvaButtonPress.scale`.
+        let size = CGSize(width: 240, height: 92)
+        func drawnWidth(_ state: EvaButtonState) throws -> Int {
+            let raster = try EvaRaster(
+                Button("Delete") {}
+                    .buttonStyle(EvaDestructiveButtonStyle(kind: .solid, previewState: state))
+                    .frame(width: 200),
+                size: size,
+                background: .black
+            )
+            // Black, not the warm background: the label is white, and white against
+            // `#FFF9F6` is inside the sampling tolerance, so the band would read as
+            // broken where the letters are.
+            return raster.tallestNonBackgroundRun(
+                inRow: 46, background: Color.black.evaTestRGBA
+            )
+        }
+        let resting = try drawnWidth(.normal)
+        let pressed = try drawnWidth(.pressed)
+        #expect(abs(resting - 200) <= 1, "the resting control drew \(resting) points wide")
+        // 200 × .97 = 194.
+        #expect(abs(pressed - 194) <= 1,
+                "the pressed control drew \(pressed) points wide, expected 194")
+        // The layout must not move: the press is a draw-time effect only.
+        #expect(evaFittingHeight(
+            Button("Delete") {}
+                .buttonStyle(EvaDestructiveButtonStyle(kind: .solid, previewState: .pressed))
+        ) == 52)
+    }
+
+    // MARK: Chips
+
+    /// 160 × 44, centred label, so x = 20 is inside the fill and clear of the text.
+    private func chipRaster(
+        isSelected: Bool = false,
+        isSevere: Bool = false,
+        isDisabled: Bool = false,
+        background: Color = .black
+    ) throws -> EvaRaster {
+        try EvaRaster(
+            ChipToggleButton(
+                label: "A",
+                isSelected: isSelected,
+                isCentered: true,
+                isSevere: isSevere,
+                isDisabled: isDisabled
+            ) {}
+            .frame(width: 160),
+            size: CGSize(width: 160, height: 44),
+            background: background
+        )
+    }
+
+    @Test("The default chip paints the glass fill")
+    func defaultChipFill() throws {
+        let background = Color.black
+        let raster = try chipRaster(background: background)
+        let expected = evaComposite(.evaChipFill, over: background)
+        #expect(raster.pixel(20, 22).isWithin(Self.tolerance, of: expected),
+                "default chip is \(raster.pixel(20, 22).hexString), expected \(expected.hexString)")
+    }
+
+    @Test("The severe chip is solid #C95F86 and carries its bar glyph")
+    func severeChipFillAndGlyph() throws {
+        // §6: "severe solid #C95F86 with a bar glyph". The glyph is the non-colour half
+        // of the cue §1 requires, so its absence is a guardrail failure and not a
+        // cosmetic one — it is looked for as white pixels on the pink field.
+        let raster = try chipRaster(isSelected: true, isSevere: true)
+        #expect(raster.pixel(20, 22).isWithin(Self.tolerance, of: Color.evaDeepPink.evaTestRGBA),
+                "severe chip is \(raster.pixel(20, 22).hexString), expected #C95F86")
+
+        var sawWhite = false
+        for x in 0..<raster.width where raster.pixel(x, 22).isWithin(8, of: Color.white.evaTestRGBA) {
+            sawWhite = true
+        }
+        #expect(sawWhite, "the severe chip drew no white glyph or label on its centre line")
+    }
+
+    @Test("The selected chip paints a vertical pink gradient")
+    func selectedChipFill() throws {
+        let raster = try chipRaster(isSelected: true)
+        let top = raster.pixel(20, 2)
+        let bottom = raster.pixel(20, 41)
+        #expect(top.isWithin(Self.tolerance, of: Color.evaChipSelectedTop.evaTestRGBA),
+                "selected chip top is \(top.hexString)")
+        #expect(bottom.isWithin(Self.tolerance, of: Color.evaChipSelectedBottom.evaTestRGBA),
+                "selected chip bottom is \(bottom.hexString)")
+        #expect(top.relativeLuminance > bottom.relativeLuminance)
+    }
+
+    @Test("The disabled chip paints the muted neutral")
+    func disabledChipFill() throws {
+        // §6 asks for a "disabled muted" chip without giving a value, so the hue is the
+        // checkable part: it must be Secondary Background `#F8F3F0` and not, say, a
+        // desaturated pink.
+        //
+        // The *opacity* is deliberately not asserted. `ChipToggleButton` is a
+        // `.plain`-styled `Button` with `.disabled(true)`, and SwiftUI's plain style
+        // dims a disabled button on top of whatever the label already drew — the token
+        // says 80%, the chip renders at 40%. That is reported as a finding rather than
+        // pinned here, because the canvas gives no number to call it wrong against.
+        let (hue, alpha) = try chipDisabledFillSolvedFromTwoBackgrounds()
+        #expect(hue.isWithin(Self.tolerance, of: Color(hex: 0xF8F3F0).evaTestRGBA),
+                "disabled chip hue is \(hue.hexString), expected #F8F3F0 (rendered at \(alpha) alpha)")
+    }
+
+    /// Recovers a translucent fill's colour and its *rendered* opacity by drawing it
+    /// twice, on black and on white, and solving the two compositing equations.
+    private func chipDisabledFillSolvedFromTwoBackgrounds() throws -> (EvaRGBA, Double) {
+        let onBlack = try chipRaster(isDisabled: true, background: .black).pixel(20, 22)
+        let onWhite = try chipRaster(isDisabled: true, background: .white).pixel(20, 22)
+        // onWhite − onBlack = 1 − alpha, per channel.
+        let alpha = 1 - (
+            (onWhite.red - onBlack.red)
+            + (onWhite.green - onBlack.green)
+            + (onWhite.blue - onBlack.blue)
+        ) / 3
+        guard alpha > 0.01 else { return (onBlack, alpha) }
+        return (
+            EvaRGBA(
+                red: onBlack.red / alpha,
+                green: onBlack.green / alpha,
+                blue: onBlack.blue / alpha,
+                alpha: 1
+            ),
+            (alpha * 100).rounded() / 100
+        )
+    }
+
+    @Test("The four chip states are four different fills on screen")
+    func chipStatesAreVisiblyDistinct() throws {
+        // The token suite proves the four colours differ. This proves the component
+        // actually reaches all four — a broken `appearance` that collapsed severe onto
+        // selected would leave every token correct.
+        let samples: [(String, EvaRGBA)] = [
+            ("default", try chipRaster().pixel(20, 22)),
+            ("selected", try chipRaster(isSelected: true).pixel(20, 22)),
+            ("severe", try chipRaster(isSelected: true, isSevere: true).pixel(20, 22)),
+            ("disabled", try chipRaster(isDisabled: true).pixel(20, 22))
+        ]
+        for i in samples.indices {
+            for j in samples.indices where j > i {
+                #expect(
+                    !samples[i].1.isWithin(Self.tolerance, of: samples[j].1),
+                    "the \(samples[i].0) and \(samples[j].0) chips render the same: \(samples[i].1.hexString)"
+                )
+            }
+        }
+    }
+
+    @Test("The chip's corners are the radius-14 curve, not the radius-17 one")
+    func chipCornerRadius() throws {
+        // §6 gives chips radius 14 while §5 gives every other control 17. Three points
+        // is a small difference in a token diff and an invisible one in a screenshot,
+        // so it is measured: on the topmost row a rounded rectangle is inset by its
+        // corner curve, and the inset is a function of the radius.
+        let chip = try chipRaster()
+        let filled = chip.tallestNonBackgroundRun(inRow: 0, background: Color.black.evaTestRGBA)
+
+        func reference(_ radius: CGFloat) throws -> Int {
+            try EvaRaster(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(Color.white)
+                    .frame(width: 160, height: 44),
+                size: CGSize(width: 160, height: 44)
+            ).tallestNonBackgroundRun(inRow: 0, background: Color.black.evaTestRGBA)
+        }
+
+        let atFourteen = try reference(14)
+        let atSeventeen = try reference(17)
+        #expect(atFourteen != atSeventeen, "the two reference radii are indistinguishable here")
+        #expect(abs(filled - atFourteen) <= 1,
+                "the chip's top row is \(filled) wide; radius 14 gives \(atFourteen), radius 17 gives \(atSeventeen)")
+    }
+
+    // MARK: Inputs
+
+    /// The input's own band, measured down the middle of the field where neither the
+    /// label (leading, above) nor the placeholder (leading, inside) reaches.
+    private func inputBandHeight(
+        isFocused: Bool = false,
+        errorMessage: String? = nil
+    ) throws -> Int {
+        let field = EvaInputField(
+            label: "E",
+            placeholder: "x",
+            isFocused: isFocused,
+            errorMessage: errorMessage
+        ) { prompt in
+            TextField("E", text: .constant(""), prompt: prompt)
+        }
+        .frame(width: 200)
+
+        let height = evaFittingHeight(field, width: 200)
+        let raster = try EvaRaster(
+            field,
+            size: CGSize(width: 240, height: height + 40),
+            background: .black
+        )
+        return raster.tallestNonBackgroundRun(inColumn: 120, background: Color.black.evaTestRGBA)
+    }
+
+    @Test("The input's field is 52 points tall")
+    func inputIsFiftyTwoHigh() throws {
+        // §6: "Input: height 52". The labelled component is taller than that, so the
+        // number lives in the band the component draws rather than in its fitting size.
+        #expect(try inputBandHeight() == 52)
+    }
+
+    @Test("Focus adds exactly 3 points of ring on each side and nothing to the layout")
+    func inputFocusRingIsThreePointsAndFree() throws {
+        // §6: "Focused: border #C95F86 + 3px … ring", drawn outside the field like a
+        // CSS `box-shadow: 0 0 0 3px`, so the form must not reflow when a field is
+        // tapped.
+        #expect(try inputBandHeight(isFocused: true) == 58)
+
+        func fittingHeight(isFocused: Bool) -> CGFloat {
+            evaFittingHeight(
+                EvaInputField(label: "E", placeholder: "x", isFocused: isFocused) { prompt in
+                    TextField("E", text: .constant(""), prompt: prompt)
+                },
+                width: 200
+            )
+        }
+        #expect(fittingHeight(isFocused: false) == fittingHeight(isFocused: true))
+    }
+
+    @Test("An error draws its own ring and adds a message row below the field")
+    func inputErrorAddsAMessageRow() throws {
+        // §6: "Error: border #C4645A + 3px ring + icon-and-message below."
+        #expect(try inputBandHeight(errorMessage: "Check that address.") == 58)
+
+        func fittingHeight(_ errorMessage: String?) -> CGFloat {
+            evaFittingHeight(
+                EvaInputField(
+                    label: "E",
+                    placeholder: "x",
+                    errorMessage: errorMessage,
+                    errorIdentifier: "preview.error"
+                ) { prompt in
+                    TextField("E", text: .constant(""), prompt: prompt)
+                },
+                width: 200
+            )
+        }
+        let clean = fittingHeight(nil)
+        let wrong = fittingHeight("Check that address.")
+        #expect(wrong > clean,
+                "the error message added \(wrong - clean) points — it is not being drawn")
+    }
+
+    @Test("An unfocused, error-free input draws no ring")
+    func restingInputHasNoRing() throws {
+        // The ring is one view that changes colour rather than two that swap, so
+        // "`.clear` when resting" is the thing that keeps a permanent pink halo off
+        // every field.
+        #expect(try inputBandHeight() == 52)
+    }
+}
