@@ -68,10 +68,12 @@ struct EvaTextStyle: Sendable, Hashable {
     /// Extra space to put between lines to reach `lineHeight`.
     ///
     /// SwiftUI's `lineSpacing` is additive on top of the font's own line box, so this is
-    /// the canvas line height minus Montserrat's natural one. It cannot go below zero:
-    /// leading *tighter* than the natural line box (Display, 46/48 against a natural
-    /// 56.1) is unreachable this way and needs a custom layout at the call site.
-    /// It is also a fixed value — it does not scale with Dynamic Type the way `font` does.
+    /// the canvas line height minus Montserrat's natural one, clamped at zero — leading
+    /// *tighter* than the natural line box cannot be asked for this way. No row of the
+    /// scale asks for one: `EvaTextStyle.display` was respecified to 46/56 for exactly
+    /// that reason (see its doc comment). The clamp stays as a guard, not as a
+    /// workaround. It is also a fixed value — it does not scale with Dynamic Type the
+    /// way `font` does.
     var lineSpacing: CGFloat {
         guard let lineHeight else { return 0 }
         return max(0, lineHeight - size * EvaFont.naturalLineHeightRatio)
@@ -79,11 +81,21 @@ struct EvaTextStyle: Sendable, Hashable {
 }
 
 extension EvaTextStyle {
-    /// Display — 46/48, weight 400. Marketing headlines only.
+    /// Display — 46/**56**, weight 400. Marketing headlines only, and **single-line by
+    /// design** — no Display string in the product wraps.
+    ///
+    /// The canvas draws this as `46px/1.05` ≈ 46/48. Montserrat's natural line box at
+    /// 46pt is 56.07pt (`EvaFont.naturalLineHeightRatio`), so 48 is not merely
+    /// unreachable through `lineSpacing` — it is tighter than the face was drawn for,
+    /// and forcing it with a `TextRenderer` would produce cramped, colliding ascenders
+    /// for one marketing style. Decided on #12: respecify Display as 46/56 on iOS.
+    /// The row is now honest — `lineSpacing` resolves to 0 because the font already
+    /// gives us the specified line box, not because a negative value was clamped away.
+    /// Being single-line, the leading is not observable in practice either way.
     static let display = EvaTextStyle(
         fontName: EvaFont.regular,
         size: 46,
-        lineHeight: 48,
+        lineHeight: 56,
         tracking: 0,
         textStyle: .largeTitle
     )
@@ -138,6 +150,27 @@ extension EvaTextStyle {
     static let button = EvaTextStyle(
         fontName: EvaFont.semibold,
         size: 14.5,
+        lineHeight: nil,
+        tracking: 0,
+        textStyle: .subheadline
+    )
+
+    /// Control — 13, weight 600. Chips, the row-level destructive button and dialog
+    /// buttons. The artboard uses 13/600 for all three; §3's written scale omitted it,
+    /// which is why chips first shipped at Label 12. Added by #16.
+    static let control = EvaTextStyle(
+        fontName: EvaFont.semibold,
+        size: 13,
+        lineHeight: nil,
+        tracking: 0,
+        textStyle: .subheadline
+    )
+
+    /// Text button — 14, weight 600. The artboard draws the text button one step down
+    /// from the 14.5 of the filled variants; §3's written scale skips 14.
+    static let textButton = EvaTextStyle(
+        fontName: EvaFont.semibold,
+        size: 14,
         lineHeight: nil,
         tracking: 0,
         textStyle: .subheadline
@@ -200,7 +233,7 @@ enum EvaTypographyTracking {
 }
 
 extension Font {
-    /// Display — 46/48, weight 400. Pair with `EvaTextStyle.display.lineSpacing`.
+    /// Display — 46/56, weight 400. Single-line by design; see `EvaTextStyle.display`.
     static let evaDisplay = EvaTextStyle.display.font
     /// H1 · Screen title — 28/34, weight 600.
     static let evaH1 = EvaTextStyle.h1.font
@@ -214,6 +247,10 @@ extension Font {
     static let evaBodyMedium = EvaTextStyle.bodyMedium.font
     /// Button — 14.5, weight 600.
     static let evaButton = EvaTextStyle.button.font
+    /// Control — 13, weight 600. Chips, row-level destructive, dialog buttons.
+    static let evaControlText = EvaTextStyle.control.font
+    /// Text button — 14, weight 600.
+    static let evaTextButton = EvaTextStyle.textButton.font
     /// Label — 12, weight 600.
     static let evaLabel = EvaTextStyle.label.font
     /// Caption — 12.5/19, weight 400.
@@ -239,7 +276,7 @@ extension View {
 
 #Preview {
     let specimens: [(String, EvaTextStyle)] = [
-        ("Display 46/48 · 400", .display),
+        ("Display 46/56 · 400 · single-line", .display),
         ("H1 28/34 · 600", .h1),
         ("H2 21/26 · 600", .h2),
         ("H3 17/22 · 600", .h3),

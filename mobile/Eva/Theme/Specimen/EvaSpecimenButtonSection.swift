@@ -16,11 +16,28 @@ struct EvaSpecimenButtonSection: View {
 
     var body: some View {
         EvaSpecimenSection(number: "05", title: "Buttons", reference: "DESIGN.md §5") {
-            EvaSpecimenNote(text: "52 high · radius 17 · states forced, not pressed.")
+            EvaSpecimenNote(
+                text: "\(EvaSpecimenNumber.string(EvaControl.height)) high · radius "
+                    + "\(EvaSpecimenNumber.string(EvaRadius.control)) · text button "
+                    + "\(EvaSpecimenNumber.string(EvaControl.textButtonHeight)) high at radius "
+                    + "\(EvaSpecimenNumber.string(EvaRadius.chip)) · row destructive "
+                    + "\(EvaSpecimenNumber.string(EvaMetrics.minimumTouchTarget)) high at radius "
+                    + "\(EvaSpecimenNumber.string(EvaRadius.destructiveRow)) · states forced, "
+                    + "not pressed."
+            )
 
             EvaSpecimenButtonStates(title: "Primary", identifier: "primary") {
                 EvaPrimaryButtonStyle(previewState: $0)
             }
+
+            EvaSpecimenDisabledLabelNote(
+                surface: "Primary",
+                fill: .evaPrimaryButtonDisabled,
+                canvasLabel: .evaTextOnDark,
+                actualLabel: .evaPrimaryText,
+                reason: "the sign-up CTA sits disabled until the form validates, so this is "
+                    + "the first control a new user meets"
+            )
 
             VStack(alignment: .leading, spacing: EvaSpacing.sm) {
                 EvaSpecimenGroupLabel(title: "Primary · loading")
@@ -52,6 +69,15 @@ struct EvaSpecimenButtonSection: View {
             ) {
                 EvaDestructiveButtonStyle(kind: .solid, previewState: $0)
             }
+
+            EvaSpecimenDisabledLabelNote(
+                surface: "Solid destructive",
+                fill: Color.evaDestructive.opacity(0.5),
+                canvasLabel: .evaTextOnDark,
+                actualLabel: .evaPrimaryText,
+                reason: "a modal asking you to confirm a deletion is the wrong place to "
+                    + "leave a label unreadable"
+            )
 
             EvaSpecimenButtonStates(
                 title: "Destructive · row (44 high)",
@@ -113,6 +139,52 @@ private struct EvaSpecimenButtonStates<Style: ButtonStyle>: View {
         // The focus ring is drawn 3pt outside the control's edge, so without this the
         // ring on the focused row overlaps its neighbours.
         .padding(.vertical, EvaControl.focusRingWidth)
+    }
+}
+
+// MARK: - Disabled label
+
+/// §9a's disabled-label deviation, with both ratios measured rather than quoted.
+///
+/// The artboard keeps a white label on every disabled fill. On the primary's 28% pink
+/// that is 1.45:1 — the first control a new user meets, unreadable — so these two
+/// surfaces take Primary Text instead. Both numbers are computed from the tokens here,
+/// so if a fill moves the note moves with it.
+private struct EvaSpecimenDisabledLabelNote: View {
+    let surface: String
+    /// The disabled fill, composited over the page it sits on.
+    let fill: Color
+    /// What the canvas asks the label to be.
+    let canvasLabel: Color
+    /// What it actually is.
+    let actualLabel: Color
+    /// Why this surface was worth deviating for. Disabled controls are exempt from
+    /// WCAG 1.4.3, so each of these needs its own reason, not a shared one.
+    let reason: String
+
+    /// The specimen's own page colour. The button section is drawn on the warm
+    /// background, so this is the ground these fills really composite over.
+    private static let ground = Color.evaWarmBackground
+
+    @Environment(\.self) private var environment
+
+    private func ratio(_ label: Color) -> String {
+        let ground = Self.ground.evaSpecimenReadback(in: environment)
+        return EvaSpecimenNumber.ratio(
+            EvaSpecimenColorReadback.contrastRatio(
+                label.evaSpecimenReadback(in: environment).composited(over: ground),
+                fill.evaSpecimenReadback(in: environment).composited(over: ground)
+            )
+        )
+    }
+
+    var body: some View {
+        EvaSpecimenNote(
+            text: "§9a: \(surface) disabled keeps the canvas fill "
+                + "\(fill.evaSpecimenReadback(in: environment).caption) but takes Primary Text, "
+                + "not white — \(ratio(actualLabel)) against \(ratio(canvasLabel)). "
+                + "Disabled controls are exempt from WCAG 1.4.3, but \(reason)."
+        )
     }
 }
 

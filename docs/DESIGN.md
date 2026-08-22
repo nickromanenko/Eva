@@ -57,35 +57,51 @@ personal — never clinical, never decorative for its own sake.
 
 **Semantic** — each is icon + text, never colour alone.
 
-| Token | Hex | Mark | Use |
-|---|---|---|---|
-| Success | `#7A9B45` | ✓ circle | Saved, synced, confirmed |
-| Warning | `#C9913F` | ! rounded square | Needs attention, not urgent |
-| Error | `#C4645A` | ! circle | Always paired with a message under the field |
-| Information | `#5A7BA0` | i circle | Account linking, predictions, limits of data |
+| Token | Base | Tint | Border | Ink | Mark |
+|---|---|---|---|---|---|
+| Success | `#7A9B45` | `rgba(205,231,157,.26)` | `rgba(142,173,86,.32)` | `#4F6630` | ✓ circle |
+| Warning | `#C9913F` | `rgba(201,145,63,.10)` | `rgba(201,145,63,.3)` | `#8A6425` | ! rounded square |
+| Error | `#C4645A` | `rgba(196,100,90,.08)` | `rgba(196,100,90,.26)` | `#A9524A` | ! circle |
+| Information | `#5A7BA0` | `rgba(90,123,160,.09)` | `rgba(90,123,160,.26)` | `#3F5A76` | i circle |
 
-**Gradients** — blush→cream, pistachio→cream, pink→pistachio (`#F3AEC4`→`#EDF6DA`),
-and white highlight over pink (`#E982A5`→`#C95F86` with a white top wash).
+The tint is **not** an opacity of the base — Success's is pistachio-based. Success means
+saved/synced/confirmed; Warning needs attention but is not urgent; Error is always paired
+with a message under the field; Information covers account linking, predictions and the
+limits of data.
+
+**Gradients** — blush→cream (`#F9DCE6`→`#FFF9F6`, 135°), pistachio→cream
+(`#EDF6DA`→`#FFF9F6`, 135°), pink→pistachio (`#F3AEC4`→`#EDF6DA`, 120°), and white
+highlight over pink: `rgba(255,255,255,.75)`→transparent over the full height, above a
+135° `#E982A5`→`#C95F86` base. "Cream" is Warm Background.
 
 ## 3. Typography — Montserrat throughout
 
 | Role | Spec |
 |---|---|
-| Display | 46/48, weight 400 — marketing headlines only |
+| Display | 46/**56**, weight 400 — marketing headlines only, single-line |
 | H1 · Screen title | 28/34, 600 |
 | H2 · Section heading | 21/26, 600 |
 | H3 · Card heading | 17/22, 600 |
 | Body | 15/24, 400 |
 | Body medium | 15/24, 500 — values and emphasis inside rows |
-| Button | 14.5–15, 600 |
+| Button | 14.5, 600 |
+| Text button | 14, 600 |
+| Control | 13, 600 — chips, row-level destructive, dialog buttons |
 | Label | 12, 600, secondary |
 | Caption | 12.5/19, muted |
 | Input helper | 12/18 |
 | Error text | 12, 500, with icon |
 | Overline | 11, 600, letter-spacing .14em, uppercase |
 
-Display uses the same family at weight 400 with tight leading; functional UI stays at
-500–600.
+Display uses the same family at weight 400; functional UI stays at 500–600.
+
+The artboard draws Display at `46px/1.05` ≈ 48, but Montserrat's own line box at 46pt is
+56.07 and SwiftUI cannot lead tighter than the font. **Display is 46/56 and single-line
+by design** (#17) — at 46pt, leading tighter than the face was drawn for would be cramped
+anyway, and a custom text layout for one marketing style is not worth its maintenance.
+
+The artboard's §02 type card says "Button · 15/1 semibold" while every button in §04 is
+`14.5px`. The components win.
 
 ## 4. Spacing, radius, elevation
 
@@ -104,7 +120,8 @@ Radii: **14** chips · **17** controls · **24** cards · **30** sheets (top onl
 
 Standard card treatment: `linear-gradient(150deg, rgba(255,255,255,.66),
 rgba(255,255,255,.36))`, blur 26 saturate 1.7, 1px `rgba(255,255,255,.72)` border,
-shadow `0 16px 36px -22px rgba(150,72,100,.45)` plus inset top/bottom white lines.
+shadow `0 16px 36px -22px rgba(150,72,100,.45)`, plus inset white lines at 90% top
+(`inset 0 1px 0 rgba(255,255,255,.9)`) and 40% bottom (`inset 0 -1px 0 rgba(255,255,255,.4)`).
 
 ## 5. Buttons — min-height 52, radius 17
 
@@ -115,8 +132,8 @@ shadow `0 16px 36px -22px rgba(150,72,100,.45)` plus inset top/bottom white line
 | Primary · focused | 3px `rgba(40,33,38,.6)` ring |
 | Primary · disabled | `rgba(201,95,134,.28)` fill, white text |
 | **Secondary glass** | `rgba(255,255,255,.7)`, 1px `rgba(40,33,38,.1)`, blur 18 |
-| Text button | `#C95F86`, min-height 48, radius 14 |
-| **Destructive** | Outlined `rgba(184,82,72,.5)` / text `#A9524A`; solid `#B85248` **in modals only**; row-level variant at 44/13 |
+| Text button | min-height 48, radius 14, label 14/600 (colour: see §9a) |
+| **Destructive** | Outlined `rgba(184,82,72,.5)` / text `#A9524A`; solid `#B85248` **in modals only**, disabled at 50% opacity; row-level variant at height 44, radius 13, label 13/600 |
 | **Auth · Apple** | Solid `#1C1A1B`, white |
 | **Auth · Google** | Glass `rgba(255,255,255,.85)` with hairline border |
 
@@ -124,9 +141,11 @@ Destructive-confirmed stays disabled until `DELETE` is typed.
 
 ## 6. Form controls
 
-- **Input**: height 52, radius 17, `rgba(255,255,255,.75)`, border `rgba(40,33,38,.1)`.
-  Focused: border `#C95F86` + 3px `rgba(201,95,134,.16)` ring. Error: border `#C4645A`
-  + 3px ring + icon-and-message below.
+- **Input**: height 52, radius 17, horizontal padding 15, fill `rgba(255,255,255,.75)`,
+  border `rgba(40,33,38,.1)`. Focused: fill goes opaque `#fff`, border `#C95F86` + 3px
+  `rgba(201,95,134,.16)` ring. Error: fill `rgba(255,255,255,.8)`, border `#C4645A` + 3px
+  `rgba(196,100,90,.14)` ring + icon-and-message below. Disabled: fill
+  `rgba(248,243,240,.8)`, text `#B3A9AE`, border `rgba(40,33,38,.07)`.
 - **Search**: same height, radius 26.
 - **Dropdown**: same as input, caret at trailing edge.
 - **Toggle**: 52×32, pistachio gradient when on.
@@ -190,52 +209,83 @@ screens. #3 re-skins the screens and removes the legacy tokens with it.
 | ~~Primary button~~ | 52 high, radius 17, 180° gradient | **done (#2)** |
 | ~~Chips~~ | 44 min-height, radius 14 | **done (#2)** |
 | ~~Inputs~~ | 52 high, radius 17, focus ring | **done (#2)** |
-| Semantic colours | Four, with marks | Green/blue tints, no marks |
+| ~~Semantic colours~~ | Four, with marks | **tokens done (#16)**; no screen uses them yet |
+
+The rows still open are all *screen*-level: typeface, palette, background and surfaces
+are what #3 changes. The control rows are struck because the components carry the canvas
+system now, even though the screens they sit on do not.
 
 **Do not resolve this drift screen-by-screen inside unrelated work.** Re-skinning to
 the canvas is its own tracked change; until it lands, match the canvas for anything
 new and leave existing screens alone unless the issue says otherwise.
 
-## 9a. Where the canvas and iOS disagree
+## 9a. Deliberate deviations from the canvas
 
-Found while implementing #1. These are platform limits, not bugs to fix in code:
+Places the implementation knowingly differs from the artboard, and why. Each was
+approved on #12; none is drift.
 
-- **Display 46/48 is unreachable.** Montserrat's own line box at 46pt is 56.07pt, so
-  the canvas asks for tighter leading than the font provides and SwiftUI cannot take a
-  negative `lineSpacing`. Multi-line Display renders at 56pt leading. Single-line is
-  unaffected, and Display is marketing-only.
-- **Blur radii are not settable.** SwiftUI has no `backdrop-filter`; the canvas' 20/24/28
-  collapse onto `.ultraThin`/`.thin`/`.regular` materials. Ordering is preserved, exact
-  values are not, and `saturate(1.7)` has no equivalent. Material also carries its own
-  tint under the white fill, so glass reads more opaque than the CSS — most visible at L1.
-- **CSS shadow spread has no SwiftUI expression.** The card shadow renders wider and
-  softer than `0 16px 36px -22px`.
-- **Address Montserrat cuts by PostScript name, not family plus weight.** The four
-  files disagree in their `name` tables — Medium and SemiBold carry `"Montserrat
-  Medium"`/`"Montserrat SemiBold"` in nameID 1 with subfamily `Regular`, and only reach
-  `"Montserrat"` through nameID 16. Measured in the app process, Core Text prefers
-  nameID 16 and does collapse them into one family (`UIFont.familyNames` reports a
-  single `Montserrat` with four members, and `UIFontDescriptor(family:weight:)`
-  resolves correctly), so this is a naming hazard rather than a broken family. Whether
-  SwiftUI's `Font.custom(...).weight()` follows suit is untested. PostScript names are
-  unambiguous either way, and `EvaTests` locks them in.
+**The action ramp.** White on the canvas pink fails WCAG AA everywhere it carries a
+label — 2.22:1 at `#EE93B1`, 3.84:1 at `#C95F86`, against 4.5:1 for a 14.5pt semibold.
+Surfaces that carry a label therefore use a deepened ramp; washes, tints and decorative
+fills keep the artboard's pale pink.
 
-## 9b. Unspecified in the canvas
+| Token | Value | White on it |
+|---|---|---|
+| `evaActionPinkTop` → `Bottom` | `#B45276` → `#96486A` | 4.76 → 6.12 |
+| `evaActionPinkPressedTop` → `Bottom` | `#994664` → `#803D5A` | 6.15 → 7.68 |
+| `evaActionPinkSolid` | `#A94A6C` | 5.41 |
+| `evaChipSevere` | `#7E3B58` | 7.91 |
 
-Values the implementation had to choose. Each should be resolved on the canvas rather
-than left to code:
+`evaChipSevere` is not simply the ramp: at `#A94A6C` the severe chip landed four
+channel-units from the selected chip's midpoint and the two states became
+indistinguishable. `#7E3B58` sits ~80 units deeper, so severe still reads as the more
+serious of the two.
 
-- §2 says the glass surface is 66%; §4 says L2 is 68%. Both are in the code, commented.
-- Semantic colours have one hex each — the tint (12%), border (32%) and ink used for
-  cards and banners are derived, not specified.
-- "Cream" in the blush→cream and pistachio→cream gradients is not a palette token; read
-  as Warm Background `#FFF9F6`.
-- Those two washes and pink→pistachio have no angle; implemented on the plain diagonal.
-- The white-highlight-over-pink wash has no opacity or stops; implemented at 28% fading
-  out at 55% height. **This is the least defensible number in the token set** — check it
-  against the canvas before any screen leans on it.
-- The card's inset top/bottom white lines have no opacities; top reuses the 72% border
-  value, bottom is 30%.
+**Disabled labels on filled controls.** The artboard keeps them white. On the primary's
+`rgba(201,95,134,.28)` that measures 1.45:1, and on the solid destructive's `#B85248` at
+50% it measures 2.10:1. Both use `evaPrimaryText` instead — 10.87:1 and 7.49:1. Disabled
+controls are exempt from WCAG 1.4.3, but the sign-up CTA sits disabled until the form
+validates, so an unreadable label is the first thing a new user meets.
+
+**The text button** uses `evaActionPinkTop` rather than `#C95F86`, which measures 3.68:1
+on the warm background. **The input placeholder** uses Secondary Text rather than Muted
+Text, which measures 3.07:1 on the field fill.
+
+**The selected chip's shadow** takes the ramp's darkest stop rather than the artboard's
+`rgba(201,95,134,.8)`, which is lighter than the deepened fill and renders as a glow.
+
+**Display** is 46/56 — see §3.
+
+**L1 glass renders no `Material`.** `Material` adds its own tint beneath the white fill,
+so a 40% surface read at roughly 70% and L1 was indistinguishable from L2. L1 is
+decorative and needs no backdrop blur; a plain 40% fill restores the separation. L2 and
+L3 keep `Material`.
+
+## 9b. Where iOS cannot express the canvas
+
+Real platform limits, not decisions:
+
+- **Blur radii are not settable.** SwiftUI has no `backdrop-filter`; L2's 24 and L3's 28
+  collapse onto `.thin` and `.regular`. `saturate(1.7)` has no equivalent.
+- **CSS shadow spread has no SwiftUI expression.** Card, button and chip shadows all
+  render wider and softer than their `-22px` / `-12px` contractions.
+- **Address Montserrat cuts by PostScript name, not family plus weight.** The four files
+  disagree in their `name` tables — Medium and SemiBold carry `"Montserrat Medium"` /
+  `"Montserrat SemiBold"` in nameID 1 with subfamily `Regular`, reaching `"Montserrat"`
+  only through nameID 16. Measured in the app process, Core Text prefers nameID 16 and
+  collapses them into one family, so this is a naming hazard rather than a broken family
+  — but PostScript names are unambiguous and `EvaTests` locks them in.
+
+## 9c. Still unresolved on the canvas
+
+- The artboard's §02 type card says Button is 15; §04 draws 14.5. Components win, but
+  they disagree.
+- The bottom sheet's prose says a 30px top radius; its own CSS is `24px 24px 8px 8px`.
+- The solid destructive has no pressed state. The current fill measures 1.09:1 against
+  its resting fill — i.e. invisible; only the 0.97 scale communicates the press.
+- Buttons have no loading state. The auth buttons do (`#3A3436` with a 60% white label),
+  which is the house pattern if one is wanted.
+- Motion is unspecified everywhere. Input focus and error transitions are instant.
 
 ## 10. Implementation conventions
 
@@ -257,4 +307,8 @@ than left to code:
 - Interactive elements need a stable `accessibilityIdentifier` — `EvaUITests` and
   screenshot tooling navigate by them.
 - Portrait iPhone only, iOS 18+. No dark palette is designed yet; don't invent one.
-- Selection is never colour alone — fill, border, glyph and text move together.
+- Selection is never colour alone — **fill, label colour and elevation move together**.
+  A border is not part of it: the artboard's selected chip has fill, white label and
+  shadow and no border, while the severe chip does carry one. (This sentence previously
+  demanded a border and contradicted the artboard; narrowed after #2.) Semantic *status*
+  is a stricter rule — those always carry a mark or a position as well as a colour.
