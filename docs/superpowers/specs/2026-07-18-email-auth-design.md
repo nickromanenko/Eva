@@ -74,7 +74,7 @@ Signup writes the `users/{uid}` doc immediately after the Identity Toolkit call 
 
 New `Networking/` + `Session/` groups:
 
-- **`APIClient`** — URLSession + async/await, JSON coding, auth header injection. Base URL: `#if DEBUG` `http://localhost:3000` `#else` the Cloud Run URL — overridable via `EVA_API_BASE_URL` launch environment (used by UI tests).
+- **`APIClient`** — URLSession + async/await, JSON coding, auth header injection. Base URL: `#if DEBUG` `http://localhost:3003` `#else` the Cloud Run URL — overridable via `EVA_API_BASE_URL` launch environment (used by UI tests).
 - **`KeychainTokenStore`** — JWT persisted in the Keychain (not UserDefaults).
 - **`AppSession`** (`@Observable`) — replaces the `hasCompletedOnboarding` `@AppStorage` flag; the server is now the source of truth. States: `.signedOut`, `.needsQuestionnaire`, `.ready`. On launch: stored token → `GET /me` → route; 401 → signed out.
 

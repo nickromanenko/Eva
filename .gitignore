@@ -21,9 +21,14 @@ xcuserdata/
 .firebase/
 firebase-debug.log
 
-# Claude Code session files
-.claude/
+# Claude Code session files — but the agent definitions are project intent,
+# not session state, so they are tracked.
+.claude/*
+!.claude/agents/
 
 # Astro generated
 .astro/
 mobile/build/
+
+# Local service-account keys
+.secrets/
