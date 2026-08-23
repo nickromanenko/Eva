@@ -1,18 +1,14 @@
 import SwiftUI
 
 enum OnboardingStep: Int, CaseIterable {
-    // Public flow
-    case welcome, infoScience, infoSolution, signUp, emailSignUp, logIn
-    // Questionnaire (post-auth)
+    // Public flow. The canvas draws authentication as one screen and gives each of the
+    // two a cross-link to the other, so there is no public back stack and no public
+    // header — #3 collapsed welcome / infoScience / infoSolution / signUp / emailSignUp
+    // into `createAccount`.
+    case createAccount, logIn
+    // Questionnaire (post-auth). Still on legacy styling: the canvas puts these fields in
+    // Profile, which does not exist yet — see DESIGN.md §9.
     case aboutYou, goals, health, lifestyle, done
-
-    /// Plain floating back button, no progress (public screens).
-    var showsPublicHeader: Bool {
-        switch self {
-        case .infoScience, .infoSolution, .signUp, .emailSignUp, .logIn: true
-        default: false
-        }
-    }
 
     /// Index within the 4-step questionnaire, when applicable.
     var questionnaireIndex: Int? {
@@ -28,7 +24,7 @@ enum OnboardingStep: Int, CaseIterable {
 
 @Observable
 final class OnboardingModel {
-    var step: OnboardingStep = .welcome
+    var step: OnboardingStep = .createAccount
 
     // Email sign-up form
     var email = ""
@@ -53,7 +49,9 @@ final class OnboardingModel {
     init() {
         #if DEBUG
         // Lets tooling (screenshots, previews) jump straight to a step:
-        // xcrun simctl launch --setenv EVA_ONBOARDING_STEP=3 ...
+        // SIMCTL_CHILD_EVA_ONBOARDING_STEP=2 xcrun simctl launch <udid> com.evaapp.ios
+        // (0 createAccount, 1 logIn, 2 aboutYou, 3 goals, 4 health, 5 lifestyle, 6 done —
+        //  the raw values shifted when #3 collapsed the five public screens into one.)
         if let raw = ProcessInfo.processInfo.environment["EVA_ONBOARDING_STEP"],
            let value = Int(raw),
            let debugStep = OnboardingStep(rawValue: value) {
@@ -62,8 +60,23 @@ final class OnboardingModel {
         #endif
     }
 
+    var isEmailValid: Bool {
+        email.wholeMatch(of: /\S+@\S+\.\S+/) != nil
+    }
+
+    /// The rule the sign-up screen states up front: "At least 8 characters, including one
+    /// number." (canvas, §6 helper text).
+    ///
+    /// The API only enforces the length — `POST /auth/signup` rejects under 8 characters
+    /// and says nothing about digits. The client is the stricter of the two on purpose:
+    /// the canvas states the rule to the user, and helper text that the CTA then ignores
+    /// is worse than a rule the server has not caught up with. Worth an API issue.
+    var isPasswordValid: Bool {
+        password.count >= 8 && password.contains(where: \.isNumber)
+    }
+
     var isEmailFormValid: Bool {
-        email.wholeMatch(of: /\S+@\S+\.\S+/) != nil && password.count >= 8
+        isEmailValid && isPasswordValid
     }
 
     /// Questionnaire answers as the API payload.
@@ -88,35 +101,29 @@ final class OnboardingModel {
 
     // MARK: - Navigation
 
-    func getStarted() { step = .infoScience }
-
-    func chooseEmailSignUp() { step = .emailSignUp }
-
     func chooseLogIn() { step = .logIn }
+
+    func chooseCreateAccount() { step = .createAccount }
 
     /// Called after any successful authentication with an incomplete questionnaire.
     func startQuestionnaire() { step = .aboutYou }
 
+    /// The questionnaire's back stack. The two auth screens cross-link to each other
+    /// instead — the canvas draws no back control on either — but `logIn` keeps an entry
+    /// here so every step in the enum has one place it goes back to.
     func back() {
         switch step {
-        case .infoScience: step = .welcome
-        case .infoSolution: step = .infoScience
-        case .signUp: step = .infoSolution
-        case .emailSignUp: step = .signUp
-        case .logIn: step = .welcome
+        case .logIn: step = .createAccount
         case .goals: step = .aboutYou
         case .health: step = .goals
         case .lifestyle: step = .health
-        default: break
+        case .createAccount, .aboutYou, .done: break
         }
     }
 
     func next() {
         switch step {
-        case .welcome: step = .infoScience
-        case .infoScience: step = .infoSolution
-        case .infoSolution: step = .signUp
-        case .signUp, .emailSignUp, .logIn: step = .aboutYou
+        case .createAccount, .logIn: step = .aboutYou
         case .aboutYou: step = .goals
         case .goals: step = .health
         case .health: step = .lifestyle

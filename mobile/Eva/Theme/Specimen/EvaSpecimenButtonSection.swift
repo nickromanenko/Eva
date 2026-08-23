@@ -86,12 +86,50 @@ struct EvaSpecimenButtonSection: View {
                 EvaDestructiveButtonStyle(kind: .row, previewState: $0)
             }
 
+            EvaSpecimenButtonStates(title: "Auth · Apple", identifier: "auth.apple") {
+                EvaAuthButtonStyle(provider: .apple, previewState: $0)
+            }
+
+            EvaSpecimenButtonStates(title: "Auth · Google", identifier: "auth.google") {
+                EvaAuthButtonStyle(provider: .google, previewState: $0)
+            }
+
+            EvaSpecimenNote(
+                text: "§5 gives the auth buttons one fill each. Pressed, focused and "
+                    + "disabled borrow the rule the canvas already states for the nearest "
+                    + "variant it does specify — Apple darkens like the primary, Google "
+                    + "takes the secondary glass' fills. The canvas' loading state "
+                    + "(#3A3436, 60% white label) is not built: nothing can reach it until "
+                    + "Apple and Google sign-in exist."
+            )
+
+            VStack(alignment: .leading, spacing: EvaSpacing.sm) {
+                EvaSpecimenGroupLabel(title: "Auth · compact")
+                EvaSpecimenNote(
+                    text: "The inline variant from the account-linking banner. The artboard "
+                        + "draws it 38 high at radius 12; it renders at "
+                        + "\(EvaSpecimenNumber.string(EvaButtonHeight.row))/"
+                        + "\(EvaSpecimenNumber.string(EvaRadius.chip)), the minimum touch "
+                        + "target and the radius the system's other inline controls use."
+                )
+                HStack {
+                    EvaAuthButton(
+                        provider: .apple,
+                        size: .compact,
+                        identifier: "specimen.auth.compact"
+                    ) {}
+                    Spacer(minLength: 0)
+                }
+            }
+
             VStack(alignment: .leading, spacing: EvaSpacing.sm) {
                 EvaSpecimenGroupLabel(title: "As used")
                 EvaSpecimenNote(
                     text: "The wrappers, with the identifiers UI tests navigate by."
                 )
                 PrimaryButton(title: "Get started", showsArrow: true) {}
+                EvaAuthButton(provider: .apple) {}
+                EvaAuthButton(provider: .google) {}
                 SecondaryButton(title: "Not now") {}
                 TextButton(title: "Skip for now") {}
                 DestructiveButton(title: "Delete my account") {}

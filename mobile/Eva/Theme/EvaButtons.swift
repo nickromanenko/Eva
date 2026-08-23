@@ -419,6 +419,288 @@ struct DestructiveButton: View {
     }
 }
 
+// MARK: - Authentication
+
+/// The identity providers DESIGN.md §5 draws an authentication button for.
+///
+/// The label belongs to the provider rather than the call site: the canvas uses the same
+/// "Continue with …" wording on both the sign-up and the log-in screen, so there is
+/// nothing for a caller to decide.
+enum EvaAuthProvider: String, CaseIterable, Identifiable {
+    case apple
+    case google
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .apple: "Continue with Apple"
+        case .google: "Continue with Google"
+        }
+    }
+}
+
+/// The two sizes the canvas draws an authentication button at.
+enum EvaAuthButtonSize: Hashable {
+
+    /// The full-width control from the design system's Authentication column —
+    /// `min-height:52px; border-radius:17px; font:600 14.5px`. What both auth screens
+    /// lead with.
+    case standard
+
+    /// The compact button inside the account-linking banner on the sign-up artboard —
+    /// drawn there as `height:38px; border-radius:12px; font:600 13px`.
+    ///
+    /// **Raised to 44 high at the 14 chip radius.** 38 is below the 44pt minimum touch
+    /// target DESIGN.md §1 requires of every interactive element, and 12 is not on the
+    /// radius scale; 44/14 is the pair the system already uses for its other inline
+    /// controls (chips, the row-level destructive). The label stays the artboard's
+    /// Control row.
+    case compact
+
+    var height: CGFloat {
+        switch self {
+        case .standard: EvaButtonHeight.standard
+        case .compact: EvaButtonHeight.row
+        }
+    }
+
+    var cornerRadius: CGFloat {
+        switch self {
+        case .standard: EvaRadius.control
+        case .compact: EvaRadius.chip
+        }
+    }
+
+    var textStyle: EvaTextStyle {
+        switch self {
+        case .standard: .button
+        case .compact: .control
+        }
+    }
+
+    /// Edge of the provider mark. 16 on the artboard's full-width buttons. The compact
+    /// button draws no mark, so this is only read for `.standard`.
+    var markSize: CGFloat {
+        switch self {
+        case .standard: 16
+        case .compact: 14
+        }
+    }
+
+    /// Full-width like a primary action, or sized to its label inside a banner.
+    var isFullWidth: Bool {
+        self == .standard
+    }
+}
+
+/// The DESIGN.md §5 authentication button: solid `#1C1A1B` for Apple, glass
+/// `rgba(255,255,255,.85)` with a hairline for Google, both 52 high at radius 17 with the
+/// provider mark 8pt ahead of the label.
+///
+/// §5 gives no pressed, focused or disabled appearance for this variant. Rather than
+/// invent three, each state borrows the rule the canvas already states for the nearest
+/// variant it *does* specify: Apple darkens the way the primary does, Google takes the
+/// secondary glass' pressed fill and borders, and both fade their label when disabled.
+/// The 0.97 press scale and the focus ring are shared by every Eva button.
+///
+/// The canvas also draws a loading state (`#3A3436` with a 60% white label). It is not
+/// built here: nothing can reach it until Apple and Google sign-in actually exist (#7),
+/// and it is the one state whose call site would decide its behaviour.
+struct EvaAuthButtonStyle: ButtonStyle {
+    let provider: EvaAuthProvider
+    var size: EvaAuthButtonSize = .standard
+
+    /// Forces a state a preview cannot reach by touch. Never set this in app code.
+    var previewState: EvaButtonState?
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.isFocused) private var isFocused
+
+    func makeBody(configuration: Configuration) -> some View {
+        let state = previewState ?? EvaButtonState.resolved(
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled,
+            isFocused: isFocused
+        )
+
+        return HStack(spacing: EvaSpacing.xs) {
+            // The artboard's compact linking button is text-only; only the full-width
+            // buttons carry a provider mark.
+            if size != .compact {
+                EvaAuthProviderMark(provider: provider, size: size.markSize)
+            }
+            configuration.label
+        }
+        .evaTextStyle(size.textStyle)
+        .foregroundStyle(label(for: state))
+        .frame(maxWidth: size.isFullWidth ? .infinity : nil, minHeight: size.height)
+        .padding(.horizontal, EvaSpacing.md)
+        .background {
+            let shape = RoundedRectangle(cornerRadius: size.cornerRadius, style: .continuous)
+            shape
+                .fill(backdrop)
+                .overlay { shape.fill(fill(for: state)) }
+                .overlay { shape.strokeBorder(border(for: state), lineWidth: 1) }
+                .shadow(
+                    color: shadowColor(for: state),
+                    radius: EvaAuthButtonShadow.radius(for: provider),
+                    x: 0,
+                    y: EvaAuthButtonShadow.offsetY(for: provider)
+                )
+        }
+        .evaFocusRing(state == .focused, cornerRadius: size.cornerRadius)
+        .scaleEffect(state == .pressed ? EvaButtonPress.scale : 1)
+        .animation(.easeOut(duration: EvaButtonPress.duration), value: state)
+    }
+
+    /// Google's fill is translucent, so it needs something behind it — the same
+    /// `backdrop-filter: blur(18px)` stand-in the secondary glass button uses. Apple's
+    /// fill is opaque and needs none.
+    private var backdrop: AnyShapeStyle {
+        switch provider {
+        case .apple: AnyShapeStyle(Color.clear)
+        case .google: AnyShapeStyle(EvaGlassLevel.background.material)
+        }
+    }
+
+    private func fill(for state: EvaButtonState) -> Color {
+        switch provider {
+        case .apple:
+            switch state {
+            // Not a canvas value: §5 gives Apple one fill. The press darkens it the way
+            // the primary's press darkens the primary, so the feedback matches the rest
+            // of the system rather than relying on the scale alone.
+            case .pressed: Color.evaAuthApple.opacity(0.82)
+            case .disabled: Color.evaAuthApple.opacity(0.5)
+            case .normal, .focused: .evaAuthApple
+            }
+        case .google:
+            switch state {
+            case .pressed: .evaSecondaryFillPressed
+            case .disabled: .evaSecondaryFillDisabled
+            case .normal, .focused: .evaAuthGoogleFill
+            }
+        }
+    }
+
+    private func border(for state: EvaButtonState) -> Color {
+        switch provider {
+        case .apple:
+            .clear
+        case .google:
+            switch state {
+            case .pressed: .evaControlBorderPressed
+            case .disabled: .evaControlBorderDisabled
+            case .normal, .focused: .evaControlBorder
+            }
+        }
+    }
+
+    private func label(for state: EvaButtonState) -> Color {
+        guard state != .disabled else { return .evaDisabledText }
+        switch provider {
+        case .apple: return .evaTextOnDark
+        case .google: return .evaPrimaryText
+        }
+    }
+
+    /// The sign-up artboard hangs a shadow under both full-width auth buttons —
+    /// `0 10px 22px -8px rgba(28,26,27,.5)` under Apple and
+    /// `0 6px 18px -10px rgba(40,33,38,.3)` under Google. The compact button in the
+    /// linking banner has none, and neither does a disabled control.
+    private func shadowColor(for state: EvaButtonState) -> Color {
+        guard size == .standard, state != .disabled else { return .clear }
+        switch provider {
+        case .apple: return Color.evaAuthApple.opacity(0.5)
+        case .google: return Color.evaPrimaryText.opacity(0.18)
+        }
+    }
+}
+
+/// The auth buttons' shadows, from the sign-up artboard:
+/// `0 10px 22px -8px rgba(28,26,27,.5)` under Apple and
+/// `0 6px 18px -10px rgba(40,33,38,.3)` under Google.
+///
+/// The negative spread has no SwiftUI expression — the same limitation the card and
+/// primary-button shadows hit — and here it is doing most of the work: −8 and −10 against
+/// blurs of 22 and 18 pull the shadow back almost to the button's own edge. Translating
+/// the blurs directly (22 → 11, 18 → 9) put a dark halo under both buttons on the device
+/// that is nowhere on the canvas, so each radius is pulled in by roughly its spread and
+/// Google's opacity comes down with it. Checked side by side against
+/// `docs/design/Eva App.dc.html`, rail item **Sign up**.
+private enum EvaAuthButtonShadow {
+
+    static func radius(for provider: EvaAuthProvider) -> CGFloat {
+        switch provider {
+        case .apple: 7
+        case .google: 4
+        }
+    }
+
+    static func offsetY(for provider: EvaAuthProvider) -> CGFloat {
+        switch provider {
+        case .apple: 8
+        case .google: 4
+        }
+    }
+}
+
+/// The provider mark that leads an authentication button.
+///
+/// Apple's is `apple.logo`, the mark Apple ships in SF Symbols for exactly this button.
+/// Google's is the artboard's **placeholder** disc — the design system's Authentication
+/// column ends with a dashed "Official marks drop in here · brand assets supplied by the
+/// vendor" slot, so the canvas is explicit that no real Google mark exists yet. It gets
+/// replaced by the vendor asset when Google sign-in lands (#7).
+///
+/// Hidden from VoiceOver: the button's label already says which provider it is.
+private struct EvaAuthProviderMark: View {
+    let provider: EvaAuthProvider
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            switch provider {
+            case .apple:
+                Image(systemName: "apple.logo")
+                    .font(.system(size: size))
+            case .google:
+                Circle()
+                    .fill(
+                        AngularGradient(
+                            colors: Color.evaAuthGoogleMarkStops,
+                            center: .center
+                        )
+                    )
+                    .frame(width: size, height: size)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// The DESIGN.md §5 authentication button — "Continue with Apple" / "Continue with
+/// Google".
+///
+/// The identifier is `auth.apple` / `auth.google` rather than the wrappers' usual
+/// `<variant>.<title>`: the provider is the stable thing here, the wording is not, and
+/// both auth screens carry the same two buttons. `identifier` overrides it where a second
+/// button for the same provider is on screen — the account-linking banner's recovery
+/// action is the one case.
+struct EvaAuthButton: View {
+    let provider: EvaAuthProvider
+    var size: EvaAuthButtonSize = .standard
+    var identifier: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(provider.title, action: action)
+            .buttonStyle(EvaAuthButtonStyle(provider: provider, size: size))
+            .accessibilityIdentifier(identifier ?? "auth.\(provider.rawValue)")
+    }
+}
+
 // MARK: - Style shorthands
 
 extension ButtonStyle where Self == EvaSecondaryButtonStyle {
@@ -432,6 +714,17 @@ extension ButtonStyle where Self == EvaTextButtonStyle {
     /// DESIGN.md §5 text button. Prefer `TextButton`, which also sets the
     /// `text.<title>` identifier.
     static var evaText: Self { EvaTextButtonStyle() }
+}
+
+extension ButtonStyle where Self == EvaAuthButtonStyle {
+    /// DESIGN.md §5 authentication button. Prefer `EvaAuthButton`, which also sets the
+    /// `auth.<provider>` identifier.
+    static func evaAuth(
+        _ provider: EvaAuthProvider,
+        size: EvaAuthButtonSize = .standard
+    ) -> Self {
+        EvaAuthButtonStyle(provider: provider, size: size)
+    }
 }
 
 extension ButtonStyle where Self == EvaDestructiveButtonStyle {
@@ -495,10 +788,21 @@ private struct EvaButtonStateRow<Style: ButtonStyle>: View {
                 EvaDestructiveButtonStyle(kind: .row, previewState: $0)
             }
 
+            EvaButtonStateRow(title: "Auth · Apple") {
+                EvaAuthButtonStyle(provider: .apple, previewState: $0)
+            }
+
+            EvaButtonStateRow(title: "Auth · Google") {
+                EvaAuthButtonStyle(provider: .google, previewState: $0)
+            }
+
             VStack(alignment: .leading, spacing: EvaSpacing.sm) {
                 Text("As used")
                     .evaTextStyle(.label)
                     .foregroundStyle(Color.evaSecondaryText)
+                EvaAuthButton(provider: .apple) {}
+                EvaAuthButton(provider: .google) {}
+                EvaAuthButton(provider: .apple, size: .compact) {}
                 SecondaryButton(title: "Not now") {}
                 TextButton(title: "Skip for now") {}
                 DestructiveButton(title: "Delete my account") {}

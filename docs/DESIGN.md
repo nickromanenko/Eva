@@ -212,7 +212,10 @@ screens. #3 re-skins the screens and removes the legacy tokens with it.
 | ~~Semantic colours~~ | Four, with marks | **tokens done (#16)**; no screen uses them yet |
 
 The rows still open are all *screen*-level: typeface, palette, background and surfaces
-are what #3 changes. The control rows are struck because the components carry the canvas
+are what #3 changes — though #3 turned out to be a flow change, not a re-skin: the canvas
+draws onboarding as one screen and has no questionnaire steps, so five screens are
+replaced rather than restyled, and the questionnaire keeps its legacy styling until it
+moves into Profile. The control rows are struck because the components carry the canvas
 system now, even though the screens they sit on do not.
 
 **Do not resolve this drift screen-by-screen inside unrelated work.** Re-skinning to
@@ -256,6 +259,19 @@ Text, which measures 3.07:1 on the field fill.
 
 **Display** is 46/56 — see §3.
 
+**The auth screen scrolls slightly at the default content size**, where the canvas draws
+it as a fixed 390 × 844 frame. The artboard's layout has about 1pt of slack (789.15pt of
+content in a 790pt box), and two unavoidable costs eat it: the "Log in" / "Create an
+account" cross-link is a 48pt touch target where the canvas draws a 20pt inline link
+(+28pt, and §1's 44pt minimum is not negotiable), and real safe areas are 59 + 34 against
+the artboard's 54 + 0 (−9pt). Net overflow ≈ 37pt. The CTA, legal note and cross-link are
+pinned below the scrolling area so they stay reachable with the keyboard up; focusing a
+field scrolls it and its helper into view, so the password rule is still never "revealed
+as an error after failure", which is what the artboard's spec note protects.
+
+At accessibility text sizes the screen deliberately becomes a single scrolling column —
+a pinned footer at AX5 takes ~450 of 781pt and truncates the CTA.
+
 **L1 glass renders no `Material`.** `Material` adds its own tint beneath the white fill,
 so a 40% surface read at roughly 70% and L1 was indistinguishable from L2. L1 is
 decorative and needs no backdrop blur; a plain 40% fill restores the separation. L2 and
@@ -297,10 +313,11 @@ Real platform limits, not decisions:
 - Type is anchored to Dynamic Type (`Font.custom(_:size:relativeTo:)` per row), so the
   canvas' exact points hold at the default content size and scale from there.
 - Controls live beside the tokens: `PrimaryButton.swift` and `EvaButtons.swift`
-  (secondary glass, text, destructive, plus the shared press/focus pieces),
-  `EvaInputField.swift`, and `Onboarding/Components/ChipToggleButton.swift`. Heights and
-  the focus-ring width come from `EvaControl` in `EvaMetrics.swift` — one home, so the
-  buttons and the inputs cannot drift apart.
+  (secondary glass, text, destructive, authentication, plus the shared press/focus
+  pieces), `EvaInputField.swift` (with `EvaInputRevealButton`), `EvaInfoBanner.swift`,
+  `EvaScreenBackground.swift`, and `Onboarding/Components/ChipToggleButton.swift`.
+  Heights and the focus-ring width come from `EvaControl` in `EvaMetrics.swift` — one
+  home, so the buttons and the inputs cannot drift apart.
 - `EVA_SPECIMEN=1` renders every token and component on one screen in DEBUG. Adding a
   token or a component means adding it there too — see `mobile/CLAUDE.md`.
 - Every view file ends with a `#Preview`.

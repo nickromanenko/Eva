@@ -1,7 +1,12 @@
 import SwiftUI
 
-/// Container for the onboarding flow: welcome → info screens → sign-up (or email
-/// form) → 4-step questionnaire → done.
+/// Container for the onboarding flow: one auth screen (or log in) → 4-step
+/// questionnaire → done.
+///
+/// The two halves are drawn on different grounds on purpose. Authentication is built to
+/// the canvas and sits on `EvaScreenBackground`; the questionnaire keeps the legacy mauve
+/// gradient until it moves into Profile, which is where the canvas puts those fields.
+/// DESIGN.md §9 tracks the split.
 struct OnboardingFlowView: View {
     @State private var model = OnboardingModel()
     let session: AppSession
@@ -22,7 +27,7 @@ struct OnboardingFlowView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient.evaScreenBackground
+            background
                 .ignoresSafeArea()
 
             stepContent
@@ -30,43 +35,48 @@ struct OnboardingFlowView: View {
                 .id(model.step)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if model.step.showsPublicHeader {
-                publicHeader
-            } else if model.step.questionnaireIndex != nil {
+            if model.step.questionnaireIndex != nil {
                 questionnaireHeader
             }
         }
         .animation(.easeInOut(duration: 0.3), value: model.step)
     }
 
+    /// Canvas ground for the auth screens; the legacy mauve gradient for the
+    /// questionnaire, which the canvas does not draw.
+    @ViewBuilder
+    private var background: some View {
+        switch model.step {
+        case .createAccount, .logIn:
+            EvaScreenBackground()
+        default:
+            LinearGradient.evaScreenBackground
+        }
+    }
+
     @ViewBuilder
     private var stepContent: some View {
         switch model.step {
-        case .welcome:
-            WelcomeStepView(onGetStarted: model.getStarted, onLogIn: model.chooseLogIn)
-        case .infoScience:
-            InfoScienceStepView(onContinue: model.next)
-        case .infoSolution:
-            InfoSolutionStepView(onContinue: model.next)
-        case .signUp:
-            SignUpStepView(onEmailSignUp: model.chooseEmailSignUp)
-        case .emailSignUp:
-            EmailSignUpStepView(
+        case .createAccount:
+            CreateAccountStepView(
                 model: model,
                 onSubmit: { email, password in
                     try await session.signUp(email: email, password: password)
                     model.startQuestionnaire()
                 },
-                onGoToLogin: model.chooseLogIn
+                onGoToLogIn: model.chooseLogIn
             )
         case .logIn:
-            LoginStepView { email, password in
-                try await session.signIn(email: email, password: password)
-                if session.state == .needsQuestionnaire {
-                    model.startQuestionnaire()
-                }
-                // .ready is handled by EvaApp switching to the dashboard.
-            }
+            LoginStepView(
+                onSubmit: { email, password in
+                    try await session.signIn(email: email, password: password)
+                    if session.state == .needsQuestionnaire {
+                        model.startQuestionnaire()
+                    }
+                    // .ready is handled by EvaApp switching to the dashboard.
+                },
+                onGoToSignUp: model.chooseCreateAccount
+            )
         case .aboutYou:
             AboutYouStepView(model: model, onContinue: model.next)
         case .goals:
@@ -81,16 +91,6 @@ struct OnboardingFlowView: View {
         case .done:
             DoneStepView(onFinish: session.enterDashboard)
         }
-    }
-
-    /// Floating back button only — public screens before authentication.
-    private var publicHeader: some View {
-        HStack {
-            backButton
-            Spacer()
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 8)
     }
 
     /// Back + progress bar + step caption — questionnaire screens.

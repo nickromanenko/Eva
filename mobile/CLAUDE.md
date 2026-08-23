@@ -39,7 +39,7 @@ xcrun simctl io $UDID screenshot /tmp/specimen.png
 
 `simctl launch` has **no `--setenv`** — anything after the bundle id is argv, and the app
 launches normally. Environment goes in the calling environment with a `SIMCTL_CHILD_`
-prefix, as above. Same for the other hooks: `SIMCTL_CHILD_EVA_ONBOARDING_STEP=3`.
+prefix, as above. Same for the other hooks: `SIMCTL_CHILD_EVA_ONBOARDING_STEP=2   # 0 createAccount, 1 logIn, 2 aboutYou …`.
 
 `simctl` cannot scroll. To capture below the fold, drive the simulator with the
 `Claude Code iOS Simulator` MCP (`swipe` from `y: 760` to `y: 180`, ~580pt a time, then

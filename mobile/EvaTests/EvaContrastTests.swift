@@ -222,20 +222,34 @@ enum EvaContrastSurfaces {
     private static func inputBand(
         _ name: String,
         errorMessage: String? = nil,
-        band: (_ total: CGFloat, _ withoutMessage: CGFloat) -> (top: Int, bottom: Int)
+        helperText: String? = nil,
+        isHelperUnmet: Bool = false,
+        band: (
+            _ total: CGFloat,
+            _ withoutHelper: CGFloat,
+            _ withoutEither: CGFloat
+        ) -> (top: Int, bottom: Int)
     ) -> EvaContrastCase {
         let width: CGFloat = 240
-        func field(_ message: String?) -> some View {
+        func field(error: String?, helper: String?) -> some View {
             EvaInputField(
-                label: "EMAIL", placeholder: "you@example.com", errorMessage: message
+                label: "EMAIL",
+                placeholder: "you@example.com",
+                errorMessage: error,
+                helperText: helper,
+                isHelperUnmet: isHelperUnmet
             ) { prompt in
                 TextField("EMAIL", text: .constant(""), prompt: prompt)
             }
             .frame(width: width)
         }
-        let total = evaFittingHeight(field(errorMessage), width: width)
-        let withoutMessage = evaFittingHeight(field(nil), width: width)
-        let edges = band(total, withoutMessage)
+        let total = evaFittingHeight(field(error: errorMessage, helper: helperText), width: width)
+        // The two heights a band can be measured from: with the helper row removed, and
+        // with both rows removed. Subtracting one of them from the whole is what isolates
+        // the row a case is about, since neither row's height is a constant — both wrap.
+        let withoutHelper = evaFittingHeight(field(error: errorMessage, helper: nil), width: width)
+        let withoutEither = evaFittingHeight(field(error: nil, helper: nil), width: width)
+        let edges = band(total, withoutHelper, withoutEither)
         return EvaContrastCase(
             name: "Input · \(name)",
             size: CGSize(width: width, height: total),
@@ -243,7 +257,113 @@ enum EvaContrastSurfaces {
             inset: (top: edges.top, leading: 0, bottom: edges.bottom, trailing: 0),
             fillStrip: nil
         ) {
-            AnyView(field(errorMessage))
+            AnyView(field(error: errorMessage, helper: helperText))
+        }
+    }
+
+    // MARK: - The auth screens (#3)
+    //
+    // Everything below is a surface #3 built or newly put on screen, and none of it had a
+    // case here. That is the same shape of hole #12 found: the components were checked
+    // against the values the artboard states, and for three of these strings the artboard
+    // states `#9A9095` — Muted Text, which measures 2.96:1 on the warm background. The
+    // screens ship Secondary Text instead (DESIGN.md §9a); these cases are what holds
+    // that swap in place, and `mutedTextWouldStillFail` below is the proof they can see
+    // it going back.
+
+    /// A provider button, on the fill it paints for itself.
+    private static func authButton(_ provider: EvaAuthProvider) -> EvaContrastCase {
+        // Wider than the other buttons deliberately: "Continue with Google" plus its mark
+        // is close to 200 points, and at the shared 200 the label would reach into the
+        // fill strip and come back as the ground.
+        let size = CGSize(width: 320, height: EvaButtonHeight.standard)
+        return EvaContrastCase(
+            name: "Auth button · \(provider.rawValue)",
+            size: size, backdrop: page,
+            inset: buttonInset,
+            // Left of a centred label and inside the radius-17 curve at every row the
+            // 3-point vertical inset leaves.
+            fillStrip: (leading: 20, width: 12)
+        ) {
+            AnyView(
+                EvaAuthButton(provider: provider) {}
+                    .frame(width: size.width)
+            )
+        }
+    }
+
+    /// The §7 information banner, which the sign-up screen uses for account linking.
+    ///
+    /// Measured without its action button. The compact provider button the linking banner
+    /// puts there is the same `#1C1A1B` fill and the same white label as the full-width
+    /// one above, and it would be the darkest thing in the raster if it were included —
+    /// the banner's own ink is what has no case anywhere else.
+    private static var infoBanner: EvaContrastCase {
+        let width: CGFloat = 320
+        func banner() -> some View {
+            EvaInfoBanner(
+                title: "This email already uses Apple sign-in",
+                message: "We won't create a second profile. Continue with Apple and "
+                    + "everything you've logged stays in one place."
+            )
+            .frame(width: width)
+        }
+        return EvaContrastCase(
+            name: "Info banner · ink on the information tint",
+            size: CGSize(width: width, height: evaFittingHeight(banner(), width: width)),
+            backdrop: page,
+            // 12 points vertically puts the sample strip inside the radius-20 corner at
+            // every row it reaches, and still leaves the whole title and message — which
+            // start 16 points in — inside the scan.
+            inset: (top: 12, leading: 3, bottom: 12, trailing: 3),
+            fillStrip: (leading: 4, width: 8)
+        ) {
+            AnyView(banner())
+        }
+    }
+
+    /// The Show/Hide control, on the field fill it sits inside.
+    ///
+    /// Not measured through `EvaInputField`, for the reason `inputBand` gives: an
+    /// `ImageRenderer` paints a `TextField` as a flat `#FFCC00` block, which would be the
+    /// ground the button was read against. The control here is the real one and the fill
+    /// is the component's own token, composited over the page the way the field does it.
+    private static var inputRevealButton: EvaContrastCase {
+        let size = CGSize(width: 96, height: EvaMetrics.minimumTouchTarget)
+        return EvaContrastCase(
+            name: "Input · reveal button on the field fill",
+            size: size, backdrop: page,
+            inset: (top: 2, leading: 2, bottom: 2, trailing: 2),
+            fillStrip: (leading: 2, width: 10)
+        ) {
+            AnyView(
+                EvaInputRevealButton(isRevealed: false) {}
+                    .frame(width: size.width, height: size.height)
+                    .background(Color.evaInputFill)
+            )
+        }
+    }
+
+    /// A string an auth screen draws straight onto the page, with no surface of its own —
+    /// so the page is its ground, the way it is for the text button.
+    private static func pageText(
+        _ name: String,
+        width: CGFloat = 320,
+        _ make: @escaping () -> AnyView
+    ) -> EvaContrastCase {
+        EvaContrastCase(
+            name: name,
+            size: CGSize(width: width, height: evaFittingHeight(make(), width: width)),
+            backdrop: page,
+            // One point off every edge. These views fit their own content exactly, so
+            // their height is usually fractional, and `ImageRenderer` leaves the last
+            // part-covered pixel row unpainted — which is `#000000` in a premultiplied
+            // buffer and would come back as the darkest pixel, i.e. as the label. Caught
+            // by the legal note reading 20.13:1 against a black it never draws.
+            inset: (top: 1, leading: 1, bottom: 1, trailing: 1),
+            fillStrip: nil
+        ) {
+            AnyView(make().frame(width: width))
         }
     }
 
@@ -285,13 +405,61 @@ enum EvaContrastSurfaces {
             // The field's name, above the box.
             // The label row is the top ~15 points; anything below it is the field's own
             // fill, which is lighter than the page and would be mistaken for the ink.
-            inputBand("field name") { total, _ in
+            inputBand("field name") { total, _, _ in
                 (top: 0, bottom: Int(total) - 14)
             },
             // The error message, below it. §6 pairs it with the `!` circle from §2; both
             // are `evaErrorInk`, which #16 moved from `#C4645A` to `#A9524A`.
-            inputBand("error message", errorMessage: "Check that address.") { total, without in
+            inputBand("error message", errorMessage: "Check that address.") { _, _, without in
                 (top: Int(without) + 2, bottom: 0)
+            },
+            // The helper rule, in its two states. Both are #3's, and neither had a case.
+            //
+            // At rest the artboard sets it in `#9A9095` (`pwHelpColor`); the screen sets
+            // it in Secondary Text, and that is the swap this case holds.
+            inputBand(
+                "helper rule · met",
+                helperText: "At least 8 characters, including one number."
+            ) { _, withoutHelper, _ in
+                (top: Int(withoutHelper) + 2, bottom: 0)
+            },
+            // Unmet is `evaErrorInk` on the page, plus the `!` mark — the artboard's
+            // `pwHelpColor` when `errs` is true. Same ink as the error row above, but a
+            // different row on a different field state, and it is the one #3 introduced.
+            inputBand(
+                "helper rule · unmet",
+                helperText: "At least 8 characters, including one number.",
+                isHelperUnmet: true
+            ) { _, withoutHelper, _ in
+                (top: Int(withoutHelper) + 2, bottom: 0)
+            },
+            authButton(.apple),
+            authButton(.google),
+            infoBanner,
+            inputRevealButton,
+            pageText("Auth divider label") {
+                AnyView(AuthMethodDivider(title: "or continue with email"))
+            },
+            pageText("Auth legal note") {
+                AnyView(AuthLegalNote())
+            },
+            // The question, with the link rendered but empty.
+            //
+            // `AuthSwitchPrompt` draws two inks: Secondary Text for the question and the
+            // text button's action pink for "Log in". Only the darker of the two is
+            // found, and which one that is depends on the colours — with the shipped
+            // tokens it is the question, but on Muted Text it flips to the pink and the
+            // case starts passing on a string it is no longer measuring. Verified: with
+            // `evaMutedText` restored the other three cases fail at 2.96:1 and this one
+            // stayed green at the text button's 4.57.
+            //
+            // Giving the link an empty title leaves the real component with exactly one
+            // ink in the raster, so this case can only ever be about the question. The
+            // pink half is the "Text button" case above, on the same page ground.
+            pageText("Auth cross-link question") {
+                AnyView(
+                    AuthSwitchPrompt(question: "Already have an account?", actionTitle: "") {}
+                )
             },
             // Synthetic, and the only case here that is: `ImageRenderer` will not draw a
             // `TextField`, so the placeholder cannot be measured on the real control.
@@ -397,6 +565,35 @@ struct EvaContrastTests {
         try check(EvaContrastSurfaces.unruledDisabled) { _, ratio in
             (ratio < 4.5, "it was fixed — move it into `deliberatelyFixedDisabled` and say so on #12")
         }
+    }
+
+    @Test("Muted Text, which is what the artboard states for three of #3's strings, still fails")
+    func mutedTextWouldStillFail() throws {
+        // The auth screens draw the divider label, the legal note and the password rule
+        // in `#9A9095` on the artboard — Muted Text. They ship in Secondary Text instead
+        // (DESIGN.md §9a), and the cases above pin that. This is the other half: the
+        // colour the artboard actually states, measured the same way on the same ground,
+        // has to come back under the bar. Without it, "Muted Text passes too" would be an
+        // untested assumption and every one of those cases would be free to regress to it.
+        let regressed = EvaContrastCase(
+            name: "Muted Text on the page, as the artboard states it",
+            size: CGSize(width: 320, height: 24),
+            backdrop: .evaWarmBackground,
+            inset: (top: 0, leading: 0, bottom: 0, trailing: 0),
+            fillStrip: nil
+        ) {
+            // `Text(verbatim:)` for the same reason the placeholder case gives: a string
+            // literal goes through SwiftUI's Markdown parser.
+            AnyView(
+                Text(verbatim: "or continue with email")
+                    .evaTextStyle(.label)
+                    .foregroundStyle(Color.evaMutedText)
+                    .frame(width: 320, height: 24)
+            )
+        }
+        let measured = try regressed.measure()
+        #expect(measured.ratio < 4.5,
+                "Muted Text measured \(String(format: "%.2f", measured.ratio)):1 on the page — if this now passes, §9a's swap is no longer load-bearing and the note should say so")
     }
 
     @Test("The measurement can actually fail")
