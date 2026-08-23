@@ -19,6 +19,7 @@ struct EvaSpecimenMetricsSection: View {
     ]
 
     private let radii: [Step] = [
+        Step(name: "row destructive", value: EvaRadius.destructiveRow, use: "that button only"),
         Step(name: "chip", value: EvaRadius.chip, use: "chips, text buttons"),
         Step(name: "control", value: EvaRadius.control, use: "buttons, inputs"),
         Step(name: "card", value: EvaRadius.card, use: "content cards"),
@@ -31,9 +32,15 @@ struct EvaSpecimenMetricsSection: View {
         Step(name: "touch target", value: EvaMetrics.minimumTouchTarget, use: "§1 minimum")
     ]
 
+    /// The scale written out from the steps themselves, so the heading cannot go on
+    /// claiming a step the scale no longer has.
+    private var scaleCaption: String {
+        spacing.map { EvaSpecimenNumber.string($0.value) }.joined(separator: ", ")
+    }
+
     var body: some View {
         EvaSpecimenSection(number: "03", title: "Spacing & radii", reference: "DESIGN.md §1, §4") {
-            EvaSpecimenGroupLabel(title: "Spacing · 4, 8, 12, 16, 24, 32, 40")
+            EvaSpecimenGroupLabel(title: "Spacing · \(scaleCaption)")
             VStack(alignment: .leading, spacing: EvaSpacing.xs) {
                 ForEach(spacing) { step in
                     EvaSpecimenSpacingRow(step: step)
@@ -49,6 +56,10 @@ struct EvaSpecimenMetricsSection: View {
                     EvaSpecimenRadiusTile(step: radius)
                 }
             }
+            EvaSpecimenNote(
+                text: "13 is off the 14/17/24/30 scale, but it is what the artboard draws for "
+                    + "the row-level destructive button — `min-height:44px;border-radius:13px`."
+            )
 
             HStack(spacing: EvaSpacing.sm) {
                 RoundedRectangle(cornerRadius: EvaRadius.pill, style: .continuous)

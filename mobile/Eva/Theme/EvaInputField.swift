@@ -2,11 +2,15 @@ import SwiftUI
 
 /// A labelled text input built to the canvas — DESIGN.md §6 "Form controls".
 ///
-/// 52 high, radius 17, `evaInputFill` behind a 1pt `evaControlBorder`. Focus adds a
-/// `evaDeepPink` border and a 3pt `evaInputFocusRing`; an error swaps both for
-/// `evaError` / `evaInputErrorRing` and puts an icon-and-message *below* the field,
-/// because §2 requires every semantic state to carry a mark as well as a colour — for
-/// error that mark is `!` in a circle.
+/// 52 high, radius 17, 15pt of horizontal padding, `evaInputFill` behind a 1pt
+/// `evaControlBorder`. Focus adds a `evaDeepPink` border and a 3pt `evaInputFocusRing`;
+/// an error swaps both for `evaError` / `evaInputErrorRing` and puts an
+/// icon-and-message *below* the field, because §2 requires every semantic state to carry
+/// a mark as well as a colour — for error that mark is `!` in a circle.
+///
+/// The fill moves with the state too, which the DESIGN.md transcription lost and the
+/// artboard states: 75% white at rest, 80% on error, fully opaque when focused. See
+/// `fill` and `EvaInputFill`.
 ///
 /// **The caller keeps the field.** `EvaInputField` never builds the `TextField` or
 /// `SecureField` itself; it takes one from a builder and dresses it. That keeps
@@ -62,6 +66,14 @@ struct EvaInputField<Content: View>: View {
     /// `box-shadow: 0 0 0 3px`, so gaining focus never moves the layout.
     /// Shared with the buttons — see `EvaControl.focusRingWidth`.
     private static var ringWidth: CGFloat { EvaControl.focusRingWidth }
+    /// The artboard's `padding:0 15px`.
+    ///
+    /// **This is not an `EvaSpacing` step**, and it should not become one: the scale is
+    /// 4 / 8 / 12 / 16 / 24 / 32 / 40 and the canvas is deliberately using an off-scale
+    /// value for this one control. It first shipped as `EvaSpacing.md` (16) on the note
+    /// that "§6 gives no inner padding for inputs" — the artboard does give one, and
+    /// this is it. Corrected by #16.
+    private static var horizontalPadding: CGFloat { 15 }
 
     init(
         label: String,
@@ -84,7 +96,7 @@ struct EvaInputField<Content: View>: View {
     /// only way to reach a field's placeholder — the view-level `foregroundStyle` on a
     /// `TextField` colours what the user types, not the prompt.
     private static func prompt(_ placeholder: String) -> Text {
-        Text(placeholder).foregroundStyle(Color.evaMutedText)
+        Text(placeholder).foregroundStyle(Color.evaSecondaryText)
     }
 
     var body: some View {
@@ -101,8 +113,7 @@ struct EvaInputField<Content: View>: View {
                 .font(.evaBody)
                 .foregroundStyle(fieldTextColor)
                 .tint(Color.evaDeepPink)
-                // §6 gives no inner padding for inputs; 16 is the §4 default.
-                .padding(.horizontal, EvaSpacing.md)
+                .padding(.horizontal, Self.horizontalPadding)
                 .padding(.vertical, EvaSpacing.sm)
                 .frame(minHeight: Self.height)
                 .background(fill, in: .rect(cornerRadius: EvaRadius.control, style: .continuous))
@@ -136,8 +147,18 @@ struct EvaInputField<Content: View>: View {
         }
     }
 
+    /// The fill lifts as the field gains attention: 75% white at rest, 80% when wrong,
+    /// fully opaque when focused. Disabled drops to the warm grey.
+    ///
+    /// The artboard states all four; only two of them have tokens. See
+    /// `EvaInputFill` for the two that do not.
+    ///
+    /// Error outranks focus here for the same reason it does in `borderColor` — a
+    /// focused field that is also wrong should read as wrong.
     private var fill: Color {
-        isEnabled ? .evaInputFill : .evaInputFillDisabled
+        guard isEnabled else { return .evaInputFillDisabled }
+        if errorMessage != nil { return Color.evaInputFillError }
+        return isFocused ? Color.evaInputFillFocused : .evaInputFill
     }
 
     private var fieldTextColor: Color {
@@ -145,8 +166,12 @@ struct EvaInputField<Content: View>: View {
     }
 
     /// Error outranks focus: a focused field that is also wrong should read as wrong.
+    ///
+    /// Disabled is `evaInputBorderDisabled` — the artboard's `rgba(40,33,38,.07)`, kept
+    /// distinct from the buttons' 6%. It first shipped as `evaControlBorder` (10%), the
+    /// same hairline as an enabled field, which is the part that actually read wrong.
     private var borderColor: Color {
-        guard isEnabled else { return .evaControlBorder }
+        guard isEnabled else { return .evaInputBorderDisabled }
         if errorMessage != nil { return .evaError }
         return isFocused ? .evaDeepPink : .evaControlBorder
     }

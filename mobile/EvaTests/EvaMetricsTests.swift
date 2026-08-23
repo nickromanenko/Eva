@@ -43,8 +43,12 @@ struct EvaMetricsTests {
 
     // MARK: Radii
 
-    @Test("Radii are 14 chip, 17 control, 24 card, 30 sheet, 999 pill")
+    @Test("Radii are 13 destructive row, 14 chip, 17 control, 24 card, 30 sheet, 999 pill")
     func radiiMatchTheDocument() {
+        // 13 is off the canvas' own 14/17/24/30 ladder and belongs to exactly one
+        // control — the artboard draws the row-level destructive at
+        // `border-radius:13px`. Added by #16.
+        #expect(EvaRadius.destructiveRow == 13)
         #expect(EvaRadius.chip == 14)
         #expect(EvaRadius.control == 17)
         #expect(EvaRadius.card == 24)
@@ -52,10 +56,11 @@ struct EvaMetricsTests {
         #expect(EvaRadius.pill == 999)
     }
 
-    @Test("The radius ladder ascends chip → control → card → sheet → pill")
+    @Test("The radius ladder ascends destructive row → chip → control → card → sheet → pill")
     func radiiAscend() {
         let ladder: [CGFloat] = [
-            EvaRadius.chip, EvaRadius.control, EvaRadius.card, EvaRadius.sheet, EvaRadius.pill
+            EvaRadius.destructiveRow, EvaRadius.chip, EvaRadius.control,
+            EvaRadius.card, EvaRadius.sheet, EvaRadius.pill
         ]
         #expect(ladder == ladder.sorted())
         #expect(Set(ladder).count == ladder.count)

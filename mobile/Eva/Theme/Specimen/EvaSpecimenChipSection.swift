@@ -14,7 +14,12 @@ struct EvaSpecimenChipSection: View {
 
     var body: some View {
         EvaSpecimenSection(number: "06", title: "Chips", reference: "DESIGN.md §6") {
-            EvaSpecimenNote(text: "Min-height 44 · radius 14 · never colour alone.")
+            EvaSpecimenNote(
+                text: "Min-height \(EvaSpecimenNumber.string(EvaMetrics.minimumTouchTarget)) · "
+                    + "radius \(EvaSpecimenNumber.string(EvaRadius.chip)) · label is the §3 "
+                    + "Control row, \(EvaTextStyle.control.evaSpecimenSpec) — not Label 12, "
+                    + "which is what it first shipped as · never colour alone."
+            )
 
             EvaSpecimenGroupLabel(title: "Full width · leading")
             VStack(spacing: EvaSpacing.sm) {
@@ -47,6 +52,13 @@ struct EvaSpecimenChipSection: View {
 
             EvaSpecimenGroupLabel(title: "Wrapping label")
             ChipToggleButton(label: "Medications that affect hormones", isSelected: true) {}
+
+            EvaSpecimenNote(
+                text: "Selected and severe both carry a white label, so both take the §9a "
+                    + "action ramp rather than the canvas pink — measured side by side in "
+                    + "§01. Selected has no border by design; severe carries one, plus a "
+                    + "9 × 2 bar glyph at radius 1, which is the non-colour half of its cue."
+            )
 
             EvaSpecimenNote(
                 text: "No accessibilityIdentifier by design — EvaUITests finds chips by label, "

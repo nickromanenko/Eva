@@ -8,14 +8,21 @@ import SwiftUI
 /// DEBUG only, and reached only through `EVA_SPECIMEN=1`:
 ///
 /// ```sh
-/// xcrun simctl launch --console-pty <udid> com.evaapp.ios --setenv EVA_SPECIMEN=1
+/// SIMCTL_CHILD_EVA_SPECIMEN=1 xcrun simctl launch --terminate-running-process <udid> com.evaapp.ios
 /// xcrun simctl io <udid> screenshot specimen.png
 /// ```
 ///
-/// It renders DESIGN.md §2–§6 and nothing else. It is **not** a screen: it has no
-/// navigation, no session, no network, and its controls do nothing when tapped. Adding a
-/// token or a component means adding it here too, or the next reviewer will not know it
-/// exists.
+/// It renders DESIGN.md §2–§6, plus the §9a deviations, and nothing else. It is **not**
+/// a screen: it has no navigation, no session, no network, and its controls do nothing
+/// when tapped. Adding a token or a component means adding it here too, or the next
+/// reviewer will not know it exists.
+///
+/// Captions are **derived from the tokens** wherever a token can produce them —
+/// `EvaSpecimenColorReadback` for colour, `EvaTextStyle.evaSpecimenSpec` for type,
+/// `EvaGlassLevel` for glass. They used to be transcribed from DESIGN.md, which let a
+/// caption outlive the value it described; the screen built to show what the system is
+/// was the one place that could quietly misreport it. What stays hand-written is prose:
+/// what a token is for, and why it deviates.
 struct EvaSpecimenView: View {
 
     var body: some View {
@@ -52,7 +59,7 @@ private struct EvaSpecimenTitle: View {
                 .evaTextStyle(.h1)
                 .foregroundStyle(Color.evaPrimaryText)
 
-            Text("DESIGN.md §2–§6 · DEBUG only · EVA_SPECIMEN=1")
+            Text("DESIGN.md §2–§6 and §9a · DEBUG only · EVA_SPECIMEN=1")
                 .evaTextStyle(.body)
                 .foregroundStyle(Color.evaSecondaryText)
                 .fixedSize(horizontal: false, vertical: true)

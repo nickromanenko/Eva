@@ -31,15 +31,19 @@ enum EvaRenderError: Error, CustomStringConvertible {
 
 /// A rendered view, addressable pixel by pixel.
 ///
-/// Rendered at one pixel per point (`scale = 1`) so a coordinate in the test is a point
-/// in the layout, and with `colorMode = .nonLinear` so translucent fills composite the
-/// way `evaComposite(_:over:)` predicts.
+/// Rendered at one pixel per point by default so a coordinate in the test is a point in
+/// the layout, and with `colorMode = .nonLinear` so translucent fills composite the way
+/// `evaComposite(_:over:)` predicts.
 @MainActor
 struct EvaRaster {
     let width: Int
     let height: Int
     /// RGBA8, row-major, no padding.
     private let pixels: [UInt8]
+
+    /// Pixels per point. 1 for every geometry assertion, so a coordinate in the test is
+    /// a point in the layout.
+    let scale: CGFloat
 
     /// Renders `view` over an opaque `background` in a `size`-point frame.
     ///
@@ -48,10 +52,16 @@ struct EvaRaster {
     /// the test has to know what that something was. `.black` is the default because it
     /// is the furthest from every fill in the palette, so a wrong alpha moves the
     /// sampled pixel the most.
+    ///
+    /// `scale` stays at 1 for everything that names a coordinate. The contrast suite
+    /// raises it, because there it is glyph *interiors* being sampled: at one pixel per
+    /// point a 13pt stem is under two pixels wide and may never be fully covered, which
+    /// would have the label read back lighter than it is.
     init(
         _ view: some View,
         size: CGSize,
-        background: Color = .black
+        background: Color = .black,
+        scale: CGFloat = 1
     ) throws {
         let renderer = ImageRenderer(
             content: ZStack {
@@ -60,9 +70,10 @@ struct EvaRaster {
             }
             .frame(width: size.width, height: size.height)
         )
-        renderer.scale = 1
+        renderer.scale = scale
         renderer.isOpaque = true
         renderer.colorMode = .nonLinear
+        self.scale = scale
 
         guard let cgImage = renderer.cgImage else { throw EvaRenderError.renderFailed }
 
@@ -94,6 +105,43 @@ struct EvaRaster {
             blue: Double(pixels[i + 2]) / 255,
             alpha: Double(pixels[i + 3]) / 255
         )
+    }
+
+    /// The lightest and the darkest pixel inside the raster, inset by `dx`/`dy` points.
+    ///
+    /// This is how the contrast suite reads a control without being told what it
+    /// painted. A control that puts a label on a fill draws exactly two opaque colours
+    /// in its interior; every other pixel is an antialiased blend of the two, and a
+    /// blend is a convex combination, so it can never be lighter than the lighter of
+    /// them nor darker than the darker. The two extremes are therefore the label and
+    /// the worst point of the fill — whichever way round they happen to be, which is
+    /// the point: a white label on a dark fill and a dark label on a pale one are the
+    /// same measurement.
+    ///
+    /// Inset past the border and the corner curve, or a border darker than the fill
+    /// (the severe chip's) is what comes back instead of the fill.
+    func luminanceExtremes(insetBy dx: Int, _ dy: Int) -> (lightest: EvaRGBA, darkest: EvaRGBA) {
+        luminanceExtremes(top: dy, leading: dx, bottom: dy, trailing: dx)
+    }
+
+    /// As above, with each edge trimmed separately — for a component whose label sits
+    /// outside the surface being measured, such as the input's field name above its box.
+    func luminanceExtremes(
+        top: Int, leading: Int, bottom: Int, trailing: Int
+    ) -> (lightest: EvaRGBA, darkest: EvaRGBA) {
+        func px(_ points: Int) -> Int { Int((CGFloat(points) * scale).rounded()) }
+        let yRange = px(top)..<(height - px(bottom))
+        let xRange = px(leading)..<(width - px(trailing))
+        var lightest = pixel(xRange.lowerBound, yRange.lowerBound)
+        var darkest = lightest
+        for y in yRange {
+            for x in xRange {
+                let sample = pixel(x, y)
+                if sample.relativeLuminance > lightest.relativeLuminance { lightest = sample }
+                if sample.relativeLuminance < darkest.relativeLuminance { darkest = sample }
+            }
+        }
+        return (lightest, darkest)
     }
 
     /// Height in points of the tallest unbroken run of rows in column `x` whose pixel
@@ -149,13 +197,25 @@ extension EvaRGBA {
         return close(red, other.red) && close(green, other.green) && close(blue, other.blue)
     }
 
-    /// WCAG relative luminance. Only ever used for "darker than", never for a value.
+    /// WCAG 2.1 relative luminance — `0.2126R + 0.7152G + 0.0722B` on linearised sRGB.
+    ///
+    /// Used two ways: as an ordering ("the pressed fill is darker") and, since #12, as
+    /// a value, through `evaContrastRatio(_:_:)`.
     var relativeLuminance: Double {
         func linear(_ c: Double) -> Double {
             c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
         }
         return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
     }
+}
+
+/// WCAG 2.1 contrast ratio, `(L1 + 0.05) / (L2 + 0.05)` with `L1` the lighter.
+///
+/// Symmetric, so callers need not know which of the two is the label.
+func evaContrastRatio(_ a: EvaRGBA, _ b: EvaRGBA) -> Double {
+    let lighter = max(a.relativeLuminance, b.relativeLuminance)
+    let darker = min(a.relativeLuminance, b.relativeLuminance)
+    return (lighter + 0.05) / (darker + 0.05)
 }
 
 /// The opaque colour `foreground` produces when drawn over `background`.
@@ -187,4 +247,35 @@ func evaFittingHeight(_ view: some View, width: CGFloat = 320) -> CGFloat {
     controller.view.backgroundColor = .clear
     controller.view.layoutIfNeeded()
     return controller.sizeThatFits(in: CGSize(width: width, height: 10_000)).height
+}
+
+/// The width a view settles at when offered unlimited space.
+///
+/// Paired with `evaLabelAdvance(…)` below, this is how a test reads the *type size* a
+/// control gave its label. Nothing else can: `.evaTextStyle(.control)` is applied
+/// inside the component, the appearance types are private, and 12pt and 13pt differ by
+/// less than a rendered pixel in cap height.
+@MainActor
+func evaFittingWidth(_ view: some View) -> CGFloat {
+    let controller = UIHostingController(rootView: view)
+    controller.view.backgroundColor = .clear
+    controller.view.layoutIfNeeded()
+    return controller.sizeThatFits(in: CGSize(width: 10_000, height: 10_000)).width
+}
+
+/// The advance width of `repeats` copies of one glyph, as `build` lays them out.
+///
+/// Measured as the *difference* between a long label and a short one, so every fixed
+/// cost — the control's padding, its border, a leading glyph — cancels exactly and
+/// what is left is `repeats × the glyph's advance at whatever size the label was set
+/// in`. Compare a control's number against the same measurement taken on a bare
+/// `Text` at a candidate `EvaTextStyle` and the control's type row is identified.
+@MainActor
+func evaLabelAdvance<V: View>(
+    repeats: Int = 10,
+    _ build: (String) -> V
+) -> CGFloat {
+    let short = "M"
+    let long = String(repeating: "M", count: repeats + 1)
+    return evaFittingWidth(build(long)) - evaFittingWidth(build(short))
 }

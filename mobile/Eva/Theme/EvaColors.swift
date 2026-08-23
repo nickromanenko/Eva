@@ -62,40 +62,48 @@ extension Color {
     // MARK: Semantic
     //
     // Every semantic state is icon + text as well as colour — never colour alone
-    // (DESIGN.md §2). The canvas gives a single hex per state; the `…Tint` and
-    // `…Border` companions below are opacity derivations of that hex rather than
-    // separate canvas values, and `…Ink` is the hex itself used for text and icons.
-    // If the canvas later specifies discrete tint/border hexes, replace these.
+    // (DESIGN.md §2). The canvas states each state's fill, border and ink separately
+    // from its base hue, and they are **not** opacities of that hue — Success's tint is
+    // pistachio (`#CDE79D`), not `#7A9B45`, and each ink is its own darker hex. The
+    // values below are the artboard's, read from the `semantic` list in
+    // "Eva Design System.dc.html".
 
     /// `#7A9B45` — success. Mark: ✓ in a circle.
     static let evaSuccess = Color(hex: 0x7A9B45)
-    static let evaSuccessTint = Color.evaSuccess.opacity(semanticTintOpacity)
-    static let evaSuccessBorder = Color.evaSuccess.opacity(semanticBorderOpacity)
-    static let evaSuccessInk = Color.evaSuccess
+    /// `rgba(205,231,157,.26)` — pistachio-based, not a tint of `evaSuccess`.
+    static let evaSuccessTint = Color.evaPistachio.opacity(0.26)
+    /// `rgba(142,173,86,.32)` — deep pistachio.
+    static let evaSuccessBorder = Color.evaDeepPistachio.opacity(0.32)
+    /// `#4F6630`.
+    static let evaSuccessInk = Color(hex: 0x4F6630)
 
     /// `#C9913F` — warning: needs attention, not urgent. Mark: ! in a rounded square.
     static let evaWarning = Color(hex: 0xC9913F)
-    static let evaWarningTint = Color.evaWarning.opacity(semanticTintOpacity)
-    static let evaWarningBorder = Color.evaWarning.opacity(semanticBorderOpacity)
-    static let evaWarningInk = Color.evaWarning
+    /// `rgba(201,145,63,.10)`.
+    static let evaWarningTint = Color.evaWarning.opacity(0.10)
+    /// `rgba(201,145,63,.3)`.
+    static let evaWarningBorder = Color.evaWarning.opacity(0.30)
+    /// `#8A6425`.
+    static let evaWarningInk = Color(hex: 0x8A6425)
 
     /// `#C4645A` — error. Mark: ! in a circle. Always paired with a message under
     /// the field.
     static let evaError = Color(hex: 0xC4645A)
-    static let evaErrorTint = Color.evaError.opacity(semanticTintOpacity)
-    static let evaErrorBorder = Color.evaError.opacity(semanticBorderOpacity)
-    static let evaErrorInk = Color.evaError
+    /// `rgba(196,100,90,.08)`.
+    static let evaErrorTint = Color.evaError.opacity(0.08)
+    /// `rgba(196,100,90,.26)`.
+    static let evaErrorBorder = Color.evaError.opacity(0.26)
+    /// `#A9524A` — the same hex as `evaDestructiveInk`.
+    static let evaErrorInk = Color(hex: 0xA9524A)
 
     /// `#5A7BA0` — information: account linking, predictions, limits of data.
     static let evaInformation = Color(hex: 0x5A7BA0)
-    static let evaInformationTint = Color.evaInformation.opacity(semanticTintOpacity)
-    static let evaInformationBorder = Color.evaInformation.opacity(semanticBorderOpacity)
-    static let evaInformationInk = Color.evaInformation
-
-    /// Fill opacity used to derive every semantic `…Tint`.
-    private static let semanticTintOpacity: Double = 0.12
-    /// Stroke opacity used to derive every semantic `…Border`.
-    private static let semanticBorderOpacity: Double = 0.32
+    /// `rgba(90,123,160,.09)`.
+    static let evaInformationTint = Color.evaInformation.opacity(0.09)
+    /// `rgba(90,123,160,.26)`.
+    static let evaInformationBorder = Color.evaInformation.opacity(0.26)
+    /// `#3F5A76`.
+    static let evaInformationInk = Color(hex: 0x3F5A76)
 }
 
 // MARK: - Control states (DESIGN.md §5, §6)
@@ -163,6 +171,14 @@ extension Color {
     static let evaInputFocusRing = Color.evaDeepPink.opacity(0.16)
     /// `rgba(196,100,90,.14)` — 3pt error ring; the border itself becomes `evaError`.
     static let evaInputErrorRing = Color.evaError.opacity(0.14)
+    /// `#fff` — focused input fill. The field goes fully opaque, so focus reads as a
+    /// change in the surface and not only as a ring.
+    static let evaInputFillFocused = Color.white
+    /// `rgba(255,255,255,.8)` — error input fill, a half-step up from the resting 75%.
+    static let evaInputFillError = Color.white.opacity(0.8)
+    /// `rgba(40,33,38,.07)` — disabled input border. The artboard uses .07 here where
+    /// buttons use .06; kept distinct rather than folded into `evaControlBorderDisabled`.
+    static let evaInputBorderDisabled = Color(hex: 0x282126).opacity(0.07)
     /// `rgba(248,243,240,.8)` — disabled input fill.
     static let evaInputFillDisabled = Color(hex: 0xF8F3F0).opacity(0.8)
     /// `#B3A9AE` — disabled input text.
@@ -176,54 +192,162 @@ extension Color {
     static let evaChipSelectedTop = Color(hex: 0xEE93B1)
     /// `#DC7C9E` — selected chip gradient bottom.
     static let evaChipSelectedBottom = Color(hex: 0xDC7C9E)
-    /// `#A94A6C` — border on the "severe" chip, whose fill is `evaDeepPink`.
-    static let evaChipSevereBorder = Color(hex: 0xA94A6C)
+    /// `#5F2C3F` — border on the severe chip. Deepened along with the fill: the
+    /// artboard's `#A94A6C` is now the *fill's* neighbourhood, so it would draw nothing.
+    static let evaChipSevereBorder = Color(hex: 0x5F2C3F)
+    /// `#7E3B58` — severe chip fill. White reads at 7.91:1.
+    ///
+    /// Not an artboard value. The artboard's severe chip is `#C95F86`, which carries
+    /// white at 3.84:1, and the approved action ramp (#12) would have deepened it to
+    /// `#A94A6C` — four units per channel from the selected chip's midpoint, making the
+    /// two states indistinguishable. This sits 80 channel-units below selected so severe
+    /// still reads as the more serious of the two, which is the state's whole job.
+    static let evaChipSevere = Color(hex: 0x7E3B58)
     /// `rgba(248,243,240,.8)` — disabled chip fill; label is `evaDisabledText`.
     static let evaChipFillDisabled = Color(hex: 0xF8F3F0).opacity(0.8)
 }
 
-// MARK: - Canvas gradients (DESIGN.md §2, §5)
+// MARK: - Action pink — the ramp that carries a white label
+//
+// DELIBERATE DEVIATION FROM THE ARTBOARD. Approved on #12; not a canvas value.
+//
+// White on the canvas pink fails WCAG AA everywhere it carries a label. Measured
+// against `#FFFFFF`, for a 14.5pt semibold label needing 4.5:1:
+//
+//   | Surface                                  | White |
+//   |------------------------------------------|-------|
+//   | Primary button top      `#EE93B1`        |  2.22 |
+//   | Primary button end      `#C95F86`        |  3.84 |
+//   | Selected chip worst pt  `#EE93B1`        |  2.22 |
+//   | Severe chip / today     `#C95F86`        |  3.84 |
+//
+// No variant of the canvas ramp keeps the pale pink, a white label and AA together —
+// flipping the label to Primary Text only trades one failure for another (`#C95F86`
+// against `#282126` is 4.09). The resolution is to deepen the pink **only where it
+// carries a label**, and leave the brand pink alone everywhere else. So:
+//
+//   * Actionable surfaces — primary button, selected chip, FAB, today marker — use the
+//     `evaActionPink…` ramp below, which clears AA with a white label.
+//   * Washes, tints, decorative fills and any pink with nothing sitting on top of it
+//     keep `evaPrimaryPink` / `evaDeepPink` and the canvas gradients. They are still
+//     the brand colour and they are still correct.
+//
+// These are a separate family from the brand pinks on purpose. Reaching for one of
+// them is a statement that a white label sits on top; if nothing does, use the brand
+// pink instead.
+
+extension Color {
+
+    /// `#B45276` — action ramp, resting top. White label: 4.76:1.
+    static let evaActionPinkTop = Color(hex: 0xB45276)
+    /// `#96486A` — action ramp, resting bottom. White label: 6.12:1.
+    static let evaActionPinkBottom = Color(hex: 0x96486A)
+
+    /// `#994664` — action ramp, pressed top. White label: 6.15:1.
+    static let evaActionPinkPressedTop = Color(hex: 0x994664)
+    /// `#803D5A` — action ramp, pressed bottom. White label: 7.68:1.
+    static let evaActionPinkPressedBottom = Color(hex: 0x803D5A)
+
+    /// `#A94A6C` — the flat action pink, for surfaces the canvas fills solid rather
+    /// than with a gradient: the severe chip, the "today" marker, the FAB.
+    /// White label: 5.41:1.
+    ///
+    /// Used by the today marker and the FAB. **Not** the severe chip — that would land
+    /// on top of the selected chip; see `evaChipSevere`.
+    static let evaActionPinkSolid = Color(hex: 0xA94A6C)
+}
+
+// MARK: - Action pink gradients
+//
+// The `evaActionPink…` ramp in its gradient form. Same 180° top-to-bottom geometry as
+// the canvas' `evaPrimaryButton` / `evaPrimaryButtonPressed`, deepened per #12.
 
 extension LinearGradient {
 
-    /// Blush → cream wash. §2 names the stops but not an angle, so this runs on the
-    /// plain diagonal; "cream" is read as Warm Background `#FFF9F6`.
-    static let evaBlushCream = LinearGradient(
-        colors: [.evaSoftBlush, .evaWarmBackground],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-
-    /// Pistachio → cream wash. Angle unspecified in §2; see `evaBlushCream`.
-    static let evaPistachioCream = LinearGradient(
-        colors: [.evaPistachio, .evaWarmBackground],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-
-    /// Pink → pistachio (`#F3AEC4` → `#EDF6DA`). Angle unspecified in §2.
-    static let evaPinkPistachio = LinearGradient(
-        colors: [.evaGradientPink, .evaLightPistachio],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-
-    /// Pink base of the "white highlight over pink" treatment (`#E982A5` → `#C95F86`).
-    /// Overlay `evaWhiteHighlightWash` on top of this to get the full treatment.
-    static let evaPinkHighlightBase = LinearGradient(
-        colors: [.evaPrimaryPink, .evaDeepPink],
+    /// Action pink, resting — `#B45276` → `#96486A`. The AA-clearing stand-in for
+    /// `evaPrimaryButton` wherever a white label sits on the fill.
+    static let evaActionPink = LinearGradient(
+        colors: [.evaActionPinkTop, .evaActionPinkBottom],
         startPoint: .top,
         endPoint: .bottom
     )
 
-    /// The white top wash of the "white highlight over pink" treatment. §2 describes
-    /// the wash but gives no opacity or stop positions, so these are an approximation
-    /// — confirm against the canvas before shipping a screen that leans on it.
+    /// Action pink, pressed — `#994664` → `#803D5A`. Pair with a 0.97 scale, as the
+    /// canvas does for the primary button.
+    static let evaActionPinkPressed = LinearGradient(
+        colors: [.evaActionPinkPressedTop, .evaActionPinkPressedBottom],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+}
+
+// MARK: - Canvas gradients (DESIGN.md §2, §5)
+//
+// The canvas states an angle for every wash. `evaUnitPoints(cssAngle:)` converts one
+// into the SwiftUI start/end pair, so the angle stays legible at each call site rather
+// than arriving as a pre-computed pair of magic numbers.
+
+/// Start and end `UnitPoint`s for a CSS `linear-gradient` angle.
+///
+/// CSS 0° points up and angles run clockwise, so the direction vector in screen
+/// coordinates (y down) is `(sin θ, -cos θ)`. Extending that through the centre of the
+/// unit square — whose gradient line length is `|sin θ| + |cos θ|` — gives the two
+/// points. Note SwiftUI's `UnitPoint` space is normalised to the view's bounds, so the
+/// rendered angle only equals the CSS angle when the view is square; this matches how
+/// the canvas' own boxes are drawn and how `EvaCardSurfaceModifier` handles 150°.
+private func evaUnitPoints(cssAngle degrees: Double) -> (start: UnitPoint, end: UnitPoint) {
+    let radians = degrees * .pi / 180
+    let dx = sin(radians)
+    let dy = -cos(radians)
+    let half = (abs(dx) + abs(dy)) / 2
+    return (
+        UnitPoint(x: 0.5 - dx * half, y: 0.5 - dy * half),
+        UnitPoint(x: 0.5 + dx * half, y: 0.5 + dy * half)
+    )
+}
+
+extension LinearGradient {
+
+    /// Blush → cream wash — `linear-gradient(135deg, #F9DCE6, #FFF9F6)` (§2).
+    /// "Cream" is Warm Background.
+    static let evaBlushCream = LinearGradient(
+        colors: [.evaSoftBlush, .evaWarmBackground],
+        startPoint: evaUnitPoints(cssAngle: 135).start,
+        endPoint: evaUnitPoints(cssAngle: 135).end
+    )
+
+    /// Pistachio → cream wash — `linear-gradient(135deg, #EDF6DA, #FFF9F6)` (§2).
+    ///
+    /// The canvas' pistachio stop here is **Light** Pistachio `#EDF6DA`, not Pistachio
+    /// `#CDE79D`; §2's prose names the wash "pistachio → cream" without a hex, and the
+    /// darker reading was an inference.
+    static let evaPistachioCream = LinearGradient(
+        colors: [.evaLightPistachio, .evaWarmBackground],
+        startPoint: evaUnitPoints(cssAngle: 135).start,
+        endPoint: evaUnitPoints(cssAngle: 135).end
+    )
+
+    /// Pink → pistachio — `linear-gradient(120deg, #F3AEC4, #EDF6DA)` (§2).
+    static let evaPinkPistachio = LinearGradient(
+        colors: [.evaGradientPink, .evaLightPistachio],
+        startPoint: evaUnitPoints(cssAngle: 120).start,
+        endPoint: evaUnitPoints(cssAngle: 120).end
+    )
+
+    /// Pink base of the "white highlight over pink" treatment —
+    /// `linear-gradient(135deg, #E982A5, #C95F86)` (§2). Overlay
+    /// `evaWhiteHighlightWash` on top of this to get the full treatment.
+    static let evaPinkHighlightBase = LinearGradient(
+        colors: [.evaPrimaryPink, .evaDeepPink],
+        startPoint: evaUnitPoints(cssAngle: 135).start,
+        endPoint: evaUnitPoints(cssAngle: 135).end
+    )
+
+    /// The white top wash of the "white highlight over pink" treatment —
+    /// `linear-gradient(180deg, rgba(255,255,255,.75), rgba(255,255,255,0))` (§2).
+    /// It runs the full height of the surface; 75% at the top, nothing at the bottom.
     static let evaWhiteHighlightWash = LinearGradient(
-        stops: [
-            .init(color: .white.opacity(0.28), location: 0),
-            .init(color: .white.opacity(0), location: 0.55)
-        ],
+        colors: [.white.opacity(0.75), .white.opacity(0)],
         startPoint: .top,
         endPoint: .bottom
     )
@@ -387,12 +511,23 @@ private struct EvaGradientSwatch: View {
                 EvaColorSwatch(name: "Info tint", color: .evaInformationTint)
             }
 
+            Text("Action pink · white-label ramp (#12, not the canvas)").font(.headline)
+            LazyVGrid(columns: columns, spacing: 12) {
+                EvaColorSwatch(name: "Action top", color: .evaActionPinkTop)
+                EvaColorSwatch(name: "Action bottom", color: .evaActionPinkBottom)
+                EvaColorSwatch(name: "Pressed top", color: .evaActionPinkPressedTop)
+                EvaColorSwatch(name: "Pressed bottom", color: .evaActionPinkPressedBottom)
+                EvaColorSwatch(name: "Action solid", color: .evaActionPinkSolid)
+            }
+
             Text("Gradients").font(.headline)
             VStack(spacing: 10) {
                 EvaGradientSwatch(name: "Blush → cream", gradient: .evaBlushCream)
                 EvaGradientSwatch(name: "Pistachio → cream", gradient: .evaPistachioCream)
                 EvaGradientSwatch(name: "Pink → pistachio", gradient: .evaPinkPistachio)
                 EvaGradientSwatch(name: "Primary button", gradient: .evaPrimaryButton)
+                EvaGradientSwatch(name: "Action pink", gradient: .evaActionPink)
+                EvaGradientSwatch(name: "Action pink · pressed", gradient: .evaActionPinkPressed)
                 EvaGradientSwatch(
                     name: "White highlight over pink",
                     gradient: .evaPinkHighlightBase,

@@ -18,13 +18,27 @@ struct EvaTypeRow: Sendable, CustomStringConvertible {
     var description: String { name }
 }
 
-/// Every row DESIGN.md §3 lists — Display, H1, H2, H3, Body, Body medium, Button,
-/// Label, Caption, Input helper, Error, Overline. Held outside the suite so the
-/// `@Test(arguments:)` macro can read it without crossing main-actor isolation.
+/// Every row the §3 scale lists — Display, H1, H2, H3, Body, Body medium, Button,
+/// Control, Text button, Label, Caption, Input helper, Error, Overline. Held outside
+/// the suite so the `@Test(arguments:)` macro can read it without crossing main-actor
+/// isolation.
+///
+/// Two rows are newer than DESIGN.md's transcription of §3 and are taken from the
+/// artboard values quoted on #12 rather than from the document, which #16 has not yet
+/// caught up with:
+///
+/// * **Control 13/600** — the artboard sets chips, the row-level destructive button
+///   and dialog buttons at `font:600 13px`. §3's written scale had no 13 row, which is
+///   why chips first shipped at Label 12.
+/// * **Text button 14/600** — the artboard draws that one variant at `font:600 14px`,
+///   a step below the 14.5 of the filled buttons.
+///
+/// Display is 46/**56**, not the artboard's 46/48: decided on #12 (2) and applied by
+/// #17, because Montserrat's own line box at 46pt is 56.07pt.
 enum EvaTypeScale {
     static let rows: [EvaTypeRow] = [
-        EvaTypeRow(name: "Display 46/48 · 400", style: .display, font: .evaDisplay,
-            postScriptName: "Montserrat-Regular", size: 46, lineHeight: 48, tracking: 0),
+        EvaTypeRow(name: "Display 46/56 · 400", style: .display, font: .evaDisplay,
+            postScriptName: "Montserrat-Regular", size: 46, lineHeight: 56, tracking: 0),
         EvaTypeRow(name: "H1 28/34 · 600", style: .h1, font: .evaH1,
             postScriptName: "Montserrat-SemiBold", size: 28, lineHeight: 34, tracking: 0),
         EvaTypeRow(name: "H2 21/26 · 600", style: .h2, font: .evaH2,
@@ -37,6 +51,14 @@ enum EvaTypeScale {
             postScriptName: "Montserrat-Medium", size: 15, lineHeight: 24, tracking: 0),
         EvaTypeRow(name: "Button 14.5 · 600", style: .button, font: .evaButton,
             postScriptName: "Montserrat-SemiBold", size: 14.5, lineHeight: nil, tracking: 0),
+        EvaTypeRow(name: "Control 13 · 600", style: .control, font: .evaControlText,
+            postScriptName: "Montserrat-SemiBold", size: 13, lineHeight: nil, tracking: 0),
+        // No `Font.evaTextButton` exists — this is the one row of the fourteen with no
+        // `Font.eva*` projection beside it, so the row's own `.font` stands in and
+        // `fontHelperMatchesItsStyle` has nothing to check for it. Reported, not fixed.
+        EvaTypeRow(name: "Text button 14 · 600", style: .textButton,
+            font: EvaTextStyle.textButton.font,
+            postScriptName: "Montserrat-SemiBold", size: 14, lineHeight: nil, tracking: 0),
         EvaTypeRow(name: "Label 12 · 600", style: .label, font: .evaLabel,
             postScriptName: "Montserrat-SemiBold", size: 12, lineHeight: nil, tracking: 0),
         EvaTypeRow(name: "Caption 12.5/19", style: .caption, font: .evaCaption,
@@ -85,11 +107,34 @@ struct EvaTypographyTests {
         #expect(row.font == row.style.font)
     }
 
-    @Test("The scale covers all twelve DESIGN.md §3 roles, with no two rows identical")
+    @Test("The scale covers all fourteen §3 roles, with no two rows identical")
     func scaleIsComplete() {
-        #expect(EvaTypeScale.rows.count == 12)
-        #expect(Set(EvaTypeScale.rows.map(\.style)).count == 12)
-        #expect(Set(EvaTypeScale.rows.map(\.font)).count == 12)
+        // Twelve until #16 added Control 13 and Text button 14. The identity checks are
+        // the load-bearing half: a new row wired to an existing style (`.control` left
+        // pointing at `.label`) would leave the count right and the scale wrong.
+        #expect(EvaTypeScale.rows.count == 14)
+        #expect(Set(EvaTypeScale.rows.map(\.style)).count == 14)
+        #expect(Set(EvaTypeScale.rows.map(\.font)).count == 14)
+    }
+
+    @Test("The scale steps 14.5 → 14 → 13 → 12 with four distinct semibold rows")
+    func semiboldRowsAreFourDistinctSizes() {
+        // The four rows that are all Montserrat SemiBold with no line height, and so
+        // are told apart by size alone. Chips at 12 instead of 13 and the text button
+        // at 14.5 instead of 14 were both invisible for exactly this reason — nothing
+        // in the suite looked at the sizes as a set.
+        let sizes = [
+            EvaTextStyle.button.size,
+            EvaTextStyle.textButton.size,
+            EvaTextStyle.control.size,
+            EvaTextStyle.label.size
+        ]
+        #expect(sizes == [14.5, 14, 13, 12])
+        #expect(sizes == sizes.sorted(by: >))
+        for style in [EvaTextStyle.button, .textButton, .control, .label] {
+            #expect(style.fontName == EvaFont.semibold)
+            #expect(style.lineHeight == nil, "a single-line control row gained a line height")
+        }
     }
 
     // MARK: Line spacing
@@ -106,14 +151,24 @@ struct EvaTypographyTests {
         #expect(row.style.lineSpacing >= 0)
     }
 
-    @Test("Display's 46/48 leading is tighter than Montserrat's own line box")
-    func displayLeadingIsUnreachable() {
-        // Documented limitation of the SwiftUI mapping: `lineSpacing` is additive, so a
-        // line height *below* the natural line box clamps to 0. If this ever stops
-        // being true the Display row is being laid out differently and the note in
-        // EvaTypography.swift is stale.
+    @Test("Display is respecified to Montserrat's own line box, not to the canvas' 48")
+    func displayLeadingIsTheNaturalLineBox() {
+        // #12 (2), applied by #17. The artboard renders Display at `46px/1.05` ≈ 48,
+        // which is *tighter* than the face was drawn for — Montserrat's line box at
+        // 46pt is 56.07pt — so it is unreachable through `lineSpacing`, which is
+        // additive, and a `TextRenderer` forcing it would collide ascenders.
+        //
+        // 56 has to be the natural box and not just "a number bigger than 48": the
+        // decision was to accept what the font gives, so `lineSpacing` resolving to 0
+        // must be because nothing needs adding, not because a negative was clamped.
+        // This is the assertion that catches Display being respecified to, say, 60 and
+        // silently rendering at 56 anyway.
+        let natural = 46 * EvaFont.naturalLineHeightRatio
+        #expect(EvaTextStyle.display.lineHeight == 56)
+        #expect(abs(natural - 56) < 0.5, "Montserrat's line box at 46pt measures \(natural)")
         #expect(EvaTextStyle.display.lineSpacing == 0)
-        #expect(46 * EvaFont.naturalLineHeightRatio > 48)
+        // The canvas value is still out of reach, which is *why* the row was changed.
+        #expect(natural > 48)
     }
 
     @Test("The natural line-height ratio matches the shipped Montserrat metrics")
