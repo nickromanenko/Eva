@@ -162,6 +162,18 @@ extension Color {
     static let evaAuthApple = Color(hex: 0x1C1A1B)
     /// `rgba(255,255,255,.85)` — Continue with Google, glass (§5).
     static let evaAuthGoogleFill = Color.white.opacity(0.85)
+    /// The four stops of the **placeholder** Google mark, read off the sign-up artboard
+    /// (`conic-gradient(#E9825F,#CDE79D,#5A7BA0,#E982A5,#E9825F)` in "Eva App.dc.html").
+    ///
+    /// Not a palette entry, and not the Google mark. The design system's Authentication
+    /// column ends with a dashed slot captioned "Official marks drop in here — brand
+    /// assets supplied by the vendor", so the canvas itself says the real mark is
+    /// pending; this disc is what it draws in the meantime. Replaced wholesale by the
+    /// vendor asset when Google sign-in lands (#7). `#E9825F` is the one hex here with
+    /// no token of its own — it exists only inside this placeholder.
+    static let evaAuthGoogleMarkStops: [Color] = [
+        Color(hex: 0xE9825F), .evaPistachio, .evaInformation, .evaPrimaryPink, Color(hex: 0xE9825F)
+    ]
 
     // MARK: Inputs (§6)
 

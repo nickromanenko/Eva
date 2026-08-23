@@ -36,6 +36,7 @@ struct EvaSpecimenView: View {
                 EvaSpecimenButtonSection()
                 EvaSpecimenChipSection()
                 EvaSpecimenInputSection()
+                EvaSpecimenSurfaceSection()
                 EvaSpecimenEndMarker()
             }
             .padding(.horizontal, EvaSpacing.lg)

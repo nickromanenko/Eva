@@ -39,7 +39,18 @@ Eva helps women care for their physical and mental health, plan activity and rec
 
 ### Onboarding
 
+> **Superseded by the design canvas (2026-08-23, issue #3).** The canvas
+> (`docs/design/Eva App.dc.html`) draws onboarding as a **single screen** — hero, Apple,
+> Google, "or continue with email", with email and password inline — and contains no
+> science/solution screens. Nick chose the canvas flow over this section. The two
+> info screens described in the feature list above are not being built.
+
 ### Sign Up
+
+> **Partly superseded (2026-08-23, issue #3).** The three account-creation options stand.
+> The questionnaire below is **not** part of sign-up: the canvas places these fields in
+> Profile instead. Until a Profile screen exists it still runs as a post-auth step, so the
+> requirements below remain accurate about *what* is collected, not *when*.
 
 The system has to provide 3 options to create account:
 

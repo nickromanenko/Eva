@@ -51,6 +51,12 @@ enum EvaRadius {
     static let chip: CGFloat = 14
     /// 17 — controls: primary/secondary buttons, inputs, dropdowns (§5, §6).
     static let control: CGFloat = 17
+    /// 20 — the info banner (§7). Off the 14/17/24/30 scale like `destructiveRow`, and
+    /// like it this is what the artboard draws: the design system's information banner is
+    /// `padding:14px;border-radius:20px`. The sign-up screen's account-linking card in
+    /// "Eva App.dc.html" draws the same banner at 18; the design system is the component
+    /// authority, so 20 wins.
+    static let banner: CGFloat = 20
     /// 24 — content cards.
     static let card: CGFloat = 24
     /// 30 — bottom sheets. **Top corners only** — pair with

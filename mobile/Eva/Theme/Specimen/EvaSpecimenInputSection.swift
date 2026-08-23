@@ -25,6 +25,13 @@ struct EvaSpecimenInputSection: View {
     @State private var invalid = "sam@example"
     @State private var locked = "sam@example.com"
     @State private var secret = ""
+    @State private var revealed = "evaprime26"
+    @State private var weak = "evaprime"
+    @State private var isRevealed = true
+
+    /// The rule the sign-up screen states, and the specimen string §3 uses for the Input
+    /// helper row.
+    private static let passwordRule = "At least 8 characters, including one number."
 
     private let columns = [GridItem(.adaptive(minimum: 96), spacing: EvaSpacing.sm)]
 
@@ -68,11 +75,53 @@ struct EvaSpecimenInputSection: View {
                 }
                 .disabled(true)
 
-                EvaInputField(label: "Secure", placeholder: "At least 8 characters") { prompt in
-                    SecureField("Secure", text: $secret, prompt: prompt)
+                EvaInputField(
+                    label: "Secure · helper",
+                    placeholder: "At least 8 characters",
+                    helperText: Self.passwordRule
+                ) { prompt in
+                    SecureField("Secure · helper", text: $secret, prompt: prompt)
                         .accessibilityIdentifier("specimen.input.secure")
                 }
+
+                EvaInputField(
+                    label: "Secure · revealed",
+                    placeholder: "At least 8 characters",
+                    helperText: Self.passwordRule,
+                    accessory: {
+                        EvaInputRevealButton(
+                            isRevealed: isRevealed,
+                            identifier: "specimen.input.reveal"
+                        ) {
+                            isRevealed.toggle()
+                        }
+                    }
+                ) { prompt in
+                    TextField("Secure · revealed", text: $revealed, prompt: prompt)
+                        .accessibilityIdentifier("specimen.input.revealed")
+                }
+
+                EvaInputField(
+                    label: "Secure · rule unmet",
+                    placeholder: "At least 8 characters",
+                    helperText: Self.passwordRule,
+                    isHelperUnmet: true,
+                    helperIdentifier: "specimen.input.rule.unmet"
+                ) { prompt in
+                    SecureField("Secure · rule unmet", text: $weak, prompt: prompt)
+                        .accessibilityIdentifier("specimen.input.weak")
+                }
             }
+
+            EvaSpecimenNote(
+                text: "The helper states the rule up front (§6) and stays helper text "
+                    + "when the rule is unmet: the artboard recolours the line in place "
+                    + "and leaves the input on its normal border, because the sign-up "
+                    + "spec note asks for a rule stated up front, not revealed as an "
+                    + "error. The ! mark is added on top of the recolour, since §2 does "
+                    + "not allow a state carried by colour alone. The Error row above is "
+                    + "what a real failure looks like — a server error, not a rule."
+            )
 
             EvaSpecimenGroupLabel(title: "Fills")
             EvaSpecimenNote(

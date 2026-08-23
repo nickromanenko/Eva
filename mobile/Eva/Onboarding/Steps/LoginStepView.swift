@@ -1,102 +1,184 @@
 import SwiftUI
 
-/// Email/password sign-in for returning users, reached from "Log in" on welcome.
+/// The canvas' log-in screen — "Eva App.dc.html", rail item **Log in**.
+///
+/// The same hierarchy as sign-up, deliberately: the artboard's spec note asks for it so
+/// "the two screens feel like one system". Providers first, then an "or use your email"
+/// rule, then the form.
+///
+/// ## Two divergences from the artboard, both explained below
+///
+/// **The hero is "Welcome back", not "Welcome back, Maria".** The canvas is a prototype
+/// with a signed-in mock; on the real screen nobody has authenticated yet, so there is no
+/// name to greet.
+///
+/// **"Forgot password?" raises "Coming soon".** The canvas draws the link and the two
+/// screens behind it (Reset your password, Link sent), but those need password reset to
+/// exist (#6). The link is drawn because the artboard puts it there and a log-in screen
+/// without one is a worse screen; it says what it can do rather than opening a screen
+/// that cannot send anything. Delete these four lines when #6 lands and point it at the
+/// real flow.
 struct LoginStepView: View {
+
     let onSubmit: (_ email: String, _ password: String) async throws -> Void
+    let onGoToSignUp: () -> Void
 
     @State private var email = ""
     @State private var password = ""
     @State private var errorMessage: String?
+    @State private var isRevealingPassword = false
     @State private var isLoading = false
+    @State private var comingSoonMessage = ""
+    @State private var showsComingSoon = false
 
-    private enum Field { case email, password }
+    private enum Field: Hashable { case email, password }
     @FocusState private var focusedField: Field?
 
+    /// Enough to enable the CTA, and no more. The artboard's spec note is explicit that
+    /// log-in shows **no error before submit** — anything stricter here would start
+    /// telling a returning user their own address looks wrong.
     private var isValid: Bool {
         email.wholeMatch(of: /\S+@\S+\.\S+/) != nil && !password.isEmpty
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Welcome back")
-                        .font(.system(size: 31, weight: .semibold, design: .serif))
-                        .foregroundStyle(Color.evaInk)
-                    Text("Log in to continue your Prime Era.")
-                        .font(.system(size: 14.5))
-                        .foregroundStyle(Color.evaBody)
-                        .padding(.top, 10)
+        AuthScreenLayout {
+            AuthWordmark()
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        EvaInputField(
-                            label: "Email",
-                            placeholder: "you@email.com",
-                            isFocused: focusedField == .email
-                        ) { prompt in
-                            TextField("Email", text: $email, prompt: prompt)
-                                .keyboardType(.emailAddress)
-                                .textContentType(.emailAddress)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .focused($focusedField, equals: .email)
-                                .submitLabel(.next)
-                                .onSubmit { focusedField = .password }
-                                .accessibilityIdentifier("login.email")
-                        }
-                        // Sign-in failures arrive on submit and name neither field, so
-                        // they hang off the last one — where they used to be drawn.
-                        EvaInputField(
-                            label: "Password",
-                            placeholder: "Your password",
-                            isFocused: focusedField == .password,
-                            errorMessage: errorMessage,
-                            errorIdentifier: "login.error"
-                        ) { prompt in
-                            SecureField("Password", text: $password, prompt: prompt)
-                                .textContentType(.password)
-                                .focused($focusedField, equals: .password)
-                                .submitLabel(.go)
-                                .onSubmit { submit() }
-                                .accessibilityIdentifier("login.password")
-                        }
-                    }
-                    .padding(.top, 24)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 26)
-                .padding(.top, 58)
-            }
-            .scrollIndicators(.hidden)
+            AuthHero(
+                title: "Welcome back",
+                subtitle: "Your cycle continued without you. Let's catch up."
+            )
+            .padding(.top, EvaSpacing.xl)
 
-            Button(action: submit) {
-                Group {
-                    if isLoading {
-                        ProgressView().tint(.white)
-                    } else {
-                        Text("Log in")
-                    }
-                }
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    isValid ? AnyShapeStyle(LinearGradient.evaPlumPink) : AnyShapeStyle(Color(hex: 0xD7C3D1)),
-                    in: .rect(cornerRadius: 16)
-                )
-                .shadow(color: isValid ? .evaPlum.opacity(0.45) : .clear, radius: 15, y: 9)
-            }
-            .buttonStyle(.plain)
-            .disabled(!isValid || isLoading)
-            .accessibilityIdentifier("login.submit")
-            .padding(.horizontal, 26)
-            .padding(.bottom, 16)
+            providerButtons
+                .padding(.top, EvaSpacing.lg)
+
+            AuthMethodDivider(title: "or use your email")
+                .padding(.vertical, EvaSpacing.lg)
+
+            emailForm
+        } footer: {
+            PrimaryButton(title: "Log in", isLoading: isLoading, action: submit)
+                .disabled(!isValid)
+
+            AuthSwitchPrompt(
+                question: "New to Eva?",
+                actionTitle: "Create an account",
+                action: onGoToSignUp
+            )
+            .padding(.top, EvaSpacing.lg)
         }
+        .alert("Coming soon", isPresented: $showsComingSoon) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(comingSoonMessage)
+        }
+    }
+
+    // MARK: - Sections
+
+    private var providerButtons: some View {
+        VStack(spacing: EvaSpacing.sm) {
+            EvaAuthButton(provider: .apple) { comingSoon(.providers) }
+            EvaAuthButton(provider: .google) { comingSoon(.providers) }
+        }
+    }
+
+    private var emailForm: some View {
+        VStack(alignment: .leading, spacing: EvaSpacing.md) {
+            EvaInputField(
+                label: "Email",
+                placeholder: "you@email.com",
+                isFocused: focusedField == .email
+            ) { prompt in
+                TextField("Email", text: $email, prompt: prompt)
+                    .keyboardType(.emailAddress)
+                    .textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .email)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .password }
+                    .accessibilityIdentifier("login.email")
+            }
+
+            EvaInputField(
+                label: "Password",
+                placeholder: "Your password",
+                isFocused: focusedField == .password,
+                // One combined message, on the last field — the artboard asks for a
+                // failure that does not say which of the two was wrong, so it cannot be
+                // used to find out which addresses have accounts.
+                errorMessage: errorMessage,
+                errorIdentifier: "login.error",
+                accessory: {
+                    EvaInputRevealButton(
+                        isRevealed: isRevealingPassword,
+                        identifier: "login.password.reveal"
+                    ) {
+                        isRevealingPassword.toggle()
+                    }
+                }
+            ) { prompt in
+                passwordField(prompt: prompt)
+            }
+
+            HStack {
+                Spacer(minLength: 0)
+                TextButton(title: "Forgot password?") { comingSoon(.passwordReset) }
+            }
+        }
+    }
+
+    /// `SecureField` until the reveal button is tapped, `TextField` after it. Both carry
+    /// the same identifier and the same focus value, so revealing does not move focus.
+    @ViewBuilder
+    private func passwordField(prompt: Text) -> some View {
+        if isRevealingPassword {
+            TextField("Password", text: $password, prompt: prompt)
+                .textContentType(.password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($focusedField, equals: .password)
+                .submitLabel(.go)
+                .onSubmit(submit)
+                .accessibilityIdentifier("login.password")
+        } else {
+            SecureField("Password", text: $password, prompt: prompt)
+                .textContentType(.password)
+                .focused($focusedField, equals: .password)
+                .submitLabel(.go)
+                .onSubmit(submit)
+                .accessibilityIdentifier("login.password")
+        }
+    }
+
+    // MARK: - Behaviour
+
+    /// The two things this screen draws but cannot do yet.
+    private enum Unbuilt {
+        case providers
+        case passwordReset
+
+        var message: String {
+            switch self {
+            case .providers:
+                "Apple and Google sign-in are on the way. For now, log in with your email."
+            case .passwordReset:
+                "Password reset is on the way. Until then, get in touch and we'll help."
+            }
+        }
+    }
+
+    private func comingSoon(_ unbuilt: Unbuilt) {
+        comingSoonMessage = unbuilt.message
+        showsComingSoon = true
     }
 
     private func submit() {
         guard isValid, !isLoading else { return }
+        focusedField = nil
         isLoading = true
         errorMessage = nil
         Task {
@@ -110,7 +192,9 @@ struct LoginStepView: View {
     }
 }
 
-#Preview {
-    LoginStepView { _, _ in }
-        .background(LinearGradient.evaScreenBackground)
+#Preview("Log in") {
+    ZStack {
+        EvaScreenBackground().ignoresSafeArea()
+        LoginStepView(onSubmit: { _, _ in }, onGoToSignUp: {})
+    }
 }
