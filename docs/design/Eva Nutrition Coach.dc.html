@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7E3;font-family:Montserrat,system-ui,sans-serif;color:#282126;-webkit-font-smoothing:antialiased}
+a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
+.sb::-webkit-scrollbar{width:0;height:0}
+@keyframes sheetUp{from{transform:translateY(101%)}to{transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+</style></helmet>
+
+<div style="display:flex;gap:36px;padding:40px 44px;align-items:flex-start">
+
+<div style="position:sticky;top:40px;width:250px;flex:none;display:flex;flex-direction:column;gap:20px">
+  <div>
+    <div style="font:400 30px/1 Montserrat,sans-serif;letter-spacing:.5px">eva<span style="color:#8EAD56">.</span></div>
+    <div style="font:500 11px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:6px;letter-spacing:.12em;text-transform:uppercase">Nutrition Coach</div>
+  </div>
+  <sc-for list="{{ railGroups }}" as="g" hint-placeholder-count="5">
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:12px">
+      <div style="font:600 10px/1 Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;padding:0 10px 8px">{{ g.title }}</div>
+      <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="6">
+        <div onClick="{{ it.onClick }}" style="{{ it.style }}">{{ it.label }}</div>
+      </sc-for>
+    </div>
+  </sc-for>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px;flex:none">
+  <div style="display:flex;align-items:baseline;gap:10px">
+    <span style="font:600 12px Montserrat,sans-serif">{{ specTitle }}</span>
+    <span style="font:400 11px Montserrat,sans-serif;color:#9A9095">390 × 844</span>
+  </div>
+  <div style="width:412px;padding:11px;background:linear-gradient(160deg,#3A3436,#1C1A1B);border-radius:56px;box-shadow:0 30px 60px -20px rgba(40,33,38,.45),0 0 0 1px rgba(255,255,255,.12) inset">
+    <div style="position:relative;width:390px;height:844px;border-radius:45px;overflow:hidden;background:#FFF9F6">
+      <div style="position:absolute;width:420px;height:420px;left:-170px;top:-160px;border-radius:50%;background:radial-gradient(circle,rgba(233,130,165,.32),rgba(233,130,165,0) 70%);filter:blur(44px)"></div>
+      <div style="position:absolute;width:400px;height:400px;right:-190px;top:220px;border-radius:50%;background:radial-gradient(circle,rgba(205,231,157,.36),rgba(205,231,157,0) 70%);filter:blur(48px)"></div>
+      <div style="position:absolute;width:460px;height:360px;left:-90px;bottom:-190px;border-radius:50%;background:radial-gradient(circle,rgba(249,220,230,.44),rgba(249,220,230,0) 70%);filter:blur(50px)"></div>
+      <div style="position:absolute;inset:0;background:rgba(255,249,246,.4)"></div>
+
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column">
+        <div style="height:54px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 28px 8px;font:600 14px Montserrat,sans-serif">
+          <span>9:41</span>
+          <span style="display:flex;align-items:center;gap:5px">
+            <span style="display:flex;align-items:flex-end;gap:2px"><span style="width:3px;height:5px;background:#282126;border-radius:1px"></span><span style="width:3px;height:8px;background:#282126;border-radius:1px"></span><span style="width:3px;height:11px;background:#282126;border-radius:1px"></span></span>
+            <span style="width:22px;height:11px;border:1px solid rgba(40,33,38,.4);border-radius:3px;padding:1.5px;display:block"><span style="display:block;width:70%;height:100%;background:#282126;border-radius:1px"></span></span>
+          </span>
+        </div>
+
+        <div class="sb" style="flex:1;overflow-y:auto;overflow-x:hidden;position:relative">
+
+<sc-if value="{{ isSetup }}" hint-placeholder-val="{{ true }}">
+  <div style="padding:4px 20px 120px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ setupBack }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 12.5px Montserrat,sans-serif;color:#6F656B">{{ stepLabel }}</span>
+      <button onClick="{{ saveExit }}" style="min-height:40px;padding:0 12px;border:0;background:transparent;font:600 12.5px Montserrat,sans-serif;color:#C95F86;cursor:pointer">Save &amp; exit</button>
+    </div>
+    <div style="height:4px;border-radius:2px;background:rgba(40,33,38,.08);margin-top:6px;overflow:hidden"><span style="{{ stepBar }}"></span></div>
+
+    <sc-if value="{{ isStep1 }}">
+      <h1 style="margin:26px 0 6px;font:600 25px/1.25 Montserrat,sans-serif;text-wrap:pretty">What would you like nutrition to help with?</h1>
+      <p style="margin:0 0 20px;font:400 13.5px/1.6 Montserrat,sans-serif;color:#6F656B">One choice. You can change it later in Nutrition Settings.</p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <sc-for list="{{ goals }}" as="g" hint-placeholder-count="5">
+          <div onClick="{{ g.onClick }}" style="{{ g.style }}">
+            <span style="{{ g.radio }}"></span>
+            <span style="flex:1">
+              <span style="display:block;font:600 14.5px Montserrat,sans-serif">{{ g.label }}</span>
+              <span style="display:block;font:400 12px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:3px">{{ g.desc }}</span>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isStep2 }}">
+      <h1 style="margin:26px 0 6px;font:600 25px/1.25 Montserrat,sans-serif">Focus areas</h1>
+      <p style="margin:0;font:400 13.5px/1.6 Montserrat,sans-serif;color:#6F656B">Choose up to 3 areas. Eva will use them to personalise your guidance — three focused priorities work better than everything at once.</p>
+      <div style="display:flex;align-items:center;gap:8px;margin:16px 0 12px">
+        <span style="{{ focusCountStyle }}">{{ focusCount }}</span>
+        <sc-if value="{{ focusFull }}"><span style="font:500 11.5px/1.45 Montserrat,sans-serif;color:#8A6425">Remove one to add another.</span></sc-if>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <sc-for list="{{ focusChips }}" as="c" hint-placeholder-count="12">
+          <div onClick="{{ c.onClick }}" aria-label="{{ c.aria }}" style="{{ c.style }}"><sc-if value="{{ c.on }}"><span style="font:700 11px Montserrat,sans-serif">✓</span></sc-if>{{ c.label }}</div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isStep3 }}">
+      <h1 style="margin:26px 0 6px;font:600 25px/1.25 Montserrat,sans-serif">Your usual meal pattern</h1>
+      <p style="margin:0 0 18px;font:400 13.5px/1.6 Montserrat,sans-serif;color:#6F656B">No pattern is healthier than another — this only helps Eva place meals and optional reminders.</p>
+      <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:8px">Meals per day</div>
+      <div style="display:flex;gap:8px">
+        <sc-for list="{{ mealCounts }}" as="m" hint-placeholder-count="4">
+          <div onClick="{{ m.onClick }}" style="{{ m.style }}">{{ m.label }}</div>
+        </sc-for>
+      </div>
+      <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin:18px 0 8px">Snacks</div>
+      <div style="display:flex;gap:8px">
+        <sc-for list="{{ snackOpts }}" as="m" hint-placeholder-count="2">
+          <div onClick="{{ m.onClick }}" style="{{ m.style }}">{{ m.label }}</div>
+        </sc-for>
+      </div>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin:20px 0 8px">
+        <span style="font:600 12px Montserrat,sans-serif;color:#6F656B">Usual times (optional)</span>
+        <span style="font:500 11.5px Montserrat,sans-serif;color:#C95F86">Skip times</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <sc-for list="{{ mealTimes }}" as="t" hint-placeholder-count="4">
+          <div style="min-height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 16px;border-radius:17px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.9)">
+            <span style="font:600 13.5px Montserrat,sans-serif">{{ t.name }}</span>
+            <span style="min-height:40px;display:flex;align-items:center;padding:0 14px;border-radius:13px;background:rgba(255,255,255,.9);border:1px solid rgba(40,33,38,.1);font:600 13.5px Montserrat,sans-serif">{{ t.time }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font:400 11.5px/1.55 Montserrat,sans-serif;color:#9A9095;margin-top:10px">Times help Eva suggest meal spacing and optional reminders. You can skip them.</div>
+    </sc-if>
+
+    <sc-if value="{{ isStep4 }}">
+      <h1 style="margin:26px 0 6px;font:600 25px/1.25 Montserrat,sans-serif">Confirm your details</h1>
+      <p style="margin:0 0 18px;font:400 13.5px/1.6 Montserrat,sans-serif;color:#6F656B">From your Eva profile. Units follow your account setting.</p>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Height</label>
+        <input value="168 cm" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.78);padding:0 15px;font:600 14.5px Montserrat,sans-serif"></div>
+        <div style="flex:1"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Current weight</label>
+        <input value="73 kg" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.78);padding:0 15px;font:600 14.5px Montserrat,sans-serif"></div>
+      </div>
+      <div style="margin-top:10px;min-height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-radius:17px;background:rgba(248,243,240,.7);border:1px solid rgba(40,33,38,.06)">
+        <span style="font:600 13px Montserrat,sans-serif;color:#6F656B">Age</span>
+        <span style="font:600 13.5px Montserrat,sans-serif;color:#9A9095">32 · from your profile</span>
+      </div>
+      <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin:20px 0 8px">Activity level</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <sc-for list="{{ activities }}" as="a" hint-placeholder-count="5">
+          <div onClick="{{ a.onClick }}" style="{{ a.style }}">
+            <span style="{{ a.radio }}"></span>
+            <span style="flex:1">
+              <span style="display:block;font:600 13.5px Montserrat,sans-serif">{{ a.label }}</span>
+              <span style="display:block;font:400 11.5px/1.45 Montserrat,sans-serif;color:#6F656B;margin-top:2px">{{ a.desc }}</span>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="margin-top:12px;padding:12px 14px;border-radius:16px;background:rgba(205,231,157,.26);border:1px solid rgba(142,173,86,.3);font:400 11.5px/1.55 Montserrat,sans-serif;color:#5C7434">Eva can refine this estimate using workouts logged in your Calendar. Logged activity eventually takes precedence over the declared level.</div>
+    </sc-if>
+
+    <sc-if value="{{ isStep5 }}">
+      <h1 style="margin:26px 0 6px;font:600 25px/1.25 Montserrat,sans-serif">Target weight</h1>
+      <p style="margin:0 0 18px;font:400 13.5px/1.6 Montserrat,sans-serif;color:#6F656B">Estimates, not promises. Eva keeps the pace gradual.</p>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Current</label>
+        <div style="height:52px;display:flex;align-items:center;padding:0 15px;border-radius:17px;background:rgba(248,243,240,.7);border:1px solid rgba(40,33,38,.06);font:600 14.5px Montserrat,sans-serif;color:#6F656B">73 kg</div></div>
+        <div style="flex:1"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Target</label>
+        <input value="{{ targetValue }}" onChange="{{ noop }}" style="{{ targetInputStyle }}"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <sc-for list="{{ targetPresets }}" as="t" hint-placeholder-count="3">
+          <div onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</div>
+        </sc-for>
+      </div>
+      <sc-if value="{{ guardrail }}">
+        <div style="margin-top:14px;display:flex;gap:10px;padding:14px;border-radius:18px;background:rgba(201,145,63,.10);border:1px solid rgba(201,145,63,.4);animation:fadeIn .2s">
+          <span style="flex:none;width:20px;height:20px;border-radius:6px;background:#C9913F;color:#fff;font:700 12px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">!</span>
+          <div>
+            <div style="font:600 13px/1.45 Montserrat,sans-serif;color:#8A6425">{{ guardrail.title }}</div>
+            <div style="font:400 12px/1.55 Montserrat,sans-serif;color:#7A5A22;margin-top:4px">{{ guardrail.body }}</div>
+            <button onClick="{{ guardrail.onFix }}" style="margin-top:10px;min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(138,100,37,.4);background:rgba(255,255,255,.75);font:600 12.5px Montserrat,sans-serif;color:#8A6425;cursor:pointer">{{ guardrail.action }}</button>
+          </div>
+        </div>
+      </sc-if>
+      <div style="margin-top:16px;padding:18px;border-radius:22px;background:linear-gradient(150deg,rgba(255,255,255,.9),rgba(255,255,255,.7));border:1px solid rgba(255,255,255,.95);box-shadow:0 14px 32px -24px rgba(150,72,100,.7)">
+        <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095">Estimated plan</div>
+        <div style="font:600 17px Montserrat,sans-serif;margin-top:8px">{{ planRange }}</div>
+        <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:6px">{{ planTimeline }}</div>
+        <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#6F656B">{{ planKcal }}</div>
+        <div style="font:400 11.5px/1.55 Montserrat,sans-serif;color:#9A9095;margin-top:8px">Rate is capped at about 0.5 kg per week, or 1% of body weight — whichever is lower. Calories never go below your BMR or 1,200 kcal.</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isPregBlock }}">
+      <div style="margin-top:26px;padding:20px;border-radius:24px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.95);box-shadow:0 14px 32px -24px rgba(150,72,100,.6)">
+        <div style="display:inline-flex;align-items:center;font:600 11px Montserrat,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#3F5A76;padding:6px 11px;border-radius:10px;background:rgba(90,123,160,.12)">Pregnancy · week 22</div>
+        <div style="font:600 19px/1.35 Montserrat,sans-serif;margin-top:12px">Weight-change goals are paused during this phase</div>
+        <div style="font:400 13.5px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:8px">Eva can still support balanced meals, energy, hydration and nutrient needs. Your previous goal is kept but not applied.</div>
+        <div style="font:400 12px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:10px">The same applies during the first six weeks postpartum.</div>
+        <button onClick="{{ goSummary }}" style="margin-top:16px;min-height:48px;padding:0 18px;border-radius:15px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 14px Montserrat,sans-serif;cursor:pointer">Continue with balanced nutrition</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isSummary }}">
+      <h1 style="margin:26px 0 6px;font:600 25px/1.25 Montserrat,sans-serif">Your plan</h1>
+      <p style="margin:0 0 16px;font:400 13.5px/1.6 Montserrat,sans-serif;color:#6F656B">Estimates based on Mifflin–St Jeor, your activity level and your goal. Nothing here is fixed.</p>
+      <div style="padding:18px;border-radius:24px;background:linear-gradient(150deg,rgba(255,255,255,.92),rgba(255,255,255,.72));border:1px solid rgba(255,255,255,.95);box-shadow:0 16px 36px -26px rgba(150,72,100,.75)">
+        <sc-for list="{{ summaryRows }}" as="r" hint-placeholder-count="7">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid rgba(40,33,38,.05)">
+            <span style="font:500 13px Montserrat,sans-serif;color:#6F656B">{{ r.k }}</span>
+            <span style="font:600 13.5px Montserrat,sans-serif;text-align:right">{{ r.v }}</span>
+          </div>
+        </sc-for>
+        <button onClick="{{ openWhy }}" style="margin-top:12px;min-height:44px;width:100%;border-radius:14px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.8);font:600 13px Montserrat,sans-serif;cursor:pointer">How this is calculated</button>
+      </div>
+      <div style="margin-top:14px;padding:14px;border-radius:18px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.26);font:400 12px/1.6 Montserrat,sans-serif;color:#3F5A76">Eva can help organise general nutrition information, but it does not replace personalised advice from a doctor or registered dietitian.</div>
+    </sc-if>
+
+    <sc-if value="{{ isResume }}">
+      <div style="margin-top:40px;padding:22px;border-radius:26px;background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.95);box-shadow:0 16px 36px -26px rgba(150,72,100,.7)">
+        <div style="font:600 20px/1.3 Montserrat,sans-serif">Pick up where you left off</div>
+        <div style="font:400 13.5px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:8px">You completed goal and focus areas on 9 August. Two steps remain before Eva can show any targets.</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+          <sc-for list="{{ resumeSteps }}" as="r" hint-placeholder-count="5">
+            <div style="display:flex;align-items:center;gap:10px;font:500 13px Montserrat,sans-serif;color:{{ r.color }}">
+              <span style="{{ r.dot }}">{{ r.tick }}</span>{{ r.label }}
+            </div>
+          </sc-for>
+        </div>
+        <button onClick="{{ resume }}" style="margin-top:18px;width:100%;min-height:50px;border-radius:16px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 14.5px Montserrat,sans-serif;cursor:pointer">Continue setup · step 3</button>
+      </div>
+      <div style="margin-top:14px;padding:14px;border-radius:18px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.9);font:400 12px/1.6 Montserrat,sans-serif;color:#6F656B">No targets, notes or suggestions are shown until setup is complete. Nothing was calculated from your partial answers.</div>
+    </sc-if>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:14px 20px 26px;background:linear-gradient(180deg,rgba(255,249,246,0),rgba(255,249,246,.92) 40%)">
+    <div style="display:flex;gap:8px">
+      <sc-if value="{{ showSkip }}">
+        <button onClick="{{ setupNext }}" style="min-height:52px;padding:0 18px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.8);font:600 14px Montserrat,sans-serif;color:#6F656B;cursor:pointer">Skip for now</button>
+      </sc-if>
+      <button onClick="{{ setupNext }}" style="{{ primaryStyle }}">{{ primaryLabel }}</button>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isToday }}">
+  <div style="padding:2px 20px 40px">
+    <div style="display:flex;align-items:flex-start;gap:10px">
+      <div style="flex:1">
+        <div style="font:600 22px/1.2 Montserrat,sans-serif">Nutrition</div>
+        <div style="font:500 12px Montserrat,sans-serif;color:#6F656B;margin-top:3px">Tuesday, 12 August</div>
+      </div>
+      <button onClick="{{ goChat }}" aria-label="Nutrition chat" style="flex:none;width:44px;height:44px;border-radius:15px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.62);cursor:pointer"><span style="display:block;width:16px;height:13px;border:1.6px solid #6F656B;border-radius:5px;margin:0 auto"></span></button>
+      <button onClick="{{ goSettings }}" aria-label="Nutrition settings" style="flex:none;width:44px;height:44px;border-radius:15px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.62);cursor:pointer"><span style="display:block;width:15px;height:15px;border:1.6px solid #6F656B;border-radius:50%;margin:0 auto"></span></button>
+    </div>
+
+    <div style="display:inline-flex;align-items:center;gap:7px;margin-top:10px;padding:7px 12px;border-radius:12px;background:{{ ctxBg }};border:1px solid {{ ctxBorder }}">
+      <span style="width:7px;height:7px;border-radius:50%;background:{{ ctxDot }};display:block"></span>
+      <span style="font:600 11.5px Montserrat,sans-serif;color:{{ ctxInk }}">{{ ctxLabel }}</span>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-top:14px;padding:4px;border-radius:16px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.85)">
+      <sc-for list="{{ segments }}" as="s" hint-placeholder-count="2">
+        <div onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.label }}</div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ notice }}">
+      <div style="margin-top:14px;display:flex;gap:10px;padding:14px;border-radius:18px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.26)">
+        <span style="flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid #5A7BA0;color:#5A7BA0;font:700 12px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">i</span>
+        <div style="flex:1">
+          <div style="font:600 12.5px/1.45 Montserrat,sans-serif;color:#2F4763">{{ notice.title }}</div>
+          <div style="font:400 12px/1.55 Montserrat,sans-serif;color:#4A6480;margin-top:3px">{{ notice.body }}</div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button onClick="{{ openWhy }}" style="min-height:38px;padding:0 13px;border-radius:12px;border:1px solid rgba(90,123,160,.4);background:rgba(255,255,255,.75);font:600 12px Montserrat,sans-serif;color:#2F4763;cursor:pointer">{{ notice.action }}</button>
+            <button onClick="{{ dismissNotice }}" style="min-height:38px;padding:0 13px;border:0;background:transparent;font:600 12px Montserrat,sans-serif;color:#4A6480;cursor:pointer">Dismiss</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isWeek }}">
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
+        <sc-for list="{{ weekCards }}" as="w" hint-placeholder-count="4">
+          <div style="padding:16px;border-radius:22px;background:linear-gradient(150deg,rgba(255,255,255,.88),rgba(255,255,255,.66));border:1px solid rgba(255,255,255,.92);box-shadow:0 10px 26px -22px rgba(150,72,100,.6)">
+            <div style="display:flex;align-items:baseline;justify-content:space-between">
+              <span style="font:600 13.5px Montserrat,sans-serif">{{ w.title }}</span>
+              <span style="font:600 12.5px Montserrat,sans-serif;color:#6F656B">{{ w.value }}</span>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:5px;height:52px;margin-top:12px">
+              <sc-for list="{{ w.bars }}" as="b" hint-placeholder-count="7">
+                <span style="{{ b.style }}"></span>
+              </sc-for>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:6px;font:500 9.5px Montserrat,sans-serif;color:#9A9095">
+              <sc-for list="{{ w.days }}" as="d" hint-placeholder-count="7"><span>{{ d }}</span></sc-for>
+            </div>
+            <div style="font:400 12px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:10px">{{ w.note }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isDay }}">
+      <div style="margin-top:16px;padding:20px;border-radius:26px;background:linear-gradient(150deg,rgba(255,255,255,.92),rgba(255,255,255,.72));border:1px solid rgba(255,255,255,.95);box-shadow:0 18px 40px -28px rgba(150,72,100,.8),inset 0 1px 0 rgba(255,255,255,.95)">
+        <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095">{{ targetKicker }}</div>
+        <div style="font:600 26px/1.2 Montserrat,sans-serif;margin-top:8px">{{ targetPrimary }}</div>
+        <div style="font:500 13px Montserrat,sans-serif;color:#6F656B;margin-top:4px">{{ targetSecondary }}</div>
+        <div style="display:flex;flex-direction:column;gap:11px;margin-top:16px">
+          <sc-for list="{{ macroRows }}" as="m" hint-placeholder-count="5">
+            <div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between">
+                <span style="font:500 12.5px Montserrat,sans-serif;color:#4F464B">{{ m.label }}</span>
+                <span style="font:600 12.5px Montserrat,sans-serif">{{ m.value }}</span>
+              </div>
+              <div style="height:6px;border-radius:3px;background:rgba(40,33,38,.07);margin-top:6px;overflow:hidden"><span style="{{ m.bar }}"></span></div>
+            </div>
+          </sc-for>
+        </div>
+        <sc-if value="{{ adjustNote }}">
+          <div style="margin-top:16px;padding:13px 14px;border-radius:16px;background:rgba(205,231,157,.3);border:1px solid rgba(142,173,86,.3)">
+            <div style="font:400 12.5px/1.6 Montserrat,sans-serif;color:#4F5F30">{{ adjustNote }}</div>
+            <button onClick="{{ openWhy }}" style="margin-top:8px;min-height:36px;padding:0 12px;border-radius:11px;border:1px solid rgba(142,173,86,.45);background:rgba(255,255,255,.75);font:600 12px Montserrat,sans-serif;color:#5C7434;cursor:pointer">Why?</button>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ qualCard }}">
+        <div style="margin-top:14px;padding:18px;border-radius:24px;background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.95)">
+          <div style="font:600 14.5px Montserrat,sans-serif">Today, described</div>
+          <div style="display:flex;flex-direction:column;gap:9px;margin-top:12px">
+            <sc-for list="{{ qualLines }}" as="q" hint-placeholder-count="4">
+              <div style="display:flex;gap:9px;font:400 13px/1.55 Montserrat,sans-serif;color:#4F464B"><span style="flex:none;width:5px;height:5px;border-radius:50%;background:#8EAD56;margin-top:7px"></span><span>{{ q }}</span></div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ waterOn }}">
+        <div style="margin-top:14px;padding:16px;border-radius:22px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.92)">
+          <div style="display:flex;align-items:baseline;justify-content:space-between">
+            <span style="font:600 13.5px Montserrat,sans-serif">Water</span>
+            <span style="font:600 13px Montserrat,sans-serif;color:#6F656B">{{ waterLabel }}</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <sc-for list="{{ waterBtns }}" as="w" hint-placeholder-count="3">
+              <div onClick="{{ w.onClick }}" style="{{ w.style }}">{{ w.label }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin:22px 0 10px">
+        <span style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095">Meals</span>
+        <span onClick="{{ goLog }}" style="font:500 11.5px Montserrat,sans-serif;color:#C95F86;cursor:pointer">Full meal log</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <sc-for list="{{ meals }}" as="m" hint-placeholder-count="4">
+          <div style="padding:14px 16px;border-radius:22px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.92);box-shadow:0 8px 22px -20px rgba(150,72,100,.6)">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="{{ m.thumb }}"></span>
+              <span style="flex:1">
+                <span style="display:block;font:600 13.5px Montserrat,sans-serif">{{ m.name }}</span>
+                <span style="display:block;font:500 11.5px Montserrat,sans-serif;color:#6F656B;margin-top:2px">{{ m.slot }}</span>
+              </span>
+              <sc-if value="{{ m.score }}"><span style="{{ m.scoreStyle }}">{{ m.score }}</span></sc-if>
+            </div>
+            <sc-if value="{{ m.detail }}">
+              <div style="font:500 12px Montserrat,sans-serif;color:#4F464B;margin-top:10px">{{ m.detail }}</div>
+            </sc-if>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <sc-for list="{{ m.actions }}" as="a" hint-placeholder-count="2">
+                <button onClick="{{ a.onClick }}" style="{{ a.style }}">{{ a.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isScanEntry }}">
+  <div style="padding:4px 20px 40px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ backToday }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif">Add a meal</span>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <div onClick="{{ goCamera }}" style="flex:1;min-height:150px;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;padding:16px;border-radius:24px;background:linear-gradient(160deg,rgba(243,174,196,.55),rgba(255,255,255,.8));border:1px solid rgba(255,255,255,.95);box-shadow:0 14px 32px -24px rgba(150,72,100,.8);cursor:pointer">
+        <span style="width:38px;height:30px;border:1.8px solid #A9436E;border-radius:8px;display:block"></span>
+        <span style="font:600 14.5px Montserrat,sans-serif;margin-top:6px">Take photo</span>
+        <span style="font:400 11.5px/1.45 Montserrat,sans-serif;color:#6F656B">Recognise a full meal from one image.</span>
+      </div>
+      <div onClick="{{ goBarcode }}" style="flex:1;min-height:150px;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;padding:16px;border-radius:24px;background:linear-gradient(160deg,rgba(205,231,157,.55),rgba(255,255,255,.8));border:1px solid rgba(255,255,255,.95);box-shadow:0 14px 32px -24px rgba(110,130,70,.7);cursor:pointer">
+        <span style="display:flex;align-items:flex-end;gap:2px;height:30px"><span style="width:2px;height:100%;background:#5C7434;display:block"></span><span style="width:4px;height:100%;background:#5C7434;display:block"></span><span style="width:2px;height:100%;background:#5C7434;display:block"></span><span style="width:5px;height:100%;background:#5C7434;display:block"></span><span style="width:2px;height:100%;background:#5C7434;display:block"></span></span>
+        <span style="font:600 14.5px Montserrat,sans-serif;margin-top:6px">Scan barcode</span>
+        <span style="font:400 11.5px/1.45 Montserrat,sans-serif;color:#6F656B">Packaged food, per serving.</span>
+      </div>
+    </div>
+    <div onClick="{{ goSearch }}" style="margin-top:10px;min-height:54px;display:flex;align-items:center;gap:11px;padding:0 16px;border-radius:26px;background:rgba(255,255,255,.82);border:1px solid rgba(40,33,38,.1);cursor:pointer">
+      <span style="width:15px;height:15px;border:1.7px solid #9A9095;border-radius:50%;display:block"></span>
+      <span style="font:400 14px Montserrat,sans-serif;color:#9A9095">Search food or a dish</span>
+    </div>
+    <div onClick="{{ goManual }}" style="margin-top:10px;min-height:50px;display:flex;align-items:center;justify-content:center;border-radius:17px;border:1px dashed rgba(201,95,134,.4);font:600 13.5px Montserrat,sans-serif;color:#C95F86;cursor:pointer">Add manually</div>
+
+    <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;margin:22px 0 10px">Recent meals</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <sc-for list="{{ recentFoods }}" as="f" hint-placeholder-count="3">
+        <div onClick="{{ f.onClick }}" style="min-height:58px;display:flex;align-items:center;gap:12px;padding:8px 14px;border-radius:18px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.92);cursor:pointer">
+          <span style="{{ f.thumb }}"></span>
+          <span style="flex:1"><span style="display:block;font:600 13px Montserrat,sans-serif">{{ f.name }}</span><span style="display:block;font:500 11px Montserrat,sans-serif;color:#6F656B;margin-top:2px">{{ f.meta }}</span></span>
+          <span style="font:600 20px Montserrat,sans-serif;color:#C95F86">+</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Favourites</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <sc-for list="{{ favFoods }}" as="f" hint-placeholder-count="4">
+        <div onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</div>
+      </sc-for>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isCamera }}">
+  <div style="position:absolute;inset:0;background:#1C1A1B">
+    <div style="position:absolute;inset:0;background:repeating-linear-gradient(125deg,rgba(255,255,255,.06) 0 14px,rgba(255,255,255,.02) 14px 28px)"></div>
+    <div style="position:absolute;left:0;right:0;top:0;display:flex;align-items:center;justify-content:space-between;padding:18px 20px">
+      <button onClick="{{ backScan }}" aria-label="Close camera" style="width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.16);color:#fff;font:400 17px Montserrat,sans-serif;cursor:pointer">×</button>
+      <span style="font:600 13px Montserrat,sans-serif;color:#fff">{{ cameraTitle }}</span>
+      <button aria-label="Flash" onClick="{{ noop }}" style="width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.16);color:#fff;font:600 12px Montserrat,sans-serif;cursor:pointer">A</button>
+    </div>
+    <div style="position:absolute;left:34px;right:34px;top:200px;height:{{ frameH }};border-radius:26px;border:2px solid rgba(255,255,255,.85);box-shadow:0 0 0 9999px rgba(28,26,27,.35)"></div>
+    <div style="position:absolute;left:24px;right:24px;bottom:190px;text-align:center;font:500 13px/1.55 Montserrat,sans-serif;color:rgba(255,255,255,.9)">{{ cameraHint }}</div>
+    <div style="position:absolute;left:0;right:0;bottom:60px;display:flex;align-items:center;justify-content:center;gap:34px">
+      <button onClick="{{ goManual }}" style="min-height:44px;padding:0 14px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:rgba(255,255,255,.85);cursor:pointer">{{ cameraAlt }}</button>
+      <button onClick="{{ shoot }}" aria-label="Capture" style="width:74px;height:74px;border-radius:50%;border:4px solid rgba(255,255,255,.9);background:rgba(255,255,255,.25);cursor:pointer"></button>
+      <button onClick="{{ noop }}" style="min-height:44px;padding:0 14px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:rgba(255,255,255,.85);cursor:pointer">Upload</button>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isResult }}">
+  <div style="padding:4px 20px 130px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ backScan }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif">Scan result</span>
+      <button onClick="{{ noop }}" style="min-height:40px;padding:0 12px;border:0;background:transparent;font:600 12.5px Montserrat,sans-serif;color:#C95F86;cursor:pointer">Discard</button>
+    </div>
+    <div style="height:150px;border-radius:24px;margin-top:10px;background:repeating-linear-gradient(115deg,rgba(249,220,230,.8) 0 10px,rgba(255,241,246,.9) 10px 20px);border:1px solid rgba(255,255,255,.9);display:flex;align-items:flex-end;padding:12px">
+      <span style="font:500 10px Montserrat,sans-serif;color:rgba(40,33,38,.45);letter-spacing:.08em">meal photo</span>
+    </div>
+    <div style="{{ confStyle }}">{{ confLabel }}</div>
+    <div style="font:600 20px/1.3 Montserrat,sans-serif;margin-top:10px">{{ dishName }}</div>
+    <sc-if value="{{ lowConf }}">
+      <div style="font:400 12.5px/1.6 Montserrat,sans-serif;color:#8A6425;margin-top:6px">We’re not fully sure. Confirm the dish and portion before saving.</div>
+    </sc-if>
+    <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin:16px 0 8px">Other possible matches</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <sc-for list="{{ alternatives }}" as="a" hint-placeholder-count="3">
+        <div onClick="{{ a.onClick }}" style="{{ a.style }}">{{ a.label }}</div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top:18px;padding:16px;border-radius:22px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.92)">
+      <div style="display:flex;align-items:baseline;justify-content:space-between">
+        <span style="font:600 13.5px Montserrat,sans-serif">Portion</span>
+        <span style="font:600 13px Montserrat,sans-serif;color:#6F656B">{{ portionLabel }}</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <sc-for list="{{ portions }}" as="p" hint-placeholder-count="4">
+          <div onClick="{{ p.onClick }}" style="{{ p.style }}">{{ p.label }}</div>
+        </sc-for>
+      </div>
+      <div style="font:400 11.5px/1.55 Montserrat,sans-serif;color:#9A9095;margin-top:10px">Portion size has the largest effect on the estimate. Eva cannot weigh food from a photo.</div>
+    </div>
+
+    <div style="margin-top:14px;padding:16px;border-radius:22px;background:linear-gradient(150deg,rgba(255,255,255,.9),rgba(255,255,255,.7));border:1px solid rgba(255,255,255,.95)">
+      <div style="font:600 17px Montserrat,sans-serif">{{ kcalLabel }}</div>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-top:12px">
+        <sc-for list="{{ resultMacros }}" as="m" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;justify-content:space-between;min-height:40px;padding:0 12px;border-radius:13px;background:rgba(255,255,255,.7);border:1px solid rgba(40,33,38,.06)">
+            <span style="font:500 12.5px Montserrat,sans-serif;color:#6F656B">{{ m.k }}</span>
+            <span style="font:600 13px Montserrat,sans-serif">{{ m.v }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font:400 11.5px Montserrat,sans-serif;color:#9A9095;margin-top:10px">Every value is editable. Edits are remembered for this dish next time.</div>
+    </div>
+
+    <div onClick="{{ openScore }}" style="margin-top:14px;padding:16px;border-radius:22px;background:rgba(205,231,157,.28);border:1px solid rgba(142,173,86,.32);cursor:pointer">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font:600 14px Montserrat,sans-serif;color:#3F5220">Nutrition fit: {{ fitScore }}</span>
+        <span style="font:500 11.5px Montserrat,sans-serif;color:#5C7434">See breakdown ›</span>
+      </div>
+      <div style="font:400 12px/1.6 Montserrat,sans-serif;color:#4F5F30;margin-top:6px">Reflects how this meal fits your current goals, remaining targets and cycle context. The same meal may score differently on another day or for another person.</div>
+    </div>
+
+    <div style="margin-top:14px;padding:16px;border-radius:22px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.92)">
+      <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095">Note</div>
+      <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:7px">{{ scanNote }}</div>
+    </div>
+
+    <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin:18px 0 8px">Save to</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <sc-for list="{{ slots }}" as="s" hint-placeholder-count="4">
+        <div onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.label }}</div>
+      </sc-for>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;min-height:52px;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
+      <span style="font:600 13px Montserrat,sans-serif;color:#4F464B">Add to favourites</span>
+      <div onClick="{{ toggleFav }}" aria-label="Add to favourites" style="{{ favTrack }}"><span style="{{ favKnob }}"></span></div>
+    </div>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:14px 20px 26px;background:linear-gradient(180deg,rgba(255,249,246,0),rgba(255,249,246,.94) 40%)">
+    <button onClick="{{ saveMeal }}" style="width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Save meal</button>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isMulti }}">
+  <div style="padding:4px 20px 130px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ backScan }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif">Three dishes found</span>
+    </div>
+    <div style="font:400 12.5px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:6px">Confirm or remove each item. Portions are estimates you can change.</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
+      <sc-for list="{{ multiItems }}" as="m" hint-placeholder-count="3">
+        <div style="padding:14px 16px;border-radius:22px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.92)">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div onClick="{{ m.onToggle }}" aria-label="{{ m.aria }}" style="{{ m.box }}">{{ m.tick }}</div>
+            <span style="flex:1"><span style="display:block;font:600 13.5px Montserrat,sans-serif">{{ m.name }}</span><span style="display:block;font:500 11.5px Montserrat,sans-serif;color:#6F656B;margin-top:2px">{{ m.meta }}</span></span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button onClick="{{ m.onEdit }}" style="min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.85);font:600 12.5px Montserrat,sans-serif;cursor:pointer">Edit portion</button>
+            <button onClick="{{ m.onRemove }}" style="min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(196,100,90,.3);background:transparent;font:600 12.5px Montserrat,sans-serif;color:#A9524A;cursor:pointer">Remove</button>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:14px;padding:14px 16px;border-radius:20px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92);font:600 14px Montserrat,sans-serif">Plate total: approximately {{ multiTotal }} kcal</div>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:14px 20px 26px;background:linear-gradient(180deg,rgba(255,249,246,0),rgba(255,249,246,.94) 40%)">
+    <button onClick="{{ saveMeal }}" style="width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Save {{ multiCount }} items</button>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isFail }}">
+  <div style="padding:4px 20px 40px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ backScan }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif">{{ failTitle }}</span>
+    </div>
+    <div style="margin-top:20px;padding:20px;border-radius:24px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.95)">
+      <div style="width:52px;height:52px;border-radius:18px;background:{{ failIconBg }};border:1px solid rgba(255,255,255,.85)"></div>
+      <div style="font:600 17px/1.35 Montserrat,sans-serif;margin-top:14px">{{ failHead }}</div>
+      <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:7px">{{ failBody }}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
+        <sc-for list="{{ failActions }}" as="a" hint-placeholder-count="3">
+          <button onClick="{{ a.onClick }}" style="{{ a.style }}">{{ a.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <sc-if value="{{ isOffline }}">
+      <div style="margin-top:14px;padding:14px 16px;border-radius:20px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="width:40px;height:40px;border-radius:13px;background:repeating-linear-gradient(115deg,rgba(249,220,230,.8) 0 6px,rgba(255,241,246,.9) 6px 12px);border:1px solid rgba(40,33,38,.1);display:block"></span>
+          <span style="flex:1"><span style="display:block;font:600 13px Montserrat,sans-serif">Photo · 13:24</span><span style="display:block;font:500 11.5px Montserrat,sans-serif;color:#6F656B;margin-top:2px">Waiting to process</span></span>
+          <span style="font:500 11px Montserrat,sans-serif;color:#5A7BA0;padding:5px 9px;border-radius:9px;background:rgba(90,123,160,.12)">Queued</span>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isProduct }}">
+  <div style="padding:4px 20px 130px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ backScan }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif">Product found</span>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:14px">
+      <span style="flex:none;width:88px;height:110px;border-radius:18px;background:repeating-linear-gradient(115deg,rgba(205,231,157,.6) 0 8px,rgba(237,246,218,.8) 8px 16px);border:1px solid rgba(255,255,255,.9);display:block"></span>
+      <div style="flex:1">
+        <div style="font:600 16.5px/1.3 Montserrat,sans-serif">High-protein yoghurt, plain</div>
+        <div style="font:500 12px Montserrat,sans-serif;color:#6F656B;margin-top:4px">Vale Verde · branded product</div>
+        <div style="display:inline-flex;align-items:center;font:600 10.5px Montserrat,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#5C7434;padding:5px 10px;border-radius:9px;background:rgba(205,231,157,.4);margin-top:8px">Barcode 5601234567890</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;padding:16px;border-radius:22px;background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.92)">
+      <div style="display:flex;align-items:baseline;justify-content:space-between">
+        <span style="font:600 13.5px Montserrat,sans-serif">Serving</span>
+        <span style="font:600 13px Montserrat,sans-serif;color:#6F656B">{{ servingLabel }}</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <sc-for list="{{ servings }}" as="s" hint-placeholder-count="3">
+          <div onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.label }}</div>
+        </sc-for>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+        <sc-for list="{{ productMacros }}" as="m" hint-placeholder-count="5">
+          <div style="display:flex;align-items:center;justify-content:space-between;min-height:38px;padding:0 12px;border-radius:12px;background:rgba(255,255,255,.7);border:1px solid rgba(40,33,38,.06)">
+            <span style="font:500 12.5px Montserrat,sans-serif;color:#6F656B">{{ m.k }}</span>
+            <span style="font:600 13px Montserrat,sans-serif">{{ m.v }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font:400 11.5px/1.55 Montserrat,sans-serif;color:#9A9095;margin-top:10px">Ingredients: pasteurised skimmed milk, milk protein, live cultures.</div>
+    </div>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:14px 20px 26px;background:linear-gradient(180deg,rgba(255,249,246,0),rgba(255,249,246,.94) 40%)">
+    <button onClick="{{ saveMeal }}" style="width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Save to snack</button>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isSearch }}">
+  <div style="padding:4px 20px 40px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ backScan }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif">Search food</span>
+    </div>
+    <div style="margin-top:12px;min-height:52px;display:flex;align-items:center;gap:11px;padding:0 16px;border-radius:26px;background:#fff;border:1px solid #C95F86;box-shadow:0 0 0 3px rgba(201,95,134,.14)">
+      <span style="width:15px;height:15px;border:1.7px solid #C95F86;border-radius:50%;display:block"></span>
+      <span style="flex:1;font:500 14px Montserrat,sans-serif">yog</span>
+      <span style="width:1.5px;height:18px;background:#C95F86;display:block"></span>
+    </div>
+    <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;margin:18px 0 10px">Results</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <sc-for list="{{ searchResults }}" as="r" hint-placeholder-count="5">
+        <div onClick="{{ r.onClick }}" style="min-height:60px;display:flex;align-items:center;gap:12px;padding:8px 14px;border-radius:18px;background:rgba(255,255,255,.76);border:1px solid rgba(255,255,255,.92);cursor:pointer">
+          <span style="flex:1">
+            <span style="display:block;font:600 13px Montserrat,sans-serif">{{ r.name }}</span>
+            <span style="display:block;font:500 11px Montserrat,sans-serif;color:#6F656B;margin-top:3px">{{ r.meta }}</span>
+          </span>
+          <span style="{{ r.tagStyle }}">{{ r.tag }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Recent searches</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <sc-for list="{{ recentSearches }}" as="r" hint-placeholder-count="4">
+        <div onClick="{{ noop }}" style="{{ r.style }}">{{ r.label }}</div>
+      </sc-for>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isManual }}">
+  <div style="padding:4px 20px 130px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ backScan }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif">Add manually</span>
+      <span style="font:500 11px Montserrat,sans-serif;color:#5A7BA0;padding:5px 9px;border-radius:9px;background:rgba(90,123,160,.12)">Works offline</span>
+    </div>
+    <div style="margin-top:14px;display:flex;flex-direction:column;gap:12px">
+      <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Food or meal name</label>
+      <input value="Lentil soup, homemade" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.82);padding:0 15px;font:500 14px Montserrat,sans-serif"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <sc-for list="{{ manualFields }}" as="f" hint-placeholder-count="6">
+          <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">{{ f.label }}</label>
+          <input value="{{ f.value }}" onChange="{{ noop }}" style="width:100%;height:50px;border-radius:16px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.82);padding:0 14px;font:600 13.5px Montserrat,sans-serif"></div>
+        </sc-for>
+      </div>
+      <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Meal slot</label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <sc-for list="{{ slots }}" as="s" hint-placeholder-count="4">
+          <div onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.label }}</div>
+        </sc-for>
+      </div></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;min-height:52px;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
+        <span style="font:600 13px Montserrat,sans-serif;color:#4F464B">Save to favourites</span>
+        <div onClick="{{ toggleFav }}" aria-label="Save to favourites" style="{{ favTrack }}"><span style="{{ favKnob }}"></span></div>
+      </div>
+      <div onClick="{{ noop }}" style="min-height:50px;display:flex;align-items:center;justify-content:center;border-radius:17px;border:1px dashed rgba(40,33,38,.2);font:600 13px Montserrat,sans-serif;color:#6F656B;cursor:pointer">+ Add photo (optional)</div>
+    </div>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:14px 20px 26px;background:linear-gradient(180deg,rgba(255,249,246,0),rgba(255,249,246,.94) 40%)">
+    <button onClick="{{ saveMeal }}" style="width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Save meal</button>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isChat }}">
+  <div style="padding:4px 20px 120px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ backToday }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif">Nutrition Chat</span>
+    </div>
+    <div style="margin-top:10px;padding:12px 14px;border-radius:16px;background:rgba(205,231,157,.28);border:1px solid rgba(142,173,86,.3);font:400 11.5px/1.55 Montserrat,sans-serif;color:#4F5F30">Eva can see your goal, focus areas, today’s targets, recent meals and cycle context. It cannot set targets or diagnose anything.</div>
+
+    <sc-if value="{{ chatEmpty }}">
+      <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Try asking</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <sc-for list="{{ prompts }}" as="p" hint-placeholder-count="6">
+          <div onClick="{{ p.onClick }}" style="min-height:50px;display:flex;align-items:center;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.76);border:1px solid rgba(255,255,255,.92);font:500 13px Montserrat,sans-serif;cursor:pointer">{{ p.label }}</div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ chatBusy }}">
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:18px">
+        <sc-for list="{{ messages }}" as="m" hint-placeholder-count="4">
+          <div style="{{ m.style }}">
+            <div style="font:400 13px/1.6 Montserrat,sans-serif;color:{{ m.ink }};text-wrap:pretty">{{ m.text }}</div>
+            <sc-if value="{{ m.article }}">
+              <div style="margin-top:12px;display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:16px;background:rgba(255,255,255,.75);border:1px solid rgba(40,33,38,.07)">
+                <span style="flex:none;width:40px;height:40px;border-radius:12px;background:repeating-linear-gradient(115deg,rgba(249,220,230,.8) 0 6px,rgba(255,241,246,.9) 6px 12px);display:block"></span>
+                <span style="flex:1"><span style="display:block;font:600 12.5px/1.35 Montserrat,sans-serif">{{ m.article }}</span><span style="display:block;font:500 10.5px Montserrat,sans-serif;color:#6F656B;margin-top:3px">{{ m.articleMeta }}</span></span>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:12px 20px 26px;background:linear-gradient(180deg,rgba(255,249,246,0),rgba(255,249,246,.94) 35%)">
+    <div style="display:flex;gap:8px;align-items:center">
+      <div style="flex:1;min-height:52px;display:flex;align-items:center;padding:0 16px;border-radius:26px;background:rgba(255,255,255,.86);border:1px solid rgba(40,33,38,.1);font:400 13.5px Montserrat,sans-serif;color:#9A9095">Ask about food, energy or meals…</div>
+      <button onClick="{{ sendChat }}" aria-label="Send" style="flex:none;width:52px;height:52px;border-radius:26px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:400 18px Montserrat,sans-serif;cursor:pointer">↑</button>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isNutSettings }}">
+  <div style="padding:4px 20px 40px">
+    <div style="display:flex;align-items:center;gap:10px;min-height:44px">
+      <button onClick="{{ backToday }}" aria-label="Back" style="flex:none;width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.6);font:400 16px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif">Nutrition Settings</span>
+    </div>
+    <div style="margin-top:14px;border-radius:22px;overflow:hidden;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
+      <sc-for list="{{ nutToggles }}" as="t" hint-placeholder-count="3">
+        <div style="min-height:64px;display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid rgba(40,33,38,.05)">
+          <span style="flex:1">
+            <span style="display:block;font:500 13.5px Montserrat,sans-serif">{{ t.label }}</span>
+            <span style="display:block;font:400 11.5px/1.5 Montserrat,sans-serif;color:#9A9095;margin-top:3px">{{ t.desc }}</span>
+          </span>
+          <div onClick="{{ t.onClick }}" aria-label="{{ t.label }}" style="{{ t.track }}"><span style="{{ t.knob }}"></span></div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:14px;border-radius:22px;overflow:hidden;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
+      <sc-for list="{{ nutRows }}" as="r" hint-placeholder-count="5">
+        <div onClick="{{ r.onClick }}" style="min-height:52px;display:flex;align-items:center;padding:8px 16px;border-top:1px solid rgba(40,33,38,.05);cursor:pointer">
+          <span style="flex:1;font:500 13.5px Montserrat,sans-serif">{{ r.label }}</span>
+          <span style="font:500 12px Montserrat,sans-serif;color:#9A9095">{{ r.value }}</span>
+          <span style="font:400 16px Montserrat,sans-serif;color:#C8BFC3;margin-left:8px">›</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:14px;padding:14px 16px;border-radius:20px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.26);font:400 12px/1.6 Montserrat,sans-serif;color:#3F5A76">Qualitative guidance can only be turned off here — never from a banner or a prompt inside the app.</div>
+  </div>
+</sc-if>
+
+        </div>
+
+        <sc-if value="{{ showNav }}">
+          <div style="flex:none;height:88px;padding:8px 10px 26px;display:flex;align-items:flex-start;gap:2px;background:rgba(255,249,246,.72);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid rgba(40,33,38,.06)">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+              <div onClick="{{ t.onClick }}" aria-label="{{ t.label }}" style="{{ t.style }}">
+                <span style="{{ t.dot }}"></span>
+                <span style="font:600 10px Montserrat,sans-serif">{{ t.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ anySheet }}">
+        <div onClick="{{ closeSheet }}" style="position:absolute;inset:0;background:rgba(40,33,38,.3);animation:fadeIn .22s"></div>
+        <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:82%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.28),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.34),rgba(205,231,157,0) 60%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 30px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
+          <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 14px"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
+          <div style="position:sticky;top:-10px;z-index:6;margin:-30px -20px 0;padding:38px 20px 24px">
+            <div style="position:absolute;inset:0;pointer-events:none;backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);background:linear-gradient(180deg,rgba(255,251,248,.4),rgba(255,251,248,.04));-webkit-mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%)"></div>
+            <div style="position:relative;display:flex;align-items:center;justify-content:space-between">
+              <span style="font:600 15px Montserrat,sans-serif">{{ sheetTitle }}</span>
+              <button onClick="{{ closeSheet }}" aria-label="Close" style="width:44px;height:44px;border-radius:50%;border:0;background:rgba(40,33,38,.06);color:#6F656B;font:400 17px Montserrat,sans-serif;cursor:pointer">×</button>
+            </div>
+          </div>
+
+          <sc-if value="{{ sheetWhy }}">
+            <div style="font:400 13px/1.65 Montserrat,sans-serif;color:#4F464B">Eva estimates your resting needs with the Mifflin–St Jeor equation, multiplies by an activity factor, then applies your goal — all clamped by safety limits.</div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+              <sc-for list="{{ calcRows }}" as="c" hint-placeholder-count="5">
+                <div style="padding:13px 15px;border-radius:17px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.92)">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+                    <span style="font:600 12.5px Montserrat,sans-serif">{{ c.k }}</span>
+                    <span style="font:600 12.5px Montserrat,sans-serif;color:#C95F86;text-align:right">{{ c.v }}</span>
+                  </div>
+                  <div style="font:400 11.5px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:4px">{{ c.note }}</div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="margin-top:14px;padding:13px 15px;border-radius:17px;background:rgba(205,231,157,.28);border:1px solid rgba(142,173,86,.3);font:400 12px/1.6 Montserrat,sans-serif;color:#4F5F30">Luteal phase adds about 5% (100–250 kcal). Pregnancy adds about 340 kcal in the second trimester and 450 in the third. Breastfeeding adds 330–500 kcal. Every figure is an estimate that adapts as you log.</div>
+          </sc-if>
+
+          <sc-if value="{{ sheetScore }}">
+            <div style="font:600 26px Montserrat,sans-serif">Nutrition fit: {{ fitScore }}</div>
+            <div style="font:400 12.5px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:6px">This score describes the meal in today’s context — never you, and never your day.</div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+              <sc-for list="{{ scoreRows }}" as="r" hint-placeholder-count="4">
+                <div style="padding:14px 15px;border-radius:18px;background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.92)">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between">
+                    <span style="font:600 13px Montserrat,sans-serif">{{ r.k }}</span>
+                    <span style="font:500 11.5px Montserrat,sans-serif;color:#9A9095">{{ r.weight }}</span>
+                  </div>
+                  <div style="font:400 12.5px/1.55 Montserrat,sans-serif;color:#4F464B;margin-top:5px">{{ r.note }}</div>
+                  <div style="height:5px;border-radius:3px;background:rgba(40,33,38,.07);margin-top:9px;overflow:hidden"><span style="{{ r.bar }}"></span></div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="margin-top:14px;padding:13px 15px;border-radius:17px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.9);font:400 12px/1.6 Montserrat,sans-serif;color:#4F464B">This meal is lower in protein than your current target. Adding yoghurt, tofu, eggs or legumes would increase the fit.</div>
+          </sc-if>
+
+          <sc-if value="{{ sheetPrivacy }}">
+            <div style="font:600 18px/1.35 Montserrat,sans-serif">Before your first photo scan</div>
+            <div style="font:400 13px/1.65 Montserrat,sans-serif;color:#4F464B;margin-top:8px">Photos are used to identify food and are not used for model training without separate consent.</div>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:16px;padding:14px 16px;border-radius:18px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.92)">
+              <span style="flex:1;font:500 12.5px/1.5 Montserrat,sans-serif;color:#4F464B">Also allow my photos to improve Eva’s recognition model</span>
+              <div onClick="{{ toggleConsent }}" aria-label="Allow photos for model training" style="{{ consentTrack }}"><span style="{{ consentKnob }}"></span></div>
+            </div>
+            <div style="font:400 11.5px Montserrat,sans-serif;color:#9A9095;margin-top:8px">Off by default. You can change this any time in Privacy settings.</div>
+            <div style="display:flex;gap:8px;margin-top:16px">
+              <button onClick="{{ closeSheet }}" style="min-height:50px;padding:0 18px;border-radius:16px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);font:600 13.5px Montserrat,sans-serif;color:#6F656B;cursor:pointer">Learn more</button>
+              <button onClick="{{ closeSheet }}" style="flex:1;min-height:50px;border-radius:16px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 14px Montserrat,sans-serif;cursor:pointer">Continue</button>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ toastMsg }}">
+        <div style="position:absolute;left:16px;right:16px;bottom:100px;padding:14px 16px;border-radius:18px;background:rgba(40,33,38,.92);display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 16px 34px -14px rgba(40,33,38,.7);animation:toastIn .26s ease-out">
+          <span style="font:500 13px/1.4 Montserrat,sans-serif;color:#fff">{{ toastMsg }}</span>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+
+<div style="position:sticky;top:40px;width:308px;flex:none;padding:22px;border-radius:24px;background:rgba(255,255,255,.66);border:1px solid rgba(255,255,255,.85);box-shadow:0 10px 30px -18px rgba(40,33,38,.3)">
+  <div style="font:600 10px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095">Interaction spec</div>
+  <div style="font:600 15px/1.3 Montserrat,sans-serif;margin-top:8px">{{ specTitle }}</div>
+  <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
+    <sc-for list="{{ specNotes }}" as="n" hint-placeholder-count="4">
+      <div style="display:flex;gap:8px;font:400 12.5px/1.55 Montserrat,sans-serif;color:#6F656B"><span style="flex:none;width:5px;height:5px;border-radius:50%;background:#E982A5;margin-top:6px"></span><span>{{ n }}</span></div>
+    </sc-for>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1120,&quot;height&quot;:1000}}">
+const GOALS = [
+  ['lose','Lose weight','Create a gradual calorie deficit without going below safe limits.'],
+  ['gain','Gain weight','Support gradual weight gain with balanced daily targets.'],
+  ['muscle','Build muscle','Prioritise protein and enough energy to support training.'],
+  ['maintain','Maintain my weight','Keep your weight stable while improving meal balance.'],
+  ['better','Eat better without changing my weight','Focus on food quality, regular meals and how you feel.']
+];
+const FOCUS = ['Eat more vegetables and fibre','Eat less ultra-processed food','Fight iron deficiency anaemia','Eat more protein','Cut down on sugar','Eat more regularly','Drink more water','Reduce caffeine','Reduce alcohol','Support bone health','Reduce bloating','Manage PMS cravings','Eat enough around my period','Reduce salt','Balance a vegetarian diet','Improve afternoon energy','Support skin'];
+const ACTS = [
+  ['sed','Sedentary','Mostly seated with little regular exercise.'],
+  ['light','Lightly active','Light activity or exercise around 1–3 times per week.'],
+  ['mod','Moderately active','Moderate exercise around 3–5 times per week.'],
+  ['very','Very active','Hard exercise most days.'],
+  ['extreme','Extremely active','Intense training or a highly physical daily routine.']
+];
+
+function track(on){
+  return 'flex:none;width:52px;height:32px;border-radius:16px;padding:3px;display:flex;align-items:center;justify-content:'+(on?'flex-end':'flex-start')+';cursor:pointer;background:'+(on?'linear-gradient(180deg,#B7CF86,#8EAD56)':'rgba(40,33,38,.16)')+';';
+}
+function knob(){ return 'display:block;width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(40,33,38,.28);'; }
+
+const RAIL = [
+  {title:'Setup', items:[
+    ['s1','Step 1 · Goal',{screen:'setup',step:1}],
+    ['s2','Step 2 · Focus areas',{screen:'setup',step:2}],
+    ['s3','Step 3 · Meal pattern',{screen:'setup',step:3}],
+    ['s4','Step 4 · Body metrics',{screen:'setup',step:4}],
+    ['s5','Step 5 · Target weight',{screen:'setup',step:5,target:65}],
+    ['sGuard','Unsafe target · guardrail',{screen:'setup',step:5,target:52}],
+    ['sRate','Timeline extended',{screen:'setup',step:5,target:58}],
+    ['sPreg','Pregnancy restriction',{screen:'setup',step:0,pregBlock:true}],
+    ['sSum','Plan summary',{screen:'setup',step:6}],
+    ['sResume','Setup resumed later',{screen:'setup',step:-1}]]},
+  {title:'Today', items:[
+    ['tLuteal','Today · luteal adjusted',{screen:'today',view:'day',mode:'cycle',hide:false,qual:false,notice:null}],
+    ['tRecalc','Target recalculated',{screen:'today',view:'day',mode:'cycle',hide:false,qual:false,notice:'recalc'}],
+    ['tPreg','Pregnancy target',{screen:'today',view:'day',mode:'preg',hide:false,qual:false,notice:null}],
+    ['tPost','Postpartum · breastfeeding',{screen:'today',view:'day',mode:'post',hide:false,qual:false,notice:null}],
+    ['tReached','Target weight reached',{screen:'today',view:'day',mode:'cycle',hide:false,qual:false,notice:'reached'}],
+    ['tHide','Calories hidden',{screen:'today',view:'day',mode:'cycle',hide:true,qual:false,notice:null}],
+    ['tQual','Qualitative guidance mode',{screen:'today',view:'day',mode:'cycle',hide:true,qual:true,notice:null}],
+    ['tWeek','Week trends',{screen:'today',view:'week',mode:'cycle',hide:false,qual:false,notice:null}]]},
+  {title:'Scan &amp; log', items:[
+    ['scEntry','Scanner entry',{screen:'scan',scan:'entry'}],
+    ['scCam','Camera · photo',{screen:'scan',scan:'camera'}],
+    ['scRes','Recognition result',{screen:'scan',scan:'result',conf:'high'}],
+    ['scLow','Low confidence',{screen:'scan',scan:'result',conf:'low'}],
+    ['scMulti','Multiple dishes',{screen:'scan',scan:'multi'}],
+    ['scNotFood','Photo is not food',{screen:'scan',scan:'notfood'}],
+    ['scNone','Nothing recognised',{screen:'scan',scan:'none'}],
+    ['scOff','Offline · queued scan',{screen:'scan',scan:'offline'}],
+    ['scBar','Barcode camera',{screen:'scan',scan:'barcode'}],
+    ['scProd','Barcode product',{screen:'scan',scan:'product'}],
+    ['scNoBar','Barcode not found',{screen:'scan',scan:'nobarcode'}],
+    ['scSearch','Food search',{screen:'scan',scan:'search'}],
+    ['scManual','Manual entry',{screen:'scan',scan:'manual'}],
+    ['scScore','Score breakdown',{screen:'scan',scan:'result',conf:'high',sheet:'score'}],
+    ['scPriv','First-scan privacy note',{screen:'scan',scan:'entry',sheet:'privacy'}]]},
+  {title:'Chat &amp; settings', items:[
+    ['chEmpty','Nutrition Chat · empty',{screen:'chat',chat:false}],
+    ['chBusy','Nutrition Chat · answer',{screen:'chat',chat:true}],
+    ['nSet','Nutrition Settings',{screen:'nset'}],
+    ['nCalc','How this is calculated',{screen:'today',view:'day',sheet:'why'}]]}
+];
+
+const SPEC = {
+  s1:['All five goals carry identical visual weight — "maintain" and "eat better" are never secondary.','No body imagery, no transformation copy, no competitive framing.','Nothing is calculated yet; the goal only shapes later questions.'],
+  s2:['Up to three focus areas. At three, the rest stay visible but disabled — Eva never silently swaps the oldest choice out.','Optional step with an explicit "Skip for now".','Focus areas change the wording of notes, not the maths.'],
+  s3:['Meal count and snacks are neutral choices; no pattern is presented as healthier.','Times are optional and skippable, used only for spacing and reminders.','Slots are generated from the meal count, so 3 meals + snack yields four rows.'],
+  s4:['Age comes from the profile and is never asked twice; units follow the account setting.','Activity descriptions are concrete, not adjectives.','Logged Calendar workouts can override the declared band later — stated up front.'],
+  s5:['Shown only for lose / gain / build-muscle goals; skipped entirely otherwise.','Calories are always framed as approximate.','Rate cap: 0.5 kg per week or 1% of body weight, whichever is lower.'],
+  sGuard:['A target below BMI 18.5 is refused with neutral language and the lowest supported value offered.','No implication of an eating disorder from a single input.','The input stays editable — Eva does not lock the field.'],
+  sRate:['When the requested pace is too fast, Eva extends the timeline instead of cutting calories.','Calorie floor is the higher of BMR and 1,200 kcal; hitting it also extends the timeline.'],
+  sPreg:['Weight-change goals are unavailable in Pregnancy Mode and for the first six postpartum weeks.','The rule is applied without asking for confirmation, and shown once.','The earlier goal is retained but not restored automatically afterwards.'],
+  sSum:['Summary states every target plus the cycle-adjustment status before anything is activated.','"How this is calculated" opens a sheet; formulas are never forced on screen.','The dietitian disclaimer appears once here, not on every screen.'],
+  sResume:['Progress auto-saves after each step and resumes from the last completed one.','No partial targets are ever derived from an incomplete setup.'],
+  tLuteal:['The phase-adjusted number is the primary figure, with the reason directly beneath it — never buried in settings.','Adjustment is framed as a need, not a reward: no "earned", "allowed" or "burn it off".','Every bar has a written value; colour is never the only signal, and exceeding a target is not red.'],
+  tRecalc:['One calm notification per change, stating the cause. Higher and lower are framed neutrally.','Recalculation triggers: weight, goal, target, phase, mode, or a one-band activity shift from Calendar data.'],
+  tPreg:['Second trimester adds roughly 340 kcal, third roughly 450 — explained, never framed as "eating for two".','Understated treatment: no celebratory progress bars.'],
+  tPost:['Breastfeeding adds roughly 330–500 kcal with an explicit explanation.','No feeding streaks, targets or comparisons with averages.'],
+  tReached:['Reaching the target offers maintenance instead of silently continuing a deficit.','No body-transformation celebration.'],
+  tHide:['Hiding calories keeps the screen complete: composition, macros and guidance remain.','No repeated prompts to switch numbers back on.'],
+  tQual:['Qualitative mode disables weight-change goals, hides calories and replaces scores with description.','No disguised numeric score replaces the calories.','Reversible only from Settings, never from a banner.'],
+  tWeek:['Trends are described in plain sentences, never graded.','No adherence score, perfect days, or red/green day colouring.','Focus-area progress reflects only the areas she chose.'],
+  scEntry:['Photo, barcode and text search are equally discoverable — recognition is never the only prominent path.','Recent meals and favourites are one tap from the top of the screen.','Manual entry is always available and works fully offline.'],
+  scCam:['Guidance overlay instead of a fake precision grid.','Shutter, upload, flash and close all carry accessible labels and 44px targets.'],
+  scRes:['Calories are rounded to the nearest 10 and always prefixed "approximately".','Alternatives switch the match in one tap; portion is always editable.','Every value can be corrected, and corrections are remembered for the same dish.'],
+  scLow:['Low confidence is stated plainly and asks for confirmation before saving.','Uncertain nutrition data is never presented as fact.'],
+  scMulti:['Each dish becomes its own item with checkbox, portion, edit and remove.','The user confirms or removes items individually — nothing is saved silently.'],
+  scNotFood:['A specific message, not a generic error page, with two useful exits.'],
+  scNone:['Three routes out: search by name, add manually, try another photo.'],
+  scOff:['The scan is queued and shown in the log as "Waiting to process".','Manual entry stays fully available offline.'],
+  scBar:['Manual barcode entry is offered as a fallback beside the camera.'],
+  scProd:['Product, brand, serving selector and per-serving nutrition, with ingredients when available.'],
+  scNoBar:['Not-found leads to manual entry or search by name; the product is queued for database enrichment.'],
+  scSearch:['Generic foods, branded products and restaurant items are visually distinguished.','Recent searches are one tap away.'],
+  scManual:['Full manual logging including fibre, portion, slot, time, photo and favourite.','Works offline; errors appear next to the field they belong to.'],
+  scScore:['Breakdown is one tap: food quality 40%, goal fit 30%, focus areas 20%, cycle context 10%.','A lower score explains what would raise the fit — it never labels food as bad.','Scores apply to meals only. Never to a day, and never to a person.'],
+  scPriv:['Shown once, before the first photo scan.','Model-training consent is a separate, off-by-default toggle.'],
+  chEmpty:['Suggested prompts come from her actual context: goal, focus areas, targets, recent meals, cycle.'],
+  chBusy:['Answers are short, practical and reference a reviewed article where one exists.','The chat cannot set targets, diagnose, infer deficiency or recommend supplement doses — target changes redirect to setup.'],
+  nSet:['Hide calorie numbers is available to anyone, with no repeated prompts to turn it back on.','Qualitative guidance mode can only be reversed here.','Conditions declared at sign-up suppress conflicting suggestions silently.'],
+  nCalc:['Formulas live behind "How this is calculated" — never forced onto the daily screen.','Cycle and mode adjustments are explained in the same sheet.']
+};
+
+class Component extends DCLogic {
+  state = {
+    railKey:'s1', screen:'setup', step:1, view:'day', mode:'cycle',
+    goal:'lose', focus:['Eat more protein','Improve afternoon energy'], meals:3, snacks:'Yes',
+    activity:'mod', target:65, pregBlock:false,
+    hide:false, qual:false, notice:null, water:1.4, sheet:null, toast:null,
+    scan:'entry', conf:'high', dish:0, portion:'est', fav:false, consent:false, chat:false,
+    multi:{'Grilled salmon':true,'Roasted potatoes':true,'Mixed salad':true},
+    hideCals:false, qualMode:false, waterOn:false, remind:true
+  };
+  go(p){ this.setState(Object.assign({toast:null,sheet:null},p)); }
+  toast(m){ this.setState({toast:m}); clearTimeout(this._t); this._t=setTimeout(()=>this.setState({toast:null}),3600); }
+
+  renderVals(){
+    const S=this.state;
+    const railGroups=RAIL.map(g=>({title:g.title,items:g.items.map(it=>({label:it[1],
+      onClick:()=>this.go(Object.assign({railKey:it[0],pregBlock:false},it[2])),
+      style:'min-height:36px;display:flex;align-items:center;padding:0 10px;border-radius:10px;cursor:pointer;font:'+(S.railKey===it[0]?'600':'500')+' 12.5px Montserrat,sans-serif;color:'+(S.railKey===it[0]?'#282126':'#6F656B')+';background:'+(S.railKey===it[0]?'rgba(255,255,255,.85)':'transparent')+';'}))}));
+    const specLabel=(RAIL.reduce((a,g)=>a.concat(g.items),[]).filter(i=>i[0]===S.railKey)[0]||['','Screen'])[1];
+
+    const pill=(on)=>'min-height:44px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 16px;border-radius:14px;cursor:pointer;font:600 13px Montserrat,sans-serif;'+(on
+      ?'background:linear-gradient(180deg,#EE93B1,#DC7C9E);color:#fff;border:1px solid transparent;box-shadow:0 8px 18px -12px rgba(201,95,134,.8);'
+      :'background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(255,255,255,.84));color:#282126;border:1px solid rgba(201,95,134,.22);box-shadow:0 6px 14px -10px rgba(150,72,100,.5);');
+    const card=(on)=>'min-height:70px;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:20px;cursor:pointer;background:'+(on?'rgba(233,130,165,.14)':'linear-gradient(150deg,rgba(255,255,255,.9),rgba(255,255,255,.68))')+';border:1px solid '+(on?'rgba(201,95,134,.5)':'rgba(255,255,255,.92)')+';box-shadow:0 10px 24px -22px rgba(150,72,100,.7);';
+    const radio=(on)=>'flex:none;width:20px;height:20px;border-radius:50%;display:block;background:#fff;border:'+(on?'6px solid #C95F86':'1.5px solid rgba(40,33,38,.25)')+';';
+
+    const setupStep=S.step;
+    const guard=(()=>{
+      if(S.screen!=='setup'||setupStep!==5) return null;
+      if(S.target<=54) return {title:'That target falls below the range Eva can support',
+        body:'A target of '+S.target+' kg would put you under BMI 18.5. Lowest supported target: 59.5 kg.',
+        action:'Use 59.5 kg',onFix:()=>this.setState({target:59.5,railKey:'sGuard'})};
+      if(S.target<=58) return {title:'Eva has extended the timeline',
+        body:'Reaching '+S.target+' kg at a gradual pace takes longer than the date you picked. Rate is capped at about 0.5 kg per week, and calories never drop below your BMR.',
+        action:'View adjusted timeline',onFix:()=>this.toast('Timeline extended to 28–32 weeks')};
+      return null;
+    })();
+
+    const targets=(()=>{
+      if(S.mode==='preg') return {kcal:2260,base:1920,add:340,addNote:'Today\u2019s target includes about 340 additional kcal for the second trimester. This supports growth, not "eating for two".',ctx:'Pregnancy · week 22',ctxTone:'blue'};
+      if(S.mode==='post') return {kcal:2270,base:1870,add:400,addNote:'Your target includes about 400 additional kcal for breastfeeding. It adjusts as feeding changes.',ctx:'Postpartum · day 42 · breastfeeding',ctxTone:'green'};
+      return {kcal:1850,base:1710,add:140,addNote:'Today\u2019s target includes about 140 additional kcal for your estimated luteal phase. Energy needs can rise slightly during this phase.',ctx:'Luteal phase · estimated',ctxTone:'pink'};
+    })();
+    const eaten=1180, tone=targets.ctxTone;
+    const ctx={pink:['rgba(233,130,165,.14)','rgba(201,95,134,.3)','#C95F86','#A9436E'],
+               green:['rgba(205,231,157,.34)','rgba(142,173,86,.34)','#8EAD56','#5C7434'],
+               blue:['rgba(90,123,160,.12)','rgba(90,123,160,.3)','#5A7BA0','#3F5A76']}[tone];
+
+    const macro=(label,val,pct,c)=>({label,value:val,bar:'display:block;height:100%;width:'+Math.min(pct,100)+'%;border-radius:3px;background:'+c+';opacity:.6;'});
+    const macroRows=S.hide
+      ? [macro('Protein','68 of 110 g',62,'#C95F86'),macro('Fibre','18 of 28 g',64,'#8EAD56'),macro('Water','1.4 of 2.0 L',70,'#5A7BA0')]
+      : [macro('Calories',eaten.toLocaleString()+' of '+targets.kcal.toLocaleString()+' kcal',eaten/targets.kcal*100,'#C95F86'),
+         macro('Protein','68 of 110 g',62,'#C95F86'),
+         macro('Carbohydrates','150 of 210 g',71,'#8EAD56'),
+         macro('Fat','48 of 62 g',77,'#C9913F'),
+         macro('Fibre','18 of 28 g',64,'#8EAD56')];
+
+    const mealActs=(logged)=>logged
+      ?[{label:'Edit',onClick:()=>this.toast('Opens the meal detail')},{label:'Duplicate',onClick:()=>this.toast('Duplicated to another slot')}]
+      :[{label:'Scan',onClick:()=>this.toast('Opens the scanner')},{label:'Add manually',onClick:()=>this.toast('Opens manual entry')}];
+    const mealBtn=(i)=>i===0
+      ?'min-height:40px;padding:0 14px;border-radius:13px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 12.5px Montserrat,sans-serif;cursor:pointer;'
+      :'min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.82);font:600 12.5px Montserrat,sans-serif;color:#282126;cursor:pointer;';
+    const mealsData=[
+      {name:'Greek yoghurt, berries, walnuts',slot:'Breakfast · 08:10',score:'Fit 78',detail:S.hide?'Protein and fibre present · unsweetened':'Approximately 320 kcal · 24 g protein',logged:true},
+      {name:'Chicken pesto pasta',slot:'Lunch · 13:20',score:'Fit 72',detail:S.hide?'Protein present · refined carbohydrate base':'Approximately 640 kcal · 38 g protein',logged:true},
+      {name:'Nothing logged yet',slot:'Dinner · usually 19:30',score:'',detail:'',logged:false},
+      {name:'Nothing logged yet',slot:'Snack · usually 16:00',score:'',detail:'',logged:false}
+    ];
+
+    return {
+      railGroups, specTitle:specLabel, specNotes:SPEC[S.railKey]||[], noop:()=>{},
+      toastMsg:S.toast,
+
+      isSetup:S.screen==='setup',
+      isStep1:S.screen==='setup'&&S.step===1, isStep2:S.screen==='setup'&&S.step===2,
+      isStep3:S.screen==='setup'&&S.step===3, isStep4:S.screen==='setup'&&S.step===4,
+      isStep5:S.screen==='setup'&&S.step===5, isSummary:S.screen==='setup'&&S.step===6,
+      isResume:S.screen==='setup'&&S.step===-1, isPregBlock:S.screen==='setup'&&S.pregBlock,
+      stepLabel:S.pregBlock?'Target weight':(S.step===6?'Review':(S.step===-1?'Resume setup':'Step '+S.step+' of 5')),
+      stepBar:'display:block;height:100%;border-radius:2px;background:linear-gradient(90deg,#F3AEC4,#C95F86);width:'+(S.step===-1?40:Math.min(S.step,5)/5*100)+'%;',
+      setupBack:()=>this.setState({step:Math.max(1,(S.step===6?5:S.step)-1),pregBlock:false}),
+      saveExit:()=>this.toast('Progress saved. You can resume from step '+Math.max(1,S.step)+'.'),
+      setupNext:()=>{ if(S.step>=5){ this.go({step:6,railKey:'sSum'}); } else if(S.step===4&&(S.goal==='maintain'||S.goal==='better')){ this.go({step:6,railKey:'sSum'}); } else { this.setState({step:S.step+1,railKey:'s'+(S.step+1)}); } },
+      showSkip:S.screen==='setup'&&S.step===2,
+      primaryLabel:S.step===6?'Start my plan':(S.step===4?'Confirm details':'Continue'),
+      primaryStyle:'flex:1;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8);',
+
+      goals:GOALS.map(g=>({label:g[1],desc:g[2],onClick:()=>this.setState({goal:g[0]}),style:card(S.goal===g[0]),radio:radio(S.goal===g[0])})),
+      focusCount:S.focus.length+' of 3 selected',
+      focusCountStyle:'display:inline-flex;align-items:center;min-height:30px;padding:0 11px;border-radius:10px;font:600 11.5px Montserrat,sans-serif;background:'+(S.focus.length>=3?'rgba(201,145,63,.16)':'rgba(233,130,165,.14)')+';color:'+(S.focus.length>=3?'#8A6425':'#A9436E')+';',
+      focusFull:S.focus.length>=3,
+      focusChips:FOCUS.map(f=>{const on=S.focus.indexOf(f)>-1, blocked=!on&&S.focus.length>=3;
+        return {label:f,on,aria:f+(on?', selected':(blocked?', unavailable, three already selected':', not selected')),
+          onClick:()=>{ if(on) this.setState({focus:S.focus.filter(x=>x!==f)});
+                        else if(S.focus.length>=3) this.toast('Remove one focus area before adding another.');
+                        else this.setState({focus:S.focus.concat([f])}); },
+          style:blocked?'min-height:44px;display:flex;align-items:center;padding:0 15px;border-radius:14px;font:600 13px Montserrat,sans-serif;background:rgba(248,243,240,.7);color:#B3A9AE;border:1px dashed rgba(40,33,38,.14);cursor:not-allowed;':pill(on)};}),
+      mealCounts:[2,3,4,5].map(n=>({label:String(n),onClick:()=>this.setState({meals:n}),style:pill(S.meals===n)+'min-width:56px;'})),
+      snackOpts:['Yes','No'].map(v=>({label:v,onClick:()=>this.setState({snacks:v}),style:pill(S.snacks===v)+'min-width:72px;'})),
+      mealTimes:(()=>{
+        const base=[['Breakfast','08:00'],['Lunch','13:00'],['Dinner','19:30'],['Second lunch','16:00'],['Late meal','21:00']].slice(0,S.meals);
+        const out=base.map(b=>({name:b[0],time:b[1]}));
+        if(S.snacks==='Yes') out.push({name:'Snack',time:'16:00'});
+        return out;
+      })(),
+      activities:ACTS.map(a=>({label:a[1],desc:a[2],onClick:()=>this.setState({activity:a[0]}),style:card(S.activity===a[0]),radio:radio(S.activity===a[0])})),
+      targetValue:S.target+' kg',
+      targetInputStyle:'width:100%;height:52px;border-radius:17px;border:1px solid '+(guard?'#C9913F':'rgba(40,33,38,.1)')+';background:rgba(255,255,255,.85);padding:0 15px;font:600 14.5px Montserrat,sans-serif;'+(guard?'box-shadow:0 0 0 3px rgba(201,145,63,.16);':''),
+      targetPresets:[65,62,59.5].map(t=>({label:t+' kg',onClick:()=>this.setState({target:t}),style:pill(S.target===t)})),
+      guardrail:guard,
+      planRange:'From 73 kg to '+S.target+' kg',
+      planTimeline:guard?'Estimated timeline: approximately 28–32 weeks (extended to keep the pace gradual)':'Estimated timeline: approximately 16–20 weeks',
+      planKcal:'Daily target: approximately '+(guard?'1,690':'1,760')+' kcal',
+      goSummary:()=>this.go({step:6,railKey:'sSum',pregBlock:false}),
+      summaryRows:[
+        {k:'Goal',v:(GOALS.filter(g=>g[0]===S.goal)[0]||GOALS[0])[1]},
+        {k:'Target weight',v:S.goal==='lose'||S.goal==='gain'?S.target+' kg (estimate)':'Not applicable'},
+        {k:'Daily calories',v:'approximately 1,760 kcal'},
+        {k:'Protein',v:'110–145 g'},
+        {k:'Fat',v:'55–70 g (never below 20% of calories)'},
+        {k:'Carbohydrates',v:'remaining energy · about 180–210 g'},
+        {k:'Fibre',v:'28–32 g'},
+        {k:'Cycle-aware adjustment',v:'On · luteal phase +5%'},
+        {k:'Focus areas',v:S.focus.length?S.focus.join(', '):'None selected'}
+      ],
+      resumeSteps:[['Goal',true],['Focus areas',true],['Meal pattern',false],['Body metrics',false],['Target weight',false]].map(r=>({
+        label:r[0],tick:r[1]?'✓':'',color:r[1]?'#282126':'#9A9095',
+        dot:'flex:none;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 11px Montserrat,sans-serif;color:#fff;background:'+(r[1]?'#8EAD56':'transparent')+';border:'+(r[1]?'0':'1.5px dashed rgba(40,33,38,.22)')+';'})),
+      resume:()=>this.go({step:3,railKey:'s3'}),
+      openWhy:()=>this.setState({sheet:'why'}),
+
+      isToday:S.screen==='today', isDay:S.screen==='today'&&S.view==='day', isWeek:S.screen==='today'&&S.view==='week',
+      ctxLabel:targets.ctx, ctxBg:ctx[0], ctxBorder:ctx[1], ctxDot:ctx[2], ctxInk:ctx[3],
+      segments:[['day','Today'],['week','Week']].map(v=>({label:v[1],onClick:()=>this.setState({view:v[0],railKey:v[0]==='week'?'tWeek':'tLuteal'}),
+        style:'flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;border-radius:12px;cursor:pointer;font:'+(S.view===v[0]?'600':'500')+' 13px Montserrat,sans-serif;color:'+(S.view===v[0]?'#fff':'#6F656B')+';background:'+(S.view===v[0]?'linear-gradient(180deg,#EE93B1,#C95F86)':'transparent')+';'})),
+      targetKicker:S.qual?'Today':(S.hide?'Today · calories hidden':'Today\u2019s estimate'),
+      targetPrimary:S.qual?'Two meals logged, both with protein':(S.hide?'2 of 4 meals logged':eaten.toLocaleString()+' of '+targets.kcal.toLocaleString()+' kcal'),
+      targetSecondary:S.qual?'Regular spacing so far · next meal usually 19:30':(S.hide?'Protein and fibre on track for today':(targets.kcal-eaten)+' kcal remaining'),
+      macroRows:S.qual?[]:macroRows,
+      adjustNote:S.qual?'':targets.addNote,
+      qualCard:S.qual,
+      qualLines:['Today\u2019s meals included protein at breakfast and lunch.','Fibre came from berries, walnuts and the salad at lunch.','You may want to add a fibre-rich option later if that feels useful.','Meals have been evenly spaced, with no long gap so far.'],
+      waterOn:S.focus.indexOf('Drink more water')>-1||S.hide,
+      waterLabel:S.water.toFixed(1)+' of 2.0 L',
+      waterBtns:[['+250 ml',.25],['+500 ml',.5],['Custom',0]].map(w=>({label:w[0],
+        onClick:()=>w[1]?this.setState({water:Math.round((S.water+w[1])*10)/10}):this.toast('Opens a custom amount input'),
+        style:pill(false)+'flex:1;'})),
+      meals:mealsData.map(m=>({name:m.name,slot:m.slot,detail:m.detail,
+        score:S.qual?'':m.score,
+        scoreStyle:'flex:none;font:600 11.5px Montserrat,sans-serif;color:#5C7434;padding:6px 10px;border-radius:10px;background:rgba(205,231,157,.4);border:1px solid rgba(142,173,86,.3);',
+        thumb:'flex:none;width:44px;height:44px;border-radius:14px;display:block;background:'+(m.logged?'repeating-linear-gradient(115deg,rgba(249,220,230,.85) 0 6px,rgba(255,241,246,.9) 6px 12px)':'rgba(255,255,255,.6)')+';border:1px '+(m.logged?'solid':'dashed')+' rgba(40,33,38,.12);',
+        actions:mealActs(m.logged).map((a,i)=>({label:a.label,onClick:a.onClick,style:mealBtn(i)}))})),
+      notice:S.notice==='recalc'?{title:'Your daily target changed from 1,720 to 1,850 kcal',body:'Eva detected a change in your recent activity level from workouts logged in your Calendar. Neither number is better than the other.',action:'View changes'}
+        :(S.notice==='reached'?{title:'You\u2019ve reached the target you set',body:'Would you like to switch to maintenance? Eva will not continue the deficit on its own.',action:'Switch to maintenance'}:null),
+      dismissNotice:()=>this.setState({notice:null}),
+      weekCards:[
+        {title:'Calories',value:'avg 1,790 kcal',note:'Within about 100 kcal of your estimate on 5 of 7 days.',pcts:[82,95,70,88,100,64,78]},
+        {title:'Protein',value:'avg 96 g',note:'Protein was closer to your target on 4 days.',pcts:[70,88,62,95,80,58,74]},
+        {title:'Fibre',value:'avg 24 g',note:'You logged vegetables with 9 meals this week.',pcts:[60,72,55,80,68,50,66]},
+        {title:'Meal regularity',value:'18 of 21 slots',note:'Lunch was logged later than your usual time on 3 days.',pcts:[100,100,66,100,100,66,100]}
+      ].map(w=>({title:w.title,value:w.value,note:w.note,days:['M','T','W','T','F','S','S'],
+        bars:w.pcts.map(p=>({style:'flex:1;display:block;border-radius:5px 5px 3px 3px;height:'+p+'%;background:linear-gradient(180deg,rgba(233,130,165,.75),rgba(233,130,165,.35));'}))})),
+      goLog:()=>this.toast('Opens the full day log'),
+      goChat:()=>this.toast('Opens Nutrition Chat'),
+      goSettings:()=>this.toast('Opens Nutrition Settings'),
+
+      showNav:S.screen==='today',
+      tabs:[['Today','today'],['Log','log'],['Scan','scan'],['Chat','chat'],['Settings','set']].map(t=>{
+        const active=(t[1]==='today'&&S.screen==='today');
+        return {label:t[0],onClick:()=>{ if(t[1]==='today') this.go({screen:'today',railKey:'tLuteal'}); else this.toast(t[0]+' is in the next section of this prototype.'); },
+          style:'flex:1;min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border-radius:14px;cursor:pointer;color:'+(active?'#C95F86':'#9A9095')+';background:'+(active?'rgba(233,130,165,.10)':'transparent')+';',
+          dot:'width:18px;height:18px;border-radius:'+(active?'7px':'6px')+';border:1.6px solid '+(active?'#C95F86':'#9A9095')+';background:'+(active?'rgba(233,130,165,.25)':'transparent')+';display:block;'};
+      }),
+      anySheet:!!S.sheet, closeSheet:()=>this.setState({sheet:null}),
+      sheetWhy:S.sheet==='why', sheetScore:S.sheet==='score', sheetPrivacy:S.sheet==='privacy',
+      sheetTitle:S.sheet==='why'?'How this is calculated':(S.sheet==='score'?'Score breakdown':'Photos and privacy'),
+      openScore:()=>this.setState({sheet:'score'}),
+      calcRows:[
+        {k:'Resting needs (BMR)',v:'1,455 kcal',note:'Mifflin–St Jeor: (10 × 73) + (6.25 × 168) − (5 × 32) − 161.'},
+        {k:'Activity factor',v:'× 1.55',note:'Moderately active — around 3–5 sessions a week, refined by your logged workouts.'},
+        {k:'Daily needs (TDEE)',v:'2,255 kcal',note:'Resting needs multiplied by your activity factor.'},
+        {k:'Goal adjustment',v:'−20%',note:'Gradual deficit for weight loss, clamped by every safety limit below.'},
+        {k:'Safety floors',v:'BMR · 1,200 kcal',note:'Targets never fall below either. If the maths would, the timeline extends instead.'},
+        {k:'Phase adjustment',v:'+140 kcal',note:'About 5% during the estimated luteal phase.'}
+      ],
+      scoreRows:[
+        {k:'Food quality',weight:'40%',note:'Good protein and fibre, with moderate sodium.',pct:78},
+        {k:'Goal fit',weight:'30%',note:'Fits today’s remaining energy target.',pct:82},
+        {k:'Focus areas',weight:'20%',note:'Supports your protein goal; fibre is a little low.',pct:60},
+        {k:'Cycle context',weight:'10%',note:'Provides steady energy for your current phase.',pct:70}
+      ].map(r=>({k:r.k,weight:r.weight,note:r.note,bar:'display:block;height:100%;width:'+r.pct+'%;border-radius:3px;background:#8EAD56;opacity:.6;'})),
+      toggleConsent:()=>this.setState({consent:!S.consent}),
+      consentTrack:track(S.consent), consentKnob:knob(S.consent),
+
+      isScanEntry:S.screen==='scan'&&S.scan==='entry',
+      isCamera:S.screen==='scan'&&(S.scan==='camera'||S.scan==='barcode'),
+      isResult:S.screen==='scan'&&S.scan==='result',
+      isMulti:S.screen==='scan'&&S.scan==='multi',
+      isFail:S.screen==='scan'&&['notfood','none','offline','nobarcode'].indexOf(S.scan)>-1,
+      isProduct:S.screen==='scan'&&S.scan==='product',
+      isSearch:S.screen==='scan'&&S.scan==='search',
+      isManual:S.screen==='scan'&&S.scan==='manual',
+      isOffline:S.scan==='offline',
+      backToday:()=>this.go({screen:'today',railKey:'tLuteal'}),
+      backScan:()=>this.go({screen:'scan',scan:'entry',railKey:'scEntry'}),
+      goCamera:()=>this.go({screen:'scan',scan:'camera',railKey:'scCam'}),
+      goBarcode:()=>this.go({screen:'scan',scan:'barcode',railKey:'scBar'}),
+      goSearch:()=>this.go({screen:'scan',scan:'search',railKey:'scSearch'}),
+      goManual:()=>this.go({screen:'scan',scan:'manual',railKey:'scManual'}),
+      shoot:()=>this.go({screen:'scan',scan:S.scan==='barcode'?'product':'result',conf:'high',railKey:S.scan==='barcode'?'scProd':'scRes'}),
+      cameraTitle:S.scan==='barcode'?'Scan barcode':'Scan meal',
+      cameraHint:S.scan==='barcode'?'Line the barcode up inside the frame.':'Place the full meal inside the frame.',
+      cameraAlt:S.scan==='barcode'?'Enter code':'Add manually',
+      frameH:S.scan==='barcode'?'140px':'300px',
+      recentFoods:[
+        {name:'Chicken pesto pasta',meta:'Approximately 640 kcal · logged twice this week'},
+        {name:'Greek yoghurt, berries, walnuts',meta:'Approximately 320 kcal · breakfast'},
+        {name:'Lentil soup, homemade',meta:'Approximately 280 kcal · lunch'}
+      ].map(f=>({name:f.name,meta:f.meta,onClick:()=>this.go({screen:'scan',scan:'result',conf:'high',railKey:'scRes'}),
+        thumb:'flex:none;width:40px;height:40px;border-radius:13px;background:repeating-linear-gradient(115deg,rgba(249,220,230,.8) 0 6px,rgba(255,241,246,.9) 6px 12px);border:1px solid rgba(40,33,38,.08);display:block;'})),
+      favFoods:['Protein yoghurt','Overnight oats','Salmon and greens','Banana'].map(l=>({label:l,style:pill(false),onClick:()=>this.toast('Added to today')})),
+      lowConf:S.conf==='low',
+      confLabel:S.conf==='low'?'Low confidence':'Likely match',
+      confStyle:'display:inline-flex;align-items:center;gap:7px;margin-top:14px;padding:7px 12px;border-radius:11px;font:600 11.5px Montserrat,sans-serif;'+(S.conf==='low'
+        ?'background:rgba(201,145,63,.16);color:#8A6425;border:1px solid rgba(201,145,63,.4);'
+        :'background:rgba(205,231,157,.4);color:#5C7434;border:1px solid rgba(142,173,86,.34);'),
+      dishName:['Chicken pesto pasta','Creamy chicken pasta','Pesto pasta with vegetables','Chicken and spinach pasta'][S.dish],
+      alternatives:['Creamy chicken pasta','Pesto pasta with vegetables','Chicken and spinach pasta','Chicken pesto pasta'].slice(0,3).map((l,i)=>({label:l,
+        onClick:()=>this.setState({dish:i+1>3?0:i+1}),style:pill(false)})),
+      portionLabel:{small:'Smaller · about 240 g',est:'Estimated · about 320 g',large:'Larger · about 420 g',custom:'Custom amount'}[S.portion],
+      portions:[['small','Smaller'],['est','Estimated'],['large','Larger'],['custom','Enter amount']].map(p=>({label:p[1],
+        onClick:()=>this.setState({portion:p[0]}),style:pill(S.portion===p[0])+'flex:1;padding:0 10px;'})),
+      kcalLabel:'Approximately '+({small:'380',est:'490',large:'640',custom:'490'}[S.portion])+' kcal',
+      resultMacros:[{k:'Protein',v:'38 g'},{k:'Carbohydrates',v:'52 g'},{k:'Fat',v:'19 g'},{k:'Fibre',v:'5 g'}],
+      fitScore:S.conf==='low'?66:72,
+      scanNote:'This meal is high in refined carbohydrates and relatively low in protein for your target. Since you logged low energy today, adding a protein or fibre source may help it feel more sustaining.',
+      slots:['Breakfast','Lunch','Dinner','Snack'].map((l,i)=>({label:l,onClick:()=>this.toast('Saving to '+l.toLowerCase()),style:pill(i===1)})),
+      toggleFav:()=>this.setState({fav:!S.fav}),
+      favTrack:track(S.fav), favKnob:knob(S.fav),
+      saveMeal:()=>{ this.go({screen:'today',railKey:'tLuteal'}); this.toast('Meal saved to lunch · approximately 490 kcal'); },
+      multiItems:['Grilled salmon','Roasted potatoes','Mixed salad'].map((n,i)=>({name:n,
+        meta:['Estimated 160 g · approximately 330 kcal','Estimated 180 g · approximately 220 kcal','Estimated 90 g · approximately 70 kcal'][i],
+        tick:S.multi[n]?'✓':'', aria:n+(S.multi[n]?', included':', excluded'),
+        box:'flex:none;width:24px;height:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;font:700 12px Montserrat,sans-serif;color:#fff;background:'+(S.multi[n]?'#C95F86':'rgba(255,255,255,.9)')+';border:1.5px solid '+(S.multi[n]?'#C95F86':'rgba(40,33,38,.2)')+';',
+        onToggle:()=>{const m=Object.assign({},S.multi);m[n]=!m[n];this.setState({multi:m});},
+        onEdit:()=>this.toast('Opens the portion editor'),
+        onRemove:()=>{const m=Object.assign({},S.multi);m[n]=false;this.setState({multi:m});}})),
+      multiCount:Object.keys(S.multi).filter(k=>S.multi[k]).length,
+      multiTotal:[330,220,70].filter((v,i)=>S.multi[['Grilled salmon','Roasted potatoes','Mixed salad'][i]]).reduce((a,b)=>a+b,0),
+      failTitle:{notfood:'No food found',none:'Not recognised',offline:'Offline',nobarcode:'Product not found'}[S.scan]||'',
+      failHead:{notfood:'This image does not appear to contain food.',none:'We couldn’t identify this meal confidently.',offline:'This scan will be processed when you are back online.',nobarcode:'We couldn’t find this product.'}[S.scan]||'',
+      failBody:{notfood:'Try a photo of the plate itself, or search for the dish by name.',
+        none:'You can search by name, enter the values manually, or take another photo — nothing has been saved.',
+        offline:'It is saved on your device and appears in the meal log as “Waiting to process”. Manual entry still works.',
+        nobarcode:'You can add it manually or search by name. Eva will queue the barcode so the product database can be improved.'}[S.scan]||'',
+      failIconBg:{notfood:'rgba(201,145,63,.18)',none:'rgba(233,130,165,.18)',offline:'rgba(90,123,160,.16)',nobarcode:'rgba(201,145,63,.18)'}[S.scan]||'',
+      failActions:(()=>{
+        const map={notfood:[['Try another photo','cam'],['Search food','search']],
+          none:[['Search by name','search'],['Add manually','manual'],['Try another photo','cam']],
+          offline:[['Add manually','manual'],['Back to Today','today']],
+          nobarcode:[['Add manually','manual'],['Search by name','search']]};
+        return (map[S.scan]||[]).map((a,i)=>({label:a[0],
+          onClick:()=>{ if(a[1]==='cam') this.go({screen:'scan',scan:'camera',railKey:'scCam'});
+            else if(a[1]==='search') this.go({screen:'scan',scan:'search',railKey:'scSearch'});
+            else if(a[1]==='manual') this.go({screen:'scan',scan:'manual',railKey:'scManual'});
+            else this.go({screen:'today',railKey:'tLuteal'}); },
+          style:i===0
+            ?'min-height:48px;padding:0 18px;border-radius:15px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 13.5px Montserrat,sans-serif;cursor:pointer;'
+            :'min-height:48px;padding:0 18px;border-radius:15px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.82);font:600 13.5px Montserrat,sans-serif;cursor:pointer;'}));
+      })(),
+      servingLabel:'1 pot · 150 g',
+      servings:['1 pot · 150 g','100 g','2 pots'].map((l,i)=>({label:l,onClick:()=>this.toast('Serving set to '+l),style:pill(i===0)+'flex:1;padding:0 10px;'})),
+      productMacros:[{k:'Energy',v:'approximately 130 kcal'},{k:'Protein',v:'15 g'},{k:'Carbohydrates',v:'8 g'},{k:'Fat',v:'4 g'},{k:'Fibre',v:'0 g'}],
+      searchResults:[
+        {name:'Greek yoghurt, plain',meta:'Per 100 g · approximately 97 kcal · 9 g protein',tag:'Generic'},
+        {name:'Protein yoghurt, vanilla',meta:'Vale Verde · per pot · approximately 130 kcal',tag:'Branded'},
+        {name:'Frozen yoghurt, plain',meta:'Gelato Bianco · per 100 g · approximately 160 kcal',tag:'Restaurant'},
+        {name:'Yoghurt with granola',meta:'Per bowl · approximately 340 kcal · 14 g protein',tag:'Generic'},
+        {name:'Skyr, natural',meta:'Per 150 g pot · approximately 96 kcal · 17 g protein',tag:'Branded'}
+      ].map(r=>({name:r.name,meta:r.meta,tag:r.tag,onClick:()=>this.go({screen:'scan',scan:'result',conf:'high',railKey:'scRes'}),
+        tagStyle:'flex:none;font:600 10px Montserrat,sans-serif;letter-spacing:.06em;text-transform:uppercase;padding:5px 9px;border-radius:9px;'+({
+          Generic:'background:rgba(205,231,157,.4);color:#5C7434;',
+          Branded:'background:rgba(90,123,160,.14);color:#3F5A76;',
+          Restaurant:'background:rgba(233,130,165,.16);color:#A9436E;'}[r.tag])})),
+      recentSearches:['Lentil soup','Chicken breast','Banana','Pesto pasta'].map(l=>({label:l,style:pill(false)})),
+      manualFields:[{label:'Calories',value:'approx. 280'},{label:'Protein (g)',value:'18'},{label:'Carbohydrates (g)',value:'34'},{label:'Fat (g)',value:'6'},{label:'Fibre (g)',value:'11'},{label:'Portion (g)',value:'400'}],
+
+      isChat:S.screen==='chat', chatEmpty:S.screen==='chat'&&!S.chat, chatBusy:S.screen==='chat'&&S.chat,
+      prompts:['What can I eat before training?','How can I add more fibre?','Which foods contain iron?','Help me plan lunches for this week','Why am I hungry before my period?','What could support steadier afternoon energy?']
+        .map(l=>({label:l,onClick:()=>this.go({screen:'chat',chat:true,railKey:'chBusy'})})),
+      sendChat:()=>this.go({screen:'chat',chat:true,railKey:'chBusy'}),
+      messages:[
+        {who:'me',text:'Why am I hungry before my period?'},
+        {who:'eva',text:'Appetite often rises in the luteal phase, partly because resting energy use increases slightly. Your target today is already about 140 kcal higher for that reason — the hunger is not a lapse in discipline.'},
+        {who:'eva',text:'If you want meals to feel more sustaining: protein at each meal, some fibre, and not leaving more than 4–5 hours between meals. Based on your log, lunch is where protein is usually lowest.',
+         article:'Why appetite can change before your period',articleMeta:'Nutrition · 4 min read · evidence reviewed'},
+        {who:'me',text:'Can you lower my calorie target instead?'},
+        {who:'eva',text:'I can’t change targets from chat. To change your calorie target, update your goal or body metrics in Nutrition Settings — that way the safety limits are applied properly.'}
+      ].map(m=>({text:m.text,article:m.article||'',articleMeta:m.articleMeta||'',ink:m.who==='me'?'#fff':'#4F464B',
+        style:m.who==='me'
+          ?'align-self:flex-end;max-width:82%;padding:13px 15px;border-radius:20px 20px 6px 20px;background:linear-gradient(180deg,#EE93B1,#C95F86);'
+          :'align-self:flex-start;max-width:88%;padding:14px 16px;border-radius:20px 20px 20px 6px;background:rgba(255,255,255,.82);border:1px solid rgba(255,255,255,.95);'})),
+
+      isNutSettings:S.screen==='nset',
+      nutToggles:[
+        {label:'Hide calorie numbers',desc:'Use meal composition and qualitative guidance instead. Macros and food guidance stay.',on:S.hideCals,f:()=>this.setState({hideCals:!S.hideCals})},
+        {label:'Qualitative guidance mode',desc:'Hides calories and meal scores, disables weight-change goals, focuses on regularity and variety. Reversible only here.',on:S.qualMode,f:()=>this.setState({qualMode:!S.qualMode})},
+        {label:'Water tracking',desc:'Shown when “Drink more water” is one of your focus areas.',on:S.waterOn,f:()=>this.setState({waterOn:!S.waterOn})},
+        {label:'Meal reminders',desc:'Based on your usual meal times. Never framed as a streak.',on:S.remind,f:()=>this.setState({remind:!S.remind})}
+      ].map(t=>({label:t.label,desc:t.desc,track:track(t.on),knob:knob(t.on),onClick:t.f})),
+      nutRows:[
+        {label:'Goal',value:'Lose weight'},{label:'Focus areas',value:S.focus.length+' selected'},
+        {label:'Meal pattern',value:S.meals+' meals · snacks '+S.snacks.toLowerCase()},{label:'Body metrics',value:'168 cm · 73 kg'},
+        {label:'Activity level',value:'Moderately active'},{label:'Units',value:'Metric'},
+        {label:'Health conditions',value:'Private'},{label:'How targets are calculated',value:''}
+      ].map(r=>({label:r.label,value:r.value,onClick:r.label==='How targets are calculated'?()=>this.setState({sheet:'why'}):()=>this.go({screen:'setup',step:1,railKey:'s1'})}))
+    };
+  }
+}
+</script>
+</body>
+</html>

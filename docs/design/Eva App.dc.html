@@ -1,0 +1,1449 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7E3;font-family:Montserrat,system-ui,sans-serif;color:#282126;-webkit-font-smoothing:antialiased}
+a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
+.sb::-webkit-scrollbar{width:0;height:0}
+@keyframes sheetUp{from{transform:translateY(101%)}to{transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+</style></helmet>
+
+<div style="display:flex;gap:36px;padding:40px 44px;align-items:flex-start">
+
+<div style="position:sticky;top:40px;width:246px;flex:none;display:flex;flex-direction:column;gap:22px">
+  <div>
+    <div style="font:400 30px/1 Montserrat,sans-serif;letter-spacing:.5px">eva<span style="color:#8EAD56">.</span></div>
+    <div style="font:500 11px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:6px;letter-spacing:.12em;text-transform:uppercase">Product prototype · v1</div>
+  </div>
+  <sc-for list="{{ railGroups }}" as="g" hint-placeholder-count="3">
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">
+      <div style="font:600 10px/1 Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;padding:0 10px 8px">{{ g.title }}</div>
+      <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="6">
+        <div onClick="{{ it.onClick }}" style="{{ it.style }}">{{ it.label }}</div>
+      </sc-for>
+    </div>
+  </sc-for>
+  <div style="font:400 11px/1.6 Montserrat,sans-serif;color:#9A9095;padding:0 10px">Every screen is live — tap inside the phone to move through the real flows.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px;flex:none">
+  <div style="display:flex;align-items:baseline;gap:10px">
+    <span style="font:600 12px Montserrat,sans-serif;color:#282126">{{ specTitle }}</span>
+    <span style="font:400 11px Montserrat,sans-serif;color:#9A9095">390 × 844</span>
+  </div>
+  <div style="width:412px;padding:11px;background:linear-gradient(160deg,#3A3436,#1C1A1B);border-radius:56px;box-shadow:0 30px 60px -20px rgba(40,33,38,.45),0 0 0 1px rgba(255,255,255,.12) inset">
+    <div style="position:relative;width:390px;height:844px;border-radius:45px;overflow:hidden;background:#FFF9F6">
+
+      <div style="position:absolute;width:420px;height:420px;left:-170px;top:-160px;border-radius:50%;background:radial-gradient(circle,rgba(233,130,165,.30),rgba(233,130,165,0) 70%);filter:blur(44px)"></div>
+      <div style="position:absolute;width:400px;height:400px;right:-190px;top:200px;border-radius:50%;background:radial-gradient(circle,rgba(205,231,157,.34),rgba(205,231,157,0) 70%);filter:blur(48px)"></div>
+      <div style="position:absolute;width:460px;height:360px;left:-90px;bottom:-190px;border-radius:50%;background:radial-gradient(circle,rgba(249,220,230,.42),rgba(249,220,230,0) 70%);filter:blur(50px)"></div>
+      <div style="position:absolute;inset:0;background:rgba(255,249,246,.42)"></div>
+
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column">
+        <div style="height:54px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 28px 8px;font:600 14px Montserrat,sans-serif">
+          <span>9:41</span>
+          <span style="display:flex;align-items:center;gap:5px">
+            <span style="display:flex;align-items:flex-end;gap:2px"><span style="width:3px;height:5px;background:#282126;border-radius:1px"></span><span style="width:3px;height:8px;background:#282126;border-radius:1px"></span><span style="width:3px;height:11px;background:#282126;border-radius:1px"></span></span>
+            <span style="width:22px;height:11px;border:1px solid rgba(40,33,38,.4);border-radius:3px;padding:1.5px;display:block"><span style="display:block;width:70%;height:100%;background:#282126;border-radius:1px"></span></span>
+          </span>
+        </div>
+
+        <div class="sb" style="flex:1;overflow-y:auto;overflow-x:hidden;position:relative">
+
+<sc-if value="{{ isAuth }}" hint-placeholder-val="{{ true }}">
+  <div style="padding:16px 24px 40px;min-height:100%;display:flex;flex-direction:column">
+    <div style="font:400 30px/1 Montserrat,sans-serif;letter-spacing:.4px">eva<span style="color:#8EAD56">.</span></div>
+
+    <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ true }}">
+      <div style="margin-top:34px;display:flex;flex-direction:column;gap:10px">
+        <h1 style="margin:0;font:400 34px/1.12 Montserrat,sans-serif;letter-spacing:-.2px">Your Prime Era<br>starts here</h1>
+        <p style="margin:0;font:400 15px/1.55 Montserrat,sans-serif;color:#6F656B;max-width:300px">Eva learns your cycle, your energy and your goals — then adapts. No scores, no judgment.</p>
+      </div>
+      <div style="margin-top:28px;display:flex;flex-direction:column;gap:10px">
+        <button onClick="{{ goApple }}" style="height:54px;border:0;border-radius:17px;background:#1C1A1B;color:#fff;font:600 15px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;box-shadow:0 10px 22px -8px rgba(28,26,27,.5)"><span style="width:16px;height:16px;border-radius:5px;background:rgba(255,255,255,.9)"></span>Continue with Apple</button>
+        <button onClick="{{ goApple }}" style="height:54px;border:1px solid rgba(40,33,38,.10);border-radius:17px;background:rgba(255,255,255,.82);backdrop-filter:blur(18px);color:#282126;font:600 15px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;box-shadow:0 6px 18px -10px rgba(40,33,38,.3)"><span style="width:16px;height:16px;border-radius:50%;background:conic-gradient(#E9825F,#CDE79D,#5A7BA0,#E982A5,#E9825F)"></span>Continue with Google</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin:22px 0 18px"><span style="flex:1;height:1px;background:rgba(40,33,38,.10)"></span><span style="font:500 12px Montserrat,sans-serif;color:#9A9095">or continue with email</span><span style="flex:1;height:1px;background:rgba(40,33,38,.10)"></span></div>
+
+      <sc-if value="{{ errs }}">
+        <div style="display:flex;gap:10px;padding:14px;border-radius:18px;background:rgba(90,123,160,.10);border:1px solid rgba(90,123,160,.28);margin-bottom:16px">
+          <span style="flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid #5A7BA0;color:#5A7BA0;font:700 12px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">i</span>
+          <div>
+            <div style="font:600 13px/1.4 Montserrat,sans-serif;color:#2F4763">This email already uses Apple sign-in</div>
+            <div style="font:400 12.5px/1.5 Montserrat,sans-serif;color:#4A6480;margin-top:3px">We won't create a second profile. Continue with Apple and everything you've logged stays in one place.</div>
+            <button onClick="{{ goApple }}" style="margin-top:10px;height:38px;padding:0 16px;border:0;border-radius:12px;background:#1C1A1B;color:#fff;font:600 13px Montserrat,sans-serif;cursor:pointer">Continue with Apple</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:7px">Email</label>
+          <input value="{{ emailVal }}" onChange="{{ noop }}" style="{{ emailInputStyle }}">
+          <sc-if value="{{ errs }}"><div style="display:flex;align-items:center;gap:6px;margin-top:7px"><span style="width:14px;height:14px;border-radius:50%;background:#C4645A;color:#fff;font:700 10px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">!</span><span style="font:500 12px Montserrat,sans-serif;color:#A9524A">That doesn't look like a valid email address.</span></div></sc-if>
+        </div>
+        <div>
+          <label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:7px">Password</label>
+          <div style="position:relative">
+            <input type="{{ pwType }}" value="{{ pwVal }}" onChange="{{ noop }}" style="width:100%;height:54px;border-radius:17px;border:1px solid rgba(40,33,38,.10);background:rgba(255,255,255,.72);padding:0 68px 0 16px;font:400 15px Montserrat,sans-serif;color:#282126">
+            <button onClick="{{ togglePw }}" aria-label="Toggle password visibility" style="position:absolute;right:6px;top:6px;height:42px;min-width:52px;border:0;background:transparent;font:600 12.5px Montserrat,sans-serif;color:#C95F86;cursor:pointer">{{ pwToggleLabel }}</button>
+          </div>
+          <div style="font:400 12px/1.5 Montserrat,sans-serif;margin-top:7px;color:{{ pwHelpColor }}">At least 8 characters, including one number.</div>
+        </div>
+      </div>
+
+      <button onClick="{{ goActivation }}" style="margin-top:22px;height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Create account</button>
+      <p style="margin:16px 0 0;font:400 11.5px/1.6 Montserrat,sans-serif;color:#9A9095;text-align:center">By continuing you agree to Eva's <a href="#">Terms</a> and <a href="#">Privacy Policy</a>. Your health data is encrypted and never sold.</p>
+      <div style="margin-top:auto;padding-top:26px;text-align:center;font:500 13.5px Montserrat,sans-serif;color:#6F656B">Already have an account? <a href="#" onClick="{{ goLogin }}" style="font-weight:600">Log in</a></div>
+    </sc-if>
+
+    <sc-if value="{{ isActivation }}">
+      <div style="margin-top:56px;display:flex;flex-direction:column;align-items:center;text-align:center">
+        <div style="width:96px;height:96px;border-radius:32px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.8);backdrop-filter:blur(22px);box-shadow:0 14px 30px -14px rgba(40,33,38,.24);display:flex;align-items:center;justify-content:center">
+          <span style="width:46px;height:34px;border:1.6px solid #C95F86;border-radius:8px;position:relative;display:block"><span style="position:absolute;left:5px;top:5px;width:34px;height:1.6px;background:#C95F86;transform:rotate(19deg);transform-origin:left"></span><span style="position:absolute;right:5px;top:5px;width:34px;height:1.6px;background:#C95F86;transform:rotate(-19deg);transform-origin:right"></span></span>
+        </div>
+        <h1 style="margin:26px 0 0;font:400 30px/1.15 Montserrat,sans-serif">Check your inbox</h1>
+        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:290px">We sent an activation link to</p>
+        <div style="margin-top:8px;font:600 15px Montserrat,sans-serif;color:#282126">maria.ferreira@gmail.com</div>
+        <div style="margin-top:18px;padding:12px 16px;border-radius:16px;background:rgba(205,231,157,.28);border:1px solid rgba(142,173,86,.3);font:500 12.5px/1.5 Montserrat,sans-serif;color:#5C7434;max-width:300px">The link works for 24 hours. Nothing is saved to your profile until you confirm.</div>
+      </div>
+      <div style="margin-top:auto;padding-top:32px;display:flex;flex-direction:column;gap:10px">
+        <button style="height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Open email app</button>
+        <button onClick="{{ toastResend }}" style="height:54px;border:1px solid rgba(40,33,38,.10);border-radius:17px;background:rgba(255,255,255,.7);backdrop-filter:blur(18px);font:600 15px Montserrat,sans-serif;color:#282126;cursor:pointer">Resend email</button>
+        <button onClick="{{ goSignup }}" style="height:48px;border:0;background:transparent;font:600 14px Montserrat,sans-serif;color:#C95F86;cursor:pointer">Change email</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isLogin }}">
+      <div style="margin-top:38px;display:flex;flex-direction:column;gap:10px">
+        <h1 style="margin:0;font:400 34px/1.12 Montserrat,sans-serif">Welcome back, Maria</h1>
+        <p style="margin:0;font:400 15px/1.55 Montserrat,sans-serif;color:#6F656B;max-width:290px">Your cycle continued without you. Let's catch up.</p>
+      </div>
+      <div style="margin-top:28px;display:flex;flex-direction:column;gap:10px">
+        <button onClick="{{ goCalendar }}" style="height:54px;border:0;border-radius:17px;background:#1C1A1B;color:#fff;font:600 15px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;box-shadow:0 10px 22px -8px rgba(28,26,27,.5)"><span style="width:16px;height:16px;border-radius:5px;background:rgba(255,255,255,.9)"></span>Continue with Apple</button>
+        <button onClick="{{ goCalendar }}" style="height:54px;border:1px solid rgba(40,33,38,.10);border-radius:17px;background:rgba(255,255,255,.82);backdrop-filter:blur(18px);font:600 15px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:conic-gradient(#E9825F,#CDE79D,#5A7BA0,#E982A5,#E9825F)"></span>Continue with Google</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin:22px 0 18px"><span style="flex:1;height:1px;background:rgba(40,33,38,.10)"></span><span style="font:500 12px Montserrat,sans-serif;color:#9A9095">or use your email</span><span style="flex:1;height:1px;background:rgba(40,33,38,.10)"></span></div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:7px">Email</label>
+        <input value="maria.ferreira@gmail.com" onChange="{{ noop }}" style="width:100%;height:54px;border-radius:17px;border:1px solid rgba(40,33,38,.10);background:rgba(255,255,255,.72);padding:0 16px;font:400 15px Montserrat,sans-serif;color:#282126"></div>
+        <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:7px">Password</label>
+        <div style="position:relative"><input type="password" value="evaprime26" onChange="{{ noop }}" style="width:100%;height:54px;border-radius:17px;border:1px solid rgba(40,33,38,.10);background:rgba(255,255,255,.72);padding:0 68px 0 16px;font:400 15px Montserrat,sans-serif"><button style="position:absolute;right:6px;top:6px;height:42px;min-width:52px;border:0;background:transparent;font:600 12.5px Montserrat,sans-serif;color:#C95F86;cursor:pointer">Show</button></div></div>
+        <div style="text-align:right"><a href="#" onClick="{{ goForgot }}" style="font:600 13px Montserrat,sans-serif">Forgot password?</a></div>
+      </div>
+      <button onClick="{{ goCalendar }}" style="margin-top:20px;height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Log in</button>
+      <div style="margin-top:auto;padding-top:28px;text-align:center;font:500 13.5px Montserrat,sans-serif;color:#6F656B">New to Eva? <a href="#" onClick="{{ goSignup }}" style="font-weight:600">Create an account</a></div>
+    </sc-if>
+
+    <sc-if value="{{ isForgot }}">
+      <div style="margin-top:46px">
+        <h1 style="margin:0;font:400 32px/1.15 Montserrat,sans-serif">Reset your password</h1>
+        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:300px">Enter the email you use for Eva and we'll send a reset link.</p>
+        <div style="margin-top:26px"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:7px">Email</label>
+        <input value="maria.ferreira@gmail.com" onChange="{{ noop }}" style="width:100%;height:54px;border-radius:17px;border:1px solid rgba(40,33,38,.10);background:rgba(255,255,255,.72);padding:0 16px;font:400 15px Montserrat,sans-serif"></div>
+        <button onClick="{{ goForgotSent }}" style="margin-top:20px;width:100%;height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Send reset link</button>
+      </div>
+      <div style="margin-top:auto;padding-top:28px;text-align:center"><a href="#" onClick="{{ goLogin }}" style="font:600 13.5px Montserrat,sans-serif">Back to log in</a></div>
+    </sc-if>
+
+    <sc-if value="{{ isForgotSent }}">
+      <div style="margin-top:60px;text-align:center;display:flex;flex-direction:column;align-items:center">
+        <div style="width:88px;height:88px;border-radius:30px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.8);backdrop-filter:blur(22px);display:flex;align-items:center;justify-content:center;box-shadow:0 14px 30px -14px rgba(40,33,38,.22)"><span style="width:42px;height:31px;border:1.6px solid #8EAD56;border-radius:7px;display:block"></span></div>
+        <h1 style="margin:24px 0 0;font:400 30px/1.15 Montserrat,sans-serif">Link sent</h1>
+        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:290px">Check maria.ferreira@gmail.com. The link expires in 60 minutes.</p>
+      </div>
+      <div style="margin-top:auto;padding-top:32px;display:flex;flex-direction:column;gap:10px">
+        <button onClick="{{ goNewPass }}" style="height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Open email app</button>
+        <button onClick="{{ toastResend }}" style="height:54px;border:1px solid rgba(40,33,38,.10);border-radius:17px;background:rgba(255,255,255,.7);font:600 15px Montserrat,sans-serif;cursor:pointer">Resend link</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isNewPass }}">
+      <div style="margin-top:46px">
+        <h1 style="margin:0;font:400 32px/1.15 Montserrat,sans-serif">Choose a new password</h1>
+        <div style="margin-top:24px;display:flex;flex-direction:column;gap:14px">
+          <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:7px">New password</label>
+          <input type="password" value="evaprime2026" onChange="{{ noop }}" style="width:100%;height:54px;border-radius:17px;border:1px solid rgba(40,33,38,.10);background:rgba(255,255,255,.72);padding:0 16px;font:400 15px Montserrat,sans-serif"></div>
+          <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:7px">Repeat password</label>
+          <input type="password" value="evaprime2026" onChange="{{ noop }}" style="width:100%;height:54px;border-radius:17px;border:1px solid rgba(142,173,86,.55);background:rgba(255,255,255,.72);padding:0 16px;font:400 15px Montserrat,sans-serif"></div>
+          <div style="display:flex;gap:8px;align-items:center"><span style="width:16px;height:16px;border-radius:50%;background:#8EAD56;color:#fff;font:700 10px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">✓</span><span style="font:500 12px Montserrat,sans-serif;color:#5C7434">Passwords match · 12 characters</span></div>
+        </div>
+        <button onClick="{{ goResetDone }}" style="margin-top:22px;width:100%;height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Save password</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isResetDone }}">
+      <div style="margin-top:70px;text-align:center;display:flex;flex-direction:column;align-items:center">
+        <div style="width:88px;height:88px;border-radius:50%;background:rgba(205,231,157,.5);border:1px solid rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center;font:400 34px Montserrat,sans-serif;color:#5C7434">✓</div>
+        <h1 style="margin:24px 0 0;font:400 30px/1.15 Montserrat,sans-serif">Password updated</h1>
+        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:280px">You're signed in on this device. Other devices were signed out.</p>
+      </div>
+      <div style="margin-top:auto;padding-top:32px"><button onClick="{{ goCalendar }}" style="width:100%;height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Go to Eva</button></div>
+    </sc-if>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isCal }}">
+  <div style="padding:6px 20px 120px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div>
+        <div onClick="{{ toggleMonthPicker }}" style="display:flex;align-items:center;gap:8px;cursor:pointer;min-height:44px">
+          <span style="font:400 26px/1 Montserrat,sans-serif">August 2026</span>
+          <span style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #6F656B;display:block"></span>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button aria-label="Previous month" onClick="{{ noop }}" style="width:44px;height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.8);background:rgba(255,255,255,.6);backdrop-filter:blur(18px);cursor:pointer;font:400 16px Montserrat,sans-serif;color:#6F656B">‹</button>
+        <button aria-label="Next month" onClick="{{ noop }}" style="width:44px;height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.8);background:rgba(255,255,255,.6);backdrop-filter:blur(18px);cursor:pointer;font:400 16px Montserrat,sans-serif;color:#6F656B">›</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-top:12px;padding:4px;border-radius:16px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.75);backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,.9)">
+      <sc-for list="{{ modes }}" as="m" hint-placeholder-count="4">
+        <div onClick="{{ m.onClick }}" style="{{ m.style }}">{{ m.label }}</div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ monthPickerOpen }}">
+      <div style="margin-top:10px;padding:14px;border-radius:22px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.9);backdrop-filter:blur(24px);box-shadow:0 12px 28px -14px rgba(40,33,38,.25);animation:fadeIn .2s">
+        <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:10px">Jump to month</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+          <sc-for list="{{ monthChips }}" as="mo" hint-placeholder-count="12">
+            <div onClick="{{ mo.onClick }}" style="{{ mo.style }}">{{ mo.label }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isEmptyCal }}">
+      <div style="margin-top:14px;padding:16px;border-radius:22px;background:rgba(255,255,255,.68);border:1px solid rgba(255,255,255,.8);backdrop-filter:blur(22px);box-shadow:0 8px 22px -14px rgba(40,33,38,.2)">
+        <div style="font:600 14.5px/1.4 Montserrat,sans-serif">Log your first period to start predictions.</div>
+        <div style="font:400 13px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:5px">You can explore the calendar first — nothing is locked. Eva needs one cycle before it estimates anything.</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ notEmpty }}">
+      <div style="margin-top:14px;padding:16px 18px;border-radius:22px;background:{{ summaryBg }};border:1px solid rgba(255,255,255,.8);backdrop-filter:blur(22px);box-shadow:0 8px 22px -14px rgba(40,33,38,.2)">
+        <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095">{{ summaryKicker }}</div>
+        <div style="font:600 16px/1.35 Montserrat,sans-serif;margin-top:6px">{{ summaryTitle }}</div>
+        <div style="font:400 13px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:4px">{{ summaryBody }}</div>
+      </div>
+    </sc-if>
+
+    <div style="display:grid;grid-template-columns:{{ gridCols }};gap:4px;margin-top:18px">
+      <sc-for list="{{ dowLabels }}" as="d" hint-placeholder-count="7">
+        <div style="text-align:center;font:600 11px Montserrat,sans-serif;color:#9A9095;padding-bottom:4px">{{ d }}</div>
+      </sc-for>
+      <sc-for list="{{ cells }}" as="c" hint-placeholder-count="35">
+        <div onClick="{{ c.onClick }}" aria-label="{{ c.aria }}" style="{{ c.style }}">
+          <span style="{{ c.numStyle }}">{{ c.n }}</span>
+          <sc-if value="{{ c.sex }}"><span aria-label="Sex logged" style="position:absolute;left:8px;bottom:6px;width:5px;height:5px;border-radius:50%;background:#6F656B"></span></sc-if>
+          <sc-if value="{{ c.body }}"><span aria-label="Body signals logged" style="position:absolute;left:50%;margin-left:-3px;bottom:6px;width:6px;height:6px;border-radius:2px;background:#C95F86"></span></sc-if>
+          <sc-if value="{{ c.sport }}"><span aria-label="Sport logged" style="position:absolute;right:8px;bottom:5px;width:6px;height:6px;background:#7A9B45;transform:rotate(45deg)"></span></sc-if>
+          <sc-if value="{{ c.doc }}"><span aria-label="Doctor appointment" style="position:absolute;right:4px;top:3px;width:13px;height:13px;border-radius:4px;border:1px solid rgba(74,100,128,.65);color:#4A6480;font:700 9px/11px Montserrat,sans-serif;text-align:center">+</span></sc-if>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top:20px;padding:14px 16px;border-radius:20px;background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.7);backdrop-filter:blur(18px)">
+      <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin-bottom:10px">Legend</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px">
+        <sc-for list="{{ legend }}" as="l" hint-placeholder-count="6">
+          <div style="display:flex;align-items:center;gap:8px;font:500 11.5px Montserrat,sans-serif;color:#6F656B"><span style="{{ l.swatch }}"></span>{{ l.label }}</div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isHome }}">
+  <div style="padding:2px 20px 34px">
+    <div style="display:flex;align-items:center;gap:12px;min-height:48px">
+      <span style="font:400 22px/1 Montserrat,sans-serif;letter-spacing:.5px">eva<span style="color:#8EAD56">.</span></span>
+      <span style="flex:1;font:600 14px Montserrat,sans-serif;color:#282126;margin-left:4px">{{ greeting }}</span>
+      <button aria-label="Notifications" onClick="{{ noop }}" style="position:relative;flex:none;width:44px;height:44px;border-radius:15px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.62);cursor:pointer">
+        <span style="display:block;width:15px;height:14px;border:1.6px solid #6F656B;border-radius:6px 6px 3px 3px;margin:0 auto"></span>
+        <span style="position:absolute;top:9px;right:11px;width:7px;height:7px;border-radius:50%;background:#C95F86;border:1.5px solid #FFF9F6"></span>
+      </button>
+      <button aria-label="Profile" onClick="{{ goSettings }}" style="flex:none;width:44px;height:44px;border-radius:15px;border:0;background:linear-gradient(150deg,#F3AEC4,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer">M</button>
+    </div>
+
+    <sc-if value="{{ offline }}">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:9px 13px;border-radius:14px;background:rgba(90,123,160,.10);border:1px solid rgba(90,123,160,.26)">
+        <span style="width:7px;height:7px;border-radius:50%;background:#5A7BA0;display:block"></span>
+        <span style="font:500 11.5px Montserrat,sans-serif;color:#3F5A76">Offline · showing your cached briefing from 08:12</span>
+      </div>
+    </sc-if>
+
+    <div style="position:relative;margin-top:16px">
+      <div style="position:absolute;width:240px;height:240px;left:-40px;top:-50px;border-radius:50%;background:radial-gradient(circle,rgba(233,130,165,.55),rgba(233,130,165,0) 70%);filter:blur(34px)"></div>
+      <div style="position:absolute;width:260px;height:260px;right:-70px;bottom:-70px;border-radius:50%;background:radial-gradient(circle,rgba(205,231,157,.6),rgba(205,231,157,0) 70%);filter:blur(36px)"></div>
+      <div role="group" aria-label="{{ card.aria }}" style="{{ card.style }}">
+        <sc-if value="{{ card.kicker }}">
+          <div style="{{ card.kickerStyle }}">{{ card.kicker }}</div>
+        </sc-if>
+        <div style="font:600 19.5px/1.32 Montserrat,sans-serif;margin-top:10px;text-wrap:pretty">{{ card.title }}</div>
+        <div style="font:400 14px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:9px;text-wrap:pretty">{{ card.line2 }}</div>
+        <sc-if value="{{ card.line3 }}">
+          <div style="{{ card.line3Style }}">{{ card.line3 }}</div>
+        </sc-if>
+        <sc-if value="{{ card.meta }}">
+          <div style="font:500 11.5px Montserrat,sans-serif;color:#6F656B;margin-top:10px">{{ card.meta }}</div>
+        </sc-if>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
+          <sc-for list="{{ card.actions }}" as="a" hint-placeholder-count="1">
+            <button onClick="{{ a.onClick }}" style="{{ a.style }}">{{ a.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:20px">
+      <sc-for list="{{ shortcuts }}" as="sc" hint-placeholder-count="4">
+        <div onClick="{{ sc.onClick }}" aria-label="{{ sc.label }}" style="min-height:82px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:10px 4px;border-radius:20px;background:linear-gradient(160deg,rgba(255,255,255,.9),rgba(255,255,255,.62));border:1px solid rgba(255,255,255,.9);box-shadow:0 8px 20px -16px rgba(150,72,100,.6),inset 0 1px 0 rgba(255,255,255,.9);cursor:pointer">
+          <span style="{{ sc.icon }}"></span>
+          <span style="font:600 10.5px/1.25 Montserrat,sans-serif;color:#282126;text-align:center">{{ sc.label }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ setupCard }}">
+      <div onClick="{{ noop }}" style="margin-top:10px;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:20px;background:rgba(255,255,255,.6);border:1px dashed rgba(201,95,134,.4);cursor:pointer">
+        <span style="flex:none;width:36px;height:36px;border-radius:12px;background:rgba(233,130,165,.18);border:1px solid rgba(255,255,255,.8);display:block"></span>
+        <span style="flex:1">
+          <span style="display:block;font:600 13.5px Montserrat,sans-serif">Set up meal tracking</span>
+          <span style="display:block;font:400 12px Montserrat,sans-serif;color:#6F656B;margin-top:2px">See calories and protein at a glance.</span>
+        </span>
+        <span style="font:400 17px Montserrat,sans-serif;color:#C8BFC3">›</span>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ glanceOn }}">
+      <div onClick="{{ noop }}" aria-label="Today at a glance. 620 kilocalories remaining. 68 of 100 grams protein. 1.4 of 2 litres water. 45 minutes activity." style="margin-top:20px;padding:16px;border-radius:22px;background:linear-gradient(150deg,rgba(255,255,255,.86),rgba(255,255,255,.6));border:1px solid rgba(255,255,255,.9);box-shadow:0 10px 24px -20px rgba(150,72,100,.6);cursor:pointer">
+        <div style="display:flex;align-items:baseline;justify-content:space-between">
+          <span style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095">Today at a glance</span>
+          <span style="font:500 11.5px Montserrat,sans-serif;color:#C95F86">Open meal log</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 16px;margin-top:14px">
+          <sc-for list="{{ glance }}" as="g" hint-placeholder-count="4">
+            <div>
+              <div style="font:600 14.5px Montserrat,sans-serif">{{ g.value }}</div>
+              <div style="font:500 11px Montserrat,sans-serif;color:#6F656B;margin-top:2px">{{ g.label }}</div>
+              <div style="height:5px;border-radius:3px;background:rgba(40,33,38,.08);margin-top:7px;overflow:hidden"><span style="{{ g.bar }}"></span></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ nudge }}">
+      <div style="margin-top:16px;display:flex;gap:12px;padding:14px 14px 14px 16px;border-radius:20px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.9);box-shadow:0 8px 20px -18px rgba(150,72,100,.6)">
+        <span style="flex:none;width:6px;height:6px;border-radius:50%;background:#8EAD56;margin-top:7px;display:block"></span>
+        <div style="flex:1">
+          <div style="font:600 13px/1.45 Montserrat,sans-serif;text-wrap:pretty">{{ nudge.text }}</div>
+          <sc-if value="{{ nudge.sub }}"><div style="font:400 12px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:3px">{{ nudge.sub }}</div></sc-if>
+          <button onClick="{{ nudge.onAction }}" style="margin-top:8px;min-height:38px;padding:0 14px;border-radius:12px;border:1px solid rgba(201,95,134,.35);background:rgba(255,255,255,.8);font:600 12.5px Montserrat,sans-serif;color:#C95F86;cursor:pointer">{{ nudge.action }}</button>
+        </div>
+        <button onClick="{{ dismissNudge }}" aria-label="Dismiss this suggestion permanently" style="flex:none;width:44px;height:44px;border-radius:50%;border:0;background:rgba(40,33,38,.05);color:#6F656B;font:400 16px Montserrat,sans-serif;cursor:pointer">×</button>
+      </div>
+    </sc-if>
+
+    <div style="margin-top:22px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">
+        <span style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095">Worth reading</span>
+        <span style="font:500 11.5px Montserrat,sans-serif;color:#C95F86">Learn</span>
+      </div>
+      <div class="sb" style="display:flex;gap:12px;overflow-x:auto;margin:0 -20px;padding:0 20px 4px">
+        <sc-for list="{{ banners }}" as="b" hint-placeholder-count="3">
+          <div onClick="{{ noop }}" style="flex:none;width:214px;border-radius:22px;overflow:hidden;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.9);box-shadow:0 10px 24px -20px rgba(150,72,100,.6);cursor:pointer">
+            <div style="{{ b.art }}"><span style="font:500 9.5px Montserrat,sans-serif;color:rgba(40,33,38,.42);letter-spacing:.08em">{{ b.artNote }}</span></div>
+            <div style="padding:12px 14px 14px">
+              <div style="font:600 13.5px/1.4 Montserrat,sans-serif;text-wrap:pretty">{{ b.title }}</div>
+              <div style="font:500 11px Montserrat,sans-serif;color:#6F656B;margin-top:6px">{{ b.meta }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isSettings }}">
+  <div style="padding:6px 20px 40px">
+    <div style="font:400 26px/1 Montserrat,sans-serif;margin-bottom:16px">Profile</div>
+    <div style="position:relative;overflow:hidden;padding:18px;border-radius:26px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85);backdrop-filter:blur(24px);box-shadow:0 12px 30px -18px rgba(40,33,38,.35),inset 0 1px 0 rgba(255,255,255,.9)">
+      <div style="position:absolute;width:200px;height:200px;right:-70px;top:-90px;border-radius:50%;background:radial-gradient(circle,rgba(233,130,165,.5),transparent 70%);filter:blur(24px)"></div>
+      <div style="position:absolute;width:180px;height:180px;left:-60px;bottom:-100px;border-radius:50%;background:radial-gradient(circle,rgba(205,231,157,.55),transparent 70%);filter:blur(24px)"></div>
+      <div style="position:relative;display:flex;align-items:center;gap:14px">
+        <div style="flex:none;width:60px;height:60px;border-radius:22px;background:linear-gradient(150deg,#F3AEC4,#C95F86);color:#fff;font:600 22px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 22px -12px rgba(201,95,134,.9)">M</div>
+        <div style="flex:1">
+          <div style="font:600 18px Montserrat,sans-serif">Maria</div>
+          <div style="font:400 12.5px Montserrat,sans-serif;color:#6F656B;margin-top:2px">maria.ferreira@gmail.com</div>
+        </div>
+        <button onClick="{{ goEdit }}" style="min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.8);font:600 12.5px Montserrat,sans-serif;cursor:pointer">Edit</button>
+      </div>
+      <div style="position:relative;margin-top:16px;display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:16px;background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.9)">
+        <span style="width:8px;height:8px;border-radius:50%;background:#8EAD56;display:block"></span>
+        <span style="font:600 12.5px Montserrat,sans-serif;color:#282126">Cycle tracking</span>
+        <span style="font:400 12px Montserrat,sans-serif;color:#6F656B">· day 15 of 29</span>
+      </div>
+    </div>
+
+    <sc-for list="{{ settingsSections }}" as="s" hint-placeholder-count="5">
+      <div style="margin-top:22px">
+        <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;padding:0 4px 8px">{{ s.title }}</div>
+        <div style="border-radius:22px;overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85);backdrop-filter:blur(22px);box-shadow:0 8px 22px -18px rgba(40,33,38,.35)">
+          <sc-for list="{{ s.rows }}" as="r" hint-placeholder-count="4">
+            <div onClick="{{ r.onClick }}" style="min-height:52px;display:flex;align-items:center;gap:12px;padding:8px 16px;border-top:1px solid rgba(40,33,38,.05);cursor:pointer">
+              <span style="flex:1">
+                <span style="display:block;font:500 14px Montserrat,sans-serif">{{ r.label }}</span>
+                <sc-if value="{{ r.meta }}"><span style="display:block;font:400 11.5px Montserrat,sans-serif;color:#9A9095;margin-top:2px">{{ r.meta }}</span></sc-if>
+              </span>
+              <span style="font:400 12.5px Montserrat,sans-serif;color:#9A9095">{{ r.value }}</span>
+              <span style="font:400 17px Montserrat,sans-serif;color:#C8BFC3">›</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+
+    <div style="margin-top:22px;border-radius:22px;overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85)">
+      <div onClick="{{ goLogin }}" style="min-height:52px;display:flex;align-items:center;padding:8px 16px;font:600 14px Montserrat,sans-serif;color:#282126;cursor:pointer">Log out</div>
+    </div>
+
+    <div style="margin-top:36px;padding:16px;border-radius:22px;background:rgba(196,100,90,.06);border:1px solid rgba(196,100,90,.22)">
+      <div style="font:600 13.5px Montserrat,sans-serif;color:#A9524A">Delete profile</div>
+      <div style="font:400 12px/1.55 Montserrat,sans-serif;color:#8C6460;margin-top:4px">Removes all logs, notes and predictions. This cannot be undone.</div>
+      <button onClick="{{ openDelete }}" style="margin-top:12px;min-height:44px;padding:0 18px;border-radius:14px;border:1px solid rgba(184,82,72,.5);background:transparent;font:600 13px Montserrat,sans-serif;color:#A9524A;cursor:pointer">Delete profile</button>
+    </div>
+    <div style="text-align:center;font:400 11px Montserrat,sans-serif;color:#B3A9AE;margin-top:20px">Eva 2.4.1 · Not a medical device</div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isEditProfile }}">
+  <div style="padding:6px 20px 40px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <button onClick="{{ goSettings }}" style="min-height:44px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer;padding:0 8px 0 0">‹ Profile</button>
+      <span style="flex:1;text-align:center;font:600 14px Montserrat,sans-serif;margin-right:60px">Edit profile</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:22px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85)">
+        <div style="width:56px;height:56px;border-radius:20px;background:linear-gradient(150deg,#F3AEC4,#C95F86);color:#fff;font:600 20px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">M</div>
+        <button style="min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.8);font:600 12.5px Montserrat,sans-serif;cursor:pointer">Change photo</button>
+      </div>
+      <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Name</label>
+      <input value="Maria" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);padding:0 16px;font:500 14.5px Montserrat,sans-serif"></div>
+      <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Date of birth</label>
+      <input value="14 March 1994" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);padding:0 16px;font:500 14.5px Montserrat,sans-serif"></div>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Height</label>
+        <input value="168 cm" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);padding:0 16px;font:500 14.5px Montserrat,sans-serif"></div>
+        <div style="flex:1"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Weight</label>
+        <input value="62 kg" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);padding:0 16px;font:500 14.5px Montserrat,sans-serif"></div>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;display:flex;flex-direction:column;gap:10px">
+      <sc-for list="{{ discloseSections }}" as="d" hint-placeholder-count="3">
+        <div style="border-radius:22px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85);overflow:hidden">
+          <div onClick="{{ d.onClick }}" style="min-height:56px;display:flex;align-items:center;gap:12px;padding:8px 16px;cursor:pointer">
+            <span style="flex:1">
+              <span style="display:block;font:600 14px Montserrat,sans-serif">{{ d.title }}</span>
+              <span style="display:block;font:400 11.5px Montserrat,sans-serif;color:#9A9095;margin-top:2px">{{ d.meta }}</span>
+            </span>
+            <span style="font:400 15px Montserrat,sans-serif;color:#C8BFC3">{{ d.caret }}</span>
+          </div>
+          <sc-if value="{{ d.open }}">
+            <div style="padding:0 16px 16px;animation:fadeIn .22s">
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                <sc-for list="{{ d.chips }}" as="ch" hint-placeholder-count="4">
+                  <div onClick="{{ ch.onClick }}" style="{{ ch.style }}">{{ ch.label }}</div>
+                </sc-for>
+              </div>
+              <sc-if value="{{ d.note }}">
+                <div style="margin-top:12px;padding:12px 14px;border-radius:16px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.24);font:400 11.5px/1.5 Montserrat,sans-serif;color:#3F5A76">{{ d.note }}</div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+    <button onClick="{{ saveProfile }}" style="margin-top:22px;width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Save changes</button>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isPregMode }}">
+  <div style="padding:6px 20px 40px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <button onClick="{{ goSettings }}" style="min-height:44px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer;padding:0 8px 0 0">‹ Profile</button>
+      <span style="flex:1;text-align:center;font:600 14px Montserrat,sans-serif;margin-right:60px">Pregnancy Mode</span>
+    </div>
+    <div style="font:400 28px/1.2 Montserrat,sans-serif;margin-top:12px">Where are you now?</div>
+    <div style="font:400 14px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:8px">Eva changes what it tracks and shows. Nothing is deleted, and you can switch back at any time.</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">
+      <sc-for list="{{ pregOptions }}" as="p" hint-placeholder-count="2">
+        <div onClick="{{ p.onClick }}" style="{{ p.style }}">
+          <span style="{{ p.radio }}"></span>
+          <span style="flex:1">
+            <span style="display:block;font:600 14.5px Montserrat,sans-serif">{{ p.label }}</span>
+            <span style="display:block;font:400 12px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:3px">{{ p.desc }}</span>
+          </span>
+        </div>
+      </sc-for>
+    </div>
+    <sc-if value="{{ pregChosen }}">
+      <div style="margin-top:16px;padding:16px;border-radius:20px;background:rgba(205,231,157,.26);border:1px solid rgba(142,173,86,.3);animation:fadeIn .22s">
+        <div style="font:600 13px Montserrat,sans-serif;color:#5C7434">What changes</div>
+        <div style="font:400 12.5px/1.6 Montserrat,sans-serif;color:#5C7434;margin-top:6px">{{ pregChanges }}</div>
+      </div>
+      <button onClick="{{ activatePreg }}" style="margin-top:16px;width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Turn on Pregnancy Mode</button>
+    </sc-if>
+    <div style="margin-top:22px;font:400 11.5px/1.6 Montserrat,sans-serif;color:#9A9095">Eva does not diagnose. If something feels wrong, contact your provider — Eva can help you write down what to ask.</div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isNotifications }}">
+  <div style="padding:6px 20px 40px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <button onClick="{{ goSettings }}" style="min-height:44px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer;padding:0 8px 0 0">‹ Profile</button>
+      <span style="flex:1;text-align:center;font:600 14px Montserrat,sans-serif;margin-right:60px">Notifications</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:16px;border-radius:22px;background:rgba(255,255,255,.66);border:1px solid rgba(255,255,255,.9);backdrop-filter:blur(22px)">
+      <span style="flex:1">
+        <span style="display:block;font:600 14.5px Montserrat,sans-serif">All notifications</span>
+        <span style="display:block;font:400 12px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:3px">Turning this off silences everything below.</span>
+      </span>
+      <div onClick="{{ toggleAll }}" aria-label="All notifications" style="{{ allTrack }}"><span style="{{ allKnob }}"></span></div>
+    </div>
+    <div style="margin-top:14px;border-radius:22px;overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85);opacity:{{ notifOpacity }}">
+      <sc-for list="{{ notifRows }}" as="n" hint-placeholder-count="4">
+        <div style="min-height:60px;display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid rgba(40,33,38,.05)">
+          <span style="flex:1">
+            <span style="display:block;font:500 14px Montserrat,sans-serif">{{ n.label }}</span>
+            <span style="display:block;font:400 11.5px/1.45 Montserrat,sans-serif;color:#9A9095;margin-top:2px">{{ n.desc }}</span>
+          </span>
+          <div onClick="{{ n.onClick }}" aria-label="{{ n.label }}" style="{{ n.track }}"><span style="{{ n.knob }}"></span></div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:14px;padding:14px 16px;border-radius:20px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.24);font:400 12px/1.6 Montserrat,sans-serif;color:#3F5A76">Previews never show symptoms, flow, sex or appointment details. A notification says “Eva has an update” until you unlock the app.</div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isPrivacy }}">
+  <div style="padding:6px 20px 40px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <button onClick="{{ goSettings }}" style="min-height:44px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer;padding:0 8px 0 0">‹ Profile</button>
+      <span style="flex:1;text-align:center;font:600 14px Montserrat,sans-serif;margin-right:60px">Privacy &amp; security</span>
+    </div>
+    <div style="border-radius:22px;overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85);backdrop-filter:blur(22px)">
+      <sc-for list="{{ privacyToggles }}" as="p" hint-placeholder-count="3">
+        <div style="min-height:62px;display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid rgba(40,33,38,.05)">
+          <span style="flex:1">
+            <span style="display:block;font:500 14px Montserrat,sans-serif">{{ p.label }}</span>
+            <span style="display:block;font:400 11.5px/1.45 Montserrat,sans-serif;color:#9A9095;margin-top:2px">{{ p.desc }}</span>
+          </span>
+          <div onClick="{{ p.onClick }}" aria-label="{{ p.label }}" style="{{ p.track }}"><span style="{{ p.knob }}"></span></div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:14px;border-radius:22px;overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85)">
+      <sc-for list="{{ privacyRows }}" as="r" hint-placeholder-count="4">
+        <div onClick="{{ noop }}" style="min-height:52px;display:flex;align-items:center;padding:8px 16px;border-top:1px solid rgba(40,33,38,.05);cursor:pointer">
+          <span style="flex:1;font:500 14px Montserrat,sans-serif">{{ r.label }}</span>
+          <span style="font:400 12.5px Montserrat,sans-serif;color:#9A9095">{{ r.value }}</span>
+          <span style="font:400 17px Montserrat,sans-serif;color:#C8BFC3;margin-left:8px">›</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:14px;padding:14px 16px;border-radius:20px;background:rgba(205,231,157,.26);border:1px solid rgba(142,173,86,.3);font:400 12px/1.6 Montserrat,sans-serif;color:#5C7434">Health entries are encrypted on your device before they sync. Eva never sells data and never shares it with advertisers.</div>
+  </div>
+</sc-if>
+
+        </div>
+
+        <sc-if value="{{ showNav }}">
+          <div style="flex:none;height:88px;padding:8px 12px 26px;display:flex;align-items:flex-start;gap:2px;background:rgba(255,249,246,.72);backdrop-filter:blur(24px);border-top:1px solid rgba(40,33,38,.06)">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+              <div onClick="{{ t.onClick }}" aria-label="{{ t.label }}" style="{{ t.style }}">
+                <span style="{{ t.dot }}"></span>
+                <span style="font:600 10.5px Montserrat,sans-serif">{{ t.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ showFab }}">
+        <div style="position:absolute;right:20px;bottom:104px;display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+          <sc-if value="{{ isEmptyCal }}"><div style="padding:8px 12px;border-radius:14px;background:rgba(40,33,38,.88);color:#fff;font:600 11.5px Montserrat,sans-serif;box-shadow:0 8px 20px -10px rgba(40,33,38,.6)">Start here</div></sc-if>
+          <button onClick="{{ openPicker }}" aria-label="Log an event" style="width:60px;height:60px;border-radius:22px;border:0;background:linear-gradient(160deg,#F0A0BA,#C95F86);color:#fff;font:300 30px/1 Montserrat,sans-serif;cursor:pointer;box-shadow:0 16px 30px -12px rgba(201,95,134,.85),inset 0 1px 0 rgba(255,255,255,.5)">+</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ anySheet }}">
+        <div onClick="{{ closeSheet }}" style="position:absolute;inset:0;background:rgba(40,33,38,.3);animation:fadeIn .22s"></div>
+      </sc-if>
+
+      <sc-if value="{{ isDaySheet }}">
+        <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:86%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.30),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.38),rgba(205,231,157,0) 60%),radial-gradient(95% 40% at 18% 78%,rgba(249,220,230,.45),rgba(249,220,230,0) 62%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 30px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
+          <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 14px"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
+          <div style="position:sticky;top:-10px;z-index:6;margin:-30px -20px 0;padding:38px 20px 26px"><div style="position:absolute;inset:0;pointer-events:none;backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);background:linear-gradient(180deg,rgba(255,251,248,.4),rgba(255,251,248,.04));-webkit-mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%)"></div><div style="position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+            <div>
+              <div style="font:400 24px/1.15 Montserrat,sans-serif">Wednesday, 12 August</div>
+              <div style="font:500 12.5px Montserrat,sans-serif;color:#6F656B;margin-top:4px">{{ dayCountLabel }} · cycle day 9</div>
+            </div>
+            <button onClick="{{ closeSheet }}" aria-label="Close" style="flex:none;width:44px;height:44px;border-radius:50%;border:0;background:rgba(40,33,38,.06);font:400 18px Montserrat,sans-serif;color:#6F656B;cursor:pointer">×</button>
+          </div></div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+            <sc-for list="{{ dayEntries }}" as="e" hint-placeholder-count="3">
+              <div style="padding:14px 16px;border-radius:20px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.9);box-shadow:0 6px 18px -14px rgba(40,33,38,.3)">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="{{ e.mark }}"></span>
+                  <span style="font:600 13.5px Montserrat,sans-serif">{{ e.t }}</span>
+                  <span style="font:500 13.5px Montserrat,sans-serif;color:#6F656B">· {{ e.type }}</span>
+                </div>
+                <div style="font:400 13px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:5px">{{ e.sum }}</div>
+                <div style="display:flex;gap:6px;margin-top:10px">
+                  <button onClick="{{ e.onEdit }}" style="min-height:36px;padding:0 14px;border-radius:11px;border:1px solid rgba(40,33,38,.10);background:rgba(255,255,255,.8);font:600 12.5px Montserrat,sans-serif;color:#282126;cursor:pointer">Edit</button>
+                  <button onClick="{{ e.onDelete }}" style="min-height:36px;padding:0 14px;border-radius:11px;border:1px solid rgba(196,100,90,.3);background:transparent;font:600 12.5px Montserrat,sans-serif;color:#A9524A;cursor:pointer">Delete</button>
+                </div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ dayIsEmpty }}">
+              <div style="padding:22px 16px;border-radius:20px;background:rgba(255,255,255,.6);border:1px dashed rgba(40,33,38,.14);text-align:center">
+                <div style="font:600 13.5px Montserrat,sans-serif">Nothing logged on this day</div>
+                <div style="font:400 12.5px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:4px">Add flow, body signals, sport or an appointment.</div>
+              </div>
+            </sc-if>
+          </div>
+          <button onClick="{{ openPicker }}" style="margin-top:16px;width:100%;height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Add entry</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isPickerSheet }}">
+        <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:86%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.30),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.38),rgba(205,231,157,0) 60%),radial-gradient(95% 40% at 18% 78%,rgba(249,220,230,.45),rgba(249,220,230,0) 62%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 30px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
+          <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 26px;backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);background:linear-gradient(180deg,rgba(255,251,248,.4),rgba(255,251,248,.04));-webkit-mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%)"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
+          <div style="position:sticky;top:18px;z-index:6;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:18px;background:rgba(214,235,175,.72);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);border:1px solid rgba(142,173,86,.4);box-shadow:0 10px 24px -18px rgba(90,110,50,.7)">
+            <div>
+              <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#5C7434">Logging to</div>
+              <div style="font:600 14.5px Montserrat,sans-serif;margin-top:3px">Wed 12 August 2026</div>
+            </div>
+            <button onClick="{{ noop }}" style="min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(142,173,86,.4);background:rgba(255,255,255,.7);font:600 12.5px Montserrat,sans-serif;color:#5C7434;cursor:pointer">Change date</button>
+          </div>
+          <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">What would you like to log?</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ eventTypes }}" as="ev" hint-placeholder-count="5">
+              <div onClick="{{ ev.onClick }}" style="min-height:66px;display:flex;align-items:center;gap:14px;padding:0 16px;border-radius:20px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.9);cursor:pointer;box-shadow:0 6px 18px -14px rgba(40,33,38,.3)">
+                <span style="{{ ev.icon }}"></span>
+                <span style="flex:1">
+                  <span style="display:block;font:600 14.5px Montserrat,sans-serif">{{ ev.label }}</span>
+                  <span style="display:block;font:400 12px Montserrat,sans-serif;color:#6F656B;margin-top:2px">{{ ev.hint }}</span>
+                </span>
+                <span style="font:400 17px Montserrat,sans-serif;color:#C8BFC3">›</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font:400 11.5px/1.55 Montserrat,sans-serif;color:#9A9095;margin-top:14px">Options follow your active mode. Past and today can be logged; future days accept appointments only.</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isBodySheet }}">
+        <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:92%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.30),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.38),rgba(205,231,157,0) 60%),radial-gradient(95% 40% at 18% 78%,rgba(249,220,230,.45),rgba(249,220,230,0) 62%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 26px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
+          <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 14px"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
+          <div style="position:sticky;top:-10px;z-index:6;margin:-30px -20px 0;padding:38px 20px 26px"><div style="position:absolute;inset:0;pointer-events:none;backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);background:linear-gradient(180deg,rgba(255,251,248,.4),rgba(255,251,248,.04));-webkit-mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%)"></div><div style="position:relative">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+            <button onClick="{{ openPicker }}" style="min-height:40px;padding:0 10px 0 0;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer">‹ Back</button>
+            <div style="font:600 14px Montserrat,sans-serif">Body signals</div>
+            <button onClick="{{ closeSheet }}" aria-label="Close" style="width:40px;height:40px;border-radius:50%;border:0;background:rgba(40,33,38,.06);color:#6F656B;font:400 17px Montserrat,sans-serif;cursor:pointer">×</button>
+          </div>
+            <div style="font:400 12.5px Montserrat,sans-serif;color:#6F656B;text-align:center;margin-top:6px">Wed 12 August · nothing preselected</div>
+          </div></div>
+
+          <div style="display:flex;flex-direction:column;gap:14px;margin-top:18px">
+            <sc-for list="{{ scales }}" as="sc" hint-placeholder-count="3">
+              <div style="{{ sc.cardStyle }}">
+                <div style="display:flex;align-items:baseline;justify-content:space-between">
+                  <span style="font:600 13.5px Montserrat,sans-serif">{{ sc.label }}</span>
+                  <span style="{{ sc.readoutStyle }}">{{ sc.readout }}</span>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:12px">
+                  <sc-for list="{{ sc.opts }}" as="o" hint-placeholder-count="5">
+                    <div onClick="{{ o.onClick }}" aria-label="{{ o.aria }}" style="{{ o.style }}"><span style="{{ o.inner }}"></span><span style="{{ o.glyphStyle }}">{{ o.glyph }}</span></div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-top:8px;font:500 11px Montserrat,sans-serif;color:#9A9095"><span>{{ sc.low }}</span><span>{{ sc.high }}</span></div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Symptoms · tap twice for severe</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <sc-for list="{{ bodyChips }}" as="ch" hint-placeholder-count="12">
+              <div onClick="{{ ch.onClick }}" aria-label="{{ ch.aria }}" style="{{ ch.style }}"><sc-if value="{{ ch.severe }}"><span style="width:9px;height:2px;border-radius:1px;background:#fff;display:block"></span></sc-if>{{ ch.label }}</div>
+            </sc-for>
+            <div onClick="{{ toggleMore }}" style="min-height:44px;display:flex;align-items:center;padding:0 16px;border-radius:14px;border:1px dashed rgba(40,33,38,.2);background:transparent;font:600 13px Montserrat,sans-serif;color:#6F656B;cursor:pointer">{{ moreLabel }}</div>
+          </div>
+
+          <div onClick="{{ toggleNote }}" style="margin-top:16px;min-height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.9);cursor:pointer">
+            <span style="font:600 13.5px Montserrat,sans-serif;color:#6F656B">Add note (optional)</span>
+            <span style="font:400 17px Montserrat,sans-serif;color:#C8BFC3">{{ noteCaret }}</span>
+          </div>
+          <sc-if value="{{ noteOpen }}">
+            <textarea onChange="{{ noop }}" placeholder="Headache started after lunch, eased with water and rest." style="margin-top:8px;width:100%;min-height:88px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);padding:14px 16px;font:400 13.5px/1.55 Montserrat,sans-serif;color:#282126;resize:none"></textarea>
+          </sc-if>
+
+          <div style="display:flex;gap:10px;margin-top:18px">
+            <button onClick="{{ clearBody }}" style="min-height:52px;padding:0 20px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.7);font:600 14px Montserrat,sans-serif;color:#6F656B;cursor:pointer">Clear</button>
+            <button onClick="{{ saveBody }}" style="flex:1;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Save</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isSportSheet }}">
+        <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:92%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.30),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.38),rgba(205,231,157,0) 60%),radial-gradient(95% 40% at 18% 78%,rgba(249,220,230,.45),rgba(249,220,230,0) 62%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 26px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
+          <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 14px"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
+          <div style="position:sticky;top:-10px;z-index:6;margin:-30px -20px 0;padding:38px 20px 26px"><div style="position:absolute;inset:0;pointer-events:none;backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);background:linear-gradient(180deg,rgba(255,251,248,.4),rgba(255,251,248,.04));-webkit-mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%)"></div><div style="position:relative;display:flex;align-items:center;justify-content:space-between">
+            <button onClick="{{ openPicker }}" style="min-height:40px;padding:0 10px 0 0;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer">‹ Back</button>
+            <div style="font:600 14px Montserrat,sans-serif">Sport</div>
+            <button onClick="{{ closeSheet }}" aria-label="Close" style="width:40px;height:40px;border-radius:50%;border:0;background:rgba(40,33,38,.06);color:#6F656B;font:400 17px Montserrat,sans-serif;cursor:pointer">×</button>
+          </div></div>
+          <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:18px 0 10px">Recently used</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <sc-for list="{{ recentActivities }}" as="a" hint-placeholder-count="3">
+              <div onClick="{{ a.onClick }}" style="{{ a.style }}">{{ a.label }}</div>
+            </sc-for>
+          </div>
+          <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:18px 0 10px">All activities</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <sc-for list="{{ activities }}" as="a" hint-placeholder-count="8">
+              <div onClick="{{ a.onClick }}" style="{{ a.style }}">{{ a.label }}</div>
+            </sc-for>
+          </div>
+          <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Duration</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <sc-for list="{{ durations }}" as="d" hint-placeholder-count="5">
+              <div onClick="{{ d.onClick }}" style="{{ d.style }}">{{ d.label }}</div>
+            </sc-for>
+          </div>
+          <div style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;padding:8px 8px 8px 16px;border-radius:17px;background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.9)">
+            <span style="font:600 13px Montserrat,sans-serif;color:#6F656B">Custom</span>
+            <span style="display:flex;align-items:center;gap:10px">
+              <button onClick="{{ durMinus }}" aria-label="Decrease duration" style="width:40px;height:40px;border-radius:13px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.8);font:400 18px Montserrat,sans-serif;color:#6F656B;cursor:pointer">−</button>
+              <span style="min-width:64px;text-align:center;font:600 14.5px Montserrat,sans-serif">{{ durLabel }}</span>
+              <button onClick="{{ durPlus }}" aria-label="Increase duration" style="width:40px;height:40px;border-radius:13px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.8);font:400 18px Montserrat,sans-serif;color:#6F656B;cursor:pointer">+</button>
+            </span>
+          </div>
+          <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Intensity</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ intensities }}" as="i" hint-placeholder-count="3">
+              <div onClick="{{ i.onClick }}" style="{{ i.style }}">
+                <span style="{{ i.radio }}"></span>
+                <span>
+                  <span style="display:block;font:600 13.5px Montserrat,sans-serif">{{ i.label }}</span>
+                  <span style="display:block;font:400 12px/1.45 Montserrat,sans-serif;color:#6F656B;margin-top:2px">{{ i.desc }}</span>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+          <button onClick="{{ saveSport }}" style="margin-top:20px;width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">{{ sportSaveLabel }}</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isCycleSheet }}">
+        <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:90%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.30),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.38),rgba(205,231,157,0) 60%),radial-gradient(95% 40% at 18% 78%,rgba(249,220,230,.45),rgba(249,220,230,0) 62%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 26px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
+          <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 14px"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
+          <div style="position:sticky;top:-10px;z-index:6;margin:-30px -20px 0;padding:38px 20px 26px"><div style="position:absolute;inset:0;pointer-events:none;backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);background:linear-gradient(180deg,rgba(255,251,248,.4),rgba(255,251,248,.04));-webkit-mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%)"></div><div style="position:relative">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+            <button onClick="{{ openPicker }}" style="min-height:40px;padding:0 10px 0 0;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer">‹ Back</button>
+            <div style="font:600 14px Montserrat,sans-serif">Menstrual cycle</div>
+            <button onClick="{{ closeSheet }}" aria-label="Close" style="width:40px;height:40px;border-radius:50%;border:0;background:rgba(40,33,38,.06);color:#6F656B;font:400 17px Montserrat,sans-serif;cursor:pointer">×</button>
+          </div>
+            <div style="font:400 12.5px Montserrat,sans-serif;color:#6F656B;text-align:center;margin-top:6px">Wed 12 August · one flow value per day</div>
+          </div></div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:18px">
+            <sc-for list="{{ flowOptions }}" as="f" hint-placeholder-count="4">
+              <div onClick="{{ f.onClick }}" style="{{ f.style }}">
+                <span style="{{ f.swatch }}"></span>
+                <span style="flex:1;font:600 14px Montserrat,sans-serif">{{ f.label }}</span>
+                <span style="font:400 12px Montserrat,sans-serif;color:#6F656B">{{ f.hint }}</span>
+                <sc-if value="{{ f.selected }}"><span style="font:700 14px Montserrat,sans-serif;color:#C95F86">✓</span></sc-if>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ flowChosen }}">
+            <div style="animation:fadeIn .25s">
+              <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Anything else today? (optional)</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                <sc-for list="{{ cycleChips }}" as="ch" hint-placeholder-count="6">
+                  <div onClick="{{ ch.onClick }}" style="{{ ch.style }}">{{ ch.label }}</div>
+                </sc-for>
+              </div>
+              <button onClick="{{ saveCycle }}" style="margin-top:18px;width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Save</button>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isDoctorSheet }}">
+        <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:92%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.30),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.38),rgba(205,231,157,0) 60%),radial-gradient(95% 40% at 18% 78%,rgba(249,220,230,.45),rgba(249,220,230,0) 62%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 26px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
+          <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 14px"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
+          <div style="position:sticky;top:-10px;z-index:6;margin:-30px -20px 0;padding:38px 20px 26px"><div style="position:absolute;inset:0;pointer-events:none;backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);background:linear-gradient(180deg,rgba(255,251,248,.4),rgba(255,251,248,.04));-webkit-mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%)"></div><div style="position:relative;display:flex;align-items:center;justify-content:space-between">
+            <button onClick="{{ openPicker }}" style="min-height:40px;padding:0 10px 0 0;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer">‹ Back</button>
+            <div style="font:600 14px Montserrat,sans-serif">Doctor appointment</div>
+            <button onClick="{{ closeSheet }}" aria-label="Close" style="width:40px;height:40px;border-radius:50%;border:0;background:rgba(40,33,38,.06);color:#6F656B;font:400 17px Montserrat,sans-serif;cursor:pointer">×</button>
+          </div></div>
+          <div style="display:flex;gap:8px;margin-top:18px">
+            <div style="flex:1"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Date</label>
+            <div style="min-height:52px;display:flex;align-items:center;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.75);border:1px solid rgba(40,33,38,.1);font:500 14px Montserrat,sans-serif">Wed 12 Aug</div></div>
+            <div style="width:118px"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Time</label>
+            <div style="min-height:52px;display:flex;align-items:center;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.75);border:1px solid rgba(40,33,38,.1);font:500 14px Montserrat,sans-serif">20:00</div></div>
+          </div>
+          <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin:16px 0 8px">Appointment type</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <sc-for list="{{ apptTypes }}" as="t" hint-placeholder-count="7">
+              <div onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</div>
+            </sc-for>
+          </div>
+          <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin:18px 0 8px">Notes</div>
+          <textarea onChange="{{ noop }}" placeholder="Ask about the cramping pattern in the second half of my cycle, and whether the iron supplement is still needed." style="width:100%;min-height:110px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.78);padding:14px 16px;font:400 13.5px/1.55 Montserrat,sans-serif;color:#282126;resize:vertical"></textarea>
+          <div style="font:400 11.5px Montserrat,sans-serif;color:#9A9095;margin-top:6px">No length limit — write as much as you need.</div>
+          <div style="margin-top:16px;min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;border-radius:18px;background:rgba(255,255,255,.68);border:1px solid rgba(255,255,255,.9)">
+            <span>
+              <span style="display:block;font:600 13.5px Montserrat,sans-serif">Remind me</span>
+              <span style="display:block;font:400 11.5px Montserrat,sans-serif;color:#6F656B;margin-top:2px">24 hours before · preview hides details</span>
+            </span>
+            <div onClick="{{ toggleRemind }}" aria-label="Reminder" style="{{ remindTrack }}"><span style="{{ remindKnob }}"></span></div>
+          </div>
+          <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin:18px 0 8px">Questions for the doctor</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ questions }}" as="q" hint-placeholder-count="2">
+              <div onClick="{{ q.onClick }}" style="min-height:48px;display:flex;align-items:center;gap:12px;padding:8px 14px;border-radius:16px;background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.9);cursor:pointer">
+                <span style="{{ q.box }}">{{ q.tick }}</span>
+                <span style="font:500 13px/1.45 Montserrat,sans-serif;flex:1">{{ q.label }}</span>
+              </div>
+            </sc-for>
+            <div style="min-height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;border-radius:16px;border:1px dashed rgba(40,33,38,.18);font:600 13px Montserrat,sans-serif;color:#6F656B;cursor:pointer">+ Add a question</div>
+          </div>
+          <button onClick="{{ saveAppt }}" style="margin-top:20px;width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Save appointment</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isFlowModal }}">
+        <div style="position:absolute;inset:0;background:rgba(40,33,38,.34);display:flex;align-items:center;justify-content:center;padding:28px;animation:fadeIn .2s">
+          <div style="width:100%;padding:22px;border-radius:26px;background:radial-gradient(120% 60% at 10% 0%,rgba(233,130,165,.28),rgba(233,130,165,0) 62%),radial-gradient(110% 50% at 95% 30%,rgba(205,231,157,.34),rgba(205,231,157,0) 62%),linear-gradient(180deg,rgba(255,251,248,.94),rgba(255,249,246,.96));backdrop-filter:blur(26px) saturate(1.4);-webkit-backdrop-filter:blur(26px) saturate(1.4);border:1px solid rgba(255,255,255,.95);box-shadow:0 24px 50px -20px rgba(40,33,38,.5)">
+            <div style="font:600 16px/1.35 Montserrat,sans-serif">Replace medium flow?</div>
+            <div style="font:400 13px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:6px">Only one flow value is kept per day. 12 August will show heavy flow instead.</div>
+            <div style="display:flex;gap:8px;margin-top:18px">
+              <button onClick="{{ cancelFlow }}" style="flex:1;min-height:48px;border-radius:16px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);font:600 14px Montserrat,sans-serif;color:#6F656B;cursor:pointer">Keep medium</button>
+              <button onClick="{{ confirmFlow }}" style="flex:1;min-height:48px;border-radius:16px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 14px Montserrat,sans-serif;cursor:pointer">Replace</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isDeleteModal }}">
+        <div style="position:absolute;inset:0;background:rgba(40,33,38,.38);display:flex;align-items:center;justify-content:center;padding:26px;animation:fadeIn .2s">
+          <div style="width:100%;padding:22px;border-radius:26px;background:radial-gradient(120% 60% at 10% 0%,rgba(233,130,165,.28),rgba(233,130,165,0) 62%),radial-gradient(110% 50% at 95% 30%,rgba(205,231,157,.34),rgba(205,231,157,0) 62%),linear-gradient(180deg,rgba(255,251,248,.94),rgba(255,249,246,.96));backdrop-filter:blur(26px) saturate(1.4);-webkit-backdrop-filter:blur(26px) saturate(1.4);border:1px solid rgba(255,255,255,.95);box-shadow:0 24px 50px -20px rgba(40,33,38,.5)">
+            <div style="font:600 16.5px/1.35 Montserrat,sans-serif">Delete your Eva profile?</div>
+            <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:8px">This removes your cycle history, logs, notes and appointments from Eva's servers within 30 days. It cannot be undone.</div>
+            <div style="margin-top:14px;padding:12px 14px;border-radius:16px;background:rgba(205,231,157,.26);border:1px solid rgba(142,173,86,.3);font:500 12.5px/1.5 Montserrat,sans-serif;color:#5C7434">Export your data first — one file, readable outside Eva.</div>
+            <div style="margin-top:14px"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Type DELETE to confirm</label>
+            <input onChange="{{ noop }}" placeholder="DELETE" style="width:100%;height:50px;border-radius:16px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);padding:0 14px;font:600 14px Montserrat,sans-serif"></div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+              <button onClick="{{ closeModal }}" style="min-height:48px;border-radius:16px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);font:600 14px Montserrat,sans-serif;cursor:pointer">Export data instead</button>
+              <button onClick="{{ closeModal }}" style="min-height:48px;border-radius:16px;border:0;background:#B85248;color:#fff;font:600 14px Montserrat,sans-serif;cursor:pointer;opacity:.55">Delete profile</button>
+              <button onClick="{{ closeModal }}" style="min-height:44px;border:0;background:transparent;font:600 13.5px Montserrat,sans-serif;color:#6F656B;cursor:pointer">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ toastMsg }}">
+        <div style="position:absolute;left:16px;right:16px;bottom:100px;padding:14px 16px;border-radius:18px;background:rgba(40,33,38,.92);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 16px 34px -14px rgba(40,33,38,.7);animation:toastIn .26s ease-out">
+          <span style="font:500 13.5px/1.4 Montserrat,sans-serif;color:#fff">{{ toastMsg }}</span>
+          <sc-if value="{{ toastAction }}"><button onClick="{{ toastAction }}" style="flex:none;border:0;background:transparent;color:#F5B6CB;font:700 13.5px Montserrat,sans-serif;cursor:pointer;min-height:32px">Undo</button></sc-if>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+</div>
+
+<div style="position:sticky;top:40px;width:308px;flex:none;padding:22px;border-radius:24px;background:rgba(255,255,255,.66);border:1px solid rgba(255,255,255,.8);backdrop-filter:blur(22px);box-shadow:0 10px 30px -18px rgba(40,33,38,.3)">
+  <div style="font:600 10px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095">Interaction spec</div>
+  <div style="font:600 15px/1.3 Montserrat,sans-serif;margin-top:8px">{{ specTitle }}</div>
+  <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
+    <sc-for list="{{ specNotes }}" as="n" hint-placeholder-count="4">
+      <div style="display:flex;gap:8px;font:400 12.5px/1.55 Montserrat,sans-serif;color:#6F656B"><span style="flex:none;width:5px;height:5px;border-radius:50%;background:#E982A5;margin-top:6px"></span><span>{{ n }}</span></div>
+    </sc-for>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1120,&quot;height&quot;:1000}}">
+const RAIL = [
+  {title:'Onboarding', items:[
+    ['signup','Sign up',{screen:'signup',errs:false}],
+    ['signupErr','Sign up · validation',{screen:'signup',errs:true}],
+    ['activation','Check your inbox',{screen:'activation'}],
+    ['login','Log in',{screen:'login'}],
+    ['forgot','Forgot password',{screen:'forgot'}],
+    ['forgotSent','Reset link sent',{screen:'forgotSent'}],
+    ['newpass','New password',{screen:'newpass'}],
+    ['resetDone','Password updated',{screen:'resetDone'}]]},
+  {title:'Dashboard', items:[
+    ['home_d','Cycle · daily briefing',{screen:'home',card:'D',nudge:'period',glance:true,mealSetup:true,offline:false}],
+    ['home_e','Signals override phase',{screen:'home',card:'E',nudge:null,glance:true,mealSetup:true,offline:false}],
+    ['home_a','First open · no data',{screen:'home',card:'A',nudge:null,glance:false,mealSetup:false,offline:false}],
+    ['home_b','Fewer than three cycles',{screen:'home',card:'B',nudge:'gap',glance:false,mealSetup:false,offline:false}],
+    ['home_c','Irregular cycles',{screen:'home',card:'C',nudge:null,glance:false,mealSetup:false,offline:false}],
+    ['home_f','Period later than predicted',{screen:'home',card:'F',nudge:null,glance:true,mealSetup:true,offline:false}],
+    ['home_g','Signals · no cycle data',{screen:'home',card:'G',nudge:null,glance:false,mealSetup:false,offline:false}],
+    ['home_h','Personal pattern',{screen:'home',card:'H',nudge:null,glance:true,mealSetup:true,offline:false}],
+    ['home_edu','Educational fallback',{screen:'home',card:'EDU',nudge:null,glance:true,mealSetup:true,offline:false}],
+    ['home_plan','Planning mode',{screen:'home',card:'PLAN',nudge:'appt',glance:false,mealSetup:false,offline:false}],
+    ['home_preg','Pregnancy · milestone',{screen:'home',card:'PREG',nudge:'appt',glance:true,mealSetup:true,offline:false}],
+    ['home_flag','Pregnancy · red flag',{screen:'home',card:'FLAG',nudge:null,glance:false,mealSetup:true,offline:false}],
+    ['home_post','Postpartum',{screen:'home',card:'POST',nudge:null,glance:true,mealSetup:true,offline:false}],
+    ['home_loss','After pregnancy ends',{screen:'home',card:'LOSS',nudge:null,glance:false,mealSetup:true,offline:false}],
+    ['home_setup','Nutrition setup pending',{screen:'home',card:'D',nudge:'setup',glance:false,mealSetup:false,offline:false}],
+    ['home_gap','Logging-gap nudge',{screen:'home',card:'D',nudge:'gap',glance:true,mealSetup:true,offline:false}],
+    ['home_dis','Nudge dismissed',{screen:'home',card:'D',nudge:null,glance:true,mealSetup:true,offline:false}],
+    ['home_off','Offline cached',{screen:'home',card:'D',nudge:null,glance:true,mealSetup:true,offline:true}]]},
+  {title:'Calendar', items:[
+    ['cal','Month · Cycle mode',{screen:'cal',mode:'Cycle',empty:false}],
+    ['calEmpty','First-run empty state',{screen:'cal',empty:true}],
+    ['calPreg','Pregnancy mode · w14',{screen:'cal',mode:'Pregnancy',empty:false}],
+    ['day','Day detail sheet',{screen:'cal',empty:false,sheet:'day',sel:12}],
+    ['picker','Log · event type',{screen:'cal',empty:false,sheet:'picker'}],
+    ['body','Body signals logging',{screen:'cal',empty:false,sheet:'body'}],
+    ['sport','Sport logging',{screen:'cal',empty:false,sheet:'sport'}],
+    ['cycle','Menstrual flow logging',{screen:'cal',empty:false,sheet:'cycle'}],
+    ['doctor','Doctor appointment',{screen:'cal',empty:false,sheet:'doctor'}]]},
+  {title:'Profile', items:[
+    ['settings','Settings',{screen:'settings'}],
+    ['editProfile','Edit profile',{screen:'editProfile'}],
+    ['pregMode','Pregnancy Mode',{screen:'pregMode'}],
+    ['notifications','Notifications',{screen:'notifications'}],
+    ['privacy','Privacy & security',{screen:'privacy'}],
+    ['danger','Delete profile',{screen:'settings',modal:'delete'}]]}
+];
+
+const BODY_CHIPS = ['Bloating','Cramps','Headache','Nausea','Breast tenderness','Back pain','Acne','Cravings','Anxious','Stressed','Brain fog','Appetite changes'];
+const EXTRA_CHIPS = ['Dizziness','Insomnia','Hot flushes','Low libido','Constipation','Spotting'];
+
+function chip(v){
+  const base='min-height:44px;display:flex;align-items:center;gap:6px;padding:0 15px;border-radius:14px;cursor:pointer;font:600 13px Montserrat,sans-serif;';
+  if(v===2) return base+'background:#C95F86;color:#fff;border:1px solid #A94A6C;box-shadow:0 8px 18px -12px rgba(201,95,134,.9);';
+  if(v===1) return base+'background:linear-gradient(180deg,#EE93B1,#DC7C9E);color:#fff;border:1px solid transparent;box-shadow:0 8px 18px -12px rgba(201,95,134,.8);';
+  return base+'background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(255,255,255,.86));color:#282126;border:1px solid rgba(201,95,134,.22);box-shadow:0 6px 14px -10px rgba(150,72,100,.55),inset 0 1px 0 rgba(255,255,255,.9);';
+}
+function track(on){
+  return 'flex:none;width:52px;height:32px;border-radius:16px;padding:3px;display:flex;align-items:center;justify-content:'+(on?'flex-end':'flex-start')+';cursor:pointer;background:'+(on?'linear-gradient(180deg,#B7CF86,#8EAD56)':'rgba(40,33,38,.16)')+';transition:background .2s;';
+}
+function knob(on){
+  return 'display:block;width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(40,33,38,.28);';
+}
+
+const CARDS = {
+  D:{kicker:'Cycle day 13 · likely approaching ovulation',title:'Many women notice higher energy around now',
+     line2:'This is a tendency across cycles, not a prediction about your day.',
+     line3:'If that matches how you feel, a harder training session may be an option.',actions:['View cycle details']},
+  E:{kicker:'Cycle day 13',title:'You logged low energy this morning after a poor night\u2019s sleep',
+     line2:'Although energy can be higher around this phase, your own log comes first.',
+     line3:'Sleep, stress and iron affect daily energy more than cycle phase. A lighter session may feel more manageable today.',actions:['Review this morning\u2019s log']},
+  A:{title:'Start with your first log',
+     line2:'Log your period or today\u2019s body signals so Eva can begin recognising patterns that are specific to you.',
+     actions:['Log now','Open Calendar']},
+  B:{kicker:'Cycle tracking · 1 of 3 cycles',title:'Eva is still learning your cycle',
+     line2:'Log two more periods to help estimate your cycle phases more reliably. Until then, no phase is shown.',actions:['Open Calendar']},
+  C:{kicker:'Cycle tracking',title:'Your current phase cannot be estimated reliably',
+     line2:'Your recent cycle lengths vary significantly, so Eva will not show a confident prediction.',actions:['View cycle history']},
+  F:{kicker:'Cycle day 33',title:'Your period is later than predicted',
+     line2:'Eva cannot determine the reason from cycle data alone.',actions:['Log period','Log test']},
+  G:{kicker:'Logged today',title:'You logged low energy and a headache today',
+     line2:'A slower pace or additional rest may feel more appropriate.',actions:['Review what I logged']},
+  H:{kicker:'Pattern · last 3 days',title:'You\u2019ve logged low mood for three consecutive days',
+     line2:'Sleep has also been below your usual level during the same period. Eva can see the pattern but not its cause.',
+     line3:'Consider checking in with yourself, or talking it through with someone you trust.',actions:['View pattern']},
+  EDU:{tone:'edu',kicker:'Today\u2019s read',title:'Why sleep can affect appetite more than willpower',
+     line2:'Educational content, not personalised insight \u2014 nothing new in your logs today.',
+     meta:'Nutrition · 4 min read',actions:['Read article']},
+  PLAN:{kicker:'Planning · cycle day 18',title:'Your fertile window most likely closed two days ago',
+     line2:'Based on your last three cycles. Confidence is moderate \u2014 cycle lengths varied by four days.',
+     line3:'Two more logged cycles would narrow this estimate.',actions:['View window details']},
+  PREG:{kicker:'Pregnancy · week 20, day 2',title:'Your anatomy scan is scheduled for tomorrow, 09:15',
+     line2:'Dr. Almeida · Santa Maria maternity unit.',
+     line3:'Your saved questions are ready to review.',actions:['View appointment']},
+  FLAG:{tone:'flag',kicker:'Logged 14:20 today',title:'You logged reduced fetal movement today',
+     line2:'Contact your maternity provider or local urgent care service for guidance. Eva cannot assess this.',
+     actions:['View contact options','Review what I logged']},
+  POST:{kicker:'Postpartum · day 42',title:'Your 6-week check is on Friday, 11:00',
+     line2:'Recovery, feeding and mood can all be discussed at this appointment.',
+     line3:'You can review your symptoms and prepare questions beforehand.',actions:['Prepare questions']},
+  LOSS:{tone:'quiet',kicker:'',title:'Pregnancy tracking has ended',
+     line2:'Your previous data remains private and can be reviewed or deleted from Settings.',
+     actions:['View support resources']}
+};
+
+const NUDGES = {
+  period:{text:'Your period is likely to start within two days.',action:'View prediction'},
+  appt:{text:'You have a gynaecologist appointment tomorrow at 10:30.',action:'Review questions'},
+  gap:{text:'You haven\u2019t added any body signals recently.',sub:'Logging today may help Eva recognise patterns over time.',action:'Log signals'},
+  setup:{text:'Complete your Nutrition setup to see today\u2019s targets here.',action:'Continue setup'}
+};
+
+const HOME_SPEC = ['One card, one subject: the priority ladder picks it (red flag → personal pattern → milestone → phase context → nutrition → educational fallback).','The card is generated once a day and stays stable across opens; pull-to-refresh never rewrites it. Only new logged data can change it.','Phase language stays hedged — "likely", "based on your recent cycles" — and observed logs always outrank predictions.','No scores, rings, readiness percentages, streaks or comparisons anywhere on this screen.'];
+
+const SPEC = {
+  home_d:HOME_SPEC.concat(['Nudge slot shows at most one item per day, below the glance row and visually secondary to the hero card.']),
+  home_e:['User-reported state wins: the phase line stays, but the message leads with what she logged.','Never contradicts her own data with a generic phase prediction.','Suggestion is optional in wording and can be ignored without consequence.'],
+  home_a:['No cycle phase, no predictions, no fake personalisation before there is data.','The Dashboard is still useful: shortcuts, education and setup are all reachable.','Glance row is hidden entirely rather than shown empty.'],
+  home_b:['Fewer than three cycles: Eva names its own uncertainty instead of estimating a phase.','Progress is stated as a fact ("1 of 3 cycles"), not as a streak or completion score.'],
+  home_c:['Irregular cycles: no confident prediction is shown at all.','Copy avoids implying anything is wrong — variation is described, not diagnosed.'],
+  home_f:['Late period: states the observation and stops. No speculation about pregnancy, stress or conditions.','Two equal actions — log period, log test — neither is framed as the expected one.'],
+  home_g:['Signals without cycle data: the card responds to signals only and never mentions a phase.'],
+  home_h:['A pattern may be named; its cause may not. No diagnosis, no severity scoring.','Suggestion points outward (a person, a provider), not to an in-app fix.'],
+  home_edu:['Educational fallback is clearly labelled "Today\u2019s read" so it is never mistaken for personal insight.','Category and reading time are always shown; the banner rail never repeats the card\u2019s subject that day.'],
+  home_plan:['Planning mode names the confidence level and what would improve it.','No scoring of sexual activity, no "missed opportunity", no pregnancy countdown, no asking whether she is pregnant.'],
+  home_preg:['Pregnancy header carries week and day plus the next appointment.','Milestones are informational by default — no celebratory progress bars.'],
+  home_flag:['Priority 1: a red-flag symptom replaces the normal card entirely.','Calm amber treatment, no decorative gradient, no diagnosis and no reassurance.','Primary action reaches contact options; secondary returns to what was logged.'],
+  home_post:['Postpartum header counts days since birth. No feeding streaks, targets or averages.','Feeding method is never framed as better or worse.'],
+  home_loss:['Pregnancy content, milestones, banners and queued nudges are all removed immediately.','No celebratory or recovery assumptions, no question about trying again, no prompt to resume cycle tracking.','The support link is optional and permanently dismissible.'],
+  home_setup:['Unavailable features are never hidden — the shortcut becomes a setup prompt that states the benefit.','Glance row stays hidden until nutrition setup is complete; no partial version.'],
+  home_gap:['Logging-gap nudge avoids guilt: no "you missed three days", no broken streak, no "get back on track".'],
+  home_dis:['A dismissed nudge does not return the next day; the slot simply stays empty.','Dismiss control is 44px with an explicit accessible label.'],
+  home_off:['Offline shows the cached daily card with an explicit sync timestamp, not a stale-looking blank.'],
+  signup:['Apple and Google sit above the email form and carry more visual weight — one tap, no password to invent.','Email sign-up is progressive: validation runs on blur, never while typing.','Password rules are stated up front as helper text, not revealed as an error after failure.'],
+  signupErr:['Field errors render directly under their input, in text plus an icon — never colour alone.','If the email already exists, Eva never creates a second profile: it offers account linking into the existing profile so logged data stays intact.','The linking card uses information blue, not error red — nothing went wrong.'],
+  activation:['Activation link is valid 24h; nothing is written to the profile until confirmed.','Resend is rate-limited to once per 60s and shows a toast confirmation.','Change email returns to sign-up with the address pre-filled.'],
+  login:['Same auth hierarchy as sign-up so the two screens feel like one system.','Forgot password is right-aligned under the password field, 44px tall.','No error is shown before submit; failed login shows one combined message to avoid leaking which emails exist.'],
+  forgot:['Response is identical whether or not the email exists.','Copy stays short and reassuring — no security lecture.'],
+  forgotSent:['Reset link expires in 60 minutes.','Resend triggers a toast rather than navigating away.'],
+  newpass:['Match state confirms with icon + text, not just a green border.','Saving signs out other devices and says so.'],
+  resetDone:['Success is a state, not a celebration — one line, one action.'],
+  cal:['Month grid is the default landing surface: today ringed, selected day outlined dark.','Each event type has a fixed position and shape as well as a colour: sex bottom-left dot, body signals bottom-centre square, sport bottom-right diamond, appointment top-right badge.','Predicted period and fertile window use dashed outlines and patterned shading so predictions can never be mistaken for logged data.','Future dates can be selected and appointments scheduled, but body, flow and sport logging is disabled beyond today.','Swipe left/right changes month; tapping the header opens the month picker.'],
+  calEmpty:['Calendar stays fully explorable with zero data — no blocking modal.','A single pointer nudges the Log button; it disappears after the first entry.','Copy: "Log your first period to start predictions."'],
+  calPreg:['Week number (w14) is pinned to the start of each week row.','Mode change never rewrites history — cycle data stays, prediction layers switch off.'],
+  day:['Tapping any day opens a large sheet with the full day, times included.','Delete is a soft delete: the row leaves, an Undo toast stays for 5s, the record is purged after.','Add entry inherits the day already in context — the sheet never saves to the wrong date.'],
+  picker:['Header states the target date and offers an obvious change control.','Options adapt to the active mode; sensitive types stay visually neutral.','Sex uses a neutral label and dot — no imagery, and it can be hidden entirely in Privacy.'],
+  body:['Three 5-point scales, nothing preselected; each option is labelled "Energy, 2 of 5" for screen readers.','Second tap on Cramps, Headache or Nausea escalates to severe — fill plus a bar mark changes, not colour alone.','Multi-select requires an explicit Save; note field stays collapsed until asked for.'],
+  sport:['Recently used activities are ordered first.','Duration chips plus a custom stepper for anything else.','Intensity descriptions are always visible, never behind a tooltip.'],
+  cycle:['One flow value per day. Replacing an existing value asks for confirmation first.','After flow is chosen the sheet expands in place with body-signal chips — still one screen.'],
+  doctor:['Notes are unlimited — appointment notes are the one place users write a lot.','Reminder defaults on, 24h before; sensitive detail never appears in the notification preview.','"Questions for the doctor" is a checkable list you can bring to the appointment.'],
+  settings:['Sensitive content is never surfaced on the main screen — labels only, detail one level down.','Pregnancy Mode opens its own screen instead of switching immediately.','Delete profile is separated from everything else and uses destructive styling.'],
+  editProfile:['Health fields use progressive disclosure — never one long questionnaire.','Units follow the account preference; both systems are accepted on input.'],
+  pregMode:['Asks "Where are you now?" before changing anything, and confirms what will change.','No default celebratory language — the same screen serves trying, pregnant and loss journeys.'],
+  notifications:['One global switch, granular controls below it, all disabled visually when global is off.','Well-being check-ins are opt-in, never streak-based.'],
+  privacy:['Sensitive events are excluded from notification previews by default.','Hiding Sex removes the type from pickers and calendar indicators without deleting history.'],
+  danger:['Destructive action requires typed confirmation and states what is irreversible.','Export is offered before deletion, in the same modal.']
+};
+
+class Component extends DCLogic {
+  state = {
+    railKey:'signup', screen:'signup', errs:false, showPw:false,
+    card:'D', nudge:'period', glance:true, mealSetup:true, offline:false, nudgeGone:false,
+    mode:'Cycle', empty:false, sel:12, monthPickerOpen:false,
+    sheet:null, modal:null, toast:null, toastAction:null,
+    energy:0, mood:0, sleep:0, chips:{}, noteOpen:false, moreChips:false,
+    activity:null, dur:45, customDur:false, intensity:'Medium',
+    flow:null, cycleStep:1,
+    apptType:'Gynaecologist', remind:true, questions:{'Is this cramping pattern normal for me?':true,'Should I review my iron levels?':false},
+    notifAll:true, notif:{cycle:true,appt:true,well:false,edu:false},
+    hideSex:false, appLock:true, bio:true, health:false, goals:false,
+    entries:[
+      {id:1,t:'08:30',type:'Body signals',sum:'Low energy, mild headache'},
+      {id:2,t:'18:15',type:'Strength training',sum:'45 min · medium intensity'},
+      {id:3,t:'20:00',type:'Doctor appointment',sum:'Gynaecologist · Dr. Almeida'}
+    ]
+  };
+
+  go(patch){ this.setState(Object.assign({toast:null,toastAction:null,monthPickerOpen:false},patch)); }
+  toast(msg, action){ this.setState({toast:msg,toastAction:action||null}); clearTimeout(this._tt); this._tt=setTimeout(()=>this.setState({toast:null,toastAction:null}),4200); }
+
+  tapChip(name){
+    const sev=['Cramps','Headache','Nausea'].indexOf(name)>-1;
+    const c=Object.assign({},this.state.chips); const v=c[name]||0;
+    c[name]= v===0?1:(v===1&&sev?2:0);
+    this.setState({chips:c});
+  }
+
+  cells(){
+    const preg=this.state.mode==='Pregnancy', empty=this.state.empty;
+    const data = empty?{}:{4:{flow:2},5:{flow:3,sport:1},6:{flow:3},7:{flow:2},8:{flow:1},9:{sport:1},10:{sex:1},12:{body:1,doc:1},13:{sport:1},14:{body:1},16:{sport:1},18:{body:1},20:{doc:1}};
+    const fertile = (empty||preg)?[]:[17,18,19,20,21];
+    const pred = (empty||preg)?[]:[31];
+    const predNext = (empty||preg)?[]:[1,2,3,4];
+    const today=18, out=[], firstDow=5, days=31;
+    let wk=12;
+    const push=(o)=>out.push(o);
+    const mkCell=(n,inMonth,nextMonth)=>{
+      const d=inMonth?(data[n]||{}):{};
+      const isToday=inMonth&&n===today, isSel=inMonth&&n===this.state.sel;
+      const isFert=inMonth&&fertile.indexOf(n)>-1, isPred=(inMonth&&pred.indexOf(n)>-1)||(nextMonth&&predNext.indexOf(n)>-1);
+      let s='position:relative;height:50px;border-radius:15px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .12s;';
+      if(d.flow===3) s+='background:rgba(201,95,134,.42);';
+      else if(d.flow===2) s+='background:rgba(233,130,165,.30);';
+      else if(d.flow===1) s+='background:rgba(233,130,165,.16);';
+      else if(isFert) s+='background:repeating-linear-gradient(45deg,rgba(205,231,157,.42) 0 3px,rgba(205,231,157,0) 3px 7px);border:1px dashed rgba(142,173,86,.6);';
+      else if(isPred) s+='background:repeating-linear-gradient(45deg,rgba(233,130,165,.20) 0 3px,rgba(233,130,165,0) 3px 7px);border:1px dashed rgba(201,95,134,.55);';
+      else s+='background:rgba(255,255,255,.34);border:1px solid rgba(255,255,255,.6);';
+      if(isSel) s+='outline:2px solid #282126;outline-offset:1px;';
+      let ns='font:'+(isToday?'700':'500')+' 15px/1 Montserrat,sans-serif;color:'+(inMonth?(nextMonth?'#9A9095':'#282126'):'#C8BFC3')+';';
+      if(isToday) ns+='width:28px;height:28px;border-radius:50%;background:#C95F86;color:#fff;display:flex;align-items:center;justify-content:center;';
+      if(nextMonth) ns+='color:#B3A9AE;';
+      const bits=[]; if(d.flow) bits.push(['Spotting','Light','Medium','Heavy'][d.flow]+' flow logged');
+      if(d.sex) bits.push('Sex logged'); if(d.body) bits.push('Body signals logged'); if(d.sport) bits.push('Sport logged'); if(d.doc) bits.push('Doctor appointment');
+      if(isFert) bits.push('Predicted fertile window'); if(isPred) bits.push('Predicted period');
+      return {n:String(n),style:s,numStyle:ns,sex:!!d.sex,body:!!d.body,sport:!!d.sport,doc:!!d.doc,
+        aria:'August '+n+(bits.length?'. '+bits.join('. '):'. No entries'),
+        onClick:inMonth&&!nextMonth?()=>this.go({sel:n,sheet:'day'}):()=>{}};
+    };
+    for(let row=0;row<6;row++){
+      if(preg) push({n:'w'+(wk+row),style:'height:50px;display:flex;align-items:center;justify-content:center;',numStyle:'font:600 10px Montserrat,sans-serif;color:#9A9095;',aria:'Pregnancy week '+(wk+row),onClick:()=>{}});
+      for(let col=0;col<7;col++){
+        const idx=row*7+col, n=idx-firstDow+1;
+        if(n<1) push({n:String(26+idx),style:'height:50px;border-radius:15px;display:flex;align-items:center;justify-content:center;position:relative;',numStyle:'font:400 15px Montserrat,sans-serif;color:#CFC6CA;',aria:'Previous month',onClick:()=>{}});
+        else if(n>days) push(mkCell(n-days,true,true));
+        else push(mkCell(n,true,false));
+      }
+    }
+    return out;
+  }
+
+  renderVals(){
+    const S=this.state, self=this;
+    const railGroups = RAIL.map(g=>({title:g.title,items:g.items.map(it=>({
+      label:it[1], onClick:()=>this.go(Object.assign({railKey:it[0],sheet:null,modal:null},it[2])),
+      style:'min-height:36px;display:flex;align-items:center;padding:0 10px;border-radius:10px;cursor:pointer;font:'+(S.railKey===it[0]?'600':'500')+' 12.5px Montserrat,sans-serif;color:'+(S.railKey===it[0]?'#282126':'#6F656B')+';background:'+(S.railKey===it[0]?'rgba(255,255,255,.85)':'transparent')+';box-shadow:'+(S.railKey===it[0]?'0 4px 12px -8px rgba(40,33,38,.4)':'none')+';'
+    }))}));
+
+    const tab=(label,active,onClick)=>({label,onClick,
+      style:'flex:1;min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border-radius:14px;cursor:pointer;color:'+(active?'#C95F86':'#9A9095')+';background:'+(active?'rgba(233,130,165,.10)':'transparent')+';',
+      dot:'width:18px;height:18px;border-radius:'+(active?'7px':'6px')+';border:1.6px solid '+(active?'#C95F86':'#9A9095')+';background:'+(active?'rgba(233,130,165,.25)':'transparent')+';display:block;'});
+
+    const isCal=S.screen==='cal';
+    const modeChip=(m)=>({label:m,onClick:()=>this.go({mode:m,railKey:m==='Pregnancy'?'calPreg':'cal'}),
+      style:'flex:1;min-height:36px;display:flex;align-items:center;justify-content:center;border-radius:12px;cursor:pointer;font:'+(S.mode===m?'600':'500')+' 12.5px Montserrat,sans-serif;color:'+(S.mode===m?'#fff':'#6F656B')+';background:'+(S.mode===m?'linear-gradient(180deg,#EE93B1,#C95F86)':'transparent')+';box-shadow:'+(S.mode===m?'0 6px 14px -8px rgba(201,95,134,.9)':'none')+';'});
+
+    const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const legend=[
+      {label:'Logged period · flow strength',swatch:'width:16px;height:16px;border-radius:5px;background:rgba(201,95,134,.42);display:block'},
+      {label:'Predicted period (dashed)',swatch:'width:16px;height:16px;border-radius:5px;border:1px dashed rgba(201,95,134,.6);background:repeating-linear-gradient(45deg,rgba(233,130,165,.2) 0 3px,transparent 3px 7px);display:block'},
+      {label:'Fertile window (predicted)',swatch:'width:16px;height:16px;border-radius:5px;border:1px dashed rgba(142,173,86,.7);background:repeating-linear-gradient(45deg,rgba(205,231,157,.45) 0 3px,transparent 3px 7px);display:block'},
+      {label:'Sex · bottom-left dot',swatch:'width:6px;height:6px;border-radius:50%;background:#6F656B;display:block;margin:0 5px'},
+      {label:'Body signals · centre square',swatch:'width:7px;height:7px;border-radius:2px;background:#C95F86;display:block;margin:0 5px'},
+      {label:'Sport · right diamond',swatch:'width:7px;height:7px;background:#7A9B45;transform:rotate(45deg);display:block;margin:0 5px'}
+    ];
+
+    const spec=SPEC[S.railKey]||[];
+    const specLabel=(RAIL.reduce((a,g)=>a.concat(g.items),[]).filter(i=>i[0]===S.railKey)[0]||['','Screen'])[1];
+
+    return {
+      railGroups, specTitle:specLabel, specNotes:spec,
+      noop:()=>{},
+      isAuth:['signup','activation','login','forgot','forgotSent','newpass','resetDone'].indexOf(S.screen)>-1,
+      isSignup:S.screen==='signup', isActivation:S.screen==='activation', isLogin:S.screen==='login',
+      isForgot:S.screen==='forgot', isForgotSent:S.screen==='forgotSent', isNewPass:S.screen==='newpass', isResetDone:S.screen==='resetDone',
+      isCal, isEmptyCal:isCal&&S.empty, notEmpty:isCal&&!S.empty,
+      errs:S.errs,
+      emailVal:S.errs?'maria.ferreira@gmail':'maria.ferreira@gmail.com',
+      emailInputStyle:'width:100%;height:54px;border-radius:17px;border:1px solid '+(S.errs?'#C4645A':'rgba(40,33,38,.10)')+';background:rgba(255,255,255,.72);padding:0 16px;font:400 15px Montserrat,sans-serif;color:#282126;'+(S.errs?'box-shadow:0 0 0 3px rgba(196,100,90,.14);':''),
+      pwType:S.showPw?'text':'password', pwVal:S.errs?'evaprime':'evaprime26',
+      pwToggleLabel:S.showPw?'Hide':'Show', pwHelpColor:S.errs?'#A9524A':'#9A9095',
+      togglePw:()=>this.setState({showPw:!S.showPw}),
+      goApple:()=>this.go({screen:'cal',railKey:'cal',errs:false}),
+      goActivation:()=>this.go({screen:'activation',railKey:'activation'}),
+      goSignup:()=>this.go({screen:'signup',railKey:'signup',errs:false}),
+      goLogin:()=>this.go({screen:'login',railKey:'login'}),
+      goForgot:()=>this.go({screen:'forgot',railKey:'forgot'}),
+      goForgotSent:()=>this.go({screen:'forgotSent',railKey:'forgotSent'}),
+      goNewPass:()=>this.go({screen:'newpass',railKey:'newpass'}),
+      goResetDone:()=>this.go({screen:'resetDone',railKey:'resetDone'}),
+      goCalendar:()=>this.go({screen:'cal',railKey:'cal'}),
+      toastResend:()=>this.toast('Email sent again. Check spam if it hasn\u2019t arrived.'),
+      showNav:['home','cal','settings','editProfile','pregMode','notifications','privacy'].indexOf(S.screen)>-1,
+      showFab:isCal&&!S.sheet&&!S.modal,
+      tabs:[tab('Home',S.screen==='home',()=>this.go({screen:'home',railKey:'home_d',card:'D',nudge:'period',glance:true,mealSetup:true,offline:false})),
+            tab('Calendar',isCal,()=>this.go({screen:'cal',railKey:'cal',sheet:null})),
+            tab('Eva Chat',false,()=>this.toast('Eva Chat is out of scope for this prototype.')),
+            tab('Learn',false,()=>this.toast('Learn is out of scope for this prototype.')),
+            tab('Profile',['settings','editProfile','pregMode','notifications','privacy'].indexOf(S.screen)>-1,()=>this.go({screen:'settings',railKey:'settings'}))],
+      modes:['Cycle','Planning','Pregnancy','Postpartum'].map(modeChip),
+      monthPickerOpen:S.monthPickerOpen,
+      toggleMonthPicker:()=>this.setState({monthPickerOpen:!S.monthPickerOpen}),
+      monthChips:months.map((m,i)=>({label:m,onClick:()=>this.setState({monthPickerOpen:false}),
+        style:'min-height:38px;display:flex;align-items:center;justify-content:center;border-radius:11px;cursor:pointer;font:'+(i===7?'600':'500')+' 12.5px Montserrat,sans-serif;color:'+(i===7?'#fff':'#6F656B')+';background:'+(i===7?'#C95F86':'rgba(255,255,255,.6)')+';'})),
+      gridCols:S.mode==='Pregnancy'?'30px repeat(7,1fr)':'repeat(7,1fr)',
+      dowLabels:S.mode==='Pregnancy'?['','M','T','W','T','F','S','S']:['M','T','W','T','F','S','S'],
+      cells:this.cells(), legend,
+      summaryBg:S.mode==='Pregnancy'?'rgba(205,231,157,.34)':'rgba(255,255,255,.68)',
+      summaryKicker:S.mode==='Pregnancy'?'Pregnancy · week 14':'Cycle day 15 · follicular',
+      summaryTitle:S.mode==='Pregnancy'?'Second trimester begins':'Energy usually climbs this week',
+      summaryBody:S.mode==='Pregnancy'?'Predictions are paused while Pregnancy Mode is on. Your cycle history is kept.':'Your next period is estimated around 31 Aug, based on your last 4 logged cycles. Estimates shift as you log.',
+      openPicker:()=>this.go({sheet:'picker',railKey:'picker'}),
+      toastMsg:S.toast, toastAction:S.toastAction,
+
+      anySheet:!!S.sheet, closeSheet:()=>this.go({sheet:null}),
+      isDaySheet:S.sheet==='day', isPickerSheet:S.sheet==='picker', isBodySheet:S.sheet==='body',
+      isSportSheet:S.sheet==='sport', isCycleSheet:S.sheet==='cycle', isDoctorSheet:S.sheet==='doctor',
+      isFlowModal:S.modal==='flow', isDeleteModal:S.modal==='delete',
+      closeModal:()=>this.setState({modal:null}),
+
+      dayCountLabel:S.entries.length===1?'1 entry':S.entries.length+' entries',
+      dayIsEmpty:S.entries.length===0,
+      dayEntries:S.entries.map(e=>({
+        t:e.t, type:e.type, sum:e.sum,
+        mark:'width:8px;height:8px;display:block;'+(e.type==='Body signals'?'border-radius:2px;background:#C95F86;':e.type==='Doctor appointment'?'border-radius:3px;border:1.5px solid #4A6480;':'background:#7A9B45;transform:rotate(45deg);'),
+        onEdit:()=>this.go({sheet:e.type==='Body signals'?'body':e.type==='Doctor appointment'?'doctor':'sport'}),
+        onDelete:()=>{ const rest=S.entries.filter(x=>x.id!==e.id); const prev=S.entries;
+          this.setState({entries:rest}); this.toast(e.type+' deleted', ()=>{ this.setState({entries:prev,toast:null,toastAction:null}); }); }
+      })),
+
+      eventTypes:[
+        {label:'Menstrual cycle',hint:'Spotting to heavy flow',key:'cycle'},
+        {label:'Sex',hint:'Private · neutral indicator',key:null},
+        {label:'Body signals',hint:'Energy, mood, sleep, symptoms',key:'body'},
+        {label:'Sport',hint:'Activity, duration, intensity',key:'sport'},
+        {label:'Doctor appointment',hint:'Type, notes, reminder',key:'doctor'}
+      ].map((e,i)=>({label:e.label,hint:e.hint,
+        icon:'flex:none;width:42px;height:42px;border-radius:14px;display:block;background:'+['rgba(233,130,165,.22)','rgba(40,33,38,.07)','rgba(201,95,134,.16)','rgba(205,231,157,.4)','rgba(90,123,160,.16)'][i]+';border:1px solid rgba(255,255,255,.8);',
+        onClick:e.key?()=>this.go({sheet:e.key,railKey:e.key}):()=>this.toast('Sex logged for 12 August', ()=>this.setState({toast:null,toastAction:null}))})),
+
+      scales:[
+        {label:'Energy',key:'energy',low:'Depleted',high:'Energised',emoji:['\uD83D\uDE34','\uD83E\uDD71','\uD83D\uDE10','\uD83D\uDE42','\u26A1'],words:['Depleted','Low','Steady','Good','High']},
+        {label:'Mood',key:'mood',low:'Low',high:'Bright',emoji:['\uD83D\uDE22','\uD83D\uDE15','\uD83D\uDE10','\uD83D\uDE42','\uD83D\uDE04'],words:['Low','Down','Neutral','Good','Bright']},
+        {label:'Sleep',key:'sleep',low:'Restless',high:'Deep',emoji:['\uD83D\uDE29','\uD83D\uDE2A','\uD83D\uDE36','\uD83D\uDE0C','\uD83D\uDCA4'],words:['Barely slept','Restless','Broken','Solid','Deep']}
+      ].map(sc=>{
+        const tint={energy:['rgba(233,130,165,.22)','rgba(233,130,165,.08)','rgba(201,95,134,.28)','#A9436E'],
+                    mood:['rgba(205,231,157,.42)','rgba(205,231,157,.14)','rgba(142,173,86,.34)','#5C7434'],
+                    sleep:['rgba(90,123,160,.20)','rgba(90,123,160,.06)','rgba(90,123,160,.28)','#3F5A76']}[sc.key];
+        return {label:sc.label,low:sc.low,high:sc.high,
+        cardStyle:'padding:14px 16px;border-radius:22px;background:linear-gradient(150deg,'+tint[0]+','+tint[1]+');border:1px solid '+tint[2]+';box-shadow:0 10px 26px -20px rgba(150,72,100,.5),inset 0 1px 0 rgba(255,255,255,.7);',
+        readoutStyle:'font:600 11.5px Montserrat,sans-serif;color:'+tint[3]+';padding:4px 9px;border-radius:9px;background:rgba(255,255,255,.72);',
+        readout:S[sc.key]?(sc.words?sc.words[S[sc.key]-1]+' · ':'')+S[sc.key]+' of 5':'Not set',
+        opts:[1,2,3,4,5].map(n=>({aria:sc.label+', '+n+' of 5'+(sc.words?', '+sc.words[n-1]:''),
+          onClick:()=>this.setState({[sc.key]:n}),
+          style:'flex:1;min-height:'+(sc.emoji?'54px':'44px')+';border-radius:15px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .12s;background:'+(S[sc.key]===n?'rgba(255,255,255,.97)':'rgba(255,255,255,.6)')+';border:'+(S[sc.key]===n?'2px solid '+tint[3]:'1px solid rgba(255,255,255,.85)')+';box-shadow:'+(S[sc.key]===n?'0 10px 20px -10px rgba(150,72,100,.55)':'0 4px 10px -8px rgba(150,72,100,.4)')+';'+(S[sc.key]===n&&sc.emoji?'transform:scale(1.06);':''),
+          glyph:sc.emoji?sc.emoji[n-1]:'',
+          glyphStyle:sc.emoji?'font-size:23px;line-height:1;display:block;filter:'+(S[sc.key]===n?'none':'grayscale(.55)')+';opacity:'+(S[sc.key]===n?'1':'.72')+';':'display:none;',
+          inner:sc.emoji?'display:none;':'display:block;border-radius:50%;width:'+(4+n*2)+'px;height:'+(4+n*2)+'px;background:'+(S[sc.key]===n?tint[3]:'#B3A9AE')+';'}))};}),
+
+      bodyChips:(S.moreChips?BODY_CHIPS.concat(EXTRA_CHIPS):BODY_CHIPS).map(c=>({label:c,severe:(S.chips[c]||0)===2,
+        aria:c+((S.chips[c]||0)===2?', severe':((S.chips[c]||0)===1?', selected':', not selected')),
+        onClick:()=>this.tapChip(c), style:chip(S.chips[c]||0)})),
+      moreLabel:S.moreChips?'Show fewer':'More…',
+      toggleMore:()=>this.setState({moreChips:!S.moreChips}),
+      noteOpen:S.noteOpen, noteCaret:S.noteOpen?'⌃':'⌄',
+      toggleNote:()=>this.setState({noteOpen:!S.noteOpen}),
+      clearBody:()=>this.setState({energy:0,mood:0,sleep:0,chips:{},noteOpen:false}),
+      saveBody:()=>{ this.go({sheet:'day'}); this.toast('Body signals saved to 12 August', ()=>this.setState({toast:null,toastAction:null})); },
+
+      recentActivities:['Strength training','Yoga','Walking'].map(a=>({label:a,onClick:()=>this.setState({activity:a}),style:chip(S.activity===a?1:0)})),
+      activities:['Running','Cycling','Swimming','HIIT','Pilates','Dance','Padel','Other'].map(a=>({label:a,onClick:()=>this.setState({activity:a}),style:chip(S.activity===a?1:0)})),
+      durations:[15,30,45,60,90].map(d=>({label:d+' min',onClick:()=>this.setState({dur:d}),style:chip(S.dur===d?1:0)})),
+      durLabel:S.dur+' min',
+      durMinus:()=>this.setState({dur:Math.max(5,S.dur-5)}),
+      durPlus:()=>this.setState({dur:S.dur+5}),
+      intensities:[
+        ['Light','Easy pace — you could hold a conversation'],
+        ['Medium','Breathing harder — short sentences only'],
+        ['Hard','Near maximum — you cannot talk']
+      ].map(i=>({label:i[0],desc:i[1],onClick:()=>this.setState({intensity:i[0]}),
+        style:'min-height:60px;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:18px;cursor:pointer;background:'+(S.intensity===i[0]?'rgba(233,130,165,.14)':'rgba(255,255,255,.65)')+';border:1px solid '+(S.intensity===i[0]?'rgba(201,95,134,.45)':'rgba(255,255,255,.9)')+';',
+        radio:'flex:none;width:20px;height:20px;border-radius:50%;display:block;border:'+(S.intensity===i[0]?'6px solid #C95F86':'1.5px solid rgba(40,33,38,.25)')+';background:#fff;'})),
+      sportSaveLabel:S.activity?'Save '+S.activity.toLowerCase()+' · '+S.dur+' min':'Choose an activity',
+      saveSport:()=>{ if(!S.activity){ this.toast('Pick an activity first'); return; } this.go({sheet:'day'}); this.toast(S.activity+' saved · '+S.dur+' min', ()=>this.setState({toast:null,toastAction:null})); },
+
+      flowChosen:!!S.flow,
+      flowOptions:[['Spotting','Barely there'],['Light flow','1–2 changes'],['Medium flow','3–4 changes'],['Heavy flow','5+ changes']].map((f,i)=>({
+        label:f[0],hint:f[1],selected:S.flow===f[0],
+        onClick:()=>{ if(S.flow && S.flow!==f[0]) this.setState({modal:'flow',pendingFlow:f[0]}); else this.setState({flow:f[0]}); },
+        style:'min-height:58px;display:flex;align-items:center;gap:12px;padding:0 16px;border-radius:18px;cursor:pointer;background:'+(S.flow===f[0]?'rgba(233,130,165,.16)':'rgba(255,255,255,.7)')+';border:1px solid '+(S.flow===f[0]?'rgba(201,95,134,.5)':'rgba(255,255,255,.9)')+';',
+        swatch:'flex:none;width:22px;height:22px;border-radius:8px;display:block;background:rgba(201,95,134,'+[0.12,0.24,0.36,0.5][i]+');border:1px solid rgba(201,95,134,.35);'})),
+      cycleChips:['Cramps','Bloating','Back pain','Headache','Low energy','Cravings'].map(c=>({label:c,onClick:()=>this.tapChip(c),style:chip(S.chips[c]||0)})),
+      saveCycle:()=>{ this.go({sheet:'day'}); this.toast(S.flow+' saved to 12 August', ()=>this.setState({toast:null,toastAction:null})); },
+      cancelFlow:()=>this.setState({modal:null,pendingFlow:null}),
+      confirmFlow:()=>this.setState({flow:S.pendingFlow,modal:null,pendingFlow:null}),
+
+      apptTypes:['Scan','Midwife','GP','Gynaecologist','Obstetrician','Blood test','Other'].map(t=>({label:t,onClick:()=>this.setState({apptType:t}),style:chip(S.apptType===t?1:0)})),
+      toggleRemind:()=>this.setState({remind:!S.remind}),
+      remindTrack:track(S.remind), remindKnob:knob(S.remind),
+      questions:Object.keys(S.questions).map(q=>({label:q,tick:S.questions[q]?'✓':'',
+        onClick:()=>{const n=Object.assign({},S.questions);n[q]=!n[q];this.setState({questions:n});},
+        box:'flex:none;width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;font:700 12px Montserrat,sans-serif;color:#fff;background:'+(S.questions[q]?'#C95F86':'rgba(255,255,255,.9)')+';border:1.5px solid '+(S.questions[q]?'#C95F86':'rgba(40,33,38,.2)')+';'})),
+      saveAppt:()=>{ this.go({sheet:'day'}); this.toast('Appointment saved · 12 Aug, 20:00', ()=>this.setState({toast:null,toastAction:null})); },
+
+      isHome:S.screen==='home',
+      greeting:'Good morning, Maria',
+      offline:S.offline,
+      card:(()=>{
+        const c=CARDS[S.card]||CARDS.D, tone=c.tone||'base';
+        const surf={
+          base:'position:relative;padding:22px;border-radius:28px;background:linear-gradient(155deg,rgba(255,255,255,.9),rgba(255,255,255,.74));border:1px solid rgba(255,255,255,.95);box-shadow:0 18px 40px -26px rgba(150,72,100,.75),inset 0 1px 0 rgba(255,255,255,.95);',
+          edu:'position:relative;padding:22px;border-radius:28px;background:linear-gradient(155deg,rgba(237,246,218,.94),rgba(255,255,255,.8));border:1px solid rgba(142,173,86,.32);box-shadow:0 18px 40px -26px rgba(110,130,70,.6),inset 0 1px 0 rgba(255,255,255,.95);',
+          flag:'position:relative;padding:22px;border-radius:28px;background:linear-gradient(155deg,rgba(255,247,235,.97),rgba(255,250,244,.92));border:1.5px solid rgba(201,145,63,.55);box-shadow:0 18px 40px -26px rgba(150,110,40,.55);',
+          quiet:'position:relative;padding:22px;border-radius:28px;background:rgba(255,255,255,.86);border:1px solid rgba(40,33,38,.08);box-shadow:0 14px 32px -26px rgba(40,33,38,.5);'
+        }[tone];
+        const kick={
+          base:'display:inline-flex;align-items:center;font:600 11px Montserrat,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#A9436E;padding:6px 11px;border-radius:10px;background:rgba(233,130,165,.14);',
+          edu:'display:inline-flex;align-items:center;font:600 11px Montserrat,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5C7434;padding:6px 11px;border-radius:10px;background:rgba(142,173,86,.18);',
+          flag:'display:inline-flex;align-items:center;gap:7px;font:600 11px Montserrat,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#8A6425;padding:6px 11px;border-radius:10px;background:rgba(201,145,63,.16);',
+          quiet:'display:inline-flex;align-items:center;font:600 11px Montserrat,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#6F656B;'
+        }[tone];
+        const sug={
+          base:'font:400 13.5px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:12px;padding:12px 14px;border-radius:16px;background:rgba(205,231,157,.28);border:1px solid rgba(142,173,86,.28);',
+          edu:'font:400 13.5px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:12px;',
+          flag:'font:400 13.5px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:12px;padding:12px 14px;border-radius:16px;background:rgba(201,145,63,.1);',
+          quiet:'font:400 13.5px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:12px;'
+        }[tone];
+        return {kicker:c.kicker||'',kickerStyle:kick,title:c.title,line2:c.line2,line3:c.line3||'',line3Style:sug,
+          meta:c.meta||'',style:surf,
+          aria:'Today. '+(c.kicker?c.kicker+'. ':'')+c.title+'. '+c.line2+(c.line3?' '+c.line3:''),
+          actions:c.actions.map((label,i)=>({label,
+            onClick:i===0&&/Log/.test(label)?()=>this.go({screen:'cal',railKey:'picker',sheet:'picker'}):(/Calendar|cycle|window|pattern/i.test(label)?()=>this.go({screen:'cal',railKey:'cal'}):()=>this.toast('Opens the related detail screen')),
+            style:i===0
+              ?'min-height:46px;padding:0 18px;border-radius:15px;border:0;background:'+(tone==='flag'?'#B5822E':'linear-gradient(180deg,#EE93B1,#C95F86)')+';color:#fff;font:600 13.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 10px 22px -12px rgba(150,72,100,.8);'
+              :'min-height:46px;padding:0 18px;border-radius:15px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);color:#282126;font:600 13.5px Montserrat,sans-serif;cursor:pointer;'}))};
+      })(),
+      shortcuts:(()=>{
+        const first=S.card==='POST'?'Log feed':(S.card==='F'||S.card==='D'&&false?'Log period':'Log');
+        const items=[
+          {label:first,ic:'rgba(233,130,165,.22)',go:()=>this.go({screen:'cal',railKey:'picker',sheet:'picker'})},
+          {label:S.mealSetup?'Scan meal':'Set up meals',ic:'rgba(205,231,157,.45)',go:()=>this.toast(S.mealSetup?'Opens the meal scanner':'Opens nutrition setup')},
+          {label:'Calendar',ic:'rgba(249,220,230,.75)',go:()=>this.go({screen:'cal',railKey:'cal'})},
+          {label:'Eva Chat',ic:'rgba(90,123,160,.16)',go:()=>this.toast('Opens Eva Chat with today\u2019s context')}
+        ];
+        return items.map(i=>({label:i.label,onClick:i.go,
+          icon:'width:34px;height:34px;border-radius:12px;background:'+i.ic+';border:1px solid rgba(255,255,255,.85);display:block;'}));
+      })(),
+      setupCard:!S.mealSetup,
+      glanceOn:S.glance,
+      glance:[
+        {value:'620 kcal remaining',label:'of 2,050 kcal',pct:70,c:'#C95F86'},
+        {value:'68 / 100 g protein',label:'protein',pct:68,c:'#8EAD56'},
+        {value:'1.4 / 2.0 L water',label:'water',pct:70,c:'#5A7BA0'},
+        {value:'45 min activity',label:'strength training',pct:100,c:'#C95F86'}
+      ].map(g=>({value:g.value,label:g.label,bar:'display:block;height:100%;width:'+g.pct+'%;border-radius:3px;background:'+g.c+';opacity:.55;'})),
+      nudge:(S.nudge&&!S.nudgeGone)?{text:NUDGES[S.nudge].text,sub:NUDGES[S.nudge].sub||'',action:NUDGES[S.nudge].action,
+        onAction:()=>this.go({screen:'cal',railKey:'cal'})}:null,
+      dismissNudge:()=>{ this.setState({nudgeGone:true}); this.toast('Dismissed. This suggestion won\u2019t come back.'); },
+      banners:(()=>{
+        const all={
+          cycle:[['Why appetite can change before your period','Nutrition · 4 min read','warm blush'],
+                 ['How to adjust training when sleep is low','Movement · 5 min read','pistachio'],
+                 ['Iron, energy and the days after your period','Nutrition · 6 min read','blush']],
+          preg:[['What usually happens at the 20-week scan','Pregnancy · 6 min read','blush'],
+                ['Movement in the second trimester','Movement · 5 min read','pistachio'],
+                ['Questions worth asking at your next appointment','Pregnancy · 3 min read','blush']],
+          post:[['What to prepare for your 6-week check','Recovery · 4 min read','blush'],
+                ['Sleep in fragments: what actually helps','Recovery · 5 min read','pistachio'],
+                ['When your cycle may return','Recovery · 4 min read','blush']]
+        };
+        const set=S.card==='PREG'||S.card==='FLAG'?all.preg:(S.card==='POST'?all.post:all.cycle);
+        return set.map(b=>({title:b[0],meta:b[1],artNote:'editorial image',
+          art:'height:96px;display:flex;align-items:flex-end;padding:10px 12px;background:'+(b[2]==='pistachio'
+            ?'repeating-linear-gradient(115deg,rgba(205,231,157,.55) 0 8px,rgba(237,246,218,.75) 8px 16px)'
+            :'repeating-linear-gradient(115deg,rgba(249,220,230,.7) 0 8px,rgba(255,241,246,.8) 8px 16px)')+';'}));
+      })(),
+      isSettings:S.screen==='settings', isEditProfile:S.screen==='editProfile',
+      isPregMode:S.screen==='pregMode', isNotifications:S.screen==='notifications', isPrivacy:S.screen==='privacy',
+      goSettings:()=>this.go({screen:'settings',railKey:'settings'}),
+      goEdit:()=>this.go({screen:'editProfile',railKey:'editProfile'}),
+      openDelete:()=>this.setState({modal:'delete',railKey:'danger'}),
+      settingsSections:[
+        {title:'Personal profile', rows:[
+          {label:'Personal information',meta:'Name, date of birth, contact'},
+          {label:'Body measurements',meta:'Age, height, weight',value:'Set'},
+          {label:'Goals',value:'3 active'},
+          {label:'Lifestyle',meta:'Sleep, work pattern, stress'},
+          {label:'Preferred sports',value:'4'},
+          {label:'Health information',meta:'Conditions and history'},
+          {label:'Medications affecting hormones',meta:'Kept private'}]},
+        {title:'Eva experience', rows:[
+          {label:'Pregnancy Mode',meta:'Changes tracking and content',value:'Off',go:'pregMode'},
+          {label:'Language',value:'English (UK)'},
+          {label:'Units',value:'Metric'},
+          {label:'Personalisation',meta:'How Eva adapts to your logs'},
+          {label:'Content preferences',meta:'Topics you want to see'}]},
+        {title:'Notifications', rows:[
+          {label:'Notification settings',meta:'Reminders, check-ins, content',value:'On',go:'notifications'}]},
+        {title:'Privacy and security', rows:[
+          {label:'Privacy & security',meta:'App lock, biometrics, data export',go:'privacy'},
+          {label:'Change password'},
+          {label:'Manage connected accounts',value:'Apple'},
+          {label:'Data export',meta:'Download everything you logged'}]},
+        {title:'Support', rows:[
+          {label:'Help centre'},{label:'Contact support'},{label:'Report a problem'},
+          {label:'Medical and emergency information',meta:'When to contact a provider'},
+          {label:'About Eva',value:'2.4.1'}]}
+      ].map(s=>({title:s.title,rows:s.rows.map(r=>({label:r.label,meta:r.meta||'',value:r.value||'',
+        onClick:r.go?()=>this.go({screen:r.go,railKey:r.go==='pregMode'?'pregMode':r.go}):()=>this.toast('Detail screen out of scope')}))})),
+
+      discloseSections:[
+        {key:'goals',title:'Goals & lifestyle',meta:'3 selected · tap to change',
+         chips:['Steady energy','Better sleep','Understand my cycle','Build strength','Manage stress','Conceive within a year']},
+        {key:'health',title:'Health information',meta:'Optional · always private',
+         chips:['PCOS','Endometriosis','Thyroid condition','Anaemia','None of these'],
+         note:'Eva uses this to phrase what it shows you — it never diagnoses and never shares this with anyone.'},
+        {key:'meds',title:'Hormonal medications',meta:'Affects predictions',
+         chips:['Combined pill','Progestogen-only pill','Hormonal IUD','Implant','HRT','None']}
+      ].map(d=>({title:d.title,meta:d.meta,note:d.note||'',open:!!S['open_'+d.key],caret:S['open_'+d.key]?'⌃':'⌄',
+        onClick:()=>this.setState({['open_'+d.key]:!S['open_'+d.key]}),
+        chips:d.chips.map(c=>({label:c,onClick:()=>this.tapChip(c),style:chip((S.chips[c]||0)?1:0)}))})),
+      saveProfile:()=>{ this.go({screen:'settings',railKey:'settings'}); this.toast('Profile updated'); },
+
+      pregChosen:!!S.pregChoice,
+      pregChanges:S.pregChoice==='trying'
+        ? 'Eva keeps cycle tracking, adds fertile-window context and a positive-test entry. No fertility scores, no pressure.'
+        : 'Cycle predictions pause. The calendar shows pregnancy weeks, scans and appointments, and content follows your week.',
+      pregOptions:[
+        {key:'trying',label:'I\u2019m trying to conceive',desc:'Keep cycle tracking, add conception context.'},
+        {key:'pregnant',label:'I\u2019m already pregnant',desc:'Switch to weeks, scans and appointment tracking.'}
+      ].map(p=>({label:p.label,desc:p.desc,onClick:()=>this.setState({pregChoice:p.key}),
+        style:'min-height:74px;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:20px;cursor:pointer;background:'+(S.pregChoice===p.key?'rgba(233,130,165,.14)':'rgba(255,255,255,.66)')+';border:1px solid '+(S.pregChoice===p.key?'rgba(201,95,134,.45)':'rgba(255,255,255,.9)')+';',
+        radio:'flex:none;width:20px;height:20px;border-radius:50%;display:block;background:#fff;border:'+(S.pregChoice===p.key?'6px solid #C95F86':'1.5px solid rgba(40,33,38,.25)')+';'})),
+      activatePreg:()=>{ this.go({screen:'cal',railKey:'calPreg',mode:'Pregnancy'}); this.toast('Pregnancy Mode on · cycle history kept'); },
+
+      toggleAll:()=>this.setState({notifAll:!S.notifAll}),
+      allTrack:track(S.notifAll), allKnob:knob(S.notifAll),
+      notifOpacity:S.notifAll?'1':'.45',
+      notifRows:[
+        {k:'cycle',label:'Cycle reminders',desc:'Period likely to start, in your words'},
+        {k:'appt',label:'Appointment reminders',desc:'24 hours before, details hidden'},
+        {k:'well',label:'Well-being check-ins',desc:'A short question, never a streak'},
+        {k:'edu',label:'Educational content',desc:'One topic a week, matched to your phase'}
+      ].map(n=>({label:n.label,desc:n.desc,track:track(S.notifAll&&S.notif[n.k]),knob:knob(S.notif[n.k]),
+        onClick:()=>{ if(!S.notifAll) return; const o=Object.assign({},S.notif); o[n.k]=!o[n.k]; this.setState({notif:o}); }})),
+
+      privacyToggles:[
+        {label:'App lock',desc:'Ask for a passcode when Eva opens',on:S.appLock,f:()=>this.setState({appLock:!S.appLock})},
+        {label:'Biometric access',desc:'Face or fingerprint instead of passcode',on:S.bio,f:()=>this.setState({bio:!S.bio})},
+        {label:'Hide Sex event type',desc:'Removes it from pickers and calendar. History is kept, not deleted.',on:S.hideSex,f:()=>this.setState({hideSex:!S.hideSex})}
+      ].map(p=>({label:p.label,desc:p.desc,track:track(p.on),knob:knob(p.on),onClick:p.f})),
+      privacyRows:[
+        {label:'Change password',value:''},
+        {label:'Manage connected accounts',value:'Apple'},
+        {label:'Data export',value:'JSON, CSV'},
+        {label:'Privacy settings',value:''}
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

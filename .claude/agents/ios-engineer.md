@@ -11,12 +11,17 @@ Read `mobile/CLAUDE.md` and `docs/DESIGN.md` in full. DESIGN.md is a transcripti
 the Claude Design canvas, which is the design's source of truth — not the existing
 code, which has drifted from it (DESIGN.md §9 lists how).
 
-**For any screen work, read that screen's canvas first.** Ask for it to be pulled from
-the design project (`DesignSync get_file`, project
-`ed46e806-ffe6-43c7-9660-01c2cb4b625c`) into `docs/design/`, and build from it. Never
-infer the intended design by copying a neighbouring screen — the neighbour may be one
-of the drifted ones. If the canvas doesn't cover what you need, say so and ask; do not
-invent a token, a component or a state.
+**For any screen work, read that screen's artboard first.** It is in the repo:
+`docs/design/Eva App.dc.html` for screens, `Eva Design System.dc.html` for tokens and
+components, `Eva Nutrition Coach.dc.html` for that feature. They are large — grep for
+the artboard you need rather than reading them whole.
+
+Read the artboard, not DESIGN.md, when you need an exact value. DESIGN.md is a hand
+transcription and it has already lost values that were then derived wrongly (#16).
+
+Never infer the intended design by copying a neighbouring screen — the neighbour may be
+one of the drifted ones. If the artboard doesn't cover what you need, say so and ask; do
+not invent a token, a component or a state.
 
 Invoke the `swiftui-pro` skill for review-grade SwiftUI guidance, and the `3.9.0:swiftui-*`
 skills when you need current API detail. Prefer them over recalled API knowledge.

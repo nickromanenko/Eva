@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#FFF4EE;font-family:Montserrat,system-ui,sans-serif;color:#282126;-webkit-font-smoothing:antialiased}
+a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
+</style></helmet>
+
+<div style="position:relative;overflow:hidden;padding:56px 64px 90px">
+
+<div style="position:absolute;width:760px;height:760px;left:-280px;top:-330px;border-radius:50%;background:radial-gradient(circle,rgba(233,130,165,.52),rgba(233,130,165,0) 70%);filter:blur(70px)"></div>
+<div style="position:absolute;width:820px;height:820px;right:-330px;top:60px;border-radius:50%;background:radial-gradient(circle,rgba(205,231,157,.6),rgba(205,231,157,0) 70%);filter:blur(80px)"></div>
+<div style="position:absolute;width:700px;height:700px;left:12%;top:44%;border-radius:50%;background:radial-gradient(circle,rgba(249,220,230,.6),rgba(249,220,230,0) 70%);filter:blur(80px)"></div>
+<div style="position:absolute;width:640px;height:640px;right:-160px;bottom:-260px;border-radius:50%;background:radial-gradient(circle,rgba(142,173,86,.3),rgba(142,173,86,0) 70%);filter:blur(80px)"></div>
+<div style="position:absolute;width:560px;height:560px;left:-200px;bottom:6%;border-radius:50%;background:radial-gradient(circle,rgba(201,95,134,.3),rgba(201,95,134,0) 70%);filter:blur(80px)"></div>
+
+<div style="position:relative;max-width:1080px">
+  <div style="font:400 44px/1 Montserrat,sans-serif">eva<span style="color:#8EAD56">.</span></div>
+  <h1 style="margin:22px 0 0;font:400 52px/1.08 Montserrat,sans-serif;max-width:640px">Design system</h1>
+  <p style="margin:14px 0 0;font:400 16px/1.65 Montserrat,sans-serif;color:#6F656B;max-width:520px">Pink and pistachio on warm off-white, layered as translucent glass. Calm, credible, personal — never clinical, never decorative for its own sake.</p>
+  <div style="display:flex;gap:8px;margin-top:22px;flex-wrap:wrap">
+    <span style="min-height:34px;display:flex;align-items:center;padding:0 13px;border-radius:11px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4);font:600 12px Montserrat,sans-serif;color:#6F656B">8-pt spacing</span>
+    <span style="min-height:34px;display:flex;align-items:center;padding:0 13px;border-radius:11px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4);font:600 12px Montserrat,sans-serif;color:#6F656B">44px minimum targets</span>
+    <span style="min-height:34px;display:flex;align-items:center;padding:0 13px;border-radius:11px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4);font:600 12px Montserrat,sans-serif;color:#6F656B">Never colour alone</span>
+    <span style="min-height:34px;display:flex;align-items:center;padding:0 13px;border-radius:11px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4);font:600 12px Montserrat,sans-serif;color:#6F656B">390 × 844 base frame</span>
+  </div>
+</div>
+
+<div style="position:relative;margin-top:64px">
+  <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9A9095">01 · Colour</div>
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:18px;max-width:1080px">
+    <sc-for list="{{ brand }}" as="c" hint-placeholder-count="6">
+      <div style="border-radius:20px;overflow:hidden;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+        <div style="height:88px;background:{{ c.hex }}"></div>
+        <div style="padding:12px 14px">
+          <div style="font:600 12.5px Montserrat,sans-serif">{{ c.name }}</div>
+          <div style="font:500 11px Montserrat,sans-serif;color:#9A9095;margin-top:3px">{{ c.hex }}</div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px;max-width:1080px">
+    <sc-for list="{{ neutrals }}" as="c" hint-placeholder-count="8">
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:18px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+        <span style="flex:none;width:38px;height:38px;border-radius:12px;border:1px solid rgba(40,33,38,.08);background:{{ c.hex }}"></span>
+        <span>
+          <span style="display:block;font:600 12.5px Montserrat,sans-serif">{{ c.name }}</span>
+          <span style="display:block;font:500 11px Montserrat,sans-serif;color:#9A9095;margin-top:2px">{{ c.hex }}</span>
+        </span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px;max-width:1080px">
+    <sc-for list="{{ semantic }}" as="c" hint-placeholder-count="4">
+      <div style="padding:14px;border-radius:18px;background:{{ c.bg }};border:1px solid {{ c.border }}">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="width:20px;height:20px;border-radius:{{ c.radius }};background:{{ c.hex }};color:#fff;font:700 11px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">{{ c.glyph }}</span>
+          <span style="font:600 12.5px Montserrat,sans-serif;color:{{ c.ink }}">{{ c.name }}</span>
+        </div>
+        <div style="font:400 11.5px/1.5 Montserrat,sans-serif;color:{{ c.ink }};margin-top:8px;opacity:.85">{{ c.note }}</div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px;max-width:1080px">
+    <div style="height:96px;border-radius:20px;background:linear-gradient(135deg,#F9DCE6,#FFF9F6);border:1px solid rgba(255,255,255,.9);display:flex;align-items:flex-end;padding:12px;font:600 11.5px Montserrat,sans-serif;color:#6F656B">Blush → cream</div>
+    <div style="height:96px;border-radius:20px;background:linear-gradient(135deg,#EDF6DA,#FFF9F6);border:1px solid rgba(255,255,255,.9);display:flex;align-items:flex-end;padding:12px;font:600 11.5px Montserrat,sans-serif;color:#6F656B">Pistachio → cream</div>
+    <div style="height:96px;border-radius:20px;background:linear-gradient(120deg,#F3AEC4,#EDF6DA);border:1px solid rgba(255,255,255,.9);display:flex;align-items:flex-end;padding:12px;font:600 11.5px Montserrat,sans-serif;color:#4A4247">Pink → pistachio</div>
+    <div style="height:96px;border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.75),rgba(255,255,255,0)),linear-gradient(135deg,#E982A5,#C95F86);border:1px solid rgba(255,255,255,.9);display:flex;align-items:flex-end;padding:12px;font:600 11.5px Montserrat,sans-serif;color:#fff">White highlight over pink</div>
+  </div>
+</div>
+
+<div style="position:relative;margin-top:64px;max-width:1080px">
+  <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9A9095">02 · Typography</div>
+  <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-top:18px">
+    <div style="padding:26px;border-radius:26px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+      <div style="font:400 46px/1.05 Montserrat,sans-serif">Your Prime Era</div>
+      <div style="font:500 11px Montserrat,sans-serif;color:#9A9095;margin-top:6px">Display · Montserrat Regular 46/48 · marketing headlines only</div>
+      <div style="height:1px;background:rgba(40,33,38,.07);margin:22px 0"></div>
+      <div style="font:600 28px/1.2 Montserrat,sans-serif">H1 · Screen title 28/34</div>
+      <div style="font:600 21px/1.25 Montserrat,sans-serif;margin-top:14px">H2 · Section heading 21/26</div>
+      <div style="font:600 17px/1.3 Montserrat,sans-serif;margin-top:14px">H3 · Card heading 17/22</div>
+      <div style="font:400 15px/1.6 Montserrat,sans-serif;margin-top:14px">Body 15/24 — Eva explains what it observes and where the limits of that are. Warm, direct, never diagnostic.</div>
+      <div style="font:500 15px/1.6 Montserrat,sans-serif;margin-top:10px">Body medium 15/24 — used for values and emphasis inside rows.</div>
+    </div>
+    <div style="padding:26px;border-radius:26px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+      <div style="font:600 13px Montserrat,sans-serif">Button · 15/1 semibold</div>
+      <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin-top:14px">Label · 12 semibold, secondary</div>
+      <div style="font:400 12.5px/1.5 Montserrat,sans-serif;color:#9A9095;margin-top:14px">Caption · 12.5/19 muted — legends, timestamps, footnotes.</div>
+      <div style="font:400 12px/1.5 Montserrat,sans-serif;color:#9A9095;margin-top:14px">Input helper · 12/18 — At least 8 characters, including one number.</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:14px">
+        <span style="width:14px;height:14px;border-radius:50%;background:#C4645A;color:#fff;font:700 10px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">!</span>
+        <span style="font:500 12px Montserrat,sans-serif;color:#A9524A">Error · 12 medium with icon</span>
+      </div>
+      <div style="height:1px;background:rgba(40,33,38,.07);margin:22px 0"></div>
+      <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095">Overline · 11 / .14em</div>
+      <div style="font:400 11.5px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:14px">Montserrat for all functional UI. Display headlines use the same family at 400 weight with tight leading; functional UI stays at 500–600.</div>
+    </div>
+  </div>
+</div>
+
+<div style="position:relative;margin-top:64px;max-width:1080px">
+  <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9A9095">03 · Spacing, radius, glass levels</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:16px;margin-top:18px">
+    <div style="padding:22px;border-radius:24px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+      <div style="font:600 13px Montserrat,sans-serif;margin-bottom:14px">Spacing · 8-pt</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <sc-for list="{{ spacing }}" as="s" hint-placeholder-count="7">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="width:34px;font:500 11px Montserrat,sans-serif;color:#9A9095">{{ s.name }}</span>
+            <span style="height:10px;border-radius:5px;background:linear-gradient(90deg,#F3AEC4,#C95F86);width:{{ s.w }}"></span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="padding:22px;border-radius:24px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+      <div style="font:600 13px Montserrat,sans-serif;margin-bottom:14px">Radius</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        <sc-for list="{{ radii }}" as="r" hint-placeholder-count="5">
+          <div style="width:66px">
+            <div style="height:52px;background:rgba(233,130,165,.16);border:1px solid rgba(201,95,134,.28);border-radius:{{ r.v }}"></div>
+            <div style="font:500 10.5px Montserrat,sans-serif;color:#9A9095;margin-top:5px">{{ r.name }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font:400 11.5px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:14px">Cards 24, controls 16–17, chips 14, sheets 30 top-only.</div>
+    </div>
+    <div style="padding:22px;border-radius:24px;background:linear-gradient(120deg,rgba(243,174,196,.5),rgba(237,246,218,.6))">
+      <div style="font:600 13px Montserrat,sans-serif;margin-bottom:14px">Glass levels</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="padding:14px;border-radius:20px;background:rgba(255,255,255,.4);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.55)">
+          <div style="font:600 12.5px Montserrat,sans-serif">L1 · Background glass</div>
+          <div style="font:400 11.5px Montserrat,sans-serif;color:#4A4247;margin-top:3px">40% white · blur 20 · decorative only</div>
+        </div>
+        <div style="padding:14px;border-radius:20px;background:rgba(255,255,255,.68);backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.85);box-shadow:0 8px 22px -16px rgba(40,33,38,.4),inset 0 1px 0 rgba(255,255,255,.9)">
+          <div style="font:600 12.5px Montserrat,sans-serif">L2 · Interactive card</div>
+          <div style="font:400 11.5px Montserrat,sans-serif;color:#6F656B;margin-top:3px">68% white · blur 24 · body text safe</div>
+        </div>
+        <div style="padding:14px;border-radius:20px;background:rgba(255,252,250,.92);backdrop-filter:blur(28px);border:1px solid rgba(255,255,255,.95);box-shadow:0 18px 40px -22px rgba(40,33,38,.5)">
+          <div style="font:600 12.5px Montserrat,sans-serif">L3 · Sheet / modal</div>
+          <div style="font:400 11.5px Montserrat,sans-serif;color:#6F656B;margin-top:3px">92% white · blur 28 · long-form content</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="position:relative;margin-top:64px;max-width:1080px">
+  <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9A9095">04 · Buttons</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:18px">
+    <sc-for list="{{ buttonCols }}" as="col" hint-placeholder-count="4">
+      <div style="padding:20px;border-radius:24px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+        <div style="font:600 12.5px Montserrat,sans-serif;margin-bottom:14px">{{ col.title }}</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <sc-for list="{{ col.items }}" as="b" hint-placeholder-count="4">
+            <div>
+              <div style="{{ b.style }}">{{ b.label }}</div>
+              <div style="font:500 10.5px Montserrat,sans-serif;color:#9A9095;margin-top:5px">{{ b.state }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="position:relative;margin-top:64px;max-width:1080px">
+  <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9A9095">05 · Form controls</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:18px">
+    <div style="padding:20px;border-radius:24px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4);display:flex;flex-direction:column;gap:14px">
+      <div style="font:600 12.5px Montserrat,sans-serif">Inputs</div>
+      <div><div style="font:600 11.5px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Default</div>
+        <div style="height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);display:flex;align-items:center;padding:0 15px;font:400 14px Montserrat,sans-serif;color:#9A9095">you@email.com</div></div>
+      <div><div style="font:600 11.5px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Focused</div>
+        <div style="height:52px;border-radius:17px;border:1px solid #C95F86;background:#fff;box-shadow:0 0 0 3px rgba(201,95,134,.16);display:flex;align-items:center;padding:0 15px;font:400 14px Montserrat,sans-serif">maria.ferreira<span style="width:1.5px;height:18px;background:#C95F86;margin-left:1px;display:inline-block"></span></div></div>
+      <div><div style="font:600 11.5px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Error</div>
+        <div style="height:52px;border-radius:17px;border:1px solid #C4645A;background:rgba(255,255,255,.8);box-shadow:0 0 0 3px rgba(196,100,90,.14);display:flex;align-items:center;padding:0 15px;font:400 14px Montserrat,sans-serif">maria.ferreira@gmail</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:6px"><span style="width:14px;height:14px;border-radius:50%;background:#C4645A;color:#fff;font:700 10px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">!</span><span style="font:500 11.5px Montserrat,sans-serif;color:#A9524A">Add the rest of the domain.</span></div></div>
+      <div><div style="font:600 11.5px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Password · disabled</div>
+        <div style="height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.07);background:rgba(248,243,240,.8);display:flex;align-items:center;justify-content:space-between;padding:0 15px;font:400 14px Montserrat,sans-serif;color:#B3A9AE">••••••••<span style="font:600 12px Montserrat,sans-serif;color:#C8BFC3">Show</span></div></div>
+      <div><div style="font:600 11.5px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Search</div>
+        <div style="height:52px;border-radius:26px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);display:flex;align-items:center;gap:10px;padding:0 16px">
+          <span style="width:14px;height:14px;border:1.6px solid #9A9095;border-radius:50%;display:block"></span>
+          <span style="font:400 14px Montserrat,sans-serif;color:#9A9095">Search symptoms</span></div></div>
+      <div><div style="font:600 11.5px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Dropdown</div>
+        <div style="height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:space-between;padding:0 15px;font:500 14px Montserrat,sans-serif">Gynaecologist<span style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #9A9095;display:block"></span></div></div>
+    </div>
+
+    <div style="padding:20px;border-radius:24px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4);display:flex;flex-direction:column;gap:16px">
+      <div style="font:600 12.5px Montserrat,sans-serif">Selection</div>
+      <div style="display:flex;align-items:center;gap:14px">
+        <span style="width:52px;height:32px;border-radius:16px;background:linear-gradient(180deg,#B7CF86,#8EAD56);padding:3px;display:flex;justify-content:flex-end;align-items:center"><span style="width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(40,33,38,.28);display:block"></span></span>
+        <span style="width:52px;height:32px;border-radius:16px;background:rgba(40,33,38,.16);padding:3px;display:flex;align-items:center"><span style="width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(40,33,38,.28);display:block"></span></span>
+        <span style="width:52px;height:32px;border-radius:16px;background:rgba(40,33,38,.08);padding:3px;display:flex;align-items:center;opacity:.5"><span style="width:26px;height:26px;border-radius:50%;background:#fff;display:block"></span></span>
+        <span style="font:500 11px Montserrat,sans-serif;color:#9A9095">on · off · disabled</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="width:22px;height:22px;border-radius:7px;background:#C95F86;border:1.5px solid #C95F86;color:#fff;font:700 12px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">✓</span>
+        <span style="width:22px;height:22px;border-radius:7px;background:rgba(255,255,255,.9);border:1.5px solid rgba(40,33,38,.2);display:block"></span>
+        <span style="width:22px;height:22px;border-radius:7px;background:rgba(255,255,255,.9);border:1.5px solid #C4645A;display:block"></span>
+        <span style="font:500 11px Montserrat,sans-serif;color:#9A9095">checked · default · error</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="min-height:56px;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:18px;background:rgba(233,130,165,.14);border:1px solid rgba(201,95,134,.45)">
+          <span style="width:20px;height:20px;border-radius:50%;border:6px solid #C95F86;background:#fff;display:block"></span>
+          <span><span style="display:block;font:600 13px Montserrat,sans-serif">Medium</span><span style="display:block;font:400 11.5px Montserrat,sans-serif;color:#6F656B">Breathing harder — short sentences</span></span>
+        </div>
+        <div style="min-height:56px;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:18px;background:rgba(255,255,255,.66);border:1px solid rgba(255,255,255,.9)">
+          <span style="width:20px;height:20px;border-radius:50%;border:1.5px solid rgba(40,33,38,.25);background:#fff;display:block"></span>
+          <span><span style="display:block;font:600 13px Montserrat,sans-serif">Hard</span><span style="display:block;font:400 11.5px Montserrat,sans-serif;color:#6F656B">Near maximum — you cannot talk</span></span>
+        </div>
+      </div>
+      <div>
+        <div style="font:600 11.5px Montserrat,sans-serif;color:#6F656B;margin-bottom:8px">Chips · default / selected / severe / disabled</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <span style="min-height:44px;display:flex;align-items:center;padding:0 15px;border-radius:14px;background:rgba(255,255,255,.72);border:1px solid rgba(40,33,38,.1);font:600 13px Montserrat,sans-serif">Bloating</span>
+          <span style="min-height:44px;display:flex;align-items:center;padding:0 15px;border-radius:14px;background:linear-gradient(180deg,#EE93B1,#DC7C9E);color:#fff;font:600 13px Montserrat,sans-serif;box-shadow:0 8px 18px -12px rgba(201,95,134,.8)">Cramps</span>
+          <span style="min-height:44px;display:flex;align-items:center;gap:6px;padding:0 15px;border-radius:14px;background:#C95F86;border:1px solid #A94A6C;color:#fff;font:600 13px Montserrat,sans-serif"><span style="width:9px;height:2px;border-radius:1px;background:#fff;display:block"></span>Cramps · severe</span>
+          <span style="min-height:44px;display:flex;align-items:center;padding:0 15px;border-radius:14px;background:rgba(248,243,240,.8);border:1px solid rgba(40,33,38,.06);font:600 13px Montserrat,sans-serif;color:#C8BFC3">Nausea</span>
+        </div>
+      </div>
+      <div>
+        <div style="font:600 11.5px Montserrat,sans-serif;color:#6F656B;margin-bottom:8px">Five-point scale · “Energy, 2 of 5”</div>
+        <div style="display:flex;gap:8px">
+          <sc-for list="{{ scale }}" as="s" hint-placeholder-count="5">
+            <span style="{{ s.style }}"><span style="{{ s.inner }}"></span></span>
+          </sc-for>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:7px;font:500 11px Montserrat,sans-serif;color:#9A9095"><span>Depleted</span><span>Energised</span></div>
+      </div>
+    </div>
+
+    <div style="padding:20px;border-radius:24px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4);display:flex;flex-direction:column;gap:16px">
+      <div style="font:600 12.5px Montserrat,sans-serif">Calendar cells &amp; indicators</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+        <sc-for list="{{ calCells }}" as="c" hint-placeholder-count="8">
+          <div>
+            <div style="{{ c.style }}"><span style="{{ c.numStyle }}">{{ c.n }}</span>
+              <sc-if value="{{ c.sex }}"><span style="position:absolute;left:8px;bottom:6px;width:5px;height:5px;border-radius:50%;background:#6F656B"></span></sc-if>
+              <sc-if value="{{ c.body }}"><span style="position:absolute;left:50%;margin-left:-3px;bottom:6px;width:6px;height:6px;border-radius:2px;background:#C95F86"></span></sc-if>
+              <sc-if value="{{ c.sport }}"><span style="position:absolute;right:8px;bottom:5px;width:6px;height:6px;background:#7A9B45;transform:rotate(45deg)"></span></sc-if>
+              <sc-if value="{{ c.doc }}"><span style="position:absolute;right:4px;top:3px;width:13px;height:13px;border-radius:4px;border:1px solid rgba(74,100,128,.65);color:#4A6480;font:700 9px/11px Montserrat,sans-serif;text-align:center">+</span></sc-if>
+            </div>
+            <div style="font:500 10px/1.35 Montserrat,sans-serif;color:#9A9095;margin-top:5px">{{ c.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font:400 11.5px/1.55 Montserrat,sans-serif;color:#6F656B">Every event carries a fixed position and shape as well as a colour: sex bottom-left circle, body signals bottom-centre square, sport bottom-right diamond, appointment top-right badge. Predictions are always dashed and patterned.</div>
+      <div style="height:1px;background:rgba(40,33,38,.07)"></div>
+      <div style="font:600 12.5px Montserrat,sans-serif">Navigation &amp; FAB</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="display:flex;gap:2px;flex:1;padding:6px;border-radius:18px;background:rgba(255,249,246,.8);border:1px solid rgba(40,33,38,.05)">
+          <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+            <div style="{{ t.style }}"><span style="{{ t.dot }}"></span><span style="font:600 9.5px Montserrat,sans-serif">{{ t.label }}</span></div>
+          </sc-for>
+        </div>
+        <div style="flex:none;width:56px;height:56px;border-radius:20px;background:linear-gradient(160deg,#F0A0BA,#C95F86);color:#fff;font:300 28px/1 Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;box-shadow:0 14px 28px -12px rgba(201,95,134,.85),inset 0 1px 0 rgba(255,255,255,.5)">+</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="position:relative;margin-top:64px;max-width:1080px">
+  <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9A9095">06 · Surfaces, feedback and states</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:18px">
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="padding:18px;border-radius:24px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+        <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095">Content card</div>
+        <div style="font:600 16px/1.35 Montserrat,sans-serif;margin-top:6px">Why energy dips before your period</div>
+        <div style="font:400 12.5px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:5px">A 3-minute read on the luteal phase, based on current guidance.</div>
+      </div>
+      <div style="border-radius:22px;overflow:hidden;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+        <div style="min-height:52px;display:flex;align-items:center;padding:8px 15px;font:500 13.5px Montserrat,sans-serif">Personal information<span style="margin-left:auto;font:400 16px Montserrat,sans-serif;color:#C8BFC3">›</span></div>
+        <div style="min-height:52px;display:flex;align-items:center;padding:8px 15px;border-top:1px solid rgba(40,33,38,.05);font:500 13.5px Montserrat,sans-serif">Units<span style="margin-left:auto;font:400 12.5px Montserrat,sans-serif;color:#9A9095;margin-right:8px">Metric</span><span style="font:400 16px Montserrat,sans-serif;color:#C8BFC3">›</span></div>
+        <div style="min-height:52px;display:flex;align-items:center;padding:8px 15px;border-top:1px solid rgba(40,33,38,.05);font:500 13.5px Montserrat,sans-serif;color:#A9524A">Delete profile</div>
+      </div>
+      <div style="display:flex;gap:10px;padding:14px;border-radius:20px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.26)">
+        <span style="flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid #5A7BA0;color:#5A7BA0;font:700 12px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">i</span>
+        <div><div style="font:600 12.5px Montserrat,sans-serif;color:#2F4763">Predictions need one full cycle</div><div style="font:400 11.5px/1.5 Montserrat,sans-serif;color:#4A6480;margin-top:3px">Until then Eva shows what you logged, without estimates.</div></div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="padding:14px 16px;border-radius:18px;background:rgba(40,33,38,.92);display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 16px 34px -18px rgba(40,33,38,.7)">
+        <span style="font:500 13px Montserrat,sans-serif;color:#fff">Body signals deleted</span>
+        <span style="font:700 13px Montserrat,sans-serif;color:#F5B6CB">Undo</span>
+      </div>
+      <div style="padding:18px;border-radius:24px;background:rgba(255,252,250,.95);border:1px solid rgba(255,255,255,.95);box-shadow:0 18px 40px -24px rgba(40,33,38,.5)">
+        <div style="font:600 14.5px/1.35 Montserrat,sans-serif">Replace medium flow?</div>
+        <div style="font:400 12px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:5px">Only one flow value is kept per day.</div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <span style="flex:1;min-height:44px;border-radius:14px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);font:600 13px Montserrat,sans-serif;color:#6F656B;display:flex;align-items:center;justify-content:center">Keep</span>
+          <span style="flex:1;min-height:44px;border-radius:14px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 13px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">Replace</span>
+        </div>
+      </div>
+      <div style="border-radius:24px 24px 8px 8px;background:rgba(255,252,250,.95);border:1px solid rgba(255,255,255,.95);padding:12px 16px 18px;box-shadow:0 -12px 34px -22px rgba(40,33,38,.5)">
+        <div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.16);margin:0 auto 12px"></div>
+        <div style="font:600 13.5px Montserrat,sans-serif">Bottom sheet · full width</div>
+        <div style="font:400 11.5px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:4px">Grabber, 30px top radius, L3 glass, safe-area bottom padding of 26px.</div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="padding:22px;border-radius:24px;background:rgba(255,255,255,.6);border:1px dashed rgba(40,33,38,.16);text-align:center">
+        <div style="width:44px;height:44px;border-radius:16px;background:rgba(233,130,165,.16);margin:0 auto 12px"></div>
+        <div style="font:600 13.5px Montserrat,sans-serif">Empty state</div>
+        <div style="font:400 12px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:4px">Log your first period to start predictions.</div>
+      </div>
+      <div style="padding:22px;border-radius:24px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+        <div style="font:600 13.5px Montserrat,sans-serif;margin-bottom:12px">Loading state</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="height:12px;width:70%;border-radius:6px;background:linear-gradient(90deg,rgba(233,130,165,.16),rgba(205,231,157,.3),rgba(233,130,165,.16))"></div>
+          <div style="height:12px;width:90%;border-radius:6px;background:linear-gradient(90deg,rgba(233,130,165,.16),rgba(205,231,157,.3),rgba(233,130,165,.16))"></div>
+          <div style="height:12px;width:52%;border-radius:6px;background:linear-gradient(90deg,rgba(233,130,165,.16),rgba(205,231,157,.3),rgba(233,130,165,.16))"></div>
+        </div>
+      </div>
+      <div style="padding:18px;border-radius:24px;background:rgba(196,100,90,.06);border:1px solid rgba(196,100,90,.24)">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:20px;height:20px;border-radius:6px;background:#C4645A;color:#fff;font:700 12px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">!</span><span style="font:600 13px Montserrat,sans-serif;color:#A9524A">Couldn’t sync your last entry</span></div>
+        <div style="font:400 11.5px/1.55 Montserrat,sans-serif;color:#8C6460;margin-top:6px">It’s saved on this device. Eva will retry automatically.</div>
+        <span style="display:inline-flex;align-items:center;min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(184,82,72,.4);font:600 12.5px Montserrat,sans-serif;color:#A9524A;margin-top:10px">Retry now</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="position:relative;margin-top:64px;max-width:1080px;padding:24px;border-radius:26px;background:linear-gradient(150deg,rgba(255,255,255,.66),rgba(255,255,255,.36));backdrop-filter:blur(26px) saturate(1.7);-webkit-backdrop-filter:blur(26px) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 16px 36px -22px rgba(150,72,100,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.4)">
+  <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9A9095">07 · Voice</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+    <div style="padding:16px;border-radius:20px;background:rgba(205,231,157,.24);border:1px solid rgba(142,173,86,.3)">
+      <div style="font:600 12px Montserrat,sans-serif;color:#5C7434;margin-bottom:8px">We say</div>
+      <div style="font:400 14px/1.6 Montserrat,sans-serif;color:#3F5220">“That can be common during this phase. Here is when it is worth contacting your provider.”</div>
+    </div>
+    <div style="padding:16px;border-radius:20px;background:rgba(196,100,90,.06);border:1px solid rgba(196,100,90,.22)">
+      <div style="font:600 12px Montserrat,sans-serif;color:#A9524A;margin-bottom:8px">We don’t say</div>
+      <div style="font:400 14px/1.6 Montserrat,sans-serif;color:#8C6460">“You’re fine!” · “Don’t break your streak” · “Your fertility score dropped”</div>
+    </div>
+  </div>
+  <div style="font:400 12px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:14px">Eva describes, contextualises and points to care. It never diagnoses, never reassures falsely, and never uses guilt, streaks or scores. Sensitive events stay neutral in language and in indicators.</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1000}}">
+class Component extends DCLogic {
+  renderVals(){
+    const chip=(v)=>{
+      const base='min-height:44px;display:flex;align-items:center;justify-content:center;border-radius:14px;font:600 13px Montserrat,sans-serif;';
+      return base+(v?'background:linear-gradient(180deg,#EE93B1,#DC7C9E);color:#fff;':'background:rgba(255,255,255,.72);border:1px solid rgba(40,33,38,.1);');
+    };
+    const cell=(o)=>{
+      let s='position:relative;height:50px;border-radius:15px;display:flex;align-items:center;justify-content:center;';
+      if(o.flow===3) s+='background:rgba(201,95,134,.42);';
+      else if(o.flow===2) s+='background:rgba(233,130,165,.30);';
+      else if(o.flow===1) s+='background:rgba(233,130,165,.16);';
+      else if(o.fert) s+='background:repeating-linear-gradient(45deg,rgba(205,231,157,.42) 0 3px,rgba(205,231,157,0) 3px 7px);border:1px dashed rgba(142,173,86,.6);';
+      else if(o.pred) s+='background:repeating-linear-gradient(45deg,rgba(233,130,165,.20) 0 3px,rgba(233,130,165,0) 3px 7px);border:1px dashed rgba(201,95,134,.55);';
+      else s+='background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.85);';
+      if(o.sel) s+='outline:2px solid #282126;outline-offset:1px;';
+      let ns='font:'+(o.today?'700':'500')+' 15px/1 Montserrat,sans-serif;color:#282126;';
+      if(o.today) ns+='width:28px;height:28px;border-radius:50%;background:#C95F86;color:#fff;display:flex;align-items:center;justify-content:center;';
+      return {n:String(o.n),label:o.label,style:s,numStyle:ns,sex:!!o.sex,body:!!o.body,sport:!!o.sport,doc:!!o.doc};
+    };
+    return {
+      brand:[
+        {name:'Primary Pink',hex:'#E982A5'},{name:'Deep Pink',hex:'#C95F86'},{name:'Soft Blush',hex:'#F9DCE6'},
+        {name:'Pistachio',hex:'#CDE79D'},{name:'Deep Pistachio',hex:'#8EAD56'},{name:'Light Pistachio',hex:'#EDF6DA'}
+      ],
+      neutrals:[
+        {name:'Warm Background',hex:'#FFF9F6'},{name:'Secondary Background',hex:'#F8F3F0'},
+        {name:'Glass Surface 66%',hex:'rgba(255,255,255,.66)'},{name:'Elevated Glass 92%',hex:'rgba(255,252,250,.92)'},
+        {name:'Primary Text',hex:'#282126'},{name:'Secondary Text',hex:'#6F656B'},
+        {name:'Muted Text',hex:'#9A9095'},{name:'Text on Dark',hex:'#FFFFFF'}
+      ],
+      semantic:[
+        {name:'Success',hex:'#7A9B45',bg:'rgba(205,231,157,.26)',border:'rgba(142,173,86,.32)',ink:'#4F6630',glyph:'✓',radius:'50%',note:'Icon + text. Saved, synced, confirmed.'},
+        {name:'Warning',hex:'#C9913F',bg:'rgba(201,145,63,.10)',border:'rgba(201,145,63,.3)',ink:'#8A6425',glyph:'!',radius:'6px',note:'Triangle-ish square mark. Needs attention, not urgent.'},
+        {name:'Error',hex:'#C4645A',bg:'rgba(196,100,90,.08)',border:'rgba(196,100,90,.26)',ink:'#A9524A',glyph:'!',radius:'50%',note:'Always paired with a message under the field.'},
+        {name:'Information',hex:'#5A7BA0',bg:'rgba(90,123,160,.09)',border:'rgba(90,123,160,.26)',ink:'#3F5A76',glyph:'i',radius:'50%',note:'Account linking, predictions, limits of data.'}
+      ],
+      spacing:[{name:'4',w:'4px'},{name:'8',w:'8px'},{name:'12',w:'12px'},{name:'16',w:'16px'},{name:'24',w:'24px'},{name:'32',w:'32px'},{name:'40',w:'40px'}],
+      radii:[{name:'14',v:'14px'},{name:'17',v:'17px'},{name:'24',v:'24px'},{name:'30',v:'30px'},{name:'pill',v:'999px'}],
+      buttonCols:[
+        {title:'Primary',items:[
+          {label:'Create account',state:'Default',style:'min-height:52px;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 26px -12px rgba(201,95,134,.8);'},
+          {label:'Create account',state:'Pressed · 96% scale, darker',style:'min-height:52px;border-radius:17px;background:linear-gradient(180deg,#D9799C,#B45276);color:#fff;font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;transform:scale(.97);'},
+          {label:'Create account',state:'Focused',style:'min-height:52px;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px rgba(40,33,38,.6);'},
+          {label:'Create account',state:'Disabled',style:'min-height:52px;border-radius:17px;background:rgba(201,95,134,.28);color:#fff;font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'}]},
+        {title:'Secondary glass',items:[
+          {label:'Resend email',state:'Default',style:'min-height:52px;border-radius:17px;background:rgba(255,255,255,.7);border:1px solid rgba(40,33,38,.1);backdrop-filter:blur(18px);font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'},
+          {label:'Resend email',state:'Pressed',style:'min-height:52px;border-radius:17px;background:rgba(248,243,240,.9);border:1px solid rgba(40,33,38,.14);font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;transform:scale(.97);'},
+          {label:'Resend email',state:'Disabled',style:'min-height:52px;border-radius:17px;background:rgba(255,255,255,.5);border:1px solid rgba(40,33,38,.06);color:#C8BFC3;font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'},
+          {label:'Change email',state:'Text button',style:'min-height:48px;border-radius:14px;color:#C95F86;font:600 14px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'}]},
+        {title:'Destructive',items:[
+          {label:'Delete profile',state:'Default · outlined',style:'min-height:52px;border-radius:17px;border:1px solid rgba(184,82,72,.5);color:#A9524A;font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'},
+          {label:'Delete profile',state:'Confirmed · solid, in modal only',style:'min-height:52px;border-radius:17px;background:#B85248;color:#fff;font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'},
+          {label:'Delete profile',state:'Disabled until DELETE is typed',style:'min-height:52px;border-radius:17px;background:#B85248;opacity:.5;color:#fff;font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'},
+          {label:'Delete entry',state:'Row-level, subtle',style:'min-height:44px;border-radius:13px;border:1px solid rgba(196,100,90,.3);color:#A9524A;font:600 13px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'}]},
+        {title:'Authentication',items:[
+          {label:'Continue with Apple',state:'Primary auth · full width',style:'min-height:52px;border-radius:17px;background:#1C1A1B;color:#fff;font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;gap:9px;'},
+          {label:'Continue with Google',state:'Primary auth · glass',style:'min-height:52px;border-radius:17px;background:rgba(255,255,255,.85);border:1px solid rgba(40,33,38,.1);font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;gap:9px;'},
+          {label:'Continue with Apple',state:'Loading',style:'min-height:52px;border-radius:17px;background:#3A3436;color:rgba(255,255,255,.6);font:600 14.5px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'},
+          {label:'Official marks drop in here',state:'Placeholder — brand assets supplied by the vendor',style:'min-height:52px;border-radius:17px;border:1px dashed rgba(40,33,38,.22);color:#9A9095;font:500 12px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;'}]}
+      ],
+      scale:[1,2,3,4,5].map(n=>({
+        style:'flex:1;min-height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;'+(n===2?'background:linear-gradient(180deg,#EE93B1,#C95F86);box-shadow:0 8px 18px -10px rgba(201,95,134,.9);':'background:rgba(255,255,255,.8);border:1px solid rgba(40,33,38,.1);'),
+        inner:'display:block;border-radius:50%;width:'+(4+n*2)+'px;height:'+(4+n*2)+'px;background:'+(n===2?'#fff':'#B3A9AE')+';'})),
+      calCells:[
+        cell({n:6,label:'Default'}),
+        cell({n:7,today:true,label:'Today'}),
+        cell({n:8,sel:true,label:'Selected'}),
+        cell({n:9,flow:1,label:'Spotting'}),
+        cell({n:10,flow:2,label:'Medium flow'}),
+        cell({n:11,flow:3,label:'Heavy flow'}),
+        cell({n:12,fert:true,label:'Fertile (predicted)'}),
+        cell({n:31,pred:true,label:'Period (predicted)'}),
+        cell({n:13,sex:true,label:'Sex · left dot'}),
+        cell({n:14,body:true,label:'Body · centre square'}),
+        cell({n:15,sport:true,label:'Sport · right diamond'}),
+        cell({n:16,doc:true,body:true,sport:true,label:'Multiple + appointment'})
+      ],
+      tabs:[
+        {label:'Home',active:false},{label:'Calendar',active:true},{label:'Profile',active:false}
+      ].map(t=>({label:t.label,
+        style:'flex:1;min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:14px;color:'+(t.active?'#C95F86':'#9A9095')+';background:'+(t.active?'rgba(233,130,165,.10)':'transparent')+';',
+        dot:'width:18px;height:18px;border-radius:'+(t.active?'7px':'6px')+';border:1.6px solid '+(t.active?'#C95F86':'#9A9095')+';background:'+(t.active?'rgba(233,130,165,.25)':'transparent')+';display:block;'})),
+      chip
+    };
+  }
+}
+</script>
+</body>
+</html>
