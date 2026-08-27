@@ -5,6 +5,23 @@ import {
     signInWithPassword,
     signUpWithPassword,
 } from "./identity-toolkit";
+import {
+    createEvent,
+    listEvents,
+    softDeleteEvent,
+    updateEvent,
+    type AppointmentPayload,
+    type BodySignalsPayload,
+    type CyclePayload,
+    type EventPatch,
+    type EventPayload,
+    type EventSource,
+    type LoggableEventType,
+    type NewEvent,
+    type SportPayload,
+    type Symptom,
+    type SymptomSeverity,
+} from "./events";
 import { ensureUser, getUser, saveQuestionnaire, type Profile } from "./users";
 
 const app = new Hono();
@@ -138,6 +155,478 @@ const parseProfile = (body: Record<string, unknown>): Profile | null => {
         sports,
     };
 };
+
+// ── Calendar events ────────────────────────────────────────────────────────────
+// Everything below validates at the edge and delegates to events.ts, which is the
+// only module allowed to touch users/{uid}/events (GUARDRAILS rule 10).
+//
+// Times on the wire are the user's wall clock, never an instant: `localDate` is
+// what the device says the day is, and the server never derives it from its own
+// clock. `timeZone` (optional, IANA) is used only to work out what "today" is for
+// the caller — it is not stored. Without it the server falls back to UTC and allows
+// a day of slack in both directions, because UTC-12..UTC+14 means someone's real
+// today is always within one day of the server's.
+
+type Parsed<T> = { ok: true; value: T } | { ok: false; code: string; message: string };
+
+const good = <T>(value: T): Parsed<T> => ({ ok: true, value });
+const bad = (message: string, code = "VALIDATION"): Parsed<never> => ({
+    ok: false,
+    code,
+    message,
+});
+
+const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const LOCAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+const NOTE_LIMIT = 280;
+const APPOINTMENT_NOTE_LIMIT = 10_000;
+const MAX_RANGE_DAYS = 400;
+
+/** `YYYY-MM-DD` that is also a real day — 2026-02-30 parses but is not one. */
+const isCalendarDate = (value: unknown): value is string => {
+    if (typeof value !== "string" || !CALENDAR_DATE.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return (
+        !Number.isNaN(parsed.getTime()) &&
+        parsed.toISOString().slice(0, 10) === value
+    );
+};
+
+const shiftDays = (date: string, days: number): string =>
+    new Date(Date.parse(`${date}T00:00:00.000Z`) + days * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+
+/** Twelve months back. 29 Feb lands on 1 Mar in a non-leap year, which is fine
+ *  for a cap — it is a day either way. */
+const minusTwelveMonths = (date: string): string => {
+    const [year, month, day] = date.split("-").map(Number);
+    return new Date(Date.UTC(year! - 1, month! - 1, day!)).toISOString().slice(0, 10);
+};
+
+interface Clock {
+    /** The caller's current local date. */
+    today: string;
+    /** The caller's current local time, `HH:mm:ss`. */
+    timeOfDay: string;
+    /** Days of tolerance around `today` when the caller did not name its zone. */
+    slackDays: number;
+}
+
+const resolveClock = (timeZone: unknown): Parsed<Clock> => {
+    if (timeZone !== undefined && typeof timeZone !== "string") {
+        return bad("timeZone must be an IANA time zone name");
+    }
+    const zone = timeZone ?? "UTC";
+    let parts: Intl.DateTimeFormatPart[];
+    try {
+        parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: zone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hourCycle: "h23",
+        }).formatToParts(new Date());
+    } catch {
+        return bad(`Unknown time zone: ${zone}`);
+    }
+    const part = (name: string) => parts.find((p) => p.type === name)!.value;
+    return good({
+        today: `${part("year")}-${part("month")}-${part("day")}`,
+        timeOfDay: `${part("hour")}:${part("minute")}:${part("second")}`,
+        slackDays: timeZone === undefined ? 1 : 0,
+    });
+};
+
+/** Future dates are for appointments only — you cannot observe something that has
+ *  not happened. Everything is capped at 12 months of backdating (PRD edge case 1). */
+const checkDatePolicy = (
+    type: LoggableEventType,
+    localDate: string,
+    clock: Clock,
+): Parsed<true> => {
+    if (type !== "appointment") {
+        const latest = shiftDays(clock.today, clock.slackDays);
+        if (localDate > latest) {
+            return bad(
+                "Only appointments can be logged on a future date",
+                "FUTURE_DATE_NOT_ALLOWED",
+            );
+        }
+    }
+    const earliest = shiftDays(minusTwelveMonths(clock.today), -clock.slackDays);
+    if (localDate < earliest) {
+        return bad(
+            "Entries can only be backdated 12 months",
+            "BACKDATE_LIMIT_EXCEEDED",
+        );
+    }
+    return good(true);
+};
+
+/** Now for today, 12:00 otherwise. The date half always matches `localDate`: the
+ *  day sheet orders entries by this, so it is a time *on that day*, not an instant. */
+const defaultLoggedAt = (localDate: string, clock: Clock): string =>
+    localDate === clock.today
+        ? `${localDate}T${clock.timeOfDay}`
+        : `${localDate}T12:00:00`;
+
+const parseLoggedAt = (value: unknown, localDate: string, clock: Clock): Parsed<string> => {
+    if (value === undefined || value === null) return good(defaultLoggedAt(localDate, clock));
+    if (typeof value !== "string" || !LOCAL_DATETIME.test(value)) {
+        return bad("loggedAt must be a local YYYY-MM-DDTHH:mm:ss");
+    }
+    const normalized = value.length === 16 ? `${value}:00` : value;
+    if (!normalized.startsWith(`${localDate}T`)) {
+        return bad("loggedAt must fall on the entry's localDate");
+    }
+    return good(normalized);
+};
+
+const parseNote = (value: unknown, type: LoggableEventType): Parsed<string | null> => {
+    if (value === undefined || value === null) return good(null);
+    if (typeof value !== "string") return bad("note must be text");
+    const limit = type === "appointment" ? APPOINTMENT_NOTE_LIMIT : NOTE_LIMIT;
+    const note = value.trim();
+    if (note.length > limit) return bad(`note must be ${limit} characters or fewer`);
+    return good(note.length > 0 ? note : null);
+};
+
+const parseSource = (value: unknown): Parsed<EventSource> => {
+    if (value === undefined || value === null) return good("user");
+    if (value !== "user" && value !== "eva") return bad("source must be user or eva");
+    return good(value);
+};
+
+const parseIdempotencyKey = (value: unknown): Parsed<string | null> => {
+    if (value === undefined || value === null) return good(null);
+    if (typeof value !== "string" || value.length < 1 || value.length > 128) {
+        return bad("idempotencyKey must be 1–128 characters");
+    }
+    return good(value);
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+
+const parseCyclePayload = (body: Record<string, unknown>): Parsed<CyclePayload> => {
+    const hasSpotting = body.spotting !== undefined && body.spotting !== null;
+    const hasFlow = body.flow !== undefined && body.flow !== null;
+    // Spotting is a marker, not a flow level: a spotting day does not start a period.
+    if (hasSpotting && hasFlow) {
+        return bad("A cycle entry is either spotting or a flow level, not both");
+    }
+    if (hasSpotting) {
+        return body.spotting === true
+            ? good({ spotting: true })
+            : bad("spotting must be true when present");
+    }
+    if (hasFlow) {
+        return body.flow === "light" || body.flow === "medium" || body.flow === "heavy"
+            ? good({ flow: body.flow })
+            : bad("flow must be light, medium or heavy");
+    }
+    return bad("A cycle entry needs either spotting or a flow level");
+};
+
+const parseRating = (value: unknown, name: string): Parsed<number | undefined> => {
+    if (value === undefined || value === null) return good(undefined);
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 5) {
+        return bad(`${name} must be a whole number from 1 to 5`);
+    }
+    return good(value);
+};
+
+/** Symptom codes are opaque strings until #24 ships the catalogue. */
+const parseSymptoms = (value: unknown): Parsed<Symptom[]> => {
+    if (value === undefined || value === null) return good([]);
+    if (!Array.isArray(value)) return bad("symptoms must be a list");
+    if (value.length > 40) return bad("symptoms must hold 40 entries or fewer");
+    const symptoms: Symptom[] = [];
+    for (const entry of value) {
+        if (!isRecord(entry)) return bad("each symptom must be an object");
+        const { code, severity } = entry;
+        if (typeof code !== "string" || code.trim().length < 1 || code.length > 64) {
+            return bad("each symptom needs a code of 1–64 characters");
+        }
+        if (severity !== undefined && severity !== null && severity !== "normal" && severity !== "severe") {
+            return bad("symptom severity must be normal or severe");
+        }
+        if (symptoms.some((s) => s.code === code.trim())) {
+            return bad(`symptom ${code.trim()} is listed twice`);
+        }
+        symptoms.push({ code: code.trim(), severity: (severity as SymptomSeverity) ?? "normal" });
+    }
+    return good(symptoms);
+};
+
+const parseBodySignalsPayload = (
+    body: Record<string, unknown>,
+): Parsed<BodySignalsPayload> => {
+    const energy = parseRating(body.energy, "energy");
+    if (!energy.ok) return energy;
+    const mood = parseRating(body.mood, "mood");
+    if (!mood.ok) return mood;
+    const sleep = parseRating(body.sleep, "sleep");
+    if (!sleep.ok) return sleep;
+    const symptoms = parseSymptoms(body.symptoms);
+    if (!symptoms.ok) return symptoms;
+    // Absent ratings stay absent — nothing is preselected, and 3 is not "unanswered".
+    return good({
+        ...(energy.value !== undefined ? { energy: energy.value } : {}),
+        ...(mood.value !== undefined ? { mood: mood.value } : {}),
+        ...(sleep.value !== undefined ? { sleep: sleep.value } : {}),
+        symptoms: symptoms.value,
+    });
+};
+
+const parseSportPayload = (body: Record<string, unknown>): Parsed<SportPayload> => {
+    const { activity, durationMin, intensity } = body;
+    if (typeof activity !== "string" || activity.trim().length < 1 || activity.length > 64) {
+        return bad("activity must be 1–64 characters");
+    }
+    if (
+        typeof durationMin !== "number" ||
+        !Number.isInteger(durationMin) ||
+        durationMin < 5 ||
+        durationMin > 300
+    ) {
+        return bad("durationMin must be a whole number of minutes from 5 to 300");
+    }
+    if (intensity !== "light" && intensity !== "medium" && intensity !== "hard") {
+        return bad("intensity must be light, medium or hard");
+    }
+    return good({ activity: activity.trim(), durationMin, intensity });
+};
+
+const parseAppointmentPayload = (
+    body: Record<string, unknown>,
+    localDate: string,
+): Parsed<AppointmentPayload> => {
+    const { startAt, type, questions, reminderMinutesBefore } = body;
+    if (typeof startAt !== "string" || !LOCAL_DATETIME.test(startAt)) {
+        return bad("startAt must be a local YYYY-MM-DDTHH:mm:ss");
+    }
+    const normalizedStart = startAt.length === 16 ? `${startAt}:00` : startAt;
+    if (!normalizedStart.startsWith(`${localDate}T`)) {
+        return bad("startAt must fall on the appointment's localDate");
+    }
+    if (type !== undefined && type !== null && (typeof type !== "string" || type.length > 64)) {
+        return bad("type must be 64 characters or fewer");
+    }
+    const list: string[] = [];
+    if (questions !== undefined && questions !== null) {
+        if (!Array.isArray(questions)) return bad("questions must be a list");
+        if (questions.length > 50) return bad("questions must hold 50 entries or fewer");
+        for (const question of questions) {
+            if (typeof question !== "string" || question.trim().length < 1 || question.length > 500) {
+                return bad("each question must be 1–500 characters");
+            }
+            list.push(question.trim());
+        }
+    }
+    // Omitted means the PRD's default of one day before; explicit null means none.
+    let reminder: number | null = 1440;
+    if (reminderMinutesBefore === null) reminder = null;
+    else if (reminderMinutesBefore !== undefined) {
+        if (
+            typeof reminderMinutesBefore !== "number" ||
+            !Number.isInteger(reminderMinutesBefore) ||
+            reminderMinutesBefore < 0 ||
+            reminderMinutesBefore > 40_320
+        ) {
+            return bad("reminderMinutesBefore must be a whole number of minutes from 0 to 40320");
+        }
+        reminder = reminderMinutesBefore;
+    }
+    return good({
+        startAt: normalizedStart,
+        type: typeof type === "string" && type.trim().length > 0 ? type.trim() : null,
+        questions: list,
+        reminderMinutesBefore: reminder,
+    });
+};
+
+const parsePayload = (
+    type: LoggableEventType,
+    payload: unknown,
+    localDate: string,
+): Parsed<EventPayload> => {
+    if (!isRecord(payload)) return bad("payload must be an object");
+    switch (type) {
+        case "cycle":
+            return parseCyclePayload(payload);
+        case "bodySignals":
+            return parseBodySignalsPayload(payload);
+        case "sport":
+            return parseSportPayload(payload);
+        case "appointment":
+            return parseAppointmentPayload(payload, localDate);
+    }
+};
+
+const parseEventType = (value: unknown): Parsed<LoggableEventType> => {
+    if (value === "sex") {
+        // Reserved in the model; ships in C10 with its privacy switch.
+        return bad("The sex event type is not available yet");
+    }
+    if (
+        value !== "cycle" &&
+        value !== "bodySignals" &&
+        value !== "sport" &&
+        value !== "appointment"
+    ) {
+        return bad("type must be cycle, bodySignals, sport or appointment");
+    }
+    return good(value);
+};
+
+const parseNewEvent = (body: Record<string, unknown>): Parsed<NewEvent> => {
+    const type = parseEventType(body.type);
+    if (!type.ok) return type;
+    if (!isCalendarDate(body.localDate)) return bad("localDate must be YYYY-MM-DD");
+    const localDate = body.localDate;
+
+    const clock = resolveClock(body.timeZone);
+    if (!clock.ok) return clock;
+    const policy = checkDatePolicy(type.value, localDate, clock.value);
+    if (!policy.ok) return policy;
+
+    const loggedAt = parseLoggedAt(body.loggedAt, localDate, clock.value);
+    if (!loggedAt.ok) return loggedAt;
+    const note = parseNote(body.note, type.value);
+    if (!note.ok) return note;
+    const source = parseSource(body.source);
+    if (!source.ok) return source;
+    const idempotencyKey = parseIdempotencyKey(body.idempotencyKey);
+    if (!idempotencyKey.ok) return idempotencyKey;
+    const payload = parsePayload(type.value, body.payload, localDate);
+    if (!payload.ok) return payload;
+
+    return good({
+        type: type.value,
+        localDate,
+        loggedAt: loggedAt.value,
+        note: note.value,
+        source: source.value,
+        idempotencyKey: idempotencyKey.value,
+        payload: payload.value,
+    } as NewEvent);
+};
+
+app.get("/me/events", requireAuth, async (c) => {
+    const from = c.req.query("from");
+    const to = c.req.query("to");
+    if (!isCalendarDate(from) || !isCalendarDate(to)) {
+        return c.json(error("VALIDATION", "from and to must be YYYY-MM-DD"), 400);
+    }
+    if (from > to) return c.json(error("VALIDATION", "from must not be after to"), 400);
+    if (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`) >
+        MAX_RANGE_DAYS * 86_400_000) {
+        return c.json(
+            error("VALIDATION", `Range must be ${MAX_RANGE_DAYS} days or fewer`),
+            400,
+        );
+    }
+    return c.json({ events: await listEvents(c.get("claims").sub, from, to) });
+});
+
+app.post("/me/events", requireAuth, async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = parseNewEvent(body);
+    if (!parsed.ok) return c.json(error(parsed.code, parsed.message), 400);
+    return c.json({ event: await createEvent(c.get("claims").sub, parsed.value) }, 201);
+});
+
+app.patch("/me/events/:id", requireAuth, async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    // `type` and `localDate` are always required: with both, every payload and
+    // timestamp rule can be checked here instead of after a read in the module.
+    const type = parseEventType(body.type);
+    if (!type.ok) return c.json(error(type.code, type.message), 400);
+    if (!isCalendarDate(body.localDate)) {
+        return c.json(error("VALIDATION", "localDate must be YYYY-MM-DD"), 400);
+    }
+    const localDate = body.localDate;
+    const clock = resolveClock(body.timeZone);
+    if (!clock.ok) return c.json(error(clock.code, clock.message), 400);
+    const policy = checkDatePolicy(type.value, localDate, clock.value);
+    if (!policy.ok) return c.json(error(policy.code, policy.message), 400);
+
+    const patch: EventPatch = { type: type.value, localDate };
+    if (body.note !== undefined) {
+        const note = parseNote(body.note, type.value);
+        if (!note.ok) return c.json(error(note.code, note.message), 400);
+        patch.note = note.value;
+    }
+    if (body.payload !== undefined) {
+        const payload = parsePayload(type.value, body.payload, localDate);
+        if (!payload.ok) return c.json(error(payload.code, payload.message), 400);
+        patch.payload = payload.value;
+    }
+    if (body.loggedAt !== undefined) {
+        const loggedAt = parseLoggedAt(body.loggedAt, localDate, clock.value);
+        if (!loggedAt.ok) return c.json(error(loggedAt.code, loggedAt.message), 400);
+        patch.loggedAt = loggedAt.value;
+    }
+
+    const result = await updateEvent(c.get("claims").sub, c.req.param("id"), patch);
+    if (result.ok) return c.json({ event: result.event });
+    if (result.reason === "not-found") return c.json(error("NOT_FOUND", "No such event"), 404);
+    if (result.reason === "type-mismatch") {
+        return c.json(error("VALIDATION", "type does not match the stored event"), 400);
+    }
+    return c.json(
+        error("VALIDATION", "This entry is one per day — delete it and log the other day instead"),
+        400,
+    );
+});
+
+app.delete("/me/events/:id", requireAuth, async (c) => {
+    const deleted = await softDeleteEvent(c.get("claims").sub, c.req.param("id"));
+    if (!deleted) return c.json(error("NOT_FOUND", "No such event"), 404);
+    return c.json({ deleted: true });
+});
+
+/** Upsert-by-day: one body signals entry per user per day, always replaced whole.
+ *  The ratings sit at the top level here — the route already says what this is. */
+app.put("/me/body-signals/:date", requireAuth, async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const localDate = c.req.param("date");
+    if (!isCalendarDate(localDate)) {
+        return c.json(error("VALIDATION", "date must be YYYY-MM-DD"), 400);
+    }
+
+    const clock = resolveClock(body.timeZone);
+    if (!clock.ok) return c.json(error(clock.code, clock.message), 400);
+    const policy = checkDatePolicy("bodySignals", localDate, clock.value);
+    if (!policy.ok) return c.json(error(policy.code, policy.message), 400);
+
+    const payload = parseBodySignalsPayload(body);
+    if (!payload.ok) return c.json(error(payload.code, payload.message), 400);
+    const loggedAt = parseLoggedAt(body.loggedAt, localDate, clock.value);
+    if (!loggedAt.ok) return c.json(error(loggedAt.code, loggedAt.message), 400);
+    const note = parseNote(body.note, "bodySignals");
+    if (!note.ok) return c.json(error(note.code, note.message), 400);
+    const source = parseSource(body.source);
+    if (!source.ok) return c.json(error(source.code, source.message), 400);
+    const idempotencyKey = parseIdempotencyKey(body.idempotencyKey);
+    if (!idempotencyKey.ok) return c.json(error(idempotencyKey.code, idempotencyKey.message), 400);
+
+    const event = await createEvent(c.get("claims").sub, {
+        type: "bodySignals",
+        localDate,
+        loggedAt: loggedAt.value,
+        note: note.value,
+        source: source.value,
+        idempotencyKey: idempotencyKey.value,
+        payload: payload.value,
+    });
+    return c.json({ event });
+});
 
 export default {
     // Cloud Run injects PORT (8080); default to 3003 for local dev
