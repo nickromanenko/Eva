@@ -129,6 +129,30 @@ describe("auth", () => {
         );
     });
 
+    test("signin answers a wrong password and an unknown address identically", async () => {
+        // The live half of the non-enumeration property (issue #21): this one guards the
+        // upstream layer, and it is the weaker of the two. Identity Toolkit collapses both
+        // cases into INVALID_LOGIN_CREDENTIALS today, so this stays green even if the route
+        // interpolates the upstream reason into the message. test/signin-non-enumeration.test.ts
+        // is the test that pins our half, with the upstream controlled.
+        const wrongPassword = await api("/auth/signin", {
+            method: "POST",
+            body: JSON.stringify({ email, password: "wrong-password-1" }),
+        });
+        const unknownAddress = await api("/auth/signin", {
+            method: "POST",
+            body: JSON.stringify({
+                email: `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`,
+                password,
+            }),
+        });
+        expect(wrongPassword.status).toBe(unknownAddress.status);
+        const wrong = await json<ErrorResponse>(wrongPassword);
+        const unknown = await json<ErrorResponse>(unknownAddress);
+        expect(wrong.error.code).toBe(unknown.error.code);
+        expect(wrong.error.message).toBe(unknown.error.message);
+    });
+
     test("GET /me requires and honors the JWT", async () => {
         expect((await api("/me")).status).toBe(401);
         const res = await api("/me", { token });
