@@ -1,5 +1,10 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { mintToken, requireAuth } from "./auth";
+import {
+    authRetryAfterSeconds,
+    consumeAuthAttempt,
+    type AuthRoute,
+} from "./rate-limit";
 import {
     IdentityToolkitError,
     signInWithPassword,
@@ -53,6 +58,46 @@ const PASSWORD_RULE = "At least 8 characters, including one number.";
 const isValidPassword = (password: string): boolean =>
     password.length >= 8 && /\p{N}/u.test(password);
 
+/**
+ * The calling client's address, for the per-IP half of the auth throttle (issue #5).
+ *
+ * The **rightmost** `X-Forwarded-For` entry, not the leftmost. Cloud Run appends the
+ * address it actually accepted the connection from, and everything to the left of that is
+ * whatever the caller chose to send — trusting the left would put the per-IP limit one
+ * request header away from useless. This assumes `eva-api` stays a *direct* Cloud Run
+ * service, as `.github/workflows/deploy-api.yml` deploys it; put an external load balancer
+ * in front and the rightmost entry becomes the balancer's, so revisit this then.
+ *
+ * `null` when there is no header, which skips the per-IP dimension rather than bucketing
+ * every caller together — collapsing the world into one counter is an outage, and the
+ * per-address limit still applies. Cloud Run always sets the header, so in production this
+ * is unreachable; locally, and for in-process tests, it is the ordinary case.
+ */
+const clientIp = (c: Context): string | null => {
+    const forwarded = c.req.header("x-forwarded-for");
+    if (!forwarded) return null;
+    const hops = forwarded.split(",");
+    const client = hops[hops.length - 1]?.trim() ?? "";
+    return client === "" ? null : client;
+};
+
+/**
+ * Counts this attempt and, if it is over the limit, answers instead of serving it.
+ * `null` means carry on.
+ *
+ * Called *after* validation and *before* the Identity Toolkit call, so a throttled request
+ * costs neither us nor the bill anything, and so the answer cannot depend on what the
+ * upstream would have said. The response is one constant for every caller: same status,
+ * same code, same message, same `Retry-After`, with nothing derived from the address —
+ * which is what keeps the sign-in non-enumeration property (§3) intact under throttling.
+ */
+const throttleAuth = (c: Context, route: AuthRoute, email: string) => {
+    if (consumeAuthAttempt(route, clientIp(c), email)) return null;
+    return c.json(error("RATE_LIMITED", "Too many attempts. Try again later."), 429, {
+        "retry-after": String(authRetryAfterSeconds),
+    });
+};
+
 app.get("/", (c) => c.text("Eva API"));
 app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -65,6 +110,8 @@ app.post("/auth/signup", async (c) => {
     if (!isValidPassword(password)) {
         return c.json(error("WEAK_PASSWORD", PASSWORD_RULE), 400);
     }
+    const throttled = throttleAuth(c, "signup", email);
+    if (throttled) return throttled;
 
     try {
         const { localId } = await signUpWithPassword(email, password);
@@ -94,6 +141,8 @@ app.post("/auth/signin", async (c) => {
             400,
         );
     }
+    const throttled = throttleAuth(c, "signin", email);
+    if (throttled) return throttled;
 
     try {
         const { localId } = await signInWithPassword(email, password);

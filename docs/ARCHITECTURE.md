@@ -62,21 +62,22 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `index.ts` | Routes, request validation, HTTP status/error mapping | No Firestore or `fetch` calls here — delegate |
 | `auth.ts` | Minting and verifying the Eva JWT, `requireAuth` middleware | The only place `JWT_SECRET` is used |
 | `identity-toolkit.ts` | Password credential create/verify via Google REST | The only place the web API key is used |
+| `rate-limit.ts` | In-memory attempt counters for `/auth/*` | Holds no identity state; never logs its keys |
 | `users.ts` | The `users/{uid}` document: read, create, update | The only module that touches `users/` |
 | `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete | The only module that touches `events/` |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
 
-Layering: `index.ts` → (`auth`, `identity-toolkit`, `users`, `events`, `refdata`) → (`firebase`, `config`).
-Never call upward, never sideways between the middle three.
+Layering: `index.ts` → (`auth`, `identity-toolkit`, `rate-limit`, `users`, `events`, `refdata`)
+→ (`firebase`, `config`). Never call upward, never sideways along the middle row.
 
 ### Contracts
 
 Errors are always `{ "error": { "code": string, "message": string } }`. `code` is a
 stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
 `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`,
-`UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`);
+`UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`);
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
@@ -113,6 +114,34 @@ controlling the upstream boundary.
 `POST /auth/signup` deliberately does the **opposite** and returns `EMAIL_EXISTS` — the
 caller already holds the address, and the canvas' account-linking banner depends on knowing.
 The asymmetry is intended; do not "fix" it.
+
+**`/auth/*` is throttled, per instance only.** Both auth routes count each attempt against
+two counters — the caller's IP and the submitted address — and answer
+`429 RATE_LIMITED` with a constant `Retry-After` once either is over its limit. Limits come
+from `config.rateLimit` (`RATE_LIMIT_*`, all optional; any of them set to `0` disables that
+dimension). Sign-up and sign-in hold separate budgets.
+
+*What that actually buys, stated plainly:* **the counters are in each Cloud Run instance's
+memory, so the real limit is `limit × instance count`, and every deploy, scale-up, and cold
+start resets every window.** It makes bulk password guessing and bulk account creation
+expensive; it does not bound them. This is rate limiting *partial*, not rate limiting
+*done* — issue #5 delivers the route behaviour and the contract, not an accurate counter.
+Making it accurate means moving the counters into a store every instance shares, which
+means a Firestore read+write on the path of every sign-in or a new Redis dependency; the
+swap is confined to `createRateLimiter` in `api/src/rate-limit.ts`, and nothing outside that
+file knows where the counters live.
+
+Two consequences worth knowing before tuning the numbers. The per-IP limits are deliberately
+loose because iOS traffic arrives through carrier NAT, where one address fronts many
+unrelated users. And a per-address limit is a lockout primitive: someone who knows a user's
+address can spend that user's sign-in budget for them, which is inherent to per-identifier
+throttling rather than to this implementation, and is why the per-address limits are not
+tighter.
+
+The throttle is applied **after** validation and **before** the Identity Toolkit call, so it
+can never see, and never depends on, whether an address is registered — that is what keeps
+the non-enumeration property above intact. `api/test/signin-non-enumeration.test.ts` pins
+that a throttled registered address and a throttled unknown one are byte-identical.
 
 The JWT is HS256, 30-day TTL, claims `{ sub, email, iat, exp }`. **There is no refresh
 token in v1** — expiry means sign in again. Adding refresh is an architecture change,
@@ -236,13 +265,17 @@ Two escape hatches, both DEBUG-only, both used by tooling — keep them working:
 | `JWT_SECRET` | `api/.env` | Secret Manager `eva-jwt-secret:latest` |
 | Admin credentials | `gcloud auth application-default login`, or a key in `api/.secrets/` | runtime service account (ADC) |
 
+The `RATE_LIMIT_*` knobs (§3) are optional in both environments — unset means the
+defaults in `api/src/config.ts`, and they are configuration, not secrets.
+
 CI authenticates by Workload Identity Federation — **no key files in CI, ever**.
 `api/.env` and `api/.secrets/` are gitignored and stay that way.
 
 ## 7. Known gaps (deliberate, not oversights)
 
 - No refresh tokens; no password reset; no account deletion.
-- No rate limiting on `/auth/*`.
+- `/auth/*` throttling is per Cloud Run instance and in memory (see §3): it raises the
+  cost of credential stuffing, it does not bound it. A shared store is the real fix.
 - `firestore.rules` / `storage.rules` are deny-all and not deployed by CI.
 - Firebase iOS SDK is not linked (commented out in `project.yml`).
 - The production API base URL is hardcoded in `APIClient.resolveBaseURL()`.
