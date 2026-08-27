@@ -38,10 +38,10 @@ Each rule is stated so a reviewer can check it mechanically.
     delegate; they don't query. (Widened from "only `users.ts` touches Firestore" when the
     calendar needed a second collection — the intent was never one file, it was no
     scattered database access.)
-11. Error responses keep the shape `{ error: { code, message } }`. Existing codes
-    (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`, `UNAUTHORIZED`,
-    `UNKNOWN_SYMPTOM_CODE`) are a client
-    contract — adding is fine, renaming or repurposing is a breaking change.
+11. Error responses keep the shape `{ error: { code, message } }`. Existing codes are a
+    client contract — adding is fine, renaming or repurposing is a breaking change. The
+    current set lives in [ARCHITECTURE.md](ARCHITECTURE.md) §3 and grows; do not duplicate
+    it here, because the copy goes stale (it already did).
 12. Never log a password, a token, a full JWT, or a user's `profile` contents.
 13. Validate untrusted input at the route edge before it reaches a module
     (`normalizeEmail`, `parseProfile`). Don't push validation downward.

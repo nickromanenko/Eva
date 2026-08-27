@@ -103,6 +103,17 @@ so the user is never told two different rules. The server's copy of the string l
 the Swift file and asserts they still match. `POST /auth/signin` **never** applies the
 rule — accounts that predate it hold passwords with no digit and must keep working.
 
+**Sign-in answers identically whether the password was wrong or the address was never
+registered** — same status, same code, same message. This is deliberate: knowing that an
+address has an Eva account is itself sensitive. Note the property currently rests on two
+layers, ours and Identity Toolkit's own collapse of both cases upstream, so a regression in
+ours would not be visible from outside. `api/test/signin-non-enumeration.test.ts` pins it by
+controlling the upstream boundary.
+
+`POST /auth/signup` deliberately does the **opposite** and returns `EMAIL_EXISTS` — the
+caller already holds the address, and the canvas' account-linking banner depends on knowing.
+The asymmetry is intended; do not "fix" it.
+
 The JWT is HS256, 30-day TTL, claims `{ sub, email, iat, exp }`. **There is no refresh
 token in v1** — expiry means sign in again. Adding refresh is an architecture change,
 not a task.
