@@ -1,4 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { config } from "../src/config";
+import { resetAuthRateLimits } from "../src/rate-limit";
 
 /**
  * The non-enumeration property on `POST /auth/signin` (issue #21).
@@ -60,11 +62,16 @@ interface Answer {
     error: { code: string; message: string };
 }
 
-const post = async (path: string, body: unknown): Promise<Answer> => {
+const post = async (
+    path: string,
+    body: unknown,
+    /** Extra request headers — `x-forwarded-for`, for the per-IP half of the throttle. */
+    headers: Record<string, string> = {},
+): Promise<Answer> => {
     const res = await server.fetch(
         new Request(`http://api.test${path}`, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...headers },
             body: JSON.stringify(body),
         }),
     );
@@ -148,5 +155,214 @@ describe("signup deliberately does distinguish a taken address", () => {
         expect(res.status).toBe(409);
         expect(res.error.code).toBe("EMAIL_EXISTS");
         expect(res.error.code).not.toBe("INVALID_CREDENTIALS");
+    });
+});
+
+/**
+ * The `/auth/*` throttle (issue #5), and the trap it sets for the property above.
+ *
+ * A per-address limiter is exactly the shape of thing that re-opens the enumeration hole
+ * #21 closed. If a registered address were throttled on a different schedule from an
+ * unregistered one — a different count, a different status, a different `Retry-After` —
+ * then the limiter would answer the question that the response body no longer does, and
+ * the answer would be just as usable. So the throttled answers are compared the same way
+ * the 401s are: byte for byte, headers included.
+ *
+ * The counts come from `config`, not from literals, so the tests describe the boundary
+ * wherever it is set rather than pinning today's default a second time.
+ */
+
+const SIGNIN_PER_EMAIL = config.rateLimit.signinPerEmail;
+const SIGNIN_PER_IP = config.rateLimit.signinPerIp;
+const SIGNUP_PER_EMAIL = config.rateLimit.signupPerEmail;
+
+/** Signs in `times` times and hands back every answer, in order. */
+const signinRepeatedly = async (
+    email: string,
+    times: number,
+    headers: Record<string, string> = {},
+): Promise<Answer[]> => {
+    const answers: Answer[] = [];
+    for (let i = 0; i < times; i++) {
+        answers.push(await post("/auth/signin", { email, password: PASSWORD }, headers));
+    }
+    return answers;
+};
+
+describe("throttling does not reintroduce the enumeration leak", () => {
+    beforeEach(() => resetAuthRateLimits());
+    afterAll(() => resetAuthRateLimits());
+
+    test("a throttled registered address and a throttled unknown one answer identically", async () => {
+        // A limit of 0 disables the throttle, which would make everything below pass
+        // without testing anything. Fail loudly instead.
+        expect(SIGNIN_PER_EMAIL).toBeGreaterThan(0);
+
+        const registered = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
+        const unknown = await signinRepeatedly(UNKNOWN, SIGNIN_PER_EMAIL + 1);
+
+        // The upstream is still telling the route two different things throughout.
+        expect(upstreamSigninReason(REGISTERED)).not.toBe(upstreamSigninReason(UNKNOWN));
+
+        // Both cross the boundary at the same attempt: the first SIGNIN_PER_EMAIL are
+        // served and answered 401, and only the one after that is refused.
+        for (let i = 0; i < SIGNIN_PER_EMAIL; i++) {
+            expect(registered[i]!.status).toBe(401);
+            expect(unknown[i]!.status).toBe(401);
+        }
+
+        const throttledRegistered = registered[SIGNIN_PER_EMAIL]!;
+        const throttledUnknown = unknown[SIGNIN_PER_EMAIL]!;
+        expect(throttledRegistered.status).toBe(429);
+        expect(throttledUnknown.status).toBe(429);
+
+        // The same comparison the 401 branch gets: same bytes, same headers. A
+        // `Retry-After` computed from what is left on the bucket would land here.
+        expect(throttledRegistered.text).toBe(throttledUnknown.text);
+        expect(throttledRegistered.headers).toBe(throttledUnknown.headers);
+    });
+
+    test("the throttled answer carries no address and no upstream reason", async () => {
+        // Equality alone would miss a leak that is present in both branches — a message
+        // that helpfully names the address being throttled, say.
+        const leaks = [
+            "INVALID_PASSWORD",
+            "EMAIL_NOT_FOUND",
+            "INVALID_LOGIN_CREDENTIALS",
+            "Identity Toolkit",
+            "registered-account",
+            "never-registered",
+            "evaapp.dev",
+            "correct-horse",
+        ];
+
+        for (const email of [REGISTERED, UNKNOWN]) {
+            const answers = await signinRepeatedly(email, SIGNIN_PER_EMAIL + 1);
+            const throttled = answers[SIGNIN_PER_EMAIL]!;
+            expect(throttled.status).toBe(429);
+
+            const whole = `${throttled.text} ${throttled.headers}`.toLowerCase();
+            for (const leak of leaks) expect(whole).not.toContain(leak.toLowerCase());
+        }
+    });
+});
+
+describe("the /auth/* throttle", () => {
+    beforeEach(() => resetAuthRateLimits());
+    afterAll(() => resetAuthRateLimits());
+
+    test("the refusal is 429 in the standard error shape, with the additive code", async () => {
+        const answers = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
+        const throttled = answers[SIGNIN_PER_EMAIL]!;
+
+        expect(throttled.status).toBe(429);
+        expect(throttled.error.code).toBe("RATE_LIMITED");
+        expect(throttled.error.message).toBeTypeOf("string");
+        expect(throttled.error.message.length).toBeGreaterThan(0);
+        // The shape is `{ error: { code, message } }` and nothing else (GUARDRAILS 11).
+        expect(Object.keys(JSON.parse(throttled.text))).toEqual(["error"]);
+        expect(Object.keys(throttled.error).sort()).toEqual(["code", "message"]);
+    });
+
+    test("Retry-After is the whole window, so it is a constant across callers", async () => {
+        const registered = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
+        const unknown = await signinRepeatedly(UNKNOWN, SIGNIN_PER_EMAIL + 1);
+
+        const retryAfter = (answer: Answer) =>
+            (JSON.parse(answer.headers) as [string, string][]).find(
+                ([name]) => name.toLowerCase() === "retry-after",
+            )?.[1];
+
+        expect(retryAfter(registered[SIGNIN_PER_EMAIL]!)).toBe(
+            String(config.rateLimit.windowSeconds),
+        );
+        expect(retryAfter(registered[SIGNIN_PER_EMAIL]!)).toBe(
+            retryAfter(unknown[SIGNIN_PER_EMAIL]!),
+        );
+    });
+
+    test("throttling one address does not throttle another", async () => {
+        const exhausted = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
+        expect(exhausted[SIGNIN_PER_EMAIL]!.status).toBe(429);
+
+        const bystander = await post("/auth/signin", { email: UNKNOWN, password: PASSWORD });
+        expect(bystander.status).toBe(401);
+    });
+
+    test("signup and signin hold separate budgets for the same address", async () => {
+        // Pinning the choice, not discovering it: the two routes defend different things,
+        // so exhausting one must leave the other alone. See src/rate-limit.ts.
+        const signins = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
+        expect(signins[SIGNIN_PER_EMAIL]!.status).toBe(429);
+
+        // 409, because the mocked upstream says the address is taken — the point is that
+        // it was served at all rather than refused by sign-in's exhausted counter.
+        const signup = await post("/auth/signup", { email: REGISTERED, password: PASSWORD });
+        expect(signup.status).toBe(409);
+        expect(signup.error.code).toBe("EMAIL_EXISTS");
+
+        // And the reverse direction, on its own budget.
+        expect(SIGNUP_PER_EMAIL).toBeGreaterThan(0);
+        for (let i = 1; i < SIGNUP_PER_EMAIL; i++) {
+            expect((await post("/auth/signup", { email: REGISTERED, password: PASSWORD })).status)
+                .toBe(409);
+        }
+        const overSignup = await post("/auth/signup", { email: REGISTERED, password: PASSWORD });
+        expect(overSignup.status).toBe(429);
+        expect(overSignup.error.code).toBe("RATE_LIMITED");
+    });
+
+    test("the per-IP limit catches one caller sweeping many addresses", async () => {
+        expect(SIGNIN_PER_IP).toBeGreaterThan(0);
+        const ip = { "x-forwarded-for": "203.0.113.7" };
+
+        // A different address every time, so the per-address counters never fire and the
+        // only thing that can refuse this is the per-IP one.
+        for (let i = 0; i < SIGNIN_PER_IP; i++) {
+            const answer = await post(
+                "/auth/signin",
+                { email: `e2e+sweep-${i}@e2e.evaapp.dev`, password: PASSWORD },
+                ip,
+            );
+            expect(answer.status).toBe(401);
+        }
+
+        const over = await post(
+            "/auth/signin",
+            { email: "e2e+sweep-last@e2e.evaapp.dev", password: PASSWORD },
+            ip,
+        );
+        expect(over.status).toBe(429);
+        expect(over.error.code).toBe("RATE_LIMITED");
+
+        // A different caller is unaffected.
+        const elsewhere = await post(
+            "/auth/signin",
+            { email: "e2e+sweep-last@e2e.evaapp.dev", password: PASSWORD },
+            { "x-forwarded-for": "198.51.100.4" },
+        );
+        expect(elsewhere.status).toBe(401);
+    });
+
+    test("a forged X-Forwarded-For prefix does not buy a fresh per-IP budget", async () => {
+        // Cloud Run appends the address it accepted the connection from, so the rightmost
+        // entry is the one the caller could not choose. Reading the leftmost instead would
+        // make the per-IP limit bypassable with a request header, which is the whole
+        // reason src/index.ts reads from the right.
+        const ip = { "x-forwarded-for": "203.0.113.7" };
+        for (let i = 0; i < SIGNIN_PER_IP + 1; i++) {
+            await post(
+                "/auth/signin",
+                { email: `e2e+forge-${i}@e2e.evaapp.dev`, password: PASSWORD },
+                ip,
+            );
+        }
+
+        const forged = await post(
+            "/auth/signin",
+            { email: "e2e+forge-last@e2e.evaapp.dev", password: PASSWORD },
+            { "x-forwarded-for": "10.0.0.1, 203.0.113.7" },
+        );
+        expect(forged.status).toBe(429);
     });
 });
