@@ -1,0 +1,61 @@
+# Proves firestore.rules and storage.rules still deny everything.
+#
+# Emulators only: no Workload Identity Federation, no GCP token, no contact with
+# the real project. This workflow cannot touch production, and is deliberately
+# not granted the `id-token` permission that would let it try.
+#
+# The two path lists below are duplicated because GitHub Actions does not
+# support YAML anchors. Keep them in sync.
+name: Test Rules
+
+on:
+  pull_request:
+    paths:
+      - "firestore.rules"
+      - "storage.rules"
+      - "rules-tests/**"
+      - "firebase.json"
+      - "scripts/verify-rules.sh"
+      - ".github/workflows/test-rules.yml"
+  push:
+    branches: [main]
+    paths:
+      - "firestore.rules"
+      - "storage.rules"
+      - "rules-tests/**"
+      - "firebase.json"
+      - "scripts/verify-rules.sh"
+      - ".github/workflows/test-rules.yml"
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # The Firestore and Storage emulators are JVM processes.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # The emulator jars are tens of MB and otherwise re-downloaded every run.
+      - name: Cache emulator binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-v1
+
+      - name: Run rules tests
+        env:
+          FIREBASE_CLI: bunx firebase-tools@15
+        run: scripts/verify-rules.sh

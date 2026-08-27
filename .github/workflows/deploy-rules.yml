@@ -1,0 +1,85 @@
+# Deploys firestore.rules / storage.rules to the real project.
+#
+# MANUAL ONLY, BY DESIGN. There is no `push` trigger and there must never be
+# one: a workflow that can deploy rules is a workflow that can open the
+# database. docs/AUTONOMY.md lists rules changes as always-human, and
+# docs/GUARDRAILS.md §6-7 makes deploying them a deliberate human act. This
+# workflow is the mechanism for that act, not a substitute for it.
+#
+# It is kept in its own file rather than behind an `if:` in Test Rules so that
+# "never on push" is a structural property, not a condition someone can typo.
+name: Deploy Rules
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Which rules to deploy"
+        type: choice
+        required: true
+        default: "firestore:rules,storage"
+        options:
+          - "firestore:rules,storage"
+          - "firestore:rules"
+          - "storage"
+      confirm:
+        description: "Type DEPLOY to confirm you have read the diff"
+        type: string
+        required: true
+
+# Nothing by default; each job asks for exactly what it needs.
+permissions: {}
+
+concurrency:
+  group: deploy-rules
+  cancel-in-progress: false
+
+jobs:
+  # Never ship rules that fail their own test.
+  test:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test-rules.yml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # checkout
+      id-token: write # mint the OIDC token for Workload Identity Federation
+    steps:
+      - name: Check the confirmation
+        if: inputs.confirm != 'DEPLOY'
+        run: |
+          echo "::error::Type DEPLOY in the confirm input to run this workflow."
+          exit 1
+
+      # Rules deploys come from main, so what is deployed matches what was
+      # reviewed. Deploying a branch means someone deliberately changed this.
+      - name: Check the ref
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Deploy Rules must be run from main (got ${{ github.ref }})."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Show what is about to be deployed
+        run: |
+          echo "targets: ${{ inputs.targets }}"
+          echo "--- firestore.rules ---"; cat firestore.rules
+          echo "--- storage.rules ---";   cat storage.rules
+
+      # Workload Identity Federation. No key files, ever (GUARDRAILS §3).
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - name: Deploy rules
+        run: |
+          npx --yes firebase-tools@15 deploy \
+            --only "${{ inputs.targets }}" \
+            --project ${{ vars.GCP_PROJECT_ID }} \
+            --non-interactive

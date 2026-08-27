@@ -6,6 +6,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FAILED=0
 
+"$ROOT/scripts/verify-rules.sh"   || FAILED=1
 "$ROOT/scripts/verify-api.sh"     || FAILED=1
 "$ROOT/scripts/verify-website.sh" || FAILED=1
 "$ROOT/scripts/verify-mobile.sh"  || FAILED=1
