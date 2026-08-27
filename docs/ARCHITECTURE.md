@@ -276,7 +276,9 @@ CI authenticates by Workload Identity Federation — **no key files in CI, ever*
 - No refresh tokens; no password reset; no account deletion.
 - `/auth/*` throttling is per Cloud Run instance and in memory (see §3): it raises the
   cost of credential stuffing, it does not bound it. A shared store is the real fix.
-- `firestore.rules` / `storage.rules` are deny-all and not deployed by CI.
+- `firestore.rules` / `storage.rules` are deny-all. CI proves they still deny
+  everything (`Test Rules`, `scripts/verify-rules.sh`) but never deploys them on push:
+  `Deploy Rules` is `workflow_dispatch`-only and run by a human.
 - Firebase iOS SDK is not linked (commented out in `project.yml`).
 - The production API base URL is hardcoded in `APIClient.resolveBaseURL()`.
 

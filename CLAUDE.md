@@ -20,6 +20,7 @@ emotional state, habits and goals. iOS app + API + landing site.
 | `website/` | Landing site | Astro (static) → Firebase Hosting | — |
 | `docs/` | Written intent + specs | — | — |
 | `scripts/` | e2e and verification | — | — |
+| `rules-tests/` | Firestore/Storage rules tests (emulator) | Bun + rules-unit-testing | — |
 | root | Firebase config & rules | — | — |
 
 ## Commands
@@ -34,6 +35,7 @@ Verification — run the one for the surface you touched, before opening a PR:
 
 ```sh
 cd api && bun run verify        # typecheck + tests (= scripts/verify-api.sh)
+scripts/verify-rules.sh         # firestore/storage rules deny-all, vs. the emulator
 scripts/verify-mobile.sh        # xcodegen + build + UI tests (needs a simulator)
 scripts/verify-website.sh       # astro build
 scripts/e2e.sh                  # full stack against real Firebase (slow, creates accounts)
