@@ -248,10 +248,19 @@ reintroduce a local `@AppStorage` flag for it.
 `OnboardingStep` is a linear enum with explicit `next()`/`back()`. Add a screen by
 adding a case and wiring both transitions — there is no implicit ordering.
 
-Two escape hatches, both DEBUG-only, both used by tooling — keep them working:
-- `EVA_ONBOARDING_STEP=<rawValue>` jumps straight to a step.
-- `EVA_UITEST_RESET=1` clears the Keychain at launch.
-- `EVA_API_BASE_URL` repoints the client (used by `scripts/e2e.sh`).
+Escape hatches used by tooling — keep them working:
+- `EVA_ONBOARDING_STEP=<rawValue>` jumps straight to a step. DEBUG-only.
+- `EVA_UITEST_RESET=1` clears the Keychain at launch. DEBUG-only.
+- `EVA_API_BASE_URL` repoints the client (used by `scripts/e2e.sh` and, via
+  `TEST_RUNNER_EVA_API_BASE_URL`, by `scripts/verify-mobile.sh`). Compiled into **every**
+  configuration, not just DEBUG, so a Release build can be pointed at a test API.
+
+Without that override the base URL comes from the `EVAAPIBaseURL` Info.plist key, which
+XcodeGen fills from the `EVA_API_BASE_URL_DEFAULT` build setting in `mobile/project.yml`
+— `http://localhost:3003` for Debug, the Cloud Run URL for Release. `APIClient` treats a
+missing or non-absolute value as fatal rather than falling back to a plausible default:
+the failure mode being guarded against is a Release build that quietly talks to
+localhost, which no test would catch.
 
 `mobile/Eva.xcodeproj` is **generated and gitignored**. Edit `mobile/project.yml`, then
 `xcodegen generate`.
@@ -280,6 +289,8 @@ CI authenticates by Workload Identity Federation — **no key files in CI, ever*
   everything (`Test Rules`, `scripts/verify-rules.sh`) but never deploys them on push:
   `Deploy Rules` is `workflow_dispatch`-only and run by a human.
 - Firebase iOS SDK is not linked (commented out in `project.yml`).
-- The production API base URL is hardcoded in `APIClient.resolveBaseURL()`.
+- The production API base URL is out of the source (§5) but still baked in at build
+  time: changing it means a new build and a new release, and there is still no staging
+  configuration to point at — `Release` is the only non-local one.
 
 Anything here is a candidate backlog item, not something to "fix while nearby".

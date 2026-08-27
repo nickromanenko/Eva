@@ -37,11 +37,28 @@ targets:
         # Allows http://localhost for DEBUG/e2e runs; no effect on remote hosts.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # The API this build talks to. Substituted at build time from the
+        # EVA_API_BASE_URL_DEFAULT build setting below, so changing the production
+        # host is a config change, not a source change. APIClient reads this key and
+        # refuses to launch if it is missing or not an absolute URL; the
+        # EVA_API_BASE_URL launch environment variable still overrides it at runtime.
+        EVAAPIBaseURL: $(EVA_API_BASE_URL_DEFAULT)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.evaapp.ios
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "0.1.0"
+      configs:
+        # Deliberately *not* named EVA_API_BASE_URL. That name belongs to the runtime
+        # launch-environment override; giving the build setting the same name would put
+        # one name on two mechanisms — a shell that exports EVA_API_BASE_URL for e2e
+        # would read as if it also retargeted an archive. (It does not: a setting the
+        # project defines wins over the environment. The point is that nobody should
+        # have to know that.)
+        Debug:
+          EVA_API_BASE_URL_DEFAULT: http://localhost:3003
+        Release:
+          EVA_API_BASE_URL_DEFAULT: https://eva-api-uwkxxorika-uc.a.run.app
     # dependencies:
     #   - package: firebase-ios-sdk
     #     product: FirebaseAuth
