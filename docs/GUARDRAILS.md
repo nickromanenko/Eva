@@ -32,7 +32,11 @@ Each rule is stated so a reviewer can check it mechanically.
 8. The iOS app never calls Firebase directly. New backend capability = new API route.
 9. `users/{uid}` document IDs are Firebase Auth uids. Never generate your own ID,
    never key users by email.
-10. Only `api/src/users.ts` touches Firestore. Routes delegate; they don't query.
+10. **Every Firestore collection has exactly one owning module, and nothing else touches
+    it.** `users.ts` owns `users/`; `events.ts` owns `users/{uid}/events/`. Routes
+    delegate; they don't query. (Widened from "only `users.ts` touches Firestore" when the
+    calendar needed a second collection — the intent was never one file, it was no
+    scattered database access.)
 11. Error responses keep the shape `{ error: { code, message } }`. Existing codes
     (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`, `UNAUTHORIZED`) are a client
     contract — adding is fine, renaming or repurposing is a breaking change.
