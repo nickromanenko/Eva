@@ -67,10 +67,10 @@ final class OnboardingModel {
     /// The rule the sign-up screen states up front: "At least 8 characters, including one
     /// number." (canvas, §6 helper text).
     ///
-    /// The API only enforces the length — `POST /auth/signup` rejects under 8 characters
-    /// and says nothing about digits. The client is the stricter of the two on purpose:
-    /// the canvas states the rule to the user, and helper text that the CTA then ignores
-    /// is worse than a rule the server has not caught up with. Worth an API issue.
+    /// `POST /auth/signup` now enforces the same rule and rejects a password that fails
+    /// it with `WEAK_PASSWORD` (#20), so client and server state one rule, not two. This
+    /// stays as the local check: the CTA should not need a round trip to enforce a rule
+    /// the screen already states.
     var isPasswordValid: Bool {
         password.count >= 8 && password.contains(where: \.isNumber)
     }

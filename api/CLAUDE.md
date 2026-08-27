@@ -44,7 +44,7 @@ index.ts ──► auth.ts · identity-toolkit.ts · users.ts · events.ts · re
 - Errors are always `{ error: { code, message } }`. Codes are a client contract:
   adding is fine, renaming is breaking. Current set: `VALIDATION`, `EMAIL_EXISTS`,
   `INVALID_CREDENTIALS`, `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`,
-  `BACKDATE_LIMIT_EXCEEDED`, `UNKNOWN_SYMPTOM_CODE`.
+  `BACKDATE_LIMIT_EXCEEDED`, `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`.
 - Validate at the route edge (`normalizeEmail`, `parseProfile`), not deeper.
 - Every behavior change gets a test in `test/`.
 - Never log passwords, tokens, profile contents, or event payloads (health data).
