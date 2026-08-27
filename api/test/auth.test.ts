@@ -180,3 +180,82 @@ describe("auth", () => {
         expect(res.status).toBe(400);
     });
 });
+
+/**
+ * The canvas' password rule, enforced at creation only (issue #20).
+ *
+ * The last test is the load-bearing one: the rule applies to signup, never to signin,
+ * because accounts created before it exist and must keep working.
+ */
+describe("signup password rule", () => {
+    /** The helper text the sign-up screen actually shows, read from the client. */
+    const clientHelperText = async (): Promise<string> => {
+        const swift = await Bun.file(
+            `${import.meta.dir}/../../mobile/Eva/Onboarding/Steps/CreateAccountStepView.swift`,
+        ).text();
+        const match = swift.match(/passwordRule = "([^"]+)"/);
+        if (!match) throw new Error("passwordRule not found in CreateAccountStepView.swift");
+        return match[1]!;
+    };
+
+    const signup = (password: string) =>
+        api("/auth/signup", {
+            method: "POST",
+            body: JSON.stringify({
+                email: `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`,
+                password,
+            }),
+        });
+
+    test("8 characters without a digit is rejected", async () => {
+        const res = await signup("password");
+        expect(res.status).toBe(400);
+        expect((await json<ErrorResponse>(res)).error.code).toBe("WEAK_PASSWORD");
+    });
+
+    test("7 characters with a digit is rejected", async () => {
+        const res = await signup("passwo1");
+        expect(res.status).toBe(400);
+        expect((await json<ErrorResponse>(res)).error.code).toBe("WEAK_PASSWORD");
+    });
+
+    test("8 characters with a digit is accepted", async () => {
+        const res = await signup("passwor1");
+        expect(res.status).toBe(201);
+        createdUids.push((await json<AuthResponse>(res)).user.id);
+    });
+
+    test("a non-ASCII digit counts as a number, as it does on the client", async () => {
+        // Swift's Character.isNumber is Unicode-wide, so the CTA enables for this
+        // password. An ASCII-only server check would reject it while quoting the rule
+        // the user had just satisfied.
+        const res = await signup("passwor\u0663");
+        expect(res.status).toBe(201);
+        createdUids.push((await json<AuthResponse>(res)).user.id);
+    });
+
+    test("the rejection message is the sign-up screen's helper text", async () => {
+        const res = await signup("password");
+        expect((await json<ErrorResponse>(res)).error.message).toBe(await clientHelperText());
+    });
+
+    test("signin still accepts a pre-rule password with no digit", async () => {
+        // Created through the Admin SDK deliberately: signup itself now refuses this
+        // password, so this is the only way to stand up an account that predates the
+        // rule. Sign-in must not start rejecting the users who already hold one.
+        const legacyEmail = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+        const legacyPassword = "horsestaple";
+        const { uid: legacyUid } = await adminAuth.createUser({
+            email: legacyEmail,
+            password: legacyPassword,
+        });
+        createdUids.push(legacyUid);
+
+        const res = await api("/auth/signin", {
+            method: "POST",
+            body: JSON.stringify({ email: legacyEmail, password: legacyPassword }),
+        });
+        expect(res.status).toBe(200);
+        expect((await json<AuthResponse>(res)).user.id).toBe(legacyUid);
+    });
+});

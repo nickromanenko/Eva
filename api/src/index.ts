@@ -35,6 +35,24 @@ const normalizeEmail = (email: unknown): string | null => {
     return /\S+@\S+\.\S+/.test(normalized) ? normalized : null;
 };
 
+/**
+ * The password rule, stated exactly as the sign-up screen states it —
+ * `passwordRule` in mobile/Eva/Onboarding/Steps/CreateAccountStepView.swift. The user
+ * must never be told two different rules, so this string is the rejection message
+ * verbatim, and test/auth.test.ts reads the Swift file to pin the two together.
+ *
+ * Creation only. Sign-in never applies it: accounts predating this rule keep working.
+ */
+const PASSWORD_RULE = "At least 8 characters, including one number.";
+
+/**
+ * `\p{N}`, not `\d`, so "a number" means the same thing here as it does in the client's
+ * `Character.isNumber` (Unicode Nd/Nl/No). ASCII-only here would reject a password the
+ * sign-up CTA accepted, while quoting the rule the user just satisfied.
+ */
+const isValidPassword = (password: string): boolean =>
+    password.length >= 8 && /\p{N}/u.test(password);
+
 app.get("/", (c) => c.text("Eva API"));
 app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -44,11 +62,8 @@ app.post("/auth/signup", async (c) => {
     const password = typeof body.password === "string" ? body.password : "";
     if (!email)
         return c.json(error("VALIDATION", "A valid email is required"), 400);
-    if (password.length < 8) {
-        return c.json(
-            error("VALIDATION", "Password must be at least 8 characters"),
-            400,
-        );
+    if (!isValidPassword(password)) {
+        return c.json(error("WEAK_PASSWORD", PASSWORD_RULE), 400);
     }
 
     try {

@@ -76,7 +76,7 @@ Never call upward, never sideways between the middle three.
 Errors are always `{ "error": { "code": string, "message": string } }`. `code` is a
 stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
 `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`,
-`UNKNOWN_SYMPTOM_CODE`);
+`UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`);
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
@@ -93,6 +93,15 @@ change for the iOS client.
 | `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
+
+**Password rule — creation only.** `POST /auth/signup` enforces the rule the sign-up
+screen states as helper text: *at least 8 characters, including one number*. A password
+that fails it is `400 WEAK_PASSWORD`, and the `message` **is** that helper text verbatim,
+so the user is never told two different rules. The server's copy of the string lives in
+`api/src/index.ts` and the client's in
+`mobile/Eva/Onboarding/Steps/CreateAccountStepView.swift`; `api/test/auth.test.ts` reads
+the Swift file and asserts they still match. `POST /auth/signin` **never** applies the
+rule — accounts that predate it hold passwords with no digit and must keep working.
 
 The JWT is HS256, 30-day TTL, claims `{ sub, email, iat, exp }`. **There is no refresh
 token in v1** — expiry means sign in again. Adding refresh is an architecture change,
