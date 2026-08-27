@@ -11,17 +11,46 @@ struct APIClient: Sendable {
         token: { KeychainTokenStore.shared.token }
     )
 
-    private static func resolveBaseURL() -> URL {
-        // UI tests / tooling can point the app anywhere.
-        if let override = ProcessInfo.processInfo.environment["EVA_API_BASE_URL"],
-           let url = URL(string: override) {
+    /// Info.plist key carrying the API host for this build configuration. Written by
+    /// XcodeGen from `EVA_API_BASE_URL_DEFAULT` in `mobile/project.yml` — Debug is
+    /// `http://localhost:3003`, Release is the Cloud Run URL.
+    static let baseURLInfoKey = "EVAAPIBaseURL"
+
+    static func resolveBaseURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundle: Bundle = .main
+    ) -> URL {
+        // UI tests / tooling can point the app anywhere. An empty value is the shell
+        // idiom for "not set" and falls through; a non-empty one that isn't a URL is a
+        // mistake worth shouting about, not worth quietly ignoring.
+        if let override = environment["EVA_API_BASE_URL"], !override.isEmpty {
+            guard let url = absoluteURL(override) else {
+                fatalError("EVA_API_BASE_URL is set to \"\(override)\", which is not an absolute URL.")
+            }
             return url
         }
-        #if DEBUG
-        return URL(string: "http://localhost:3003")!
-        #else
-        return URL(string: "https://eva-api-uwkxxorika-uc.a.run.app")!
-        #endif
+        guard let configured = bundle.object(forInfoDictionaryKey: baseURLInfoKey) as? String,
+              let url = absoluteURL(configured) else {
+            // Deliberately fatal. Every path here is a broken build, not a broken
+            // network: the key is missing, still the literal `$(…)`, or empty because
+            // the build setting was not defined for this configuration. The quiet
+            // alternative — falling back to localhost — is exactly how a Release build
+            // ships pointing at a machine that isn't there, and no test would catch it.
+            // `APIClient.default` is resolved while `EvaApp` builds its `AppSession`,
+            // so this fails on launch rather than at the first request.
+            fatalError(
+                "\(baseURLInfoKey) is missing or not an absolute URL. Check "
+                + "EVA_API_BASE_URL_DEFAULT in mobile/project.yml and re-run xcodegen."
+            )
+        }
+        return url
+    }
+
+    /// A URL only counts if it can actually be requested: `URL(string:)` accepts bare
+    /// paths and unsubstituted `$(…)` placeholders as relative URLs.
+    private static func absoluteURL(_ string: String) -> URL? {
+        guard let url = URL(string: string), url.scheme != nil, url.host() != nil else { return nil }
+        return url
     }
 
     func get<Response: Decodable>(_ path: String, authorized: Bool = false) async throws -> Response {
