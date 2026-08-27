@@ -64,17 +64,19 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `identity-toolkit.ts` | Password credential create/verify via Google REST | The only place the web API key is used |
 | `users.ts` | The `users/{uid}` document: read, create, update | The only module that touches `users/` |
 | `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete | The only module that touches `events/` |
+| `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
 
-Layering: `index.ts` → (`auth`, `identity-toolkit`, `users`, `events`) → (`firebase`, `config`).
+Layering: `index.ts` → (`auth`, `identity-toolkit`, `users`, `events`, `refdata`) → (`firebase`, `config`).
 Never call upward, never sideways between the middle three.
 
 ### Contracts
 
 Errors are always `{ "error": { "code": string, "message": string } }`. `code` is a
 stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
-`UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`);
+`UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`,
+`UNKNOWN_SYMPTOM_CODE`);
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
@@ -90,6 +92,7 @@ change for the iOS client.
 | `PATCH /me/events/{id}` | Bearer | `{ event }` — body must carry `type` and `localDate` |
 | `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
+| `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 
 The JWT is HS256, 30-day TTL, claims `{ sub, email, iat, exp }`. **There is no refresh
 token in v1** — expiry means sign in again. Adding refresh is an architecture change,
@@ -142,6 +145,43 @@ stored); without one the server uses UTC and allows a day of slack either side.
 `cycle` and `bodySignals` are one entry per user per day, enforced by a deterministic
 document ID (`cycle_2026-08-27`), so re-logging replaces rather than accumulates. As
 a consequence their `localDate` cannot be changed by `PATCH` — delete and re-log.
+
+`refdata/{catalogueId}` — the option lists the client draws, one document per
+catalogue (`symptoms`, `sportActivities`, `appointmentTypes`). Owned by
+`api/src/refdata.ts`. Content is data, not code: adding an option or fixing a label is
+a Firestore write, never a deploy (PRD:483).
+
+```
+items[]        { code, label, order, status: 'active' | 'retired', … }
+               symptoms also carry: group ('primary' | 'more'), severable,
+               values (the chip's own picker, or null)
+updatedAt      serverTimestamp   // not served, and not part of the version
+```
+
+Three rules make this safe to change under a client that is already storing codes:
+
+- **A `code` is permanent and opaque.** Labels are editable; a code is what events
+  point at, is never renamed, and is never reused for a different meaning.
+- **Nothing is deleted, only retired.** A retired item is still served (flagged
+  `status: 'retired'`) so a historical entry still resolves to a label, and it is still
+  accepted on write so a queued offline entry is never rejected. It is simply not
+  offered as a new choice. Reads never validate, so an entry whose code has left the
+  catalogue entirely still returns verbatim — nothing is ever migrated retroactively.
+- **`version` is a hash of the content**, so it changes exactly when a catalogue does
+  and an idempotent re-seed does not invalidate anyone's cache. The client stores it
+  beside its copy and sends it back as `?version=` (or `If-None-Match`); an unchanged
+  catalogue answers `304` with no body.
+
+Symptom codes are validated at the route edge against this catalogue
+(`UNKNOWN_SYMPTOM_CODE`) — that is what makes one vocabulary serve both the cycle
+sheet's inline chips and the body-signals grid (PRD:484). Sport activities and
+appointment types are *not* validated: both offer "Other" with free text. A symptom's
+`severity` (`normal | severe`) and its `value` (the chip's picker, e.g. discharge
+`dry|sticky|creamy|watery|egg-white`) are separate axes — an intensity and a category.
+
+Catalogues are seeded with `cd api && bun run seed:refdata` (additive; `--relabel` also
+resets labels). It is a script, not a route: the Admin SDK bypasses `firestore.rules`,
+so seeding needs no rules change and no admin authorization surface.
 
 ## 5. iOS app structure (`mobile/Eva/`)
 

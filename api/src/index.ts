@@ -22,6 +22,7 @@ import {
     type Symptom,
     type SymptomSeverity,
 } from "./events";
+import { getRefData, getSymptomRules, type SymptomRules } from "./refdata";
 import { ensureUser, getUser, saveQuestionnaire, type Profile } from "./users";
 
 const app = new Hono();
@@ -155,6 +156,28 @@ const parseProfile = (body: Record<string, unknown>): Profile | null => {
         sports,
     };
 };
+
+// ── Reference data ─────────────────────────────────────────────────────────────
+// The option lists the client draws (PRD:483 — new options ship without an app
+// release). `version` is a hash of the content, so it changes exactly when a
+// catalogue does. The client stores it beside its copy and sends it back; an
+// unchanged catalogue answers 304 with no body, and the client keeps what it has.
+// `If-None-Match` does the same thing for anything that speaks HTTP caching.
+
+/** Strips the weak-validator prefix and quotes: `W/"abc"` and `"abc"` are both abc. */
+const etagValue = (header: string | undefined): string | undefined =>
+    header?.trim().replace(/^W\//, "").replace(/^"|"$/g, "");
+
+app.get("/refdata", requireAuth, async (c) => {
+    const refdata = await getRefData();
+    c.header("ETag", `"${refdata.version}"`);
+    // Reference data changes rarely but must not go stale silently: revalidate always,
+    // and the revalidation is a 304 with an empty body.
+    c.header("Cache-Control", "private, no-cache");
+    const known = c.req.query("version") ?? etagValue(c.req.header("if-none-match"));
+    if (known === refdata.version) return c.body(null, 304);
+    return c.json(refdata);
+});
 
 // ── Calendar events ────────────────────────────────────────────────────────────
 // Everything below validates at the edge and delegates to events.ts, which is the
@@ -340,31 +363,73 @@ const parseRating = (value: unknown, name: string): Parsed<number | undefined> =
     return good(value);
 };
 
-/** Symptom codes are opaque strings until #24 ships the catalogue. */
-const parseSymptoms = (value: unknown): Parsed<Symptom[]> => {
+/** Codes are checked against the catalogue `refdata.ts` serves, so the client and the
+ *  validator agree on one vocabulary (PRD:484). `rules` is null when the catalogue is
+ *  unavailable — codes then stay opaque, as they were before #24, because refusing a
+ *  health entry over missing reference data is the worse failure.
+ *
+ *  A *retired* code is accepted: an offline queue may hold an entry logged while the
+ *  chip was still offered, and the user must still be able to edit it. Only a code the
+ *  catalogue has never carried is rejected. */
+const parseSymptoms = (value: unknown, rules: SymptomRules | null): Parsed<Symptom[]> => {
     if (value === undefined || value === null) return good([]);
     if (!Array.isArray(value)) return bad("symptoms must be a list");
     if (value.length > 40) return bad("symptoms must hold 40 entries or fewer");
     const symptoms: Symptom[] = [];
     for (const entry of value) {
         if (!isRecord(entry)) return bad("each symptom must be an object");
-        const { code, severity } = entry;
-        if (typeof code !== "string" || code.trim().length < 1 || code.length > 64) {
+        const { severity } = entry;
+        if (typeof entry.code !== "string" || entry.code.trim().length < 1 || entry.code.length > 64) {
             return bad("each symptom needs a code of 1–64 characters");
+        }
+        const code = entry.code.trim();
+        if (rules && !rules.has(code)) {
+            // Its own code so a stale client can refetch /refdata instead of guessing.
+            return bad(`Unknown symptom code: ${code}`, "UNKNOWN_SYMPTOM_CODE");
         }
         if (severity !== undefined && severity !== null && severity !== "normal" && severity !== "severe") {
             return bad("symptom severity must be normal or severe");
         }
-        if (symptoms.some((s) => s.code === code.trim())) {
-            return bad(`symptom ${code.trim()} is listed twice`);
+        const parsedValue = parseSymptomValue(entry.value, code, rules);
+        if (!parsedValue.ok) return parsedValue;
+        if (symptoms.some((s) => s.code === code)) {
+            return bad(`symptom ${code} is listed twice`);
         }
-        symptoms.push({ code: code.trim(), severity: (severity as SymptomSeverity) ?? "normal" });
+        symptoms.push({
+            code,
+            severity: (severity as SymptomSeverity) ?? "normal",
+            // Absent, never undefined: Firestore rejects an undefined field.
+            ...(parsedValue.value !== undefined ? { value: parsedValue.value } : {}),
+        });
     }
     return good(symptoms);
 };
 
+/** The chip's own picker (discharge: dry/sticky/creamy/watery/egg-white). Optional
+ *  even where the catalogue offers one — a chip logged without a choice is still a
+ *  logged chip — but a value the catalogue does not offer is a client bug. */
+const parseSymptomValue = (
+    value: unknown,
+    code: string,
+    rules: SymptomRules | null,
+): Parsed<string | undefined> => {
+    if (value === undefined || value === null) return good(undefined);
+    if (typeof value !== "string" || value.trim().length < 1 || value.length > 64) {
+        return bad("symptom value must be 1–64 characters");
+    }
+    const trimmed = value.trim();
+    if (!rules) return good(trimmed);
+    const allowed = rules.valuesFor(code);
+    if (!allowed) return bad(`symptom ${code} does not take a value`);
+    if (!allowed.includes(trimmed)) {
+        return bad(`symptom ${code} value must be one of ${allowed.join(", ")}`);
+    }
+    return good(trimmed);
+};
+
 const parseBodySignalsPayload = (
     body: Record<string, unknown>,
+    rules: SymptomRules | null,
 ): Parsed<BodySignalsPayload> => {
     const energy = parseRating(body.energy, "energy");
     if (!energy.ok) return energy;
@@ -372,7 +437,7 @@ const parseBodySignalsPayload = (
     if (!mood.ok) return mood;
     const sleep = parseRating(body.sleep, "sleep");
     if (!sleep.ok) return sleep;
-    const symptoms = parseSymptoms(body.symptoms);
+    const symptoms = parseSymptoms(body.symptoms, rules);
     if (!symptoms.ok) return symptoms;
     // Absent ratings stay absent — nothing is preselected, and 3 is not "unanswered".
     return good({
@@ -450,17 +515,20 @@ const parseAppointmentPayload = (
     });
 };
 
+/** `rules` is fetched once per request at the route edge and threaded down, so
+ *  validation stays here and `refdata.ts` stays the only reader of its collection. */
 const parsePayload = (
     type: LoggableEventType,
     payload: unknown,
     localDate: string,
+    rules: SymptomRules | null,
 ): Parsed<EventPayload> => {
     if (!isRecord(payload)) return bad("payload must be an object");
     switch (type) {
         case "cycle":
             return parseCyclePayload(payload);
         case "bodySignals":
-            return parseBodySignalsPayload(payload);
+            return parseBodySignalsPayload(payload, rules);
         case "sport":
             return parseSportPayload(payload);
         case "appointment":
@@ -484,7 +552,10 @@ const parseEventType = (value: unknown): Parsed<LoggableEventType> => {
     return good(value);
 };
 
-const parseNewEvent = (body: Record<string, unknown>): Parsed<NewEvent> => {
+const parseNewEvent = (
+    body: Record<string, unknown>,
+    rules: SymptomRules | null,
+): Parsed<NewEvent> => {
     const type = parseEventType(body.type);
     if (!type.ok) return type;
     if (!isCalendarDate(body.localDate)) return bad("localDate must be YYYY-MM-DD");
@@ -503,7 +574,7 @@ const parseNewEvent = (body: Record<string, unknown>): Parsed<NewEvent> => {
     if (!source.ok) return source;
     const idempotencyKey = parseIdempotencyKey(body.idempotencyKey);
     if (!idempotencyKey.ok) return idempotencyKey;
-    const payload = parsePayload(type.value, body.payload, localDate);
+    const payload = parsePayload(type.value, body.payload, localDate, rules);
     if (!payload.ok) return payload;
 
     return good({
@@ -536,7 +607,7 @@ app.get("/me/events", requireAuth, async (c) => {
 
 app.post("/me/events", requireAuth, async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const parsed = parseNewEvent(body);
+    const parsed = parseNewEvent(body, await getSymptomRules());
     if (!parsed.ok) return c.json(error(parsed.code, parsed.message), 400);
     return c.json({ event: await createEvent(c.get("claims").sub, parsed.value) }, 201);
 });
@@ -563,7 +634,7 @@ app.patch("/me/events/:id", requireAuth, async (c) => {
         patch.note = note.value;
     }
     if (body.payload !== undefined) {
-        const payload = parsePayload(type.value, body.payload, localDate);
+        const payload = parsePayload(type.value, body.payload, localDate, await getSymptomRules());
         if (!payload.ok) return c.json(error(payload.code, payload.message), 400);
         patch.payload = payload.value;
     }
@@ -605,7 +676,7 @@ app.put("/me/body-signals/:date", requireAuth, async (c) => {
     const policy = checkDatePolicy("bodySignals", localDate, clock.value);
     if (!policy.ok) return c.json(error(policy.code, policy.message), 400);
 
-    const payload = parseBodySignalsPayload(body);
+    const payload = parseBodySignalsPayload(body, await getSymptomRules());
     if (!payload.ok) return c.json(error(payload.code, payload.message), 400);
     const loggedAt = parseLoggedAt(body.loggedAt, localDate, clock.value);
     if (!loggedAt.ok) return c.json(error(loggedAt.code, loggedAt.message), 400);

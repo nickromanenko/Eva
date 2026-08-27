@@ -5,6 +5,7 @@
     "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "seed:refdata": "bun run scripts/seed-refdata.ts",
     "verify": "bash ../scripts/verify-api.sh"
   },
   "dependencies": {

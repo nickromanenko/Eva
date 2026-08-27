@@ -26,10 +26,17 @@ export type CyclePayload =
   | { spotting: true; flow?: never }
   | { flow: FlowLevel; spotting?: never }
 
-/** `code` is opaque until #24 ships the catalogue it validates against. */
+/** `code` is validated at the route edge against the catalogue in `refdata.ts` (#24).
+ *
+ *  `severity` and `value` are two different axes and neither can express the other:
+ *  severity is an intensity (the second tap on Cramps), `value` is a category the
+ *  chip's own picker offers — discharge is `dry|sticky|creamy|watery|egg-white`.
+ *  Only chips whose catalogue entry declares `values` carry one; the key is absent
+ *  otherwise, never `undefined` (Firestore rejects undefined). */
 export interface Symptom {
   code: string
   severity: SymptomSeverity
+  value?: string
 }
 
 /** Every rating is optional — nothing is preselected in the sheet, and an absent

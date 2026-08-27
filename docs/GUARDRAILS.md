@@ -33,12 +33,14 @@ Each rule is stated so a reviewer can check it mechanically.
 9. `users/{uid}` document IDs are Firebase Auth uids. Never generate your own ID,
    never key users by email.
 10. **Every Firestore collection has exactly one owning module, and nothing else touches
-    it.** `users.ts` owns `users/`; `events.ts` owns `users/{uid}/events/`. Routes
+    it.** `users.ts` owns `users/`; `events.ts` owns `users/{uid}/events/`;
+    `refdata.ts` owns `refdata/`. Routes
     delegate; they don't query. (Widened from "only `users.ts` touches Firestore" when the
     calendar needed a second collection — the intent was never one file, it was no
     scattered database access.)
 11. Error responses keep the shape `{ error: { code, message } }`. Existing codes
-    (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`, `UNAUTHORIZED`) are a client
+    (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`, `UNAUTHORIZED`,
+    `UNKNOWN_SYMPTOM_CODE`) are a client
     contract — adding is fine, renaming or repurposing is a breaking change.
 12. Never log a password, a token, a full JWT, or a user's `profile` contents.
 13. Validate untrusted input at the route edge before it reaches a module
