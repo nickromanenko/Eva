@@ -225,12 +225,19 @@ Symptom codes are validated at the route edge against this catalogue
 (`UNKNOWN_SYMPTOM_CODE`) — that is what makes one vocabulary serve both the cycle
 sheet's inline chips and the body-signals grid (PRD:484). Sport activities and
 appointment types are *not* validated: both offer "Other" with free text. A symptom's
-`severity` (`normal | severe`) and its `value` (the chip's picker, e.g. discharge
-`dry|sticky|creamy|watery|egg-white`) are separate axes — an intensity and a category.
+`severity` (`normal | severe`) and its `value` (the chip's own picker — discharge
+`dry|sticky|creamy|watery|egg-white`, libido `low|high`) are separate axes — an
+intensity and a category. A chip whose interesting signal is a *direction* carries it
+as `values` rather than as two codes, so the readings aggregate (#24).
 
 Catalogues are seeded with `cd api && bun run seed:refdata` (additive; `--relabel` also
-resets labels). It is a script, not a route: the Admin SDK bypasses `firestore.rules`,
-so seeding needs no rules change and no admin authorization surface.
+resets labels) and pruned with `bun run retire:refdata`, which applies a declared list of
+retirements and can only flip `status`. They are scripts, not routes: the Admin SDK
+bypasses `firestore.rules`, so neither needs a rules change or an admin authorization
+surface. Removal is deliberately not a flag on the seeder — a re-seed must never be able
+to take an option away. Retired codes stay listed in the seed file carrying
+`status: 'retired'`, so a project seeded for the first time reproduces the retirements
+instead of depending on the retire script having been run against it afterwards.
 
 ## 5. iOS app structure (`mobile/Eva/`)
 

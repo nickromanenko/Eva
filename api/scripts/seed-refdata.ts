@@ -15,7 +15,12 @@
  * change in Firestore and want to keep should be mirrored back here, or the next
  * `--relabel` run reverts it.
  *
- * Nothing here removes an option. See `retireCode` in src/refdata.ts.
+ * Nothing here removes an option. Retirement is a separate, deliberate act:
+ * `bun run retire:refdata` (scripts/retire-refdata.ts), over `retireCode` in
+ * src/refdata.ts. Retired codes then stay listed below, carrying `status: 'retired'`,
+ * so this file says both what the vocabulary is and what it was — and a fresh project
+ * seeds straight into the retired state instead of depending on the retire script
+ * having been run against it afterwards.
  */
 
 import {
@@ -58,14 +63,17 @@ const numbered = <T extends Seed<CatalogueItem>>(
 
 /** PRD "Body signals" zone 2: 14 chips, then 7 behind "More…".
  *
- *  Two deliberate departures, both settled on issue #24:
+ *  Three deliberate departures, all settled on issue #24:
  *  - The canvas' "Spotting" chip is absent. #23 made spotting a *cycle marker*; as a
  *    symptom too, one day could carry two contradictory claims about bleeding.
  *  - The canvas' "Low energy" chip is absent. Energy is a 1–5 scale on the same sheet,
  *    and one concept may not have two representations (PRD:484).
- *
- *  `low-libido` comes from the canvas and sits behind "More…" — the PRD's own list is
- *  already 14 long against a 12-chip grid. */
+ *  - The canvas' "Low libido" chip is absent, and so is the PRD's "Libido changes".
+ *    A direction and a change are the same concept twice, so the two would never
+ *    aggregate — the soft form of the one-vocabulary problem #24 exists to prevent.
+ *    One `libido` chip carries the direction as a `values` axis instead, the way
+ *    `discharge` carries its type. Both old codes are retired, never deleted — see
+ *    RETIRED_SYMPTOMS below. */
 const SYMPTOMS: SymptomItem[] = numbered([
   symptom('bloating', 'Bloating'),
   symptom('cramps', 'Cramps', { severable: true }),
@@ -80,7 +88,12 @@ const SYMPTOMS: SymptomItem[] = numbered([
   symptom('brain-fog', 'Brain fog'),
   symptom('poor-appetite', 'Poor appetite'),
   symptom('heavy-appetite', 'Heavy appetite'),
-  symptom('libido-changes', 'Libido changes'),
+  symptom('libido', 'Libido', {
+    // A direction, not an intensity — the second chip with a value picker, following
+    // `discharge` below. "Libido changes" said that something moved without saying
+    // which way, which is the least useful half of the signal.
+    values: ['low', 'high'],
+  }),
   symptom('dizziness', 'Dizziness', { group: 'more' }),
   symptom('hot-flashes', 'Hot flashes', { group: 'more' }),
   symptom('constipation', 'Constipation', { group: 'more' }),
@@ -93,8 +106,24 @@ const SYMPTOMS: SymptomItem[] = numbered([
     values: ['dry', 'sticky', 'creamy', 'watery', 'egg-white'],
   }),
   symptom('itching', 'Itching', { group: 'more' }),
-  symptom('low-libido', 'Low libido', { group: 'more' }),
 ])
+
+/** Codes the vocabulary no longer offers, listed with the `order` and `status` they
+ *  already carry in Firestore. They are here so seeding a project that has never seen
+ *  them reproduces the live catalogue exactly — retirements included — rather than
+ *  landing in a different state depending on whether `retire:refdata` was run against
+ *  it. `applyCatalogue` never modifies an item that already exists, so re-seeding a
+ *  project that has them writes the same rows back unchanged.
+ *
+ *  `order` is verbatim from the live document, not renumbered. It collides with
+ *  `libido`'s 140, which is untidy but inert: `order` is a display hint, retired items
+ *  are never offered as a choice, and history resolves by code. Renumbering here would
+ *  only move a fresh project *away* from the live one, since `applyCatalogue` cannot
+ *  rewrite the 140 already stored. See scripts/retire-refdata.ts for why each went. */
+const RETIRED_SYMPTOMS: SymptomItem[] = [
+  { ...symptom('libido-changes', 'Libido changes'), order: 140, status: 'retired' },
+  { ...symptom('low-libido', 'Low libido', { group: 'more' }), order: 220, status: 'retired' },
+]
 
 /** PRD "Sport" options. "Other" carries the free-text field. */
 const SPORT_ACTIVITIES: OptionItem[] = numbered([
@@ -131,7 +160,7 @@ const APPOINTMENT_TYPES: OptionItem[] = numbered([
 ])
 
 export const DEFAULT_CATALOGUES: Record<(typeof CATALOGUE_IDS)[number], CatalogueItem[]> = {
-  symptoms: SYMPTOMS,
+  symptoms: [...SYMPTOMS, ...RETIRED_SYMPTOMS],
   sportActivities: SPORT_ACTIVITIES,
   appointmentTypes: APPOINTMENT_TYPES,
 }
