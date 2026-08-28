@@ -406,20 +406,24 @@ struct EvaControlRenderTests {
                 "the selected chip is still painting the canvas #EE93B1")
     }
 
-    @Test("The disabled chip paints the muted neutral")
+    @Test("The disabled chip paints the muted neutral, at the 80% its token states")
     func disabledChipFill() throws {
-        // §6 asks for a "disabled muted" chip without giving a value, so the hue is the
-        // checkable part: it must be Secondary Background `#F8F3F0` and not, say, a
-        // desaturated pink.
+        // §6 asks for a "disabled muted" chip without giving a value; the artboard's own
+        // cell gives `background:rgba(248,243,240,.8)`, so both the hue and the opacity
+        // are checkable.
         //
-        // The *opacity* is deliberately not asserted. `ChipToggleButton` is a
-        // `.plain`-styled `Button` with `.disabled(true)`, and SwiftUI's plain style
-        // dims a disabled button on top of whatever the label already drew — the token
-        // says 80%, the chip renders at 40%. That is reported as a finding rather than
-        // pinned here, because the canvas gives no number to call it wrong against.
+        // The opacity is the half #14 fixed. `ChipToggleButton` was a `.plain`-styled
+        // `Button` with `.disabled(true)`, and every built-in style dims a disabled
+        // button on top of whatever the label already drew: the token said 80% and the
+        // chip rendered at 40%. It wears `EvaUndimmedButtonStyle` now, which draws
+        // nothing of its own, so what the component paints is what appears — and the
+        // alpha is pinned here rather than left as a finding, because a style swap back
+        // to `.plain` would halve it again silently.
         let (hue, alpha) = try chipDisabledFillSolvedFromTwoBackgrounds()
         #expect(hue.isWithin(Self.tolerance, of: Color(hex: 0xF8F3F0).evaTestRGBA),
                 "disabled chip hue is \(hue.hexString), expected #F8F3F0 (rendered at \(alpha) alpha)")
+        #expect(abs(alpha - 0.8) < 0.02,
+                "the disabled chip renders at \(alpha) alpha; its token is 0.8, and 0.4 is the dimming #14 removed")
     }
 
     /// Recovers a translucent fill's colour and its *rendered* opacity by drawing it
@@ -714,6 +718,46 @@ struct EvaControlRenderTests {
                 "7% and 10% differ by only \(distance(atSeven, atTen)) steps here — the test cannot discriminate")
         #expect(distance(drawn, atSeven) < distance(drawn, atTen),
                 "the disabled border drew \(drawn.hexString); 7% predicts \(atSeven.hexString), 10% predicts \(atTen.hexString)")
+    }
+
+    @Test("A disabled input that is in error still marks the field it is about")
+    func disabledInputInErrorKeepsTheErrorBorderAndRing() throws {
+        // #14, and a decision rather than a transcription: the artboard draws Error and
+        // "Password · disabled" as separate cells and never combines them. `borderColor`
+        // and `ringColor` both guarded on `isEnabled` first, so a disabled field carrying
+        // an `errorMessage` drew the message under a 7% hairline with no ring — a message
+        // pointing at nothing.
+        //
+        // The split chosen is: the fill and the text go quiet (the control is inactive),
+        // the border, the ring and the message stay (this is the field the message is
+        // about). All three halves are asserted here, because taking either side of the
+        // split away is a plausible "simplification".
+        let background = Color.evaWarmBackground
+        let probe = try inputProbe(
+            errorMessage: "Check that address.", isEnabled: false, background: background
+        )
+
+        // Half a point in, in the middle of the 1pt stroke — the same sample
+        // `disabledInputBorderIsFainter` takes, which is where the 7% hairline was.
+        let border = probe.sample(at: 0.5)
+        #expect(border.isWithin(Self.tolerance, of: Color.evaError.evaTestRGBA),
+                "the disabled-and-invalid border drew \(border.hexString), expected #C4645A")
+
+        // The ring is outside the border, so it is looked for in the 8pt gap above the
+        // field rather than beside it — the field is as wide as the raster, and the
+        // ring's own columns fall outside the image.
+        let ringY = probe.fieldCentre - Int(((EvaControl.height / 2) + 1.5) * probe.scale)
+        let ring = probe.raster.pixel(Int(40 * probe.scale), ringY)
+        #expect(ring.isWithin(Self.tolerance, of: evaComposite(.evaInputErrorRing, over: background)),
+                "the ring above a disabled-and-invalid field is \(ring.hexString), expected the error ring")
+
+        // …and the fill is still the disabled one, not the error fill: the quiet half of
+        // the split.
+        let fill = probe.sample(at: 8)
+        #expect(fill.isWithin(Self.tolerance, of: evaComposite(.evaInputFillDisabled, over: background)),
+                "the disabled-and-invalid fill is \(fill.hexString), expected the disabled fill")
+        #expect(!fill.isWithin(Self.tolerance, of: evaComposite(.evaInputFillError, over: background)),
+                "a disabled field is wearing the error fill, so it no longer reads as inactive")
     }
 
     // MARK: The row-level destructive (#16)

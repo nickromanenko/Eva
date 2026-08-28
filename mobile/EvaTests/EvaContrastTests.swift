@@ -212,6 +212,10 @@ enum EvaContrastSurfaces {
         }
     }
 
+    /// The disabled chip, named so the #14 regression test can measure the same case the
+    /// `unruledDisabled` list carries.
+    static var disabledChip: EvaContrastCase { chipCase("disabled", isDisabled: true) }
+
     /// The real `EvaInputField`, sampled over one band of it.
     ///
     /// `ImageRenderer` paints a `TextField` as a flat `#FFCC00` placeholder rather than
@@ -224,6 +228,7 @@ enum EvaContrastSurfaces {
         errorMessage: String? = nil,
         helperText: String? = nil,
         isHelperUnmet: Bool = false,
+        isEnabled: Bool = true,
         band: (
             _ total: CGFloat,
             _ withoutHelper: CGFloat,
@@ -241,6 +246,7 @@ enum EvaContrastSurfaces {
             ) { prompt in
                 TextField("EMAIL", text: .constant(""), prompt: prompt)
             }
+            .disabled(!isEnabled)
             .frame(width: width)
         }
         let total = evaFittingHeight(field(error: errorMessage, helper: helperText), width: width)
@@ -328,18 +334,22 @@ enum EvaContrastSurfaces {
     /// `ImageRenderer` paints a `TextField` as a flat `#FFCC00` block, which would be the
     /// ground the button was read against. The control here is the real one and the fill
     /// is the component's own token, composited over the page the way the field does it.
-    private static var inputRevealButton: EvaContrastCase {
+    private static func inputRevealButton(isEnabled: Bool = true) -> EvaContrastCase {
         let size = CGSize(width: 96, height: EvaMetrics.minimumTouchTarget)
         return EvaContrastCase(
-            name: "Input · reveal button on the field fill",
+            name: "Input · reveal button\(isEnabled ? "" : " · disabled") on the field fill",
             size: size, backdrop: page,
             inset: (top: 2, leading: 2, bottom: 2, trailing: 2),
             fillStrip: (leading: 2, width: 10)
         ) {
             AnyView(
                 EvaInputRevealButton(isRevealed: false) {}
+                    .disabled(!isEnabled)
                     .frame(width: size.width, height: size.height)
-                    .background(Color.evaInputFill)
+                    // The fill the accessory sits on moves with the field, so the
+                    // disabled case is measured on the disabled fill — otherwise it
+                    // would be reading an ink the artboard never puts there.
+                    .background(isEnabled ? Color.evaInputFill : Color.evaInputFillDisabled)
             )
         }
     }
@@ -413,6 +423,18 @@ enum EvaContrastSurfaces {
             inputBand("error message", errorMessage: "Check that address.") { _, _, without in
                 (top: Int(without) + 2, bottom: 0)
             },
+            // The same message on a *disabled* field, which #14 made a state that draws
+            // itself properly. It is here and not in `unruledDisabled` on purpose: the
+            // message is not a disabled label. Nothing about it is inactive — it is the
+            // sentence explaining why, in the same `evaErrorInk` on the same page, and it
+            // has to be as readable as it is on a live field.
+            inputBand(
+                "error message · field disabled",
+                errorMessage: "Check that address.",
+                isEnabled: false
+            ) { _, _, without in
+                (top: Int(without) + 2, bottom: 0)
+            },
             // The helper rule, in its two states. Both are #3's, and neither had a case.
             //
             // At rest the artboard sets it in `#9A9095` (`pwHelpColor`); the screen sets
@@ -436,7 +458,7 @@ enum EvaContrastSurfaces {
             authButton(.apple),
             authButton(.google),
             infoBanner,
-            inputRevealButton,
+            inputRevealButton(),
             pageText("Auth divider label") {
                 AnyView(AuthMethodDivider(title: "or continue with email"))
             },
@@ -503,7 +525,13 @@ enum EvaContrastSurfaces {
     /// numbers are on the record rather than in a comment.
     static var unruledDisabled: [EvaContrastCase] {
         [
-            chipCase("disabled", isDisabled: true),
+            disabledChip,
+            // #14 gave the reveal button the artboard's own disabled ink (`#C8BFC3` in
+            // the "Password · disabled" cell) in place of a half-faded action pink. That
+            // is the canvas value, and on the canvas' disabled fill it lands in the same
+            // place as every other `evaDisabledText` label — under the bar, and part of
+            // the same unruled question.
+            inputRevealButton(isEnabled: false),
             unfilledDestructive(.outlined, .disabled),
             unfilledDestructive(.row, .disabled)
         ]
@@ -565,6 +593,29 @@ struct EvaContrastTests {
         try check(EvaContrastSurfaces.unruledDisabled) { _, ratio in
             (ratio < 4.5, "it was fixed — move it into `deliberatelyFixedDisabled` and say so on #12")
         }
+    }
+
+    @Test("The disabled chip reads at the contrast its own tokens predict, not half of it")
+    func theDisabledChipIsNotDimmedTwice() throws {
+        // #14. `ChipToggleButton` painted the canvas' disabled chip inside a `.plain`
+        // button's label, and the built-in styles dim a disabled subtree on top of
+        // whatever the label drew — so the chip rendered at half the alpha its token
+        // states and its label measured 1.3:1.
+        //
+        // The bar here is not a WCAG number: neither 1.3 nor what the tokens predict
+        // clears AA, and disabled labels are exempt. It is that the *drawn* appearance is
+        // the *specified* appearance — `evaDisabledText` on `evaChipFillDisabled` over
+        // the page, arithmetic anyone can redo — so a style change that starts dimming
+        // the chip again fails here with both numbers in the message.
+        let measured = try EvaContrastSurfaces.disabledChip.measure()
+        let predicted = evaContrastRatio(
+            Color.evaDisabledText.evaTestRGBA,
+            evaComposite(.evaChipFillDisabled, over: .evaWarmBackground)
+        )
+        #expect(
+            abs(measured.ratio - predicted) < 0.1,
+            "the disabled chip measures \(String(format: "%.2f", measured.ratio)):1 — its tokens predict \(String(format: "%.2f", predicted)):1, and 1.3:1 is what the plain style's dimming produced"
+        )
     }
 
     @Test("Muted Text, which is what the artboard states for three of #3's strings, still fails")

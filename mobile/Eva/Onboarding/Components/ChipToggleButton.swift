@@ -26,11 +26,28 @@ import SwiftUI
 /// `ChipToggleButton(label:isSelected:isCentered:action:)` call sites in
 /// `GoalsStepView`, `HealthStepView` and `LifestyleStepView` are unchanged.
 ///
-/// No `accessibilityIdentifier` is set. `EvaUITests` navigates these chips by their
-/// label (`app.buttons["Energy"]`), and adding one would not break that — an element
-/// with both resolves by either, as `PrimaryButton` demonstrates. GUARDRAILS §22 asks
-/// for identifiers on interactive elements, so this is an omission inherited from
-/// before the canvas re-spec, not a decision.
+/// ## The disabled chip is drawn, not dimmed — #14
+///
+/// The four appearances are painted inside the button's *label*, so the style the
+/// button wears must not touch it. `.plain` does: every built-in style dims a disabled
+/// subtree on top of whatever the label drew, which halved the whole chip — the 80%
+/// fill token rendered at 40% and the label measured 1.3:1 against it. It wears
+/// `EvaUndimmedButtonStyle` instead, which draws nothing of its own, so the token
+/// values are what appear. `.disabled(isDisabled)` stays exactly as it was: the chip
+/// takes no taps and VoiceOver still announces it as dimmed.
+///
+/// The label ink is still the canvas' `evaDisabledText` on the canvas' muted fill,
+/// which measures 1.65:1 — readable-ish rather than readable. Whether the #12/#17
+/// decision to make disabled labels legible generalises off the filled buttons is an
+/// open canvas question, explicitly out of scope for #14 and pinned by
+/// `EvaContrastTests.theRemainingDisabledLabelsAreOnTheRecord`.
+///
+/// ## Identifier
+///
+/// `chip.<label>`, following `PrimaryButton`'s `primary.<title>`. It was omitted on the
+/// belief that it would break `EvaUITests`' `app.buttons["Energy"]` lookups; it does
+/// not — an element with both an identifier and a label resolves by either — and
+/// GUARDRAILS §22 asks for one. The tests moved to the identifiers in the same change.
 struct ChipToggleButton: View {
     /// The option this chip stands for. Also its accessibility label.
     let label: String
@@ -122,9 +139,10 @@ struct ChipToggleButton: View {
             }
             .contentShape(shape)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.evaUndimmed)
         .disabled(isDisabled)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("chip.\(label)")
     }
 }
 

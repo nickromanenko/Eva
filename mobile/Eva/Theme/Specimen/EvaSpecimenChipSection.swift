@@ -4,8 +4,9 @@ import SwiftUI
 /// DESIGN.md §6 — the chip in all four appearances, full-width and in a grid.
 ///
 /// The four are the canvas' own list: default glass, selected pink gradient, severe
-/// solid deep pink with its bar glyph, and disabled muted. `ChipToggleButton` uses
-/// `.plain`, so it has no pressed appearance to show — the canvas does not give it one.
+/// solid deep pink with its bar glyph, and disabled muted. There is no pressed row —
+/// the canvas gives chips no pressed appearance, and `EvaUndimmedButtonStyle` draws
+/// none.
 ///
 /// Chips are shown selected/unselected as *drawn*, not as toggled: the specimen holds
 /// no selection state, so tapping one does nothing. That is deliberate — this screen is
@@ -61,8 +62,17 @@ struct EvaSpecimenChipSection: View {
             )
 
             EvaSpecimenNote(
-                text: "No accessibilityIdentifier by design — EvaUITests finds chips by label, "
-                    + "which only resolves while the identifier is empty."
+                text: "Disabled is drawn, not dimmed (#14). The four appearances are painted "
+                    + "inside the button's label, and a built-in style dims a disabled "
+                    + "subtree on top of that — the 80% fill rendered at 40% and the label "
+                    + "at 1.3:1. The chip wears EvaUndimmedButtonStyle instead, so the "
+                    + "tokens are what you see; .disabled() still makes it untappable and "
+                    + "dimmed to VoiceOver."
+            )
+
+            EvaSpecimenNote(
+                text: "Each chip carries chip.<label>, the same shape as primary.<title>. "
+                    + "EvaUITests navigates by it."
             )
         }
     }

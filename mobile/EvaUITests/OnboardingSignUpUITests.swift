@@ -454,15 +454,20 @@ final class OnboardingSignUpUITests: XCTestCase {
         return error.label
     }
 
+    /// Chips are navigated by `chip.<label>` since #14 gave `ChipToggleButton` an
+    /// identifier. They used to be looked up by their label, which still resolves — an
+    /// element with both an identifier and a label answers to either — but a test that
+    /// keeps using the label would not notice the identifier being dropped again, which
+    /// is the thing GUARDRAILS §22 is about.
     private func completeQuestionnaire(_ app: XCUIApplication) {
-        tap(app.buttons["primary.Continue"], in: app)   // about you
-        tap(app.buttons["Energy"], in: app)             // goals
+        tap(app.buttons["primary.Continue"], in: app)     // about you
+        tap(app.buttons["chip.Energy"], in: app)          // goals
         tap(app.buttons["primary.Continue"], in: app)
-        tap(app.buttons["None of these"], in: app)      // health
-        tap(app.buttons["No"], in: app)
+        tap(app.buttons["chip.None of these"], in: app)   // health
+        tap(app.buttons["chip.No"], in: app)
         tap(app.buttons["primary.Continue"], in: app)
-        tap(app.buttons["Active"], in: app)             // lifestyle
-        tap(app.buttons["Yoga"], in: app)
+        tap(app.buttons["chip.Active"], in: app)          // lifestyle
+        tap(app.buttons["chip.Yoga"], in: app)
         tap(app.buttons["primary.Build my plan"], in: app)
     }
 

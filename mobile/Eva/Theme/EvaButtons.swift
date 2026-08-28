@@ -105,6 +105,38 @@ extension View {
     }
 }
 
+// MARK: - The style for a button that paints itself
+
+/// A `ButtonStyle` that adds nothing at all to the label it is handed.
+///
+/// For the two Eva controls that draw their own appearance *inside* the button's label
+/// rather than in a style — `ChipToggleButton` and `EvaInputRevealButton`. Both used
+/// `.plain`, and every built-in style dims a disabled button's whole subtree on top of
+/// whatever the label already drew: the chip's fill token says 80% and the chip
+/// rendered at 40%, its label landing at 1.3:1 (#14). A custom style is not dimmed, so
+/// what the component paints is what reaches the screen, and the disabled *appearance*
+/// stops depending on which style the control happens to wear.
+///
+/// This changes nothing about `.disabled(_:)` itself. The control still takes no taps,
+/// still reports `isEnabled == false` to everything downstream — which is how these two
+/// resolve their disabled appearance — and VoiceOver still announces it as dimmed.
+///
+/// It draws no pressed state, which is what `.plain` gave these two as well: §6 gives
+/// chips no pressed appearance, and §5's `EvaButtonPress.scale` belongs to the button
+/// variants that declare one.
+struct EvaUndimmedButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+    }
+}
+
+extension ButtonStyle where Self == EvaUndimmedButtonStyle {
+    /// For a button whose label already carries the whole appearance, including the
+    /// disabled one. Use instead of `.plain`, which halves it — see
+    /// `EvaUndimmedButtonStyle`.
+    static var evaUndimmed: Self { EvaUndimmedButtonStyle() }
+}
+
 // MARK: - Secondary glass
 
 /// The DESIGN.md §5 secondary button: `rgba(255,255,255,.7)` over blur 18, with a 1pt
