@@ -24,8 +24,10 @@ Each rule is stated so a reviewer can check it mechanically.
    the API, and the Admin SDK bypasses rules. See [ARCHITECTURE.md §2](ARCHITECTURE.md).
 6. Any loosening of either file is **fully supervised**: human plan approval, human
    review, human deploy. Never bundled into an unrelated change.
-7. Rules are **not** deployed by CI. `firebase deploy --only firestore:rules,storage`
-   is a deliberate human act.
+7. Rules are **never deployed automatically.**
+   `.github/workflows/deploy-rules.yml` is `workflow_dispatch`-only and exists to make the
+   human act auditable, not to remove it. Adding any automatic trigger to that workflow is
+   a guardrail violation.
 
 ## Auth & data
 
@@ -42,7 +44,9 @@ Each rule is stated so a reviewer can check it mechanically.
     client contract — adding is fine, renaming or repurposing is a breaking change. The
     current set lives in [ARCHITECTURE.md](ARCHITECTURE.md) §3 and grows; do not duplicate
     it here, because the copy goes stale (it already did).
-12. Never log a password, a token, a full JWT, or a user's `profile` contents.
+12. Never log a password, a token, a full JWT, a user's `profile` contents, or **any
+    event payload** — cycle days, flow levels, symptoms, sex events. All of it is health
+    data, and a symptom log in a log line is worse than a profile field.
 13. Validate untrusted input at the route edge before it reaches a module
     (`normalizeEmail`, `parseProfile`). Don't push validation downward.
 

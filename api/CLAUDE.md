@@ -14,6 +14,7 @@ bun run typecheck  # tsc --noEmit
 bun test
 bun run verify     # typecheck + test — must pass before a PR
 bun run seed:refdata  # create any missing refdata/ catalogue (--relabel resets labels)
+bun run retire:refdata  # apply the declared retirements (never deletes)
 ```
 
 Needs `api/.env` (copy `.env.example`) and Application Default Credentials
@@ -40,7 +41,8 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
 - `refdata.ts` — the only module that touches `refdata/`. The client's option lists
   (symptom chips, sport activities, appointment types) with a content-hash `version`.
   Codes are permanent; options are retired, never deleted. Seed with
-  `bun run seed:refdata` (see `scripts/seed-refdata.ts` for why a script, not a route).
+  `bun run seed:refdata` (see `scripts/seed-refdata.ts` for why a script, not a route);
+  remove with `bun run retire:refdata`, which keeps the record of what went and why.
 - `firebase.ts` — Admin SDK singleton. Never initialize a second app.
 - `config.ts` — required env vars, fail-fast.
 

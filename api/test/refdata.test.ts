@@ -14,6 +14,7 @@ import {
     type SymptomItem,
 } from "../src/refdata";
 import { DEFAULT_CATALOGUES } from "../scripts/seed-refdata";
+import { RETIREMENTS } from "../scripts/retire-refdata";
 
 /**
  * Integration tests against the REAL Firebase project, same pattern as events.test.ts.
@@ -189,6 +190,33 @@ describe("refdata: the endpoint", () => {
         expect(codes).not.toContain("low-energy");
     });
 
+    test("libido is one code carrying its direction, with a low/high picker", () => {
+        const libido = live.catalogues.symptoms.find((entry) => entry.code === "libido");
+        expect(libido).toBeDefined();
+        expect(libido!.status).toBe("active");
+        // A direction is a category on the chip's own axis, the way discharge's type is
+        // — not a severity, and not a second code (#24).
+        expect(libido!.values).toEqual(["low", "high"]);
+    });
+
+    test("and it is the only libido code offered as a new choice", () => {
+        const libidoish = live.catalogues.symptoms.filter((entry) =>
+            entry.code.includes("libido"),
+        );
+        const active = libidoish.filter((entry) => entry.status === "active");
+        // Two codes for one concept never aggregate — the soft form of the
+        // one-vocabulary problem (#24). Exactly one is offered.
+        expect(active.map((entry) => entry.code)).toEqual(["libido"]);
+        // The two it replaced were retired, not deleted: still served, still resolving
+        // to a label, so an entry that references one still reads correctly.
+        // (Asserted against the live project, which carried both before #24 was applied.)
+        const retired = libidoish.filter((entry) => entry.status === "retired");
+        expect(retired.map((entry) => entry.code).sort()).toEqual([
+            "libido-changes",
+            "low-libido",
+        ]);
+    });
+
     test("the version is a hash of the content it just served", async () => {
         expect(live.version).toBe(catalogueVersion(live.catalogues));
         expect(live.version.length).toBeGreaterThan(8);
@@ -251,6 +279,26 @@ describe("refdata: codes are permanent, labels are not", () => {
         // that already references it, so it stays.
         const after = await applyCatalogue(id, [item("kept", "Kept")]);
         expect(after.map((entry) => entry.code).sort()).toEqual(["dropped", "kept"]);
+    });
+
+    test("a project that has never seen the catalogue seeds into the retired state", async () => {
+        // Without the retired rows in the seed list, a new project (a second env, a
+        // staging one, CI pointed somewhere fresh) would carry neither retired code:
+        // `retire:refdata` would find nothing to do, and the assertions below — which
+        // hold against the live project — would read as a broken test rather than a
+        // migration that never ran. The seed file has to state what the vocabulary was.
+        const retired = RETIREMENTS.filter((entry) => entry.catalogue === "symptoms");
+        expect(retired.length).toBeGreaterThan(0);
+
+        // `applyCatalogue` into a document that does not exist is a first seed.
+        const id = tempCatalogue();
+        await applyCatalogue(id, DEFAULT_CATALOGUES.symptoms);
+        const status = new Map(
+            (await readCatalogue(id)).map((entry) => [entry.code, entry.status]),
+        );
+
+        expect(status.get("libido")).toBe("active");
+        for (const { code } of retired) expect(status.get(code)).toBe("retired");
     });
 
     test("retiring takes a code out of the pickers but leaves it valid to write", async () => {
@@ -324,6 +372,46 @@ describe("events: symptoms are checked against the catalogue", () => {
         const { error } = await json<ErrorResponse>(res);
         expect(error.code).toBe("VALIDATION");
         expect(error.message).toContain("discharge");
+    });
+
+    test("libido takes low and high, and severity stays separate there too", async () => {
+        for (const value of ["low", "high"]) {
+            const res = await bodySignals({ symptoms: [{ code: "libido", value }] });
+            expect(res.status).toBe(200);
+            const { event } = await json<{ event: EvaEventBody }>(res);
+            expect(event.payload.symptoms).toEqual([
+                { code: "libido", severity: "normal", value },
+            ]);
+        }
+    });
+
+    test("a libido value outside its picker is rejected", async () => {
+        const res = await bodySignals({ symptoms: [{ code: "libido", value: "medium" }] });
+        expect(res.status).toBe(400);
+        const { error } = await json<ErrorResponse>(res);
+        expect(error.code).toBe("VALIDATION");
+        expect(error.message).toContain("libido");
+    });
+
+    test("every declared retirement is retired, and still accepted on write", async () => {
+        // Drives off the repo's own record of what was retired, so a row added to
+        // `RETIREMENTS` without running the script is caught here rather than by a
+        // user. Today that record is the two codes `libido` replaced.
+        const retired = RETIREMENTS.filter((entry) => entry.catalogue === "symptoms");
+        expect(retired.length).toBeGreaterThan(0);
+
+        for (const { code } of retired) {
+            expect(
+                live.catalogues.symptoms.find((entry) => entry.code === code)!.status,
+            ).toBe("retired");
+            // The retirement contract (#24): a retired code leaves the pickers but
+            // stays writable, because an offline queue may hold an entry logged while
+            // the chip was still on screen. Dropping it loses a user's health entry.
+            const res = await bodySignals({ symptoms: [{ code }] });
+            expect(res.status).toBe(200);
+            const { event } = await json<{ event: EvaEventBody }>(res);
+            expect(event.payload.symptoms).toEqual([{ code, severity: "normal" }]);
+        }
     });
 
     test("a value on a chip that has no picker is rejected", async () => {
