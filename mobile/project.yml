@@ -43,6 +43,13 @@ targets:
         # refuses to launch if it is missing or not an absolute URL; the
         # EVA_API_BASE_URL launch environment variable still overrides it at runtime.
         EVAAPIBaseURL: $(EVA_API_BASE_URL_DEFAULT)
+        # The shipped version and build number. Without these two keys XcodeGen writes
+        # its own defaults — a literal 1.0 and 1 — and the literals are what land in the
+        # bundle, so MARKETING_VERSION / CURRENT_PROJECT_VERSION below had no effect on
+        # anything (#42). Substituted, the settings are the single source of truth and a
+        # version bump is a one-line change to this file.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.evaapp.ios
