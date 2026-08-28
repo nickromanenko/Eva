@@ -24,6 +24,7 @@ struct EvaSpecimenInputSection: View {
     @State private var filled = "sam@example.com"
     @State private var invalid = "sam@example"
     @State private var locked = "sam@example.com"
+    @State private var invalidLocked = "sam@example"
     @State private var secret = ""
     @State private var revealed = "evaprime26"
     @State private var weak = "evaprime"
@@ -69,9 +70,33 @@ struct EvaSpecimenInputSection: View {
                         .accessibilityIdentifier("specimen.input.error")
                 }
 
-                EvaInputField(label: "Disabled", placeholder: "you@email.com") { prompt in
+                // The artboard's only disabled cell is a password, so this row carries the
+                // accessory: its "Show" is `evaDisabledText` there, and drawing the field
+                // without it would leave that the one disabled ink nothing on this screen
+                // shows.
+                EvaInputField(
+                    label: "Disabled",
+                    placeholder: "you@email.com",
+                    accessory: {
+                        EvaInputRevealButton(
+                            isRevealed: false,
+                            identifier: "specimen.input.disabled.reveal"
+                        ) {}
+                    }
+                ) { prompt in
                     TextField("Disabled", text: $locked, prompt: prompt)
                         .accessibilityIdentifier("specimen.input.disabled")
+                }
+                .disabled(true)
+
+                EvaInputField(
+                    label: "Disabled · in error",
+                    placeholder: "you@email.com",
+                    errorMessage: "That address is missing a domain — check it and try again.",
+                    errorIdentifier: "specimen.input.disabled.error.message"
+                ) { prompt in
+                    TextField("Disabled · in error", text: $invalidLocked, prompt: prompt)
+                        .accessibilityIdentifier("specimen.input.disabled.error")
                 }
                 .disabled(true)
 
@@ -112,6 +137,14 @@ struct EvaSpecimenInputSection: View {
                         .accessibilityIdentifier("specimen.input.weak")
                 }
             }
+
+            EvaSpecimenNote(
+                text: "Disabled and in error is the one combination the artboard does not "
+                    + "draw. #14 chose the split: the fill and the text go quiet, and the "
+                    + "error border, ring and message stay — a message with nothing marking "
+                    + "the field it belongs to points at nothing. The disabled row's Show is "
+                    + "the artboard's #C8BFC3, not a half-faded action pink."
+            )
 
             EvaSpecimenNote(
                 text: "The helper states the rule up front (§6) and stays helper text "

@@ -41,7 +41,10 @@ import SwiftUI
 /// it is what VoiceOver reads, so give it the same words as `label`.
 ///
 /// Disabled comes from the environment: apply `.disabled(true)` to the whole
-/// `EvaInputField` and both the styling and the control follow.
+/// `EvaInputField` and the styling, the control and the trailing accessory all follow.
+/// A disabled field that also carries an `errorMessage` keeps the error border and ring
+/// — see `borderColor` for why that combination is a decision rather than a
+/// transcription.
 ///
 /// ## Helper text and the trailing accessory
 ///
@@ -231,6 +234,12 @@ struct EvaInputField<Content: View, Accessory: View>: View {
     ///
     /// Error outranks focus here for the same reason it does in `borderColor` — a
     /// focused field that is also wrong should read as wrong.
+    ///
+    /// Disabled still outranks error in the *fill*, and deliberately so: the split #14
+    /// settled on is that a disabled-and-invalid field goes quiet where it says
+    /// "inactive" (fill, text) and stays loud where it says "this is the field the
+    /// message is about" (border, ring, message). An error fill under a disabled
+    /// control would only say the first thing twice.
     private var fill: Color {
         guard isEnabled else { return .evaInputFillDisabled }
         if errorMessage != nil { return Color.evaInputFillError }
@@ -243,20 +252,33 @@ struct EvaInputField<Content: View, Accessory: View>: View {
 
     /// Error outranks focus: a focused field that is also wrong should read as wrong.
     ///
-    /// Disabled is `evaInputBorderDisabled` — the artboard's `rgba(40,33,38,.07)`, kept
-    /// distinct from the buttons' 6%. It first shipped as `evaControlBorder` (10%), the
-    /// same hairline as an enabled field, which is the part that actually read wrong.
+    /// **Error outranks disabled too** — #14. The artboard draws disabled and error as
+    /// separate cells and never combines them, so this is a decision: a disabled field
+    /// that is carrying an `errorMessage` keeps the error border and the error ring,
+    /// and only its fill and its text go quiet. The message is drawn either way, and a
+    /// message with nothing marking the field it belongs to points at nothing —
+    /// §2 asks for the mark *and* the colour, and the border is half of that mark. It
+    /// is a reachable state: a form that locks its fields while a submission is in
+    /// flight is still showing the failure that came back from the last one.
+    ///
+    /// Disabled is otherwise `evaInputBorderDisabled` — the artboard's
+    /// `rgba(40,33,38,.07)`, kept distinct from the buttons' 6%. It first shipped as
+    /// `evaControlBorder` (10%), the same hairline as an enabled field, which is the
+    /// part that actually read wrong.
     private var borderColor: Color {
-        guard isEnabled else { return .evaInputBorderDisabled }
         if errorMessage != nil { return .evaError }
+        guard isEnabled else { return .evaInputBorderDisabled }
         return isFocused ? .evaDeepPink : .evaControlBorder
     }
 
     /// `.clear` rather than an optional ring, so the states are one view that changes
     /// colour instead of two views that replace each other.
+    ///
+    /// The error ring survives being disabled, for the reason `borderColor` gives; the
+    /// focus ring does not, because a disabled field cannot hold focus.
     private var ringColor: Color {
-        guard isEnabled else { return .clear }
         if errorMessage != nil { return .evaInputErrorRing }
+        guard isEnabled else { return .clear }
         return isFocused ? .evaInputFocusRing : .clear
     }
 }
@@ -300,6 +322,14 @@ extension EvaInputField where Accessory == EmptyView {
 ///
 /// It does not own the reveal state. The caller does, because revealing a password means
 /// swapping a `SecureField` for a `TextField`, and the field belongs to the caller.
+///
+/// Disabled comes from the environment, the way the field's does — `.disabled(true)` on
+/// the `EvaInputField` reaches the accessory too. The artboard's one disabled cell is a
+/// password, and it draws this label in `#C8BFC3` (`evaDisabledText`), which is what it
+/// takes here. It had no disabled appearance at all before #14: `.plain` simply dimmed
+/// the action pink to half, so the accessory's disabled look was a side effect of the
+/// button style rather than a colour anyone chose. It wears `EvaUndimmedButtonStyle`
+/// now, for the reason that type gives.
 struct EvaInputRevealButton: View {
 
     /// Whether the password is currently visible. Drives both the label and the
@@ -308,11 +338,13 @@ struct EvaInputRevealButton: View {
     var identifier: String?
     let action: () -> Void
 
+    @Environment(\.isEnabled) private var isEnabled
+
     var body: some View {
         Button(isRevealed ? "Hide" : "Show", action: action)
-            .buttonStyle(.plain)
+            .buttonStyle(.evaUndimmed)
             .evaTextStyle(.control)
-            .foregroundStyle(Color.evaActionPinkTop)
+            .foregroundStyle(isEnabled ? Color.evaActionPinkTop : Color.evaDisabledText)
             .frame(minWidth: EvaMetrics.minimumTouchTarget, minHeight: EvaMetrics.minimumTouchTarget)
             .contentShape(.rect)
             .accessibilityLabel(Text(isRevealed ? "Hide password" : "Show password"))
@@ -365,9 +397,26 @@ private extension View {
                     .accessibilityIdentifier("preview.invalid")
             }
 
-            EvaInputField(label: "Disabled", placeholder: "you@email.com") { prompt in
+            EvaInputField(
+                label: "Disabled",
+                placeholder: "you@email.com",
+                accessory: {
+                    EvaInputRevealButton(isRevealed: false, identifier: "preview.locked.reveal") {}
+                }
+            ) { prompt in
                 TextField("Disabled", text: $locked, prompt: prompt)
                     .accessibilityIdentifier("preview.disabled")
+            }
+            .disabled(true)
+
+            EvaInputField(
+                label: "Disabled · in error",
+                placeholder: "you@email.com",
+                errorMessage: "That address is missing a domain — check it and try again.",
+                errorIdentifier: "preview.disabled.error"
+            ) { prompt in
+                TextField("Disabled · in error", text: $invalid, prompt: prompt)
+                    .accessibilityIdentifier("preview.disabled.invalid")
             }
             .disabled(true)
 

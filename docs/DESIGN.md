@@ -257,6 +257,18 @@ Text, which measures 3.07:1 on the field fill.
 **The selected chip's shadow** takes the ramp's darkest stop rather than the artboard's
 `rgba(201,95,134,.8)`, which is lighter than the deepened fill and renders as a glow.
 
+**A disabled field that is also in error.** The artboard draws "Error" and "Password ·
+disabled" as separate cells and never combines them, so #14 chose: the fill and the text
+go quiet, and the error border, the error ring and the message stay. A message drawn with
+nothing marking the field it belongs to points at nothing, and §2 asks for the mark as
+well as the colour. Before #14 `EvaInputField` resolved `isEnabled` first and a disabled
+field in error drew the message under the 7% disabled hairline with no ring at all.
+
+**The password field's Show/Hide when the field is disabled** takes `evaDisabledText`,
+which is the artboard's own value in that cell (`#C8BFC3`). It previously had no disabled
+appearance: `.plain` faded the action pink to half, so the colour was a side effect of the
+button style rather than a chosen ink.
+
 **Display** is 46/56 — see §3.
 
 **The auth screen scrolls slightly at the default content size**, where the canvas draws
@@ -283,6 +295,14 @@ Real platform limits, not decisions:
 
 - **Blur radii are not settable.** SwiftUI has no `backdrop-filter`; L2's 24 and L3's 28
   collapse onto `.thin` and `.regular`. `saturate(1.7)` has no equivalent.
+- **SwiftUI's built-in button styles dim a disabled button's whole subtree**, on top of
+  whatever the label already drew. A control that paints its own appearance inside the
+  label — `ChipToggleButton`, `EvaInputRevealButton` — therefore rendered its *disabled*
+  state at half the values its tokens state: the chip's 80% fill came out at 40% and its
+  label at 1.3:1 (#14). Both wear `EvaUndimmedButtonStyle` now, a style that adds nothing,
+  so the drawn appearance is the specified one; `.disabled(_:)` is untouched and still
+  makes the control inert and dimmed to VoiceOver. The `ButtonStyle`-based variants were
+  never affected — a style's own `makeBody` is not dimmed.
 - **CSS shadow spread has no SwiftUI expression.** Card, button and chip shadows all
   render wider and softer than their `-22px` / `-12px` contractions.
 - **Address Montserrat cuts by PostScript name, not family plus weight.** The four files
@@ -322,7 +342,10 @@ Real platform limits, not decisions:
   token or a component means adding it there too — see `mobile/CLAUDE.md`.
 - Every view file ends with a `#Preview`.
 - Interactive elements need a stable `accessibilityIdentifier` — `EvaUITests` and
-  screenshot tooling navigate by them.
+  screenshot tooling navigate by them. `PrimaryButton` sets `primary.<title>`,
+  `ChipToggleButton` `chip.<label>`, and the other variants follow the same shape. An
+  element with both an identifier and a label resolves by either, so adding one never
+  breaks a lookup that used the label.
 - Portrait iPhone only, iOS 18+. No dark palette is designed yet; don't invent one.
 - Selection is never colour alone — **fill, label colour and elevation move together**.
   A border is not part of it: the artboard's selected chip has fill, white label and
