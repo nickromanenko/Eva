@@ -77,7 +77,7 @@ Layering: `index.ts` → (`auth`, `identity-toolkit`, `rate-limit`, `users`, `ev
 Errors are always `{ "error": { "code": string, "message": string } }`. `code` is a
 stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
 `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`,
-`UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`);
+`UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`, `SERVICE_UNAVAILABLE`);
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
@@ -114,6 +114,35 @@ controlling the upstream boundary.
 `POST /auth/signup` deliberately does the **opposite** and returns `EMAIL_EXISTS` — the
 caller already holds the address, and the canvas' account-linking banner depends on knowing.
 The asymmetry is intended; do not "fix" it.
+
+**Every Identity Toolkit failure is mapped (#32).** `identity-toolkit.ts` reduces whatever
+Google said to one of three kinds and `index.ts` maps the kind — never the reason — onto
+the contract:
+
+| Upstream | Kind | `/auth/signup` | `/auth/signin` |
+|---|---|---|---|
+| `EMAIL_EXISTS` | `email-exists` | `409 EMAIL_EXISTS` | `401 INVALID_CREDENTIALS` (unreachable) |
+| any other 4xx (`INVALID_EMAIL`, `INVALID_LOGIN_CREDENTIALS`, an unrecognised reason) | `rejected` | `400 VALIDATION` | `401 INVALID_CREDENTIALS` |
+| 5xx, 429, `TOO_MANY_ATTEMPTS_TRY_LATER`, `QUOTA_EXCEEDED`, `OPERATION_NOT_ALLOWED`, `ADMIN_ONLY_OPERATION`, a network failure, a non-JSON body | `unavailable` | `503 SERVICE_UNAVAILABLE` + constant `Retry-After: 30` | same |
+
+The status decides before the reason does, so a 5xx whose body claims something about the
+address cannot be read as a verdict about the caller. Sign-in has **no 400 branch on
+purpose**: "that address is malformed" would answer exactly the question its 401 refuses to.
+The 503 branch is chosen from the upstream status, which does not vary with the address, and
+`Retry-After` is a constant for the same reason the throttle's is (§3 above) — a per-caller
+value in a header is a channel.
+
+The reason string never leaves `IdentityToolkitError`: not into a body, a header, or a log
+line (GUARDRAILS 12), and the failing `fetch`'s own error is dropped rather than attached,
+because its message contains the request URL and that URL carries the web API key.
+
+*How an operator tells an outage from a bug:* `unavailable` is the one branch that logs —
+one line, `{"event":"identity_toolkit_unavailable","route","upstreamStatus"}`, carrying no
+address and no reason. So a `503` plus that line means Google did not answer us, and a bare
+`500` from an auth route now means a bug in our own code, because every upstream failure is
+mapped. Alert on the event name; `upstreamStatus: null` distinguishes "never landed" from
+"answered badly". `rejected` deliberately logs nothing — a wrong password per line is a log
+full of nothing.
 
 **`/auth/*` is throttled, per instance only.** Both auth routes count each attempt against
 two counters — the caller's IP and the submitted address — and answer
