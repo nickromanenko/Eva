@@ -98,6 +98,50 @@ const throttleAuth = (c: Context, route: AuthRoute, email: string) => {
     });
 };
 
+/**
+ * How long we tell a caller to wait when Identity Toolkit could not answer (issue #32).
+ *
+ * A constant, for the reason #5 gives for the throttle's own `Retry-After`: anything
+ * computed — time left on a breaker, a backoff that grows per address — is a per-caller
+ * value, and a per-caller value in a header is a channel that can differ between a
+ * registered address and an unknown one. One number for everybody differs from nothing.
+ *
+ * Long enough that a client honouring it does not amplify an outage, short enough that a
+ * blip is not a minute of dead app.
+ */
+const UPSTREAM_RETRY_AFTER_SECONDS = 30;
+
+/**
+ * The upstream is down, or refusing to serve us. `503` + `Retry-After`, in the standard
+ * error shape, saying only that this is temporary — nothing about what upstream said and
+ * nothing about the address (issue #32).
+ *
+ * **This is also the operator's signal, and the only one.** A `503 SERVICE_UNAVAILABLE`
+ * plus this log line means Identity Toolkit did not answer us; a bare `500` from these
+ * routes now means a bug in our own code, because every Identity Toolkit failure is
+ * mapped. Alert on the count of `identity_toolkit_unavailable` and the two are separable
+ * without anything user-identifying being written down: the line carries the route and
+ * the upstream HTTP status (`null` when the request never landed) and deliberately not
+ * `err.reason`, not the address, not the password (GUARDRAILS 12).
+ */
+const upstreamUnavailable = (c: Context, route: AuthRoute, err: IdentityToolkitError) => {
+    console.error(
+        JSON.stringify({
+            event: "identity_toolkit_unavailable",
+            route,
+            upstreamStatus: err.upstreamStatus,
+        }),
+    );
+    return c.json(
+        error(
+            "SERVICE_UNAVAILABLE",
+            "We can't reach the account service right now. Please try again in a moment.",
+        ),
+        503,
+        { "retry-after": String(UPSTREAM_RETRY_AFTER_SECONDS) },
+    );
+};
+
 app.get("/", (c) => c.text("Eva API"));
 app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -118,13 +162,25 @@ app.post("/auth/signup", async (c) => {
         const user = await ensureUser(localId, email, "password");
         return c.json({ token: await mintToken(localId, email), user }, 201);
     } catch (err) {
-        if (
-            err instanceof IdentityToolkitError &&
-            err.reason === "EMAIL_EXISTS"
-        ) {
+        if (err instanceof IdentityToolkitError) {
+            if (err.kind === "email-exists") {
+                return c.json(
+                    error("EMAIL_EXISTS", "This email is already registered"),
+                    409,
+                );
+            }
+            if (err.kind === "unavailable") return upstreamUnavailable(c, "signup", err);
+            // `rejected`: upstream refused the credentials for something our own edge
+            // validation did not catch — a shape of address our regex allows and Google
+            // does not, most likely. Answered in our words, at 400 because the request is
+            // the problem; the upstream reason stays in the exception (GUARDRAILS 12), so
+            // we say what the caller can act on and no more.
             return c.json(
-                error("EMAIL_EXISTS", "This email is already registered"),
-                409,
+                error(
+                    "VALIDATION",
+                    "That email or password can't be used. Check them and try again.",
+                ),
+                400,
             );
         }
         throw err;
@@ -151,6 +207,15 @@ app.post("/auth/signin", async (c) => {
         return c.json({ token: await mintToken(localId, email), user });
     } catch (err) {
         if (err instanceof IdentityToolkitError) {
+            if (err.kind === "unavailable") return upstreamUnavailable(c, "signin", err);
+            // Everything else collapses into one answer — a wrong password, an address
+            // that was never registered, an address upstream considers malformed. The
+            // branch is chosen from `kind`, which is derived from the upstream *status*
+            // and a fixed list of reasons, never from anything that varies with the
+            // address: that is what keeps the non-enumeration property (ARCHITECTURE §3)
+            // true of our layer and not merely of Google's. Signin has no 400 branch on
+            // purpose — "that address is malformed" would answer the question the 401
+            // refuses to. test/signin-non-enumeration.test.ts pins both halves.
             return c.json(
                 error("INVALID_CREDENTIALS", "Wrong email or password"),
                 401,
