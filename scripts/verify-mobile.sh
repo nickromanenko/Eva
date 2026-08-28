@@ -21,7 +21,31 @@ FAILED=0
 command -v xcodegen >/dev/null || { echo "✗ xcodegen missing — brew install xcodegen"; exit 1; }
 
 echo "▶ xcodegen generate"
+# Eva/Info.plist is generated but tracked, because it is the only reviewable surface for
+# what XcodeGen decides on your behalf — Eva.xcodeproj is gitignored. That only works if
+# the copy in the tree is what regeneration actually produces.
+#
+# This is also the guard for #42, and the reason a #4-style "no unsubstituted $(" check
+# would not have caught it: that bug was an *absent* key in project.yml, for which XcodeGen
+# supplied a perfectly well-formed `1.0`. Nothing in the built bundle looked wrong.
+#
+# Compares before/after regeneration rather than against HEAD, so an intentional
+# uncommitted change is fine and only a stale or hand-edited file fails.
+PLIST="$ROOT/mobile/Eva/Info.plist"
+PLIST_BEFORE=$(mktemp -t eva-infoplist)
+cp "$PLIST" "$PLIST_BEFORE" 2>/dev/null || true
+
 (cd "$ROOT/mobile" && xcodegen generate >/dev/null) || { echo "✗ xcodegen failed"; exit 1; }
+
+if ! diff -q "$PLIST_BEFORE" "$PLIST" >/dev/null 2>&1; then
+  echo "✗ mobile/Eva/Info.plist was stale — xcodegen regenerated it differently."
+  echo "  Hand edits are silently reverted; change mobile/project.yml instead, then commit"
+  echo "  the regenerated plist alongside it."
+  diff "$PLIST_BEFORE" "$PLIST" || true
+  rm -f "$PLIST_BEFORE"
+  exit 1
+fi
+rm -f "$PLIST_BEFORE"
 
 if [ "$BUILD_ONLY" = "1" ]; then
   echo "▶ build only"
