@@ -63,8 +63,8 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `auth.ts` | Minting and verifying the Eva JWT, `requireAuth` middleware | The only place `JWT_SECRET` is used |
 | `identity-toolkit.ts` | Password credential create/verify via Google REST | The only place the web API key is used |
 | `rate-limit.ts` | In-memory attempt counters for `/auth/*` | Holds no identity state; never logs its keys |
-| `users.ts` | The `users/{uid}` document: read, create, update | The only module that touches `users/` |
-| `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete | The only module that touches `events/` |
+| `users.ts` | The `users/{uid}` document: read, create, update, list IDs | The only module that touches `users/` |
+| `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge | The only module that touches `events/` |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
@@ -77,7 +77,8 @@ Layering: `index.ts` → (`auth`, `identity-toolkit`, `rate-limit`, `users`, `ev
 Errors are always `{ "error": { "code": string, "message": string } }`. `code` is a
 stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
 `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`,
-`UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`, `SERVICE_UNAVAILABLE`);
+`UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`, `SERVICE_UNAVAILABLE`,
+`DAY_ALREADY_LOGGED`);
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
@@ -92,6 +93,7 @@ change for the iOS client.
 | `POST /me/events` | Bearer | `201 { event }` |
 | `PATCH /me/events/{id}` | Bearer | `{ event }` — body must carry `type` and `localDate` |
 | `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
+| `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 
@@ -224,6 +226,73 @@ stored); without one the server uses UTC and allows a day of slack either side.
 document ID (`cycle_2026-08-27`), so re-logging replaces rather than accumulates. As
 a consequence their `localDate` cannot be changed by `PATCH` — delete and re-log.
 
+**Retention — the 30 days are a clock, not a wish (#28).** `DELETE /me/events/{id}` is
+soft: it stamps `deletedAt` and range reads skip the entry. For the next 30 days
+(`RETENTION_DAYS` in `events.ts`, the one place the number lives) it can be brought back
+by `POST /me/events/{id}/restore` — the Undo on the delete toast. After that a job
+removes it for good. Restore's `deletedAt >= cutoff` and the purge's `deletedAt < cutoff`
+are exact complements, so no entry is ever both restorable and purgeable. All of it is
+instant arithmetic on the server-set `deletedAt`; none of it touches `localDate`, so no
+time zone, DST change or client clock can move the boundary.
+
+Restore answers `404` for an unknown id, for an entry that was never deleted, and for one
+past its window. The interesting case is one-per-day: because `cycle` and `bodySignals`
+live at a deterministic ID, re-logging that day **overwrites the very document** that held
+the deleted entry, so there is nothing left to restore. Restore refuses with
+`409 DAY_ALREADY_LOGGED` rather than creating a duplicate or relabelling the newer entry
+as restored. One consequence is worth knowing before it surprises someone: a live document
+at a one-per-day ID cannot distinguish "the day was retaken" from "this was never deleted"
+— replacing keeps the ID and `createdAt` and leaves no trace of the delete — so both
+answer `409`. That is the price of the deterministic ID, and it is paid here rather than
+by keeping a second copy of every deleted day.
+
+**The purge is a script, not a route** (`api/scripts/purge-events.ts`, over
+`purgeUserEvents` in `events.ts`), for the same reasons as the refdata scripts below: the
+Admin SDK bypasses `firestore.rules`, and there is no admin role to authorize an HTTP
+caller with. It also means the most destructive operation in the system has **no HTTP
+surface at all** — no endpoint a user's bearer token, stolen or forged, could reach, and
+no shared purge secret to leak, rotate, or accidentally log. Authorization is IAM on the
+identity the job runs as, which is Google's to check rather than ours.
+
+Running it:
+
+```sh
+cd api && bun run purge:events --dry-run        # count only, deletes nothing
+cd api && bun run purge:events                  # delete
+cd api && bun run purge:events --uid=<uid>      # one account
+gcloud run jobs execute eva-purge-events --region "$REGION"   # manual production run
+```
+
+**In production it is a Cloud Run job**, built from the same image as the service with the
+entrypoint overridden, triggered daily by Cloud Scheduler. **A human must create both —
+this repo does not, and `Deploy API` does not either.** Until they exist, nothing purges
+and deleted events accumulate; the code is inert, not wrong. What is needed:
+
+```sh
+gcloud run jobs create eva-purge-events \
+  --image <the image Deploy API pushed> --region "$REGION" \
+  --command bun --args run,scripts/purge-events.ts \
+  --set-env-vars "FIREBASE_PROJECT_ID=...,FIREBASE_WEB_API_KEY=..." \
+  --set-secrets "JWT_SECRET=eva-jwt-secret:latest"
+
+gcloud scheduler jobs create http eva-purge-events-daily \
+  --schedule "17 3 * * *" --http-method POST \
+  --uri "https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/eva-purge-events:run" \
+  --oauth-service-account-email <scheduler SA>     # needs roles/run.invoker on the job
+```
+
+The job needs the service's whole env because `config.ts` is all-or-nothing at import —
+it will demand `JWT_SECRET` it has no use for. Worth fixing when config grows a second
+consumer; not worth a bespoke config path today.
+
+Scale: the job fans out over `listAllUids()` and runs one bounded query per user, which
+is right at v1 size and linear in accounts. The cheaper shape is a single collection-group
+query on `deletedAt`, and it is deliberately not what ships — a collection-group query
+needs a `COLLECTION_GROUP` field override in `firestore.indexes.json` that a human must
+deploy, and, more to the point, a project-wide destructive query is one nobody can safely
+exercise from a test. Per-user scoping means the code that runs in production is the same
+code the tests run, pointed at one account.
+
 `refdata/{catalogueId}` — the option lists the client draws, one document per
 catalogue (`symptoms`, `sportActivities`, `appointmentTypes`). Owned by
 `api/src/refdata.ts`. Content is data, not code: adding an option or fixing a label is
@@ -319,6 +388,9 @@ CI authenticates by Workload Identity Federation — **no key files in CI, ever*
 ## 7. Known gaps (deliberate, not oversights)
 
 - No refresh tokens; no password reset; no account deletion.
+- The retention purge (§4) exists as code and a script but has no scheduler behind it
+  until a human creates the Cloud Run job and the Cloud Scheduler trigger. Deleted
+  events stay recoverable-forever until then.
 - `/auth/*` throttling is per Cloud Run instance and in memory (see §3): it raises the
   cost of credential stuffing, it does not bound it. A shared store is the real fix.
 - `firestore.rules` / `storage.rules` are deny-all. CI proves they still deny

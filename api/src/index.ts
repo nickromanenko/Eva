@@ -11,8 +11,10 @@ import {
     signUpWithPassword,
 } from "./identity-toolkit";
 import {
+    RETENTION_DAYS,
     createEvent,
     listEvents,
+    restoreEvent,
     softDeleteEvent,
     updateEvent,
     type AppointmentPayload,
@@ -789,6 +791,28 @@ app.delete("/me/events/:id", requireAuth, async (c) => {
     const deleted = await softDeleteEvent(c.get("claims").sub, c.req.param("id"));
     if (!deleted) return c.json(error("NOT_FOUND", "No such event"), 404);
     return c.json({ deleted: true });
+});
+
+/** Undo for the delete toast. Nothing to validate — the id is the whole request, and
+ *  what may be restored is a question about stored state, which the module answers. */
+app.post("/me/events/:id/restore", requireAuth, async (c) => {
+    const result = await restoreEvent(c.get("claims").sub, c.req.param("id"));
+    if (result.ok) return c.json({ event: result.event });
+    if (result.reason === "day-taken") {
+        // 409, not 404: the entry is not missing, the day is occupied. Restoring would
+        // have to overwrite a newer entry, so the client is told rather than obeyed.
+        return c.json(
+            error("DAY_ALREADY_LOGGED", "That day already has an entry, so this one can't be restored"),
+            409,
+        );
+    }
+    if (result.reason === "expired") {
+        return c.json(
+            error("NOT_FOUND", `That entry is past its ${RETENTION_DAYS}-day recovery window`),
+            404,
+        );
+    }
+    return c.json(error("NOT_FOUND", "No such event"), 404);
 });
 
 /** Upsert-by-day: one body signals entry per user per day, always replaced whole.

@@ -15,6 +15,7 @@ bun test
 bun run verify     # typecheck + test — must pass before a PR
 bun run seed:refdata  # create any missing refdata/ catalogue (--relabel resets labels)
 bun run retire:refdata  # apply the declared retirements (never deletes)
+bun run purge:events    # delete events past their 30-day recovery window (--dry-run first)
 ```
 
 Needs `api/.env` (copy `.env.example`) and Application Default Credentials
@@ -41,6 +42,10 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
 - `users.ts` — the only module that touches `users/`.
 - `events.ts` — the only module that touches `users/{uid}/events/`. Calendar entries:
   create, range read by `localDate`, edit, soft delete. Never log a payload — health data.
+  A soft delete is recoverable for `RETENTION_DAYS` (30) and then purged: `restoreEvent`
+  is the Undo behind `POST /me/events/{id}/restore`, `purgeUserEvents` is the job behind
+  the promise, driven by `scripts/purge-events.ts` (a script, not a route — ARCHITECTURE
+  §4 "Retention" says why, and what a human still has to create for it to run).
 - `refdata.ts` — the only module that touches `refdata/`. The client's option lists
   (symptom chips, sport activities, appointment types) with a content-hash `version`.
   Codes are permanent; options are retired, never deleted. Seed with
@@ -55,7 +60,7 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
   adding is fine, renaming is breaking. Current set: `VALIDATION`, `EMAIL_EXISTS`,
   `INVALID_CREDENTIALS`, `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`,
   `BACKDATE_LIMIT_EXCEEDED`, `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`,
-  `SERVICE_UNAVAILABLE`.
+  `SERVICE_UNAVAILABLE`, `DAY_ALREADY_LOGGED`.
 - Validate at the route edge (`normalizeEmail`, `parseProfile`), not deeper.
 - Every behavior change gets a test in `test/`.
 - Never log passwords, tokens, profile contents, or event payloads (health data).
