@@ -489,6 +489,32 @@ missing or non-absolute value as fatal rather than falling back to a plausible d
 the failure mode being guarded against is a Release build that quietly talks to
 localhost, which no test would catch.
 
+### Versioning: which commit is this build? (#46)
+
+`CFBundleVersion` is **`git rev-list --count HEAD`** and `EvaGitSHA` is the short commit,
+both stamped into the *built* bundle by a script phase in `mobile/project.yml`. So build 47
+is the 47th commit, and the bundle also carries the SHA outright — the question is
+answerable without inverting anything.
+
+`CURRENT_PROJECT_VERSION: "1"` stays as a floor. It is what a build gets when there is no
+git to count (a source export), and it is never edited by hand — that was #42's bug, and a
+literal that only changes when someone remembers is what #46 removed.
+
+Three consequences worth knowing before you archive:
+
+- **Re-archiving the same commit produces the same number**, and App Store Connect rejects
+  it. Deliberate: re-uploading an identical commit is a mistake, and a rejection beats two
+  different binaries sharing one build number.
+- **Archive from `main`, from a full clone.** The count only rises along one line of
+  history — a merged branch can count higher than the `main` it squashed into, and a
+  shallow clone counts fewer. Both fail as a rejected upload rather than a wrong build.
+- **`EvaGitSHA` gains a `-dirty` suffix** when `mobile/` has uncommitted changes. An
+  archive should never carry one; if it does, that build cannot be reproduced from the repo.
+
+There is no mobile CI (#67), so none of this is enforced by a pipeline — it is enforced by
+being inside the build, which is why it is a script phase rather than a generated config
+file that someone can forget to regenerate.
+
 `mobile/Eva.xcodeproj` is **generated and gitignored**. Edit `mobile/project.yml`, then
 `xcodegen generate`.
 

@@ -50,11 +50,135 @@ targets:
         # version bump is a one-line change to this file.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # The commit this binary was built from. Declared here with a placeholder so the
+        # key exists in the tracked plist and is reviewable; the real value is stamped by
+        # the post-build script below. Without the declaration the key would only ever
+        # appear in build output, which is the class of invisibility that caused #42.
+        EvaGitSHA: unstamped
+    # Stamps the *built* Info.plist with the build number and the commit (#46).
+    #
+    # CFBundleVersion is `git rev-list --count HEAD`: build 47 is the 47th commit, so
+    # "which commit is this build?" is answerable from the repo. The trade-off, taken
+    # deliberately: re-archiving the *same* commit yields the same number and App Store
+    # Connect rejects the upload. Re-uploading an identical commit is a mistake, and a
+    # loud rejection beats two different binaries quietly sharing one build number. A
+    # timestamp would have been unique per archive while hiding exactly that.
+    #
+    # The count only rises along a single line of history, and this repo already shows the
+    # edge: a merged feature branch counted 36 while the main it squashed into counts 35.
+    # So an archive from a branch can outrun main and make the *next* archive from main a
+    # lower number, which ASC rejects. Archive from `main`, from a full clone — a shallow
+    # one counts fewer commits for the same reason. Both failures are a rejected upload
+    # rather than a wrong build, which is the right way round.
+    #
+    # A build phase rather than a generated .xcconfig because there is no mobile CI —
+    # archives are made by hand from Product ▸ Archive — and a generated file's failure
+    # mode is silently shipping a stale number, which is the bug being fixed. A phase
+    # inside the build cannot be skipped or forgotten.
+    #
+    # It edits the bundle's copy of the plist, never Eva/Info.plist — that one is tracked
+    # source, and rewriting it would put the build number in every diff and trip
+    # verify-mobile.sh's staleness guard.
+    #
+    # It never fails the build: no .git, or no git on PATH, leaves whatever
+    # CURRENT_PROJECT_VERSION set and warns. Someone who downloaded a source zip should
+    # get a build numbered 1, not no build at all.
+    postBuildScripts:
+      - name: Stamp build number and commit SHA
+        # This input is load-bearing and is not about caching. **Do not delete it because
+        # removing it appears to work.** Being last in the phase list does not order a
+        # script after Process Info.plist; the build system orders tasks by their declared
+        # files. Read out of the llbuild manifest on Xcode 26.2: with this input the script
+        # depends on `Eva.app/Info.plist`, the plist processor's output. Without it that
+        # edge is simply absent, and neither task's remaining inputs mention the other — so
+        # the two are concurrent in the graph with nothing sequencing them.
+        #
+        # That is a race, and it resolves favourably most of the time: 7 of 7 builds still
+        # stamped correctly with the input removed. It was also seen to lose, leaving a
+        # build numbered 1 under a log line claiming it was stamped. An experiment that
+        # removes this line and passes has observed the lucky branch, not the absence of
+        # the hazard.
+        #
+        # Ordering here also keeps the stamp upstream of code signing, so it lands inside
+        # the signature rather than invalidating it.
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
+        # Its real input is the git history, which no file list can describe, so dependency
+        # analysis would skip the stamp on any build that touched nothing else. Running
+        # every time is the intent; declaring that also turns Xcode's "will be run during
+        # every build" warning into a note.
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+        script: |
+          set -euo pipefail
+
+          # Defaulted rather than bare: the warning branches below interpolate these,
+          # and under `set -u` an unset one would abort with "unbound variable" — turning
+          # the path that exists to never fail the build into one that fails it obscurely.
+          plist="${TARGET_BUILD_DIR:-}/${INFOPLIST_PATH:-}"
+          fallback="${CURRENT_PROJECT_VERSION:-1}"
+          srcroot="${SRCROOT:-.}"
+          if [ ! -f "$plist" ]; then
+              echo "warning: no built Info.plist at $plist — build number left at ${fallback}"
+              exit 0
+          fi
+
+          if ! command -v git >/dev/null 2>&1; then
+              echo "warning: git not on PATH — build number left at ${fallback}, EvaGitSHA left unstamped"
+              exit 0
+          fi
+
+          build_number=$(git -C "${srcroot}" rev-list --count HEAD 2>/dev/null) || true
+          git_sha=$(git -C "${srcroot}" rev-parse --short HEAD 2>/dev/null) || true
+          if [ -z "${build_number}" ] || [ -z "${git_sha}" ]; then
+              echo "warning: no git history at ${srcroot} — build number left at ${fallback}, EvaGitSHA left unstamped"
+              exit 0
+          fi
+
+          # A SHA alone would claim this binary is that commit, and an uncommitted change
+          # makes that false without changing the number. Scoped to the sources that
+          # actually produce the binary, so a dirty api/ or docs/ does not mark an iOS
+          # build. An archive should never carry this suffix; seeing one means the build
+          # cannot be reproduced from the repo.
+          if [ -n "$(git -C "${srcroot}" status --porcelain -- . 2>/dev/null)" ]; then
+              git_sha="${git_sha}-dirty"
+          fi
+
+          # PlistBuddy exits 0 when it cannot open the destination — "Error Opening
+          # Destination … Permission denied" is printed and the status is still success.
+          # So writing is not evidence of having written, and announcing a stamp on the
+          # strength of the exit code would reproduce the exact defect this issue is
+          # about: a build log claiming a number the bundle does not carry. Every write is
+          # read back.
+          #
+          # This is also the only check that covers `xcodebuild archive`, which runs no
+          # tests — the one build that gets uploaded is otherwise the one nothing verifies.
+          plist_set() {
+              /usr/libexec/PlistBuddy -c "Set :$1 $2" "$plist" >/dev/null 2>&1 \
+                  || /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$plist" >/dev/null 2>&1 || true
+              written=$(/usr/libexec/PlistBuddy -c "Print :$1" "$plist" 2>/dev/null) || written=""
+              if [ "${written}" != "$2" ]; then
+                  echo "error: could not stamp $1 into $plist — wanted \"$2\", plist reads \"${written}\""
+                  exit 1
+              fi
+          }
+          plist_set CFBundleVersion "${build_number}"
+          plist_set EvaGitSHA "${git_sha}"
+          echo "note: stamped CFBundleVersion=${build_number} EvaGitSHA=${git_sha}"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.evaapp.ios
+        # The floor, and the fallback the stamp above leaves in place when there is no
+        # git to count. Not a number anyone edits.
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "0.1.0"
+        # Xcode 15+ sandboxes script phases, and a sandboxed phase can neither run git
+        # against the working tree nor write a file it did not declare as an output —
+        # both of which the stamp does. XcodeGen does not write this setting, so the
+        # project has been inheriting Xcode's default of NO and the stamp works; stated
+        # here so it stays a decision rather than a default that could move under us and
+        # turn the stamp into a silent no-op.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
       configs:
         # Deliberately *not* named EVA_API_BASE_URL. That name belongs to the runtime
         # launch-environment override; giving the build setting the same name would put
