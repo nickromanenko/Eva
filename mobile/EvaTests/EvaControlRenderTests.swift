@@ -199,6 +199,41 @@ struct EvaControlRenderTests {
                 "loading button top is \(raster.pixel(30, 1).hexString), expected #B45276")
     }
 
+    @Test("A loading solid destructive keeps the enabled fill")
+    func loadingDestructiveButtonStaysEnabledLooking() throws {
+        // #55 gave `EvaDestructiveButtonStyle` the same `isLoading` escape the primary
+        // has, for the same reason and with the same justification in its doc comment:
+        // the delete-account modal's confirm button is `.disabled` while `DELETE /me` is
+        // in flight so it cannot be double-tapped, and the 50% disabled fill under a
+        // spinner would say "nothing is happening". The canvas has no loading state for
+        // any button, so this is a deviation, and a deviation with no test is just a
+        // comment.
+        let background = Color.evaWarmBackground
+        func fill(isLoading: Bool) throws -> EvaRGBA {
+            let raster = try EvaRaster(
+                Button("Delete profile") {}
+                    .buttonStyle(EvaDestructiveButtonStyle(kind: .solid, isLoading: isLoading))
+                    .disabled(true)
+                    .frame(width: 200),
+                size: CGSize(width: 200, height: 52),
+                background: background
+            )
+            // x = 30 is inside the fill, clear of the rounded corner and clear of the
+            // centred label.
+            return raster.pixel(30, 26)
+        }
+        let enabled = evaComposite(EvaDestructiveButtonKind.solid.fill(for: .normal), over: background)
+        let disabled = evaComposite(EvaDestructiveButtonKind.solid.fill(for: .disabled), over: background)
+
+        #expect(try fill(isLoading: true).isWithin(Self.tolerance, of: enabled),
+                "the loading confirm button is not wearing the enabled #B85248")
+        // The control, and the reason this test can fail in both directions: without the
+        // flag the same disabled button really does halve its fill, so the assertion
+        // above is about `isLoading` and not about `.disabled` being ignored outright.
+        #expect(try fill(isLoading: false).isWithin(Self.tolerance, of: disabled),
+                "a plainly disabled solid destructive stopped using its 50% fill")
+    }
+
     @Test("The focused primary button draws a 3pt ring outside its edge")
     func focusedPrimaryButtonDrawsTheRing() throws {
         // §5: "Primary · focused | 3px rgba(40,33,38,.6) ring". Drawn *outside* the

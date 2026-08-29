@@ -284,6 +284,20 @@ as an error after failure", which is what the artboard's spec note protects.
 At accessibility text sizes the screen deliberately becomes a single scrolling column —
 a pinned footer at AX5 takes ~450 of 781pt and truncates the CTA.
 
+**The delete-profile copy says what the server actually does.** The artboard's modal
+reads "removes your cycle history, logs, notes and appointments from Eva's servers
+**within 30 days**", and its danger card reads "Removes all logs, notes and
+**predictions**". Neither is true: `DELETE /me` (#8) deletes immediately and completely,
+and Eva has no predictions feature. §8 asks the product to describe rather than soften,
+and the one screen where that matters most is the one telling someone their health record
+is about to be destroyed. Both strings were rewritten to name what is actually removed,
+and the modal says "straight away" rather than giving a window that does not exist.
+
+**The modal drops "Export data instead".** The artboard offers an export button and an
+"Export your data first" card beside the confirmation. There is no export feature (#58),
+and an inert button next to an irreversible action reads as an offered escape route and
+is not one. Restore both when #58 ships — not before.
+
 **L1 glass renders no `Material`.** `Material` adds its own tint beneath the white fill,
 so a 40% surface read at roughly 70% and L1 was indistinguishable from L2. L1 is
 decorative and needs no backdrop blur; a plain 40% fill restores the separation. L2 and

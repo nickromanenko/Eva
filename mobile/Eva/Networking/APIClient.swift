@@ -69,14 +69,20 @@ struct APIClient: Sendable {
         try await send(path: path, method: "PUT", body: body, authorized: authorized)
     }
 
+    func delete<Response: Decodable>(_ path: String, authorized: Bool = false) async throws -> Response {
+        try await send(path: path, method: "DELETE", body: nil as Never?, authorized: authorized)
+    }
+
     private func send<Body: Encodable, Response: Decodable>(
         path: String, method: String, body: Body?, authorized: Bool
     ) async throws -> Response {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var sentToken = false
         if authorized, let token = token() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            sentToken = true
         }
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
@@ -98,10 +104,17 @@ struct APIClient: Sendable {
                 throw APIError.decoding
             }
         }
-        if let failure = try? JSONDecoder().decode(APIFailure.self, from: data) {
-            throw APIError.server(code: failure.error.code, message: failure.error.message, status: status)
+        let failure = try? JSONDecoder().decode(APIFailure.self, from: data)
+        let message = failure?.error.message ?? "Something went wrong (\(status))."
+        // A 401 is only a dead credential if this request actually presented one. The
+        // status alone doesn't say that: `POST /auth/signin` answers a wrong password
+        // with 401 INVALID_CREDENTIALS and sends no token, and a nil token under
+        // `authorized: true` is a client bug rather than a session that ended. Both must
+        // stay ordinary server errors, or a failed sign-in would sign the user out.
+        if status == 401, sentToken {
+            throw APIError.sessionExpired(message: message)
         }
-        throw APIError.server(code: "UNKNOWN", message: "Something went wrong (\(status)).", status: status)
+        throw APIError.server(code: failure?.error.code ?? "UNKNOWN", message: message, status: status)
     }
 }
 

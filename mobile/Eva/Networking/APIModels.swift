@@ -27,6 +27,12 @@ struct UserResponse: Decodable {
     let user: APIUser
 }
 
+/// `DELETE /me` replies `{ "deleted": true }`. `AppSession.deleteAccount` checks the flag
+/// rather than treating any 2xx as success — see the note there.
+struct DeleteAccountResponse: Decodable {
+    let deleted: Bool
+}
+
 struct Credentials: Encodable {
     let email: String
     let password: String

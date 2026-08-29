@@ -405,6 +405,16 @@ enum EvaDestructiveButtonKind: Hashable {
 struct EvaDestructiveButtonStyle: ButtonStyle {
     let kind: EvaDestructiveButtonKind
 
+    /// Keeps the enabled appearance while the button is `.disabled` for loading — the
+    /// same decision `EvaPrimaryButtonStyle` documents, for the same reason.
+    ///
+    /// The solid variant's disabled fill is `#B85248` at 50% with a Primary Text label,
+    /// which says "unavailable". A confirm button waiting on `DELETE /me` is not
+    /// unavailable, it is working, and it has to be inert so it cannot be double-tapped.
+    /// The canvas has no loading state for any button (DESIGN.md §9c), so this is a
+    /// decision rather than a transcription.
+    var isLoading = false
+
     /// Forces a state a preview cannot reach by touch. Never set this in app code.
     var previewState: EvaButtonState?
 
@@ -414,7 +424,7 @@ struct EvaDestructiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let state = previewState ?? EvaButtonState.resolved(
             isPressed: configuration.isPressed,
-            isEnabled: isEnabled,
+            isEnabled: isEnabled || isLoading,
             isFocused: isFocused
         )
 
