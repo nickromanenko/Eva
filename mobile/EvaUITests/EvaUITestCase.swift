@@ -31,18 +31,23 @@ class EvaUITestCase: XCTestCase {
         "e2e+\(UUID().uuidString.lowercased())@e2e.evaapp.dev"
     }
 
+    /// The API the harness actually started. `scripts/verify-mobile.sh` passes it to the
+    /// runner as `TEST_RUNNER_EVA_API_BASE_URL`, which xcodebuild forwards with the prefix
+    /// stripped; the DEBUG default is the fallback for a run started by hand.
+    ///
+    /// A property rather than a local in `launch()` because #61's suite relaunches the app
+    /// against a host that is not listening and then has to point it back here.
+    static let apiBaseURL = ProcessInfo.processInfo.environment["EVA_API_BASE_URL"]
+        ?? "http://localhost:3003"
+
     /// Launches (or relaunches) the app with the Keychain cleared and pointed at the
     /// API the harness started. Pass the same instance back to relaunch it.
     @discardableResult
     func launch(_ existing: XCUIApplication? = nil) -> XCUIApplication {
         let app = existing ?? XCUIApplication()
         app.launchEnvironment["EVA_UITEST_RESET"] = "1"
-        // scripts/verify-mobile.sh passes TEST_RUNNER_EVA_API_BASE_URL so the app
-        // targets the API the harness actually started; falls back to the DEBUG default.
-        let apiBaseURL = ProcessInfo.processInfo.environment["EVA_API_BASE_URL"]
-            ?? "http://localhost:3003"
-        app.launchEnvironment["EVA_API_BASE_URL"] = apiBaseURL
-        print("UI test targeting API at \(apiBaseURL)")
+        app.launchEnvironment["EVA_API_BASE_URL"] = Self.apiBaseURL
+        print("UI test targeting API at \(Self.apiBaseURL)")
         app.launch()
         return app
     }
