@@ -60,7 +60,10 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
   adding is fine, renaming is breaking. Current set: `VALIDATION`, `EMAIL_EXISTS`,
   `INVALID_CREDENTIALS`, `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`,
   `BACKDATE_LIMIT_EXCEEDED`, `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`,
-  `SERVICE_UNAVAILABLE`, `DAY_ALREADY_LOGGED`.
+  `SERVICE_UNAVAILABLE`, `DAY_ALREADY_LOGGED`, `INTERNAL`.
+- `app.onError` is the floor: any throw no route answered for is `500 INTERNAL` with a
+  fixed message and a `ref`. Never the thrown error's text, in the body or the log —
+  ARCHITECTURE §3 says why that is the point of it.
 - Validate at the route edge (`normalizeEmail`, `parseProfile`), not deeper.
 - Every behavior change gets a test in `test/`.
 - Never log passwords, tokens, profile contents, or event payloads (health data).

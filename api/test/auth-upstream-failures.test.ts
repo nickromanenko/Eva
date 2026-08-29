@@ -325,7 +325,10 @@ describe("the operator's signal", () => {
 
         const whole = logged.join("\n");
         expectNoLeak(whole);
-        expect(whole).not.toContain(process.env.FIREBASE_WEB_API_KEY ?? " never");
+        // `includes`, not `not.toContain`: on failure Bun prints the expected substring,
+        // which here would write the live web API key into a CI log. Also removes a
+        // stray NUL byte that made this whole file unsearchable by grep.
+        expect(whole.includes(config.firebaseWebApiKey)).toBe(false);
         // `unavailable` is what an operator needs to see; a wrong password is not an
         // incident, and logging one per attempt would be a log full of nothing.
         expect(logged).toHaveLength(2);
@@ -442,3 +445,4 @@ describe("the Identity Toolkit client's own classification", () => {
         expect(err.kind).toBe("rejected");
     });
 });
+import { config } from "../src/config";

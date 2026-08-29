@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { routePath } from "hono/route";
 import { mintToken, requireAuth } from "./auth";
 import {
     authRetryAfterSeconds,
@@ -35,6 +36,76 @@ import { ensureUser, getUser, saveQuestionnaire, type Profile } from "./users";
 const app = new Hono();
 
 const error = (code: string, message: string) => ({ error: { code, message } });
+
+/** Everything a caller is ever told about a failure nobody planned for. One sentence, the
+ *  same one every time, plus the `ref` the handler below generates. */
+const INTERNAL_MESSAGE = "Something went wrong on our end. Please try again.";
+
+/** Identifier-shaped, or nothing. Bounds the one field whose text a library chooses. */
+const ERROR_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+
+const errorName = (err: unknown): string => {
+    const name = err instanceof Error ? err.name : typeof err;
+    return ERROR_NAME.test(name) ? name : "unknown";
+};
+
+/**
+ * The floor under every route (issue #48). Nothing else changes: a handler that already
+ * answers — every shaped 4xx, #32's Identity Toolkit mapping, #5's 429 — never throws, so
+ * this is only reached when *nothing* handled the failure. A Firestore outage inside
+ * `ensureUser` is the case that motivated it: before this it fell through to Hono's default
+ * handler, which answers a bare `500` with no `{ error: { code, message } }` body at all.
+ *
+ * **What is not here is the point.** `err.message` reaches neither the body nor the log,
+ * because nobody wrote it for either: #32 found that a failed `fetch`'s message names the
+ * request URL and that URL carries the web API key, and a Firestore error's message can
+ * name the document path, which is a uid. The same goes for `err.stack`, whose first line
+ * *is* the message, and for `err.cause`, which is another error's message one hop away.
+ * A library's choice of words is not a reviewed field, so it is treated as untrusted
+ * (GUARDRAILS 1, 12).
+ *
+ * What the line carries instead, and why each field is safe to write down:
+ * - `event` — a constant, so the count of these is alertable and greppable, next to
+ *   `identity_toolkit_unavailable`. These two now separate an outage of Google's from an
+ *   outage of anything else, and a bug of ours from either.
+ * - `ref` — generated here from `crypto.randomUUID`, derived from nothing about the
+ *   request. It is the one field also given to the caller (in `message`), so a user can
+ *   quote it and an operator can find the single line it came from.
+ * - `method` and `route` — `route` is the *registered* path (`/me/events/:id`), never
+ *   `c.req.path`, which would carry the id, the query string, and — at
+ *   `/me/body-signals/2026-08-27` — the date a user logged health data for, which
+ *   GUARDRAILS 12 keeps out of logs as surely as the payload itself.
+ * - `errorName` — a class name, chosen where the class is declared rather than formatted
+ *   from runtime values, so `FirebaseError` vs `TypeError` distinguishes "the database is
+ *   gone" from "we shipped a bug" with no data in it. Sanitized anyway, because a `name`
+ *   *can* be assigned at runtime and this is the one field a library controls.
+ *
+ * The cost is real and worth stating: no stack, so this line locates a fault to a route
+ * and a class, not to a line number. Reproducing from `route` + `errorName` is the trade
+ * for a log that cannot leak. If that proves too thin, the answer is a reviewed field
+ * (an error class of ours carrying a safe code), not the message.
+ *
+ * One boundary, stated rather than papered over: Hono routes only a thrown **`Error`**
+ * here — `#handleError` rethrows anything else at the runtime, which answers its own
+ * unshaped 500. Closing that means a wildcard middleware wrapping every request, which is
+ * more routing surface than this is worth while nothing in the stack throws a non-Error;
+ * it is filed, not fixed.
+ */
+app.onError((err, c) => {
+    // Short enough to read out over a support call, random enough to be unique among the
+    // 500s anyone is looking through. It identifies a log line, never a user.
+    const ref = crypto.randomUUID().slice(0, 8);
+    console.error(
+        JSON.stringify({
+            event: "unhandled_error",
+            ref,
+            method: c.req.method,
+            route: routePath(c),
+            errorName: errorName(err),
+        }),
+    );
+    return c.json(error("INTERNAL", `${INTERNAL_MESSAGE} (ref: ${ref})`), 500);
+});
 
 const normalizeEmail = (email: unknown): string | null => {
     if (typeof email !== "string") return null;
