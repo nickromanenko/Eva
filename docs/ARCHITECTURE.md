@@ -429,8 +429,8 @@ instead of depending on the retire script having been run against it afterwards.
 | `Profile/` | `ProfileView` and `DeleteAccountModal` — the account-deletion entry point |
 | `Theme/` | Colors, gradients, `PrimaryButton`, progress style — see [DESIGN.md](DESIGN.md) |
 
-`AppSession.State` (`loading → signedOut | needsQuestionnaire | ready`) drives the root
-view. **The server is the source of truth for `questionnaireCompleted`** — never
+`AppSession.State` (`loading → signedOut | needsQuestionnaire | ready | unreachable`)
+drives the root view. **The server is the source of truth for `questionnaireCompleted`** — never
 reintroduce a local `@AppStorage` flag for it.
 
 ### A dead credential signs the user out, wherever it lands (#55)
@@ -456,11 +456,17 @@ Two pieces, and the split matters:
 `signUp` and `signIn` stay outside the wrapper deliberately: they present no token, and
 their 401 means "wrong password".
 
-**The property does not yet hold at launch.** `bootstrap()` predates all of this and
-still clears the Keychain on *any* failure, `.network` included — so opening the app with
-no signal signs the user out and asks them to type a password they cannot submit. The
-wrapper declines to sign out there and `bootstrap`'s own catch does it anyway. That is
-#61, not something this section describes as already fixed.
+**It holds at launch too (#61).** `bootstrap()` used to clear the Keychain on *any*
+failure, `.network` included, so opening the app with no signal signed the user out and
+asked for a password they could not submit. It now draws the same line as the wrapper:
+only `.sessionExpired` ends the session; a `.network`, a `.decoding` or any non-401
+`.server` leaves the token exactly as it is and the app goes to `.unreachable`.
+
+`.unreachable` means *we have a token we could not validate, and we kept it*. It offers a
+retry and — the part that is easy to leave out — a way to log out. Before #61 every launch
+failure ejected the user, so being stuck was impossible; keeping the token removes that
+exit, and a retry button is not a substitute for one when `/me` fails for this account
+every time.
 
 One consequence is filed rather than fixed (#59): if a `DELETE /me` fails *because* the
 token died, the sign-out tears down the modal before it can say so, and a user sees the

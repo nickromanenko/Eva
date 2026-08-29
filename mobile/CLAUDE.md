@@ -61,8 +61,11 @@ Adding a token or a component means adding it to the specimen too.
 
 ## Rules
 
-- `AppSession.State` (`loading → signedOut | needsQuestionnaire | ready`) drives the
-  root view. The **server** owns `questionnaireCompleted` — no local flag.
+- `AppSession.State` (`loading → signedOut | needsQuestionnaire | ready | unreachable`)
+  drives the root view. The **server** owns `questionnaireCompleted` — no local flag.
+- Only a 401 on a request that carried the token ends a session. Everything else —
+  no signal, a 5xx, a body that will not decode — is `.unreachable`, and the token
+  stays. Do not add a path that clears the Keychain on a generic failure (#61).
 - Adding an onboarding screen = new `OnboardingStep` case + wiring **both** `next()`
   and `back()`. The flow is explicit, not inferred.
 - Use the tokens and components in DESIGN.md. No literal hex, no ad-hoc font sizes,
