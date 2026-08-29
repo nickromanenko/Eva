@@ -426,11 +426,45 @@ instead of depending on the retire script having been run against it afterwards.
 | `Networking/` | `APIClient` (generic async JSON), `APIError`, `APIModels` (wire types) |
 | `Session/` | `AppSession` — the single source of app state; `KeychainTokenStore` — the only place the JWT is persisted |
 | `Onboarding/` | `OnboardingModel` (flow state machine) + `Steps/` + `Components/` |
+| `Profile/` | `ProfileView` and `DeleteAccountModal` — the account-deletion entry point |
 | `Theme/` | Colors, gradients, `PrimaryButton`, progress style — see [DESIGN.md](DESIGN.md) |
 
 `AppSession.State` (`loading → signedOut | needsQuestionnaire | ready`) drives the root
 view. **The server is the source of truth for `questionnaireCompleted`** — never
 reintroduce a local `@AppStorage` flag for it.
+
+### A dead credential signs the user out, wherever it lands (#55)
+
+The JWT is stateless and lives 30 days, so the server's only way to say "this credential
+is finished" is a `401 UNAUTHORIZED` — which `requireAccount` now returns for a deleted
+account on every authenticated route (§3). The client has to hear that everywhere, not
+just at launch.
+
+Two pieces, and the split matters:
+
+- **`APIClient.send` decides what a 401 *means*.** It throws `APIError.sessionExpired`
+  only when the response is 401 **and** the request actually went out carrying a bearer
+  token. The second half is load-bearing: `POST /auth/signin` answers a wrong password
+  with 401, and a rule keyed on status alone would sign a user out for mistyping. The
+  flag is set in the same binding that writes the `Authorization` header so the two
+  cannot drift apart.
+- **`AppSession.authorized(_:)` decides what to *do* about it** — clear the Keychain,
+  drop to `.signedOut`, and rethrow so the caller can still react. Every authorized call
+  goes through it. Adding an authorized request without it is the regression this
+  paragraph exists to prevent.
+
+`signUp` and `signIn` stay outside the wrapper deliberately: they present no token, and
+their 401 means "wrong password".
+
+**The property does not yet hold at launch.** `bootstrap()` predates all of this and
+still clears the Keychain on *any* failure, `.network` included — so opening the app with
+no signal signs the user out and asks them to type a password they cannot submit. The
+wrapper declines to sign out there and `bootstrap`'s own catch does it anyway. That is
+#61, not something this section describes as already fixed.
+
+One consequence is filed rather than fixed (#59): if a `DELETE /me` fails *because* the
+token died, the sign-out tears down the modal before it can say so, and a user sees the
+signed-out screen for an account that still exists.
 
 `OnboardingStep` is a linear enum with explicit `next()`/`back()`. Add a screen by
 adding a case and wiring both transitions — there is no implicit ordering.
