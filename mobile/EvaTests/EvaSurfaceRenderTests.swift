@@ -182,6 +182,86 @@ struct EvaSurfaceRenderTests {
                 "L1 is not more transparent than L2")
     }
 
+    // MARK: The card shadow's hue (#12)
+
+    /// The card's drop shadow is neutral, and the halo under a card is not tinted.
+    ///
+    /// #12 changed `EvaCardShadow.color` from `rgba(150,72,100,.45)` to
+    /// `rgba(40,33,38,.35)` because the pink rendered as a visible halo around every
+    /// card. `EvaCardShadow` is private and `.shadow(…)` is not readable back off a
+    /// `View`, so this asks the pixels — and it asks for the *hue* only, because the
+    /// effective alpha at any one point inside a blurred shadow is not predictable from
+    /// the spec, while the hue is.
+    ///
+    /// Over white, a shadow pixel is `1 − α·(1 − c)` per channel, so the per-channel
+    /// *deficits* `1 − pixel` are `α · (1 − c)` and their ratios are free of α. Neutral
+    /// `(40,33,38)` predicts deficits in the ratio `215 : 222 : 217` — flat. The old
+    /// pink `(150,72,100)` predicts `105 : 183 : 155` — not flat, and that inequality is
+    /// the halo.
+    @Test("The card's drop shadow is neutral, not the pink that haloed every card")
+    func cardShadowIsNeutral() throws {
+        // White, not the suite's usual black: a shadow over black is invisible, and the
+        // deficits this measures are only defined against a known light ground.
+        let canvas = CGSize(width: 200, height: 200)
+        let card = CGSize(width: 120, height: 80)
+        let raster = try EvaRaster(
+            Color.clear.frame(width: card.width, height: card.height).evaCardSurface(),
+            size: canvas,
+            background: .white
+        )
+        // The card is centred, so its bottom edge is here. Sampling starts below the
+        // 1pt border and outside the corner curve, on the vertical centreline.
+        let cardBottom = Int((canvas.height + card.height) / 2)
+        let x = Int(canvas.width / 2)
+
+        func darkestBand(_ range: Range<Int>) -> EvaRGBA {
+            var darkest = raster.pixel(x, range.lowerBound)
+            for y in range where raster.pixel(x, y).relativeLuminance < darkest.relativeLuminance {
+                darkest = raster.pixel(x, y)
+            }
+            return darkest
+        }
+        let below = darkestBand((cardBottom + 2)..<(cardBottom + 30))
+
+        let deficit = (r: 1 - below.red, g: 1 - below.green, b: 1 - below.blue)
+
+        // Without this the ratios below are noise over noise and every assertion passes
+        // by accident — which is the failure mode this whole suite exists to avoid.
+        #expect(deficit.r * 255 > 6,
+                "no shadow is drawing under the card: the darkest pixel below it is \(below.hexString) against a white ground")
+
+        // Hue-agnostic: a neutral shadow's three deficits are within 4% of each other
+        // (215 : 222 : 217). Any saturated colour, pink or not, spreads them.
+        let spread = max(deficit.r, deficit.g, deficit.b) / min(deficit.r, deficit.g, deficit.b)
+        #expect(spread < 1.15,
+                "the shadow is tinted: deficits \(Int(deficit.r * 255)) · \(Int(deficit.g * 255)) · \(Int(deficit.b * 255)) spread by \(String(format: "%.2f", spread))x, and a neutral shadow spreads by 1.03x")
+
+        // And specifically: nearer the value that shipped than the value that haloed.
+        func predicted(_ r: Double, _ g: Double, _ b: Double) -> (Double, Double) {
+            ((255 - g) / (255 - r), (255 - b) / (255 - r))
+        }
+        let neutral = predicted(40, 33, 38)
+        let pink = predicted(150, 72, 100)
+        let measured = (deficit.g / deficit.r, deficit.b / deficit.r)
+        func distance(_ a: (Double, Double), _ b: (Double, Double)) -> Double {
+            max(abs(a.0 - b.0), abs(a.1 - b.1))
+        }
+        func ratioText(_ a: (Double, Double)) -> String {
+            String(format: "%.2f / %.2f", a.0, a.1)
+        }
+        #expect(distance(neutral, pink) > 0.3,
+                "the two candidate shadows are not separable by this measurement")
+        #expect(distance(measured, neutral) < distance(measured, pink),
+                "the shadow's hue reads \(ratioText(measured)); rgba(40,33,38) predicts \(ratioText(neutral)) and the old rgba(150,72,100) predicts \(ratioText(pink))")
+
+        // The 12pt downward offset, which is the other half of what `EvaCardShadow`
+        // holds: the halo below the card has to be deeper than the halo above it.
+        let cardTop = cardBottom - Int(card.height)
+        let above = darkestBand((cardTop - 30)..<(cardTop - 2))
+        #expect(below.relativeLuminance < above.relativeLuminance,
+                "the shadow is not offset downwards: below \(below.hexString), above \(above.hexString)")
+    }
+
     // MARK: The card's inset lines (#16)
 
     @Test("The card's top inset line is 90% white, not the 72% it shipped at")

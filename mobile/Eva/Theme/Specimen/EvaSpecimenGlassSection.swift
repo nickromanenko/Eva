@@ -52,7 +52,7 @@ struct EvaSpecimenGlassSection: View {
                         .evaTextStyle(.h3)
                         .foregroundStyle(Color.evaPrimaryText)
                     Text("150° white gradient 66% → 36%, hairline 72% border, inset lines "
-                        + "90% top / 40% bottom, mauve shadow.")
+                        + "90% top / 40% bottom, neutral shadow (#12).")
                         .evaTextStyle(.body)
                         .foregroundStyle(Color.evaSecondaryText)
                         .fixedSize(horizontal: false, vertical: true)

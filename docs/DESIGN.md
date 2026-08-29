@@ -120,8 +120,11 @@ Radii: **14** chips · **17** controls · **24** cards · **30** sheets (top onl
 
 Standard card treatment: `linear-gradient(150deg, rgba(255,255,255,.66),
 rgba(255,255,255,.36))`, blur 26 saturate 1.7, 1px `rgba(255,255,255,.72)` border,
-shadow `0 16px 36px -22px rgba(150,72,100,.45)`, plus inset white lines at 90% top
+shadow **`0 12px 30px -18px rgba(40,33,38,.35)`**, plus inset white lines at 90% top
 (`inset 0 1px 0 rgba(255,255,255,.9)`) and 40% bottom (`inset 0 -1px 0 rgba(255,255,255,.4)`).
+
+**The card shadow is a deliberate deviation, not a transcription — see §9a.** The canvas
+draws it pink; we render it neutral, and the reason is how it composites, not what is drawn.
 
 ## 5. Buttons — min-height 52, radius 17
 
@@ -298,6 +301,34 @@ and the modal says "straight away" rather than giving a window that does not exi
 and an inert button next to an irreversible action reads as an offered escape route and
 is not one. Restore both when #58 ships — not before.
 
+**The card shadow is neutral, where the canvas draws it pink (#12).** §4 gives
+`0 12px 30px -18px rgba(40,33,38,.35)`; the artboards overwhelmingly do not.
+
+The counts, because the first version of this note got them wrong and the honest number is
+the point: the Design System artboard uses `rgba(150,72,100,.45)` for cards **18 times**, and
+the App artboard uses `rgba(150,72,100,…)` **16 times** across cards, tiles, banners, buttons
+and sheets. The neutral value appears **twice**, both on the settings screen, and one of those
+is a different geometry. So this is **26 drawn instances against 2** — pink is the design
+language and the settings screen is the outlier.
+
+We deviate anyway, and not because of the count. A saturated shadow under a **translucent**
+card does not read as depth: the card's `Material` samples the shadow behind it, so the tint
+comes through the card as well as around it. Measured on Profile, the pink rendered a
+`#D5B2BA` ring — visibly mauve against a `#FEF8F5` ground. That is a compositing outcome the
+artboard cannot show, because CSS `backdrop-filter` and SwiftUI `Material` do not sample the
+same thing, and it will happen on every screen using this treatment rather than only where it
+was noticed.
+
+Two things this note deliberately does **not** claim. It is not a fix for the grey cast —
+measured, the cast got marginally *worse* (card minus ground went −15 · −17 · −14 → −23 · −18
+· −17), and that is #60. And the Profile card it was read from is not the §4 card: it differs
+in five further properties (flat 62% fill rather than the 150° gradient, no `saturate`, an
+`.85` border, a top inset line only, radius 26). The shadow is the one property taken from it.
+
+If the artboards are ever corrected, correct them by **elevation** — the pink value originates
+as the bottom sheet's shadow (`0 -22px 50px -22px`), which is right under a sheet and wrong
+under a translucent card.
+
 **L1 glass renders no `Material`.** `Material` adds its own tint beneath the white fill,
 so a 40% surface read at roughly 70% and L1 was indistinguishable from L2. L1 is
 decorative and needs no backdrop blur; a plain 40% fill restores the separation. L2 and
@@ -318,7 +349,7 @@ Real platform limits, not decisions:
   makes the control inert and dimmed to VoiceOver. The `ButtonStyle`-based variants were
   never affected — a style's own `makeBody` is not dimmed.
 - **CSS shadow spread has no SwiftUI expression.** Card, button and chip shadows all
-  render wider and softer than their `-22px` / `-12px` contractions.
+  render wider and softer than their `-18px` / `-12px` contractions.
 - **Address Montserrat cuts by PostScript name, not family plus weight.** The four files
   disagree in their `name` tables — Medium and SemiBold carry `"Montserrat Medium"` /
   `"Montserrat SemiBold"` in nameID 1 with subfamily `Regular`, reaching `"Montserrat"`
