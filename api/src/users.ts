@@ -68,3 +68,9 @@ export const saveQuestionnaire = async (uid: string, profile: Profile): Promise<
   })
   return toUser(uid, { ...snapshot.data()!, profile, questionnaireCompleted: true })
 }
+
+/** Every user document ID. For the jobs that must sweep all of them — the retention
+ *  purge today, account deletion (#8) later. `listDocuments` rather than a query, so
+ *  the caller gets IDs and never loads a `profile` it has no use for. */
+export const listAllUids = async (): Promise<string[]> =>
+  (await users().listDocuments()).map((doc) => doc.id)

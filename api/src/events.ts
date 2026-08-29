@@ -219,8 +219,8 @@ export const updateEvent = async (
 ): Promise<UpdateResult> => {
   const ref = events(uid).doc(id)
   const snapshot = await ref.get()
-  // A soft-deleted event is gone as far as the API is concerned; there is no
-  // restore route yet, so editing one must not silently resurrect it.
+  // A soft-deleted event is gone as far as the API is concerned; `restoreEvent` is
+  // the one way back, so editing one must not silently resurrect it as a side effect.
   if (!snapshot.exists || snapshot.get('deletedAt') !== null) return { ok: false, reason: 'not-found' }
   if (snapshot.get('type') !== patch.type) return { ok: false, reason: 'type-mismatch' }
   // The day is part of the document ID for these, so moving one would mean a new event.
@@ -238,8 +238,8 @@ export const updateEvent = async (
   return { ok: true, event: await read(ref) }
 }
 
-/** Soft delete: the document stays, so the entry is recoverable. Nothing purges
- *  it yet — the 30-day window is a retention policy, not a job that exists. */
+/** Soft delete: the document stays, so the entry is recoverable — by `restoreEvent`
+ *  for `RETENTION_DAYS`, after which `purgeUserEvents` removes it for good. */
 export const softDeleteEvent = async (uid: string, id: string): Promise<boolean> => {
   const ref = events(uid).doc(id)
   const snapshot = await ref.get()
@@ -247,4 +247,147 @@ export const softDeleteEvent = async (uid: string, id: string): Promise<boolean>
   if (snapshot.get('deletedAt') !== null) return true // already deleted: idempotent
   await ref.update({ deletedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
   return true
+}
+
+/** How long a soft-deleted entry stays recoverable (PRD:472). One constant, so the
+ *  restore window and the purge cannot drift apart. */
+export const RETENTION_DAYS = 30
+
+const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000
+
+/** Before this instant, a deleted entry is past its window. `deletedAt` is a server
+ *  instant, so this is instant arithmetic end to end — no calendar, no time zone, no
+ *  DST, nothing that moves when the caller's clock does. Deliberately *not* derived
+ *  from `localDate`: the wall-clock fields say what day the user logged, not when the
+ *  retention clock started. */
+export const retentionCutoff = (now: number = Date.now()): Timestamp =>
+  Timestamp.fromMillis(now - RETENTION_MS)
+
+/** Explicit floor on the purge query. Firestore already excludes `null` and missing
+ *  fields from a range filter — checked against the real backend, not assumed, so
+ *  `deletedAt < cutoff` alone does not match live events. The floor is here anyway
+ *  because it states the intent in the query itself rather than resting a delete on
+ *  one subtlety of an operator's semantics, and it costs nothing: still one field,
+ *  still the automatic single-field index. */
+const EPOCH = Timestamp.fromMillis(0)
+
+/** gRPC FAILED_PRECONDITION: the document changed between the read and the delete. */
+const FAILED_PRECONDITION = 9
+
+export type RestoreResult =
+  | { ok: true; event: EvaEvent }
+  | { ok: false; reason: 'not-found' | 'expired' | 'day-taken' }
+
+type RestoreOutcome = 'restored' | 'not-found' | 'expired' | 'day-taken'
+
+/** Undo for a soft delete — the toast affordance in C5. Clears `deletedAt` if the
+ *  entry is still inside its window, in a transaction so a concurrent re-log cannot
+ *  land between the read and the write.
+ *
+ *  `day-taken` is the one-per-day case, and it is not `not-found`. `cycle` and
+ *  `bodySignals` live at a deterministic document ID, so the day *is* the document:
+ *  if anything has logged that day since the delete, `createEvent` has already
+ *  overwritten this very document and the deleted entry no longer exists anywhere.
+ *  Clearing `deletedAt` there would not resurrect the old entry, it would relabel the
+ *  newer one as restored — so this refuses instead.
+ *
+ *  The cost of that design, stated rather than discovered: a *live* document at a
+ *  one-per-day ID cannot distinguish "the day was retaken" from "this was never
+ *  deleted", because replacing keeps the ID and `createdAt` and leaves no trace of the
+ *  delete. Both answer `day-taken`. Restoring something that was never deleted is a
+ *  client bug either way, and "that day already has an entry" is true in both cases.
+ *
+ *  `deletedAt >= cutoff` here is the exact complement of `purgeUserEvents`'
+ *  `deletedAt < cutoff`: no entry is ever both restorable and purgeable. */
+export const restoreEvent = async (uid: string, id: string): Promise<RestoreResult> => {
+  const ref = events(uid).doc(id)
+  const cutoffMs = retentionCutoff().toMillis()
+
+  const outcome = await firestore.runTransaction<RestoreOutcome>(async (tx) => {
+    const snapshot = await tx.get(ref)
+    if (!snapshot.exists) return 'not-found'
+
+    const deletedAt = snapshot.get('deletedAt')
+    if (!(deletedAt instanceof Timestamp)) {
+      const type = snapshot.get('type') as LoggableEventType
+      const takesTheDay = isOnePerDay(type) && snapshot.id === dayDocId(type, snapshot.get('localDate'))
+      return takesTheDay ? 'day-taken' : 'not-found'
+    }
+    if (deletedAt.toMillis() < cutoffMs) return 'expired'
+
+    tx.update(ref, { deletedAt: null, updatedAt: FieldValue.serverTimestamp() })
+    return 'restored'
+  })
+
+  if (outcome === 'restored') return { ok: true, event: await read(ref) }
+  return { ok: false, reason: outcome }
+}
+
+export interface PurgeResult {
+  /** Hard-deleted, or — under `dryRun` — what would have been. */
+  purged: number
+  /** Matched the query but was not deleted: re-check failed, or it changed under us. */
+  skipped: number
+}
+
+export interface PurgeOptions {
+  cutoff?: Timestamp
+  dryRun?: boolean
+}
+
+/** Hard-deletes one user's events whose recovery window has passed — the job behind
+ *  "recoverable for 30 days". Driven by `scripts/purge-events.ts`; see that file for
+ *  why this is a script and not a route.
+ *
+ *  Scoped to a single uid on purpose. Nothing here can start a project-wide delete,
+ *  so a test, or a script run with the wrong argument, cannot reach data it was not
+ *  pointed at; the fan-out over users lives in the script, where it is visible.
+ *
+ *  Three independent things keep a live entry safe, because one is not enough for a
+ *  timer that deletes health data:
+ *   1. the query is bounded at both ends (see `EPOCH`);
+ *   2. every document is re-checked in code before it is deleted, so a wrong query
+ *      cannot by itself become a wrong delete — and `skipped` is where that shows up,
+ *      so a purge that matched something it should not have is visible, not silent;
+ *   3. the delete carries a `lastUpdateTime` precondition, so an entry restored or
+ *      re-logged between the read and the delete is skipped rather than removed.
+ *
+ *  Returns counts and nothing else — no IDs, no dates, no payloads. A purge is exactly
+ *  where someone would be tempted to log what it deleted (GUARDRAILS 12). */
+export const purgeUserEvents = async (
+  uid: string,
+  options: PurgeOptions = {},
+): Promise<PurgeResult> => {
+  const cutoff = options.cutoff ?? retentionCutoff()
+  const cutoffMs = cutoff.toMillis()
+
+  const snapshot = await events(uid)
+    .where('deletedAt', '>=', EPOCH)
+    .where('deletedAt', '<', cutoff)
+    .get()
+
+  let purged = 0
+  let skipped = 0
+  for (const doc of snapshot.docs) {
+    const deletedAt = doc.get('deletedAt')
+    if (!(deletedAt instanceof Timestamp) || deletedAt.toMillis() >= cutoffMs) {
+      skipped += 1
+      continue
+    }
+    if (options.dryRun) {
+      purged += 1
+      continue
+    }
+    try {
+      await doc.ref.delete({ lastUpdateTime: doc.updateTime })
+      purged += 1
+    } catch (err) {
+      // Only "it changed under us" is expected. Anything else is a real fault and
+      // must not be swallowed into a count that reads like success.
+      if ((err as { code?: number }).code !== FAILED_PRECONDITION) throw err
+      skipped += 1
+    }
+  }
+
+  return { purged, skipped }
 }
