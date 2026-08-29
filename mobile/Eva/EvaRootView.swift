@@ -20,6 +20,8 @@ struct EvaRootView: View {
                 OnboardingFlowView(session: session)
             case .ready:
                 ContentView(session: session)
+            case .unreachable:
+                UnreachableView(session: session)
             }
         }
         .task { await session.bootstrap() }
