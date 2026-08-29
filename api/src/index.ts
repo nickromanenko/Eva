@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
+import { createMiddleware } from "hono/factory";
 import { routePath } from "hono/route";
-import { mintToken, requireAuth } from "./auth";
+import { mintToken, requireAuth, type TokenClaims } from "./auth";
 import {
     authRetryAfterSeconds,
     consumeAuthAttempt,
@@ -8,12 +9,14 @@ import {
 } from "./rate-limit";
 import {
     IdentityToolkitError,
+    deleteAuthAccount,
     signInWithPassword,
     signUpWithPassword,
 } from "./identity-toolkit";
 import {
     RETENTION_DAYS,
     createEvent,
+    deleteAllUserEvents,
     listEvents,
     restoreEvent,
     softDeleteEvent,
@@ -31,7 +34,15 @@ import {
     type SymptomSeverity,
 } from "./events";
 import { getRefData, getSymptomRules, type SymptomRules } from "./refdata";
-import { ensureUser, getUser, saveQuestionnaire, type Profile } from "./users";
+import {
+    deleteUserDocument,
+    ensureUser,
+    getUser,
+    markUserDeleted,
+    saveQuestionnaire,
+    type Profile,
+    type User,
+} from "./users";
 
 const app = new Hono();
 
@@ -215,6 +226,43 @@ const upstreamUnavailable = (c: Context, route: AuthRoute, err: IdentityToolkitE
     );
 };
 
+/**
+ * The account gate, and the second half of every authenticated route: `requireAuth`
+ * proves the token was minted by us, this proves the account it names still exists.
+ *
+ * It exists because the Eva JWT is stateless, lives 30 days and has no revocation
+ * (ARCHITECTURE §3), so a token minted before an account was deleted would otherwise keep
+ * working for up to a month — and at `GET /me`, whose old `ensureUser` fallback treated
+ * "no document" as "create one", it would have *recreated the account* from the claims it
+ * carries. Deletion cannot mean deletion while that is true (#8).
+ *
+ * The user document is the revocation list, rather than a new one: every account has
+ * exactly one, `users.ts` already owns it, and it stops answering the moment a delete
+ * starts (`markUserDeleted`) — so nothing about a deleted account is kept in order to keep
+ * refusing it. The cost, stated plainly, is one Firestore read on every authenticated
+ * request; `GET /me` pays no more than before, since it needed that read anyway.
+ *
+ * It lives here rather than beside `requireAuth` because `auth.ts` must not reach
+ * Firestore and `users.ts` is the only module that may (GUARDRAILS 10) — so the composing
+ * of the two belongs at the route edge, which is what this file is.
+ */
+const requireAccount = createMiddleware<{
+    Variables: { claims: TokenClaims; account: User };
+}>(async (c, next) => {
+    const account = await getUser(c.get("claims").sub);
+    // 401, not 404: the caller's credential is the thing that is no longer good, and the
+    // app's launch check already signs out when `/me` refuses it (`AppSession.bootstrap`;
+    // a mid-session 401 on another route is not yet handled centrally, which is the iOS
+    // half of this). Same code and message as any other dead token —
+    // "your account was deleted" is not a distinction worth drawing for a caller who,
+    // by definition, cannot be told anything about it.
+    if (!account) {
+        return c.json(error("UNAUTHORIZED", "Invalid or expired token"), 401);
+    }
+    c.set("account", account);
+    await next();
+});
+
 app.get("/", (c) => c.text("Eva API"));
 app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -233,6 +281,10 @@ app.post("/auth/signup", async (c) => {
     try {
         const { localId } = await signUpWithPassword(email, password);
         const user = await ensureUser(localId, email, "password");
+        // `null` means the uid is mid-deletion, and Identity Toolkit has just minted this
+        // one, so it cannot be. Raised as the fault it would be rather than papered over
+        // with a plausible answer; `app.onError` shapes it into a 500 with a `ref`.
+        if (!user) throw new Error("ensureUser refused a newly created uid");
         return c.json({ token: await mintToken(localId, email), user }, 201);
     } catch (err) {
         if (err instanceof IdentityToolkitError) {
@@ -277,6 +329,17 @@ app.post("/auth/signin", async (c) => {
         const { localId } = await signInWithPassword(email, password);
         // Self-healing: also the attach point for future providers (same uid → same doc).
         const user = await ensureUser(localId, email, "password");
+        // `null` means the account is being deleted. The credentials are real, and that is
+        // exactly why this must not mint a token: signing in is the one path that could
+        // otherwise walk an account back out of its own deletion. Answered as a failed
+        // sign-in — the same answer a wrong password gets, which is also the honest one,
+        // because the account those credentials named is gone.
+        if (!user) {
+            return c.json(
+                error("INVALID_CREDENTIALS", "Wrong email or password"),
+                401,
+            );
+        }
         return c.json({ token: await mintToken(localId, email), user });
     } catch (err) {
         if (err instanceof IdentityToolkitError) {
@@ -298,14 +361,49 @@ app.post("/auth/signin", async (c) => {
     }
 });
 
-app.get("/me", requireAuth, async (c) => {
-    const { sub, email } = c.get("claims");
-    const user =
-        (await getUser(sub)) ?? (await ensureUser(sub, email, "password"));
-    return c.json({ user });
+app.get("/me", requireAuth, requireAccount, (c) => c.json({ user: c.get("account") }));
+
+/**
+ * Account deletion is **immediate and complete** (#8): no grace period, no delayed purge,
+ * nothing recoverable — including entries inside their own 30-day event window, because a
+ * recovery window inside an account that no longer exists is a promise to nobody.
+ *
+ * The order is the design, and it is chosen so that every partial failure is safe *and*
+ * resumable rather than fast:
+ *
+ *   1. mark the user document deleted — one write, and from that instant the account is
+ *      inert: every gated route 401s and sign-in refuses to revive it;
+ *   2. delete the Firebase Auth user — the credentials stop opening anything and the
+ *      address is free to sign up again;
+ *   3. delete every event, soft-deleted ones included;
+ *   4. delete the user document, which is the tombstone step 1 wrote.
+ *
+ * Data goes before the tombstone and the tombstone goes last on purpose. The invariant
+ * that buys is: **a missing user document implies a missing Auth user**, so there is no
+ * state in which health data outlives its owner unmarked, and none in which somebody can
+ * sign in to an account whose document has already gone (which is what would let
+ * `ensureUser` create a fresh one). The cost is the milder failure mode — an interrupted
+ * delete can leave an Auth user with no data behind it — and that resolves itself: the
+ * account is already unusable, and a retry finishes the job.
+ *
+ * Every step is idempotent, so this route is too: deleting twice is a `200`, not an error.
+ * It is also the one authenticated route deliberately *not* behind `requireAccount` — the
+ * gate would reject the very token a client needs to retry with. What that token can still
+ * do here is re-delete an account that is already gone, which is nothing.
+ */
+app.delete("/me", requireAuth, async (c) => {
+    const { sub } = c.get("claims");
+    await markUserDeleted(sub);
+    await deleteAuthAccount(sub);
+    await deleteAllUserEvents(sub);
+    await deleteUserDocument(sub);
+    // No count, no email, no id — a delete is exactly where a log line is tempting
+    // (GUARDRAILS 12). Anything that throws above lands in `app.onError` as a 500 with a
+    // `ref`, and the account is already inert by then.
+    return c.json({ deleted: true });
 });
 
-app.put("/me/questionnaire", requireAuth, async (c) => {
+app.put("/me/questionnaire", requireAuth, requireAccount, async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const profile = parseProfile(body);
     if (!profile)
@@ -370,7 +468,7 @@ const parseProfile = (body: Record<string, unknown>): Profile | null => {
 const etagValue = (header: string | undefined): string | undefined =>
     header?.trim().replace(/^W\//, "").replace(/^"|"$/g, "");
 
-app.get("/refdata", requireAuth, async (c) => {
+app.get("/refdata", requireAuth, requireAccount, async (c) => {
     const refdata = await getRefData();
     c.header("ETag", `"${refdata.version}"`);
     // Reference data changes rarely but must not go stale silently: revalidate always,
@@ -790,7 +888,7 @@ const parseNewEvent = (
     } as NewEvent);
 };
 
-app.get("/me/events", requireAuth, async (c) => {
+app.get("/me/events", requireAuth, requireAccount, async (c) => {
     const from = c.req.query("from");
     const to = c.req.query("to");
     if (!isCalendarDate(from) || !isCalendarDate(to)) {
@@ -807,14 +905,14 @@ app.get("/me/events", requireAuth, async (c) => {
     return c.json({ events: await listEvents(c.get("claims").sub, from, to) });
 });
 
-app.post("/me/events", requireAuth, async (c) => {
+app.post("/me/events", requireAuth, requireAccount, async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const parsed = parseNewEvent(body, await getSymptomRules());
     if (!parsed.ok) return c.json(error(parsed.code, parsed.message), 400);
     return c.json({ event: await createEvent(c.get("claims").sub, parsed.value) }, 201);
 });
 
-app.patch("/me/events/:id", requireAuth, async (c) => {
+app.patch("/me/events/:id", requireAuth, requireAccount, async (c) => {
     const body = await c.req.json().catch(() => ({}));
     // `type` and `localDate` are always required: with both, every payload and
     // timestamp rule can be checked here instead of after a read in the module.
@@ -858,7 +956,7 @@ app.patch("/me/events/:id", requireAuth, async (c) => {
     );
 });
 
-app.delete("/me/events/:id", requireAuth, async (c) => {
+app.delete("/me/events/:id", requireAuth, requireAccount, async (c) => {
     const deleted = await softDeleteEvent(c.get("claims").sub, c.req.param("id"));
     if (!deleted) return c.json(error("NOT_FOUND", "No such event"), 404);
     return c.json({ deleted: true });
@@ -866,7 +964,7 @@ app.delete("/me/events/:id", requireAuth, async (c) => {
 
 /** Undo for the delete toast. Nothing to validate — the id is the whole request, and
  *  what may be restored is a question about stored state, which the module answers. */
-app.post("/me/events/:id/restore", requireAuth, async (c) => {
+app.post("/me/events/:id/restore", requireAuth, requireAccount, async (c) => {
     const result = await restoreEvent(c.get("claims").sub, c.req.param("id"));
     if (result.ok) return c.json({ event: result.event });
     if (result.reason === "day-taken") {
@@ -888,7 +986,7 @@ app.post("/me/events/:id/restore", requireAuth, async (c) => {
 
 /** Upsert-by-day: one body signals entry per user per day, always replaced whole.
  *  The ratings sit at the top level here — the route already says what this is. */
-app.put("/me/body-signals/:date", requireAuth, async (c) => {
+app.put("/me/body-signals/:date", requireAuth, requireAccount, async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const localDate = c.req.param("date");
     if (!isCalendarDate(localDate)) {

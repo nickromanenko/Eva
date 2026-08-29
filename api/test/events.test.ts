@@ -1,4 +1,14 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+
+// Every case here makes real round trips to Identity Toolkit and Firestore, and #8's
+// account gate added one Firestore read per authenticated request — which pushed
+// "the day's entry is upserted" past Bun's 5000ms default and failed a run.
+//
+// 20s is not a measurement of how long these take; it is a ceiling that still fails
+// loudly on a genuine hang. Normal cases in this suite finish well under 2s, so a case
+// approaching this number means something is wrong rather than merely slow. The general
+// question of what these should cost is #31.
+setDefaultTimeout(20_000);
 import { adminAuth, firestore } from "../src/firebase";
 
 /**

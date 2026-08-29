@@ -67,8 +67,11 @@ const PASSWORD = "correct-horse-8";
 
 /** What the next credential call does. `null` is a bug in the test, never a success. */
 let credential: (() => { localId: string; email: string }) | null = null;
-/** What `users.ensureUser` / `users.getUser` do next. */
-let userStore: (() => never) | null = null;
+/** What `users.ensureUser` / `users.getUser` do next: throw, or answer with an account.
+ *  Every authenticated route now reads the user document before its handler runs (#8's
+ *  account gate), so a test that wants to reach a handler at all has to say the account
+ *  exists — otherwise the gate is what throws, and the route never gets its turn. */
+let userStore: (() => unknown) | null = null;
 /** What `events.softDeleteEvent` does next — a throw, or an ordinary answer. */
 let deleteEvent: (() => boolean) | null = null;
 
@@ -97,6 +100,14 @@ mock.module("../src/events", () => ({
 const { default: server } = await import("../src/index");
 
 const succeeds = () => ({ localId: UID, email: EMAIL });
+
+/** A live account for the gate to find. Never written anywhere — `users` is mocked. */
+const liveAccount = () => ({
+    id: UID,
+    email: EMAIL,
+    questionnaireCompleted: false,
+    profile: null,
+});
 
 /**
  * A Firestore outage as `firebase-admin` reports one: a gRPC status in the message, and —
@@ -341,6 +352,7 @@ describe("what the operator gets, and what they deliberately do not", () => {
             // `/me/events/cycle_2026-08-27` in a log line says a named user logged a cycle
             // entry on a named day. That is the payload by another route (GUARDRAILS 12),
             // which is why the handler logs the matched route and never `c.req.path`.
+            userStore = liveAccount; // past the account gate, so the *route* is what throws
             deleteEvent = firestoreNamesTheDocument;
             const answer = await send(
                 "DELETE",
@@ -449,6 +461,7 @@ describe("onError is the floor, not a replacement", () => {
         async () => {
             // "No such event" is an ordinary negative answer, not a failure, and it keeps
             // its own code even though the same route can now answer INTERNAL.
+            userStore = liveAccount; // the gate's own throw would answer before the route
             deleteEvent = () => false;
             const answer = await send("DELETE", `/me/events/${EVENT_ID}`, {
                 token: await mintToken(UID, EMAIL),

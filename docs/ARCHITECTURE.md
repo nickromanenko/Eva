@@ -61,10 +61,10 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 |---|---|---|
 | `index.ts` | Routes, request validation, HTTP status/error mapping | No Firestore or `fetch` calls here — delegate |
 | `auth.ts` | Minting and verifying the Eva JWT, `requireAuth` middleware | The only place `JWT_SECRET` is used |
-| `identity-toolkit.ts` | Password credential create/verify via Google REST | The only place the web API key is used |
+| `identity-toolkit.ts` | The Firebase Auth account: password credential create/verify via Google REST, delete via the Admin SDK | The only place the web API key is used; the only place an Auth user is deleted |
 | `rate-limit.ts` | In-memory attempt counters for `/auth/*` | Holds no identity state; never logs its keys |
-| `users.ts` | The `users/{uid}` document: read, create, update, list IDs | The only module that touches `users/` |
-| `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge | The only module that touches `events/` |
+| `users.ts` | The `users/{uid}` document: read, create, update, mark deleted, delete, list IDs | The only module that touches `users/` |
+| `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all | The only module that touches `events/` |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
@@ -88,6 +88,7 @@ change for the iOS client.
 | `POST /auth/signup` | — | `201 { token, user }` |
 | `POST /auth/signin` | — | `200 { token, user }` |
 | `GET /me` | Bearer | `{ user }` |
+| `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately |
 | `PUT /me/questionnaire` | Bearer | `{ user }` |
 | `GET /me/events?from=&to=` | Bearer | `{ events }` — inclusive `localDate` range, soft-deleted excluded |
 | `POST /me/events` | Bearer | `201 { event }` |
@@ -206,6 +207,21 @@ The JWT is HS256, 30-day TTL, claims `{ sub, email, iat, exp }`. **There is no r
 token in v1** — expiry means sign in again. Adding refresh is an architecture change,
 not a task.
 
+**Every authenticated route is gated twice (#8).** `requireAuth` proves the token was ours;
+`requireAccount`, right after it, proves the account it names still exists — one `getUser`
+call, and a `401 UNAUTHORIZED` with the same message a bad token gets when it does not.
+The gate exists because the token above is stateless and unrevocable: without it a token
+minted before an account was deleted would keep working for up to 30 days, and at `GET /me`
+— which used to fall back to `ensureUser` when no document was found — it would have
+**recreated the deleted account** from its own claims. The user document is what does the
+revoking, rather than a list of deleted uids: it stops answering the moment a delete starts
+and is gone when the delete finishes, so nothing about a deleted account is retained in
+order to keep refusing it. The cost is one Firestore read per authenticated request.
+
+`DELETE /me` is the single exception, deliberately: the gate would reject the very token a
+client needs to retry an interrupted delete with. All that token can do there is delete an
+account that is already gone.
+
 ## 4. Data model
 
 `users/{uid}` — document ID is the Firebase Auth uid, deliberately, so any future
@@ -216,8 +232,14 @@ email                  string
 authProviders          string[]        // arrayUnion, e.g. ["password"]
 questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
+deletedAt              Timestamp       // absent until a delete starts; see below
 createdAt, updatedAt   serverTimestamp
 ```
+
+`deletedAt` on a *user* is not a soft delete and has no undo. It is the tombstone that
+makes account deletion safe to interrupt: while it is set, `getUser` answers `null`, so the
+account gate refuses every token, and `ensureUser` refuses to revive the document, so
+signing in cannot bring the account back either.
 
 `Profile` is validated at the edge in `parseProfile` (`index.ts`) with hard ranges:
 age 13–99, weight 30–200 kg, height 120–220 cm. Widening a range is a product
@@ -273,6 +295,38 @@ at a one-per-day ID cannot distinguish "the day was retaken" from "this was neve
 — replacing keeps the ID and `createdAt` and leaves no trace of the delete — so both
 answer `409`. That is the price of the deterministic ID, and it is paid here rather than
 by keeping a second copy of every deleted day.
+
+**Deleting an account is immediate and complete (#8).** `DELETE /me` removes the Firebase
+Auth user, `users/{uid}`, and the whole `users/{uid}/events` subcollection — **including
+soft-deleted entries still inside their 30-day window**. That is a deliberate difference
+from event retention above, not a conflict with it: deleting one entry is an edit someone
+may want to undo, deleting an account is a decision about all of it, and a recovery window
+inside an account that no longer exists is a promise to nobody. Nothing else is keyed to a
+uid; `refdata/` is global, and the `/auth/*` throttle's counters are in memory and keyed by
+address and IP rather than by account.
+
+The order is the design, because a partial failure has to be safe *and* resumable:
+
+1. mark `users/{uid}` deleted — from that instant the account is inert (every gated route
+   `401`s, sign-in refuses to revive it);
+2. delete the Firebase Auth user — the credentials open nothing and the address is free
+   again;
+3. delete every event, soft-deleted ones included, a batch at a time;
+4. delete `users/{uid}`, the tombstone step 1 wrote.
+
+Data goes before the tombstone, and the tombstone goes last, so that **a missing user
+document implies a missing Auth user**. There is therefore no state in which health data
+outlives its owner unmarked, and none in which someone can sign in to an account whose
+document has already gone — which is the state in which `ensureUser` would create a fresh
+one. The failure mode that remains is the mild one: an interrupted delete can leave an Auth
+user with nothing behind it, and the account is already unusable when it does. Every step
+is idempotent, so a retry resumes rather than errors, and deleting twice is a `200`.
+
+One residual race is worth knowing rather than discovering: a sign-in that passed Identity
+Toolkit microseconds before step 2 can land its `ensureUser` after step 4 and recreate the
+document. It needs the password and a window of milliseconds, and the account owner is the
+one deleting; closing it would mean keeping a permanent record of every deleted uid, which
+is a worse trade for a health app than the race is.
 
 **The purge is a script, not a route** (`api/scripts/purge-events.ts`, over
 `purgeUserEvents` in `events.ts`), for the same reasons as the refdata scripts below: the
