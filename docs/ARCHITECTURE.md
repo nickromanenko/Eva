@@ -78,7 +78,7 @@ Errors are always `{ "error": { "code": string, "message": string } }`. `code` i
 stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
 `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`,
 `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`, `SERVICE_UNAVAILABLE`,
-`DAY_ALREADY_LOGGED`);
+`DAY_ALREADY_LOGGED`, `INTERNAL`);
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
@@ -140,11 +140,39 @@ because its message contains the request URL and that URL carries the web API ke
 
 *How an operator tells an outage from a bug:* `unavailable` is the one branch that logs —
 one line, `{"event":"identity_toolkit_unavailable","route","upstreamStatus"}`, carrying no
-address and no reason. So a `503` plus that line means Google did not answer us, and a bare
-`500` from an auth route now means a bug in our own code, because every upstream failure is
-mapped. Alert on the event name; `upstreamStatus: null` distinguishes "never landed" from
-"answered badly". `rejected` deliberately logs nothing — a wrong password per line is a log
-full of nothing.
+address and no reason. So a `503` plus that line means Google did not answer us, and a
+`500 INTERNAL` from an auth route means anything else failed — Firestore, or a bug of ours
+— because every upstream failure is mapped. Alert on the event name; `upstreamStatus: null`
+distinguishes "never landed" from "answered badly". `rejected` deliberately logs nothing —
+a wrong password per line is a log full of nothing.
+
+**Nothing escapes the error shape (#48).** `app.onError` in `index.ts` is the floor under
+every route: any throw no handler answered for is `500 { error: { code: "INTERNAL",
+message } }`, where `message` is one constant sentence plus an eight-character `ref`. It is
+never the thrown error's own text. That is the whole point of the handler rather than a
+detail of it — a failing `fetch` puts the request URL in its message and that URL carries
+the web API key (#32), a Firestore error puts the document path in its message and that
+path is a uid, and neither string was written by anyone who was thinking about who reads
+it. `err.stack` is out for the same reason (its first line *is* the message), and so is
+`err.cause`. The Firestore outage inside `ensureUser` that both auth routes could not
+answer for is the case this closes.
+
+The log line is `{"event":"unhandled_error","ref","method","route","errorName"}` and
+nothing else. `route` is the **registered** path (`/me/events/:id`), never `c.req.path`,
+which would write down an event id — and at `/me/body-signals/2026-08-27` the day a user
+logged health data on, which GUARDRAILS 12 keeps out of logs as surely as the payload.
+`errorName` is the error's class name, sanitized to an identifier, so `FirebaseAppError`
+and `TypeError` are distinguishable without any data in the line. `ref` is random,
+generated per failure, and is the one field the caller is also given: a user can quote it
+from the app's error and it names exactly one line. The cost, stated: no stack, so the
+line locates a fault to a route and a class rather than a line number. If that is ever too
+thin the answer is a reviewed field — an error class of ours carrying a safe code — not
+the message.
+
+Two limits worth knowing. Hono hands `onError` only a thrown `Error`; anything else
+(`throw "boom"`) is rethrown to the runtime and answers its own unshaped 500 — nothing in
+the stack does that today. And an unmatched path is still Hono's plain-text `404`, because
+it is a miss rather than a throw; both are filed, not fixed here.
 
 **`/auth/*` is throttled, per instance only.** Both auth routes count each attempt against
 two counters — the caller's IP and the submitted address — and answer
