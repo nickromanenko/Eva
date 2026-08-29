@@ -7,6 +7,16 @@ struct ContentView: View {
     @State private var apiStatus: APIStatus = .checking
 
     var body: some View {
+        // Scaffolding, not design. The canvas reaches Profile through the §7 tab bar,
+        // which is #19; until then a push is the smallest honest way in, and the tint
+        // keeps the system chrome off the accent blue.
+        NavigationStack {
+            dashboard
+        }
+        .tint(Color.evaActionPinkTop)
+    }
+
+    private var dashboard: some View {
         ZStack {
             LinearGradient.evaScreenBackground
                 .ignoresSafeArea()
@@ -35,11 +45,14 @@ struct ContentView: View {
                         .multilineTextAlignment(.center)
                 }
 
-                Button("Log out", action: session.logOut)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.evaFaint)
-                    .padding(.top, 24)
-                    .accessibilityIdentifier("dashboard.logout")
+                // Log out moved to Profile with #55 — the canvas puts it there, and two
+                // of them would be two answers to the same question.
+                NavigationLink("Profile") {
+                    ProfileView(session: session)
+                }
+                .buttonStyle(.evaText)
+                .padding(.top, EvaSpacing.md)
+                .accessibilityIdentifier("dashboard.profile")
             }
             .padding()
         }

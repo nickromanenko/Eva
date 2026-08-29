@@ -79,6 +79,21 @@ struct EvaSpecimenButtonSection: View {
                     + "leave a label unreadable"
             )
 
+            VStack(alignment: .leading, spacing: EvaSpacing.sm) {
+                EvaSpecimenGroupLabel(title: "Destructive · solid, loading")
+                Button {} label: {
+                    ProgressView().tint(Color.evaTextOnDark)
+                }
+                .buttonStyle(EvaDestructiveButtonStyle(kind: .solid, isLoading: true))
+                .disabled(true)
+                EvaSpecimenNote(
+                    text: "Not a canvas state, and the same answer the primary gives: the "
+                        + "delete-account modal's confirm button is inert while the request "
+                        + "is in flight, and the 50% disabled fill would read as 'nothing "
+                        + "is happening'."
+                )
+            }
+
             EvaSpecimenButtonStates(
                 title: "Destructive · row (44 high)",
                 identifier: "destructive.row"
