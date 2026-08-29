@@ -251,9 +251,9 @@ const requireAccount = createMiddleware<{
 }>(async (c, next) => {
     const account = await getUser(c.get("claims").sub);
     // 401, not 404: the caller's credential is the thing that is no longer good, and the
-    // app's launch check already signs out when `/me` refuses it (`AppSession.bootstrap`;
-    // a mid-session 401 on another route is not yet handled centrally, which is the iOS
-    // half of this). Same code and message as any other dead token —
+    // app signs out on it wherever it lands — `AppSession.authorized` routes every
+    // authorized request through one handler, so this is not only caught at launch (#55).
+    // Same code and message as any other dead token —
     // "your account was deleted" is not a distinction worth drawing for a caller who,
     // by definition, cannot be told anything about it.
     if (!account) {
