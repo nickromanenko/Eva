@@ -1,9 +1,16 @@
+import { adminAuth } from './firebase'
 import { config } from './config'
 
 /**
- * Thin client for Firebase's Identity Toolkit REST API — the only way to
- * create/verify email+password credentials server-side (the Admin SDK cannot
- * verify passwords).
+ * Owner of the Firebase Auth account itself — created, verified and destroyed here and
+ * nowhere else.
+ *
+ * Two transports, for one reason: the Admin SDK cannot verify a password, so creating
+ * and checking credentials goes through the Identity Toolkit REST API with the web API
+ * key (GUARDRAILS 4, and the only place that key is read), while deleting an account has
+ * no REST equivalent we hold a credential for and goes through the Admin SDK. Splitting
+ * that across two modules would leave the Auth user with two owners, which is exactly
+ * what GUARDRAILS 10 is about for Firestore collections.
  */
 
 /**
@@ -122,3 +129,27 @@ export const signUpWithPassword = (email: string, password: string) =>
 
 export const signInWithPassword = (email: string, password: string) =>
   call('signInWithPassword', { email, password })
+
+/** Firebase Admin's code for "no such user". */
+const USER_NOT_FOUND = 'auth/user-not-found'
+
+/**
+ * Deletes the Firebase Auth user — step two of account deletion (#8), after the account
+ * has been marked deleted in Firestore and before any of its data is swept. From here on
+ * the address is free to sign up again and the old credentials open nothing.
+ *
+ * Idempotent: an already-deleted user is the state this is asking for, so it is success,
+ * not a failure to report. That is what lets a `DELETE /me` retried after a partial
+ * failure walk the same steps and finish rather than erroring on the first one that is
+ * already done.
+ *
+ * Deliberately never told *which* address it removed, and it logs nothing: a uid is
+ * enough to do the work, and an email in a log line is the thing GUARDRAILS 12 forbids.
+ */
+export const deleteAuthAccount = async (uid: string): Promise<void> => {
+  try {
+    await adminAuth.deleteUser(uid)
+  } catch (err) {
+    if ((err as { code?: string }).code !== USER_NOT_FOUND) throw err
+  }
+}

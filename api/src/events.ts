@@ -249,6 +249,39 @@ export const softDeleteEvent = async (uid: string, id: string): Promise<boolean>
   return true
 }
 
+/** Firestore's own ceiling on a batched write. The sweep below is one batch per pass,
+ *  so this is also the most documents one pass reads. */
+const DELETE_BATCH = 500
+
+/** Hard-deletes *every* event of one user, soft-deleted entries included — the data half
+ *  of account deletion (#8). Nothing here consults `deletedAt`: an account that no longer
+ *  exists cannot have a 30-day recovery window inside it, which is the one place this
+ *  deliberately parts company with `purgeUserEvents`.
+ *
+ *  It parts company on preconditions too, and that is the point rather than an oversight.
+ *  The purge deletes on a timer and must never touch a live entry, so every document is
+ *  re-checked and every delete carries a `lastUpdateTime`. This runs under the caller's
+ *  own explicit request, after the account has already been marked deleted, and its
+ *  correct behaviour is "leave nothing" — a precondition here would *preserve* health
+ *  data the user asked us to destroy.
+ *
+ *  A batch at a time, re-querying rather than paging a cursor, so a failure part-way
+ *  through is a partial delete and not a lost position: the next call simply finds what
+ *  is left. Returns how many documents it removed — a count, never an id, a date or a
+ *  payload (GUARDRAILS 12). */
+export const deleteAllUserEvents = async (uid: string): Promise<number> => {
+  const collection = events(uid)
+  let deleted = 0
+  for (;;) {
+    const snapshot = await collection.limit(DELETE_BATCH).get()
+    if (snapshot.empty) return deleted
+    const batch = firestore.batch()
+    for (const doc of snapshot.docs) batch.delete(doc.ref)
+    await batch.commit()
+    deleted += snapshot.size
+  }
+}
+
 /** How long a soft-deleted entry stays recoverable (PRD:472). One constant, so the
  *  restore window and the purge cannot drift apart. */
 export const RETENTION_DAYS = 30

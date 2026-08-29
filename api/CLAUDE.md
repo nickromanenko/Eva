@@ -29,9 +29,13 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
 ```
 
 - `index.ts` — routes, validation, HTTP mapping. **No Firestore, no outbound fetch.**
-- `auth.ts` — JWT mint/verify + `requireAuth`. The only user of `JWT_SECRET`.
-- `identity-toolkit.ts` — password credentials via Google REST. The only user of the
-  web API key. (The Admin SDK cannot verify passwords — that's why this exists.)
+- `auth.ts` — JWT mint/verify + `requireAuth`. The only user of `JWT_SECRET`. It proves a
+  token is ours and nothing more; whether the account still exists is `requireAccount` in
+  `index.ts`, which is where it has to live because this file must not reach Firestore.
+- `identity-toolkit.ts` — the Firebase Auth account: password credentials via Google REST
+  (the only user of the web API key — the Admin SDK cannot verify passwords, which is why
+  this exists), and `deleteAuthAccount` via the Admin SDK, which is the only place an Auth
+  user is deleted. Two transports, one owner.
   Also classifies every upstream failure as `email-exists | rejected | unavailable`;
   routes branch on that kind and never on Google's reason string, which must not reach a
   body, a header, or a log line (#32).
@@ -39,13 +43,19 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
   limit is per Cloud Run instance — the guarantee, and what would have to change to make
   it real, are written out at the top of the file and in ARCHITECTURE §3. It never sees
   whether an account exists, and it never logs a key (they are addresses and IPs).
-- `users.ts` — the only module that touches `users/`.
+- `users.ts` — the only module that touches `users/`. `markUserDeleted` stamps the
+  tombstone that starts an account delete (#8): while it is set `getUser` answers `null`
+  and `ensureUser` refuses to revive the document, which is what stops a deleted account
+  coming back through a sign-in or through a pre-delete token.
 - `events.ts` — the only module that touches `users/{uid}/events/`. Calendar entries:
   create, range read by `localDate`, edit, soft delete. Never log a payload — health data.
   A soft delete is recoverable for `RETENTION_DAYS` (30) and then purged: `restoreEvent`
   is the Undo behind `POST /me/events/{id}/restore`, `purgeUserEvents` is the job behind
   the promise, driven by `scripts/purge-events.ts` (a script, not a route — ARCHITECTURE
   §4 "Retention" says why, and what a human still has to create for it to run).
+  `deleteAllUserEvents` is the exception that proves the rule: account deletion takes
+  soft-deleted entries too, because a recovery window inside a deleted account is a
+  promise to nobody.
 - `refdata.ts` — the only module that touches `refdata/`. The client's option lists
   (symptom chips, sport activities, appointment types) with a content-hash `version`.
   Codes are permanent; options are retired, never deleted. Seed with
@@ -61,6 +71,9 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
   `INVALID_CREDENTIALS`, `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`,
   `BACKDATE_LIMIT_EXCEEDED`, `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`,
   `SERVICE_UNAVAILABLE`, `DAY_ALREADY_LOGGED`, `INTERNAL`.
+- Every authenticated route carries `requireAuth, requireAccount` — the second is what
+  makes a deleted account's still-valid token useless. `DELETE /me` is the one exception,
+  so an interrupted delete can be retried with the same token.
 - `app.onError` is the floor: any throw no route answered for is `500 INTERNAL` with a
   fixed message and a `ref`. Never the thrown error's text, in the body or the log —
   ARCHITECTURE §3 says why that is the point of it.
