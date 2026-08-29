@@ -102,7 +102,9 @@ struct EvaGlassModifier<S: InsettableShape>: ViewModifier {
 }
 
 /// The standard card treatment from DESIGN.md §4: a 150° white gradient over glass,
-/// a hairline white border, inset top/bottom white lines and a soft mauve shadow.
+/// a hairline white border, inset top/bottom white lines and a soft neutral shadow.
+///
+/// The shadow was mauve until #12; see `EvaCardShadow` for why it is not any more.
 struct EvaCardSurfaceModifier<S: InsettableShape>: ViewModifier {
     let shape: S
 
@@ -157,16 +159,49 @@ struct EvaCardSurfaceModifier<S: InsettableShape>: ViewModifier {
 
 }
 
-/// Canvas card shadow: `0 16px 36px -22px rgba(150,72,100,.45)` (DESIGN.md §4).
+/// Card shadow: `0 12px 30px -18px rgba(40,33,38,.35)`, from the App artboard's
+/// settings screen.
 ///
-/// SwiftUI's shadow has no spread, so the -22px contraction cannot be expressed and
-/// the shadow renders wider and softer than the canvas. These are the direct
-/// translation (CSS blur 36 → SwiftUI radius 18); if a card reads too heavy beside the
-/// canvas, `radius` is the intended knob.
+/// ## This is a deliberate deviation from the canvas (#12, DESIGN.md §9a)
+///
+/// The artboards draw this pink, and not marginally: `rgba(150,72,100,…)` appears 18 times
+/// for cards in the Design System artboard and 16 more in the App artboard, against **two**
+/// neutral instances, both on the settings screen. Pink is the design language.
+///
+/// We deviate because of how it composites rather than how it is drawn. Under a
+/// *translucent* card, `Material` samples the shadow behind it, so a saturated shadow tints
+/// the card itself as well as ringing it — measured on Profile, the pink rendered a
+/// `#D5B2BA` halo against a `#FEF8F5` ground. CSS `backdrop-filter` and SwiftUI `Material`
+/// do not sample the same thing, so the artboard cannot show this.
+///
+/// The pink value's origin supports reading it by elevation: it is the *bottom sheet's*
+/// shadow (`0 -22px 50px -22px`), right under an opaque sheet and wrong under a translucent
+/// card.
+///
+/// ## This is a close translation, not an exact one
+///
+/// SwiftUI's shadow has no spread, so the `-18px` contraction is dropped exactly as the
+/// old `-22px` was, and the shadow renders wider and softer than the canvas. `radius` is
+/// the direct halving of CSS blur (30 → 15), the same convention the previous value used.
+///
+/// **Do not tune `radius` to chase the grey cast — it was tried and it is the wrong
+/// lever.** Measured on the Profile screen, card minus ground: pink/r18 gave
+/// −15 · −17 · −14, neutral/r15 gives −23 · −18 · −17, neutral/r8 gives −24 · −19 · −18.
+///
+/// Read those carefully, because an earlier version of this note read them wrongly. The
+/// *colour* change moved red by 8; the *radius* change moved it by 1. So the shadow is not
+/// irrelevant to the cast — it is a real contributor, and this change made the cast slightly
+/// worse while removing its mauve tint. What is established is narrower: **radius** does not
+/// move it, so tuning that number is wasted effort. The remainder is `Material`'s own tint,
+/// which is #60.
+///
+/// Those deltas also carry a known bias: the ground was sampled far down the screen, under a
+/// different `EvaScreenBackground` glow than the card sits on, which is worth −3.6 · −1.2 ·
+/// −6.4 before anything is drawn. #60 should re-baseline against ground beside the card.
 private enum EvaCardShadow {
-    static let color = Color(hex: 0x964864).opacity(0.45)
-    static let radius: CGFloat = 18
-    static let offsetY: CGFloat = 16
+    static let color = Color.evaPrimaryText.opacity(0.35)
+    static let radius: CGFloat = 15
+    static let offsetY: CGFloat = 12
 }
 
 extension View {
@@ -242,7 +277,7 @@ extension View {
             VStack(alignment: .leading, spacing: EvaSpacing.xs) {
                 Text("Standard card treatment")
                     .font(.system(size: 15, weight: .semibold))
-                Text("150° white gradient, hairline border, inset lines, mauve shadow.")
+                Text("150° white gradient, hairline border, inset lines, neutral shadow.")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.evaSecondaryText)
             }
