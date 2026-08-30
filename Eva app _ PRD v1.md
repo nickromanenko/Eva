@@ -1,5 +1,7 @@
 # **Eva \- the first AI made for women**
 
+*Line-number citations in issues and reviews older than 2026-08-30 may be off by the edits of #69; cite headings.*
+
 ## Key concepts
 
 **Eva is an AI Assistant for Every Woman's Prime Era**
@@ -23,9 +25,9 @@ Eva helps women care for their physical and mental health, plan activity and rec
 
 | Feature | Description |
 | ----- | ----- |
-| Onboarding | 1-2 screens that describe the idea of the app. Ideally, 1 screen with science facts (2-5 bullets of pain) and 1 screen about our solution |
-| Sign Up | Apple ID Google account Email \+ password Age Weight and height Questionary: What do you want to improve? (multiple choices) Do you have any diseases? What is your lifestyle? What sports do you prefer? Do you take any medications that affect your hormones? |
-| Dashboard | The dashboard has to contain: Shortcuts to main features (action buttons) Banner area with tips and interesting facts (by clicking the user is redirected to blog article / youtube video related to it) Chat area |
+| Onboarding | Superseded (2026-08-23, #3): there are no info screens. Authentication is one screen — Apple, Google, or email and password inline — see §Onboarding and §Sign Up. |
+| Sign Up | Three ways to create an account: Apple ID, Google account, email \+ password (#3). The questionnaire is not part of sign-up; its fields live in Profile (#19) — what it collects is listed under §Sign Up. |
+| Dashboard | The dashboard has to contain: Shortcuts to main features (action buttons) Banner area with tips and interesting facts (by clicking the user is redirected to blog article / youtube video related to it) Chat shortcut (Eva Chat has its own tab — see §Eva Chat) |
 | Calendar | The calendar provides next options: Cycle tracking Sex life tracking Body signals tracking Training tracking Doctor appointments Pregnancy mode (planning, pregnancy, postpartum) |
 | Nutrition adviser | A woman can specify her nutritional goals, food preferences, and deficiencies. The coach will advise on the calorie requirements for the expected activity level and cycle phase. |
 | Personal trainer | Based on your desired training frequency and goals, the app creates a training program and explains the basic principles and differences of training for women. |
@@ -34,6 +36,78 @@ Eva helps women care for their physical and mental health, plan activity and rec
 | Notifications | Push notifications, notification centre |
 | Settings | Profile (change password, update personal info from questionary, delete account) Language Notifications turn on/off Log out Delete profile |
 | Support |  |
+
+## Product frame
+
+Decisions recorded on 2026-08-30 in `docs/reviews/2026-08-30-prd-and-design-review.md` §8 (A1–A15) and written back here by #69. Each subsection names its decision. What is still undecided is listed under Open, not guessed; nothing there may be assumed by an issue or a PR.
+
+### Scope and order
+
+1. Everything in this document is v1 (A1). Nothing is parked, and the website's feature claims stand.  
+2. Build order is data first (A13): Auth → Profile → Calendar → Dashboard → Nutrition → Eva Chat → Pregnancy mode → Learn / Personal trainer / Mental well-being coach. Pregnancy mode extends Calendar once the Dashboard exists; Eva Chat lands once it has data to see.
+
+### Markets and language
+
+> **Superseded (2026-08-30, decision A16 — same day, later in the day).** A2 chose the EU
+> and the UK. A16 replaces it: launch in the **US and worldwide**, English only, no
+> localisation in v1. The consequences are worked through in `docs/LAUNCH.md`. Items 1
+> and 4 below are A2's and no longer hold; items 2 and 3 stand.
+
+1. Launch markets are the EU and the UK (A2).  
+2. English only at launch. Localisation is planned, not v1. The Language row in Settings lists English until that changes; copy is reviewed for cultural and language variants, never machine-translated (§Dashboard, Tone and framing rules).  
+3. Units: metric by default, imperial as a setting.  
+4. What follows from the markets: #26 assesses regulation under GDPR, EU MDR and UK MHRA; the food database must cover the EU and the UK (#25); the appointment timeline template (§Phase 2 \- Pregnancy, Appointment schedule) and emergency guidance (§Calendar, Other requirements) are per country.
+
+Under A16:
+
+5. Launch markets are the United States and every App Store storefront Eva is not excluded from; the exclusion list is a decision recorded in `docs/LAUNCH.md`.  
+6. Units default from the device locale (imperial for a US locale), with the setting in item 3.  
+7. What follows from the markets: #26 assesses regulation under the FDA general wellness policy, the FTC's Health Breach Notification Rule and US state consumer-health-data laws **as well as** GDPR, EU MDR and UK MHRA; the food database must cover the US and have worldwide barcode coverage (#25); the appointment timeline template exists only for countries whose content has been reviewed, with no template elsewhere; emergency guidance is per country with a neutral fallback. Which English variant the copy uses is open (`docs/LAUNCH.md`).
+
+### Age
+
+1. 18 and over (A12). Enforced at date-of-birth entry in the app and server-side in `parseProfile`.  
+2. The App Store age rating, the website and the legal copy state 18+. This removes the minors question from #26.
+
+### Monetisation
+
+1. Paid subscription with a trial (A14): everything is behind the one subscription once the trial ends. Sold through StoreKit. The canvas gains a subscription / paywall screen and Settings gains a "Manage subscription" row (§Settings). Privacy policy and terms must cover billing.  
+2. Open: trial length, price, and whether entitlement is checked client-side (StoreKit 2 receipts) or server-side (App Store Server API) — see Open below.
+
+### Platform
+
+1. iPhone, portrait only, iOS 18+ (`docs/ARCHITECTURE.md` §1, `mobile/CLAUDE.md`). No other platform is specified.  
+2. No HealthKit in v1 (A15): no entitlement, no import of sleep or workouts. Revisit after Calendar logging ships.  
+3. Widgets are mentioned under §Sex and §Pregnancy loss and remain unspecified.
+
+### Offline
+
+1. Offline is v1, local store first (A3). The calendar reads from the local store; entries queue and sync over the existing `idempotencyKey` (§Calendar, Edge cases; §Nutrition coach, Edge cases).  
+2. The store and the sync queue are an architecture decision, recorded in `docs/ARCHITECTURE.md` before Calendar slice C3 (#11) starts — not in this document.
+
+### Navigation
+
+1. Five tabs (A4): Home · Calendar · Eva Chat · Learn · Profile.  
+2. The Nutrition coach, Personal trainer and Mental well-being coach are reached from Dashboard shortcuts, never from a tab (A4; for the Nutrition coach also #25 Q3).
+
+### Push notifications
+
+1. Transport is APNs, sent directly from the API (A9). The app does not link the Firebase iOS SDK.  
+2. A notification preview says "Eva has an update" and nothing else. Requirements are in §Notifications.
+
+### Open
+
+Undecided as of 2026-08-30:
+
+1. The legal and consent flow for health data — lawful basis, data-processor list, retention, the "not a medical device" disclaimer, the privacy policy and terms the sign-up screen already links to  
+2. Non-functional requirements — availability, latency, backup and restore, data retention, session length, account security, accessibility target  
+3. Analytics constraints on health data  
+4. Trial length and price  
+5. Whether entitlement is checked client-side or server-side, and how often — the chosen option assumed one check at launch; that is an assumption, not a decision
+6. Which English the copy uses and how clinical roles are named (A17, `docs/LAUNCH.md` §4.1)  
+7. App Store storefront exclusions beyond China and Russia (A18, `docs/LAUNCH.md` §3.4)  
+8. The law-enforcement and third-party request policy for reproductive-health data (A19, `docs/LAUNCH.md` §2.4)  
+9. The consent model — one screen, two separate opt-ins, applied worldwide (A21, `docs/LAUNCH.md` §4.6)
 
 ## Requirements
 
@@ -51,6 +125,12 @@ Eva helps women care for their physical and mental health, plan activity and rec
 > The questionnaire below is **not** part of sign-up: the canvas places these fields in
 > Profile instead. Until a Profile screen exists it still runs as a post-auth step, so the
 > requirements below remain accurate about *what* is collected, not *when*.
+>
+> **Superseded further (2026-08-30, issue #19).** The questionnaire moves to Profile as
+> individually editable rows and the post-auth gate is removed; an incomplete profile is
+> asked for once, through a dismissible nudge in the Dashboard's nudge slot, whose
+> dismissal is stored server-side on `users/{uid}` so it survives reinstall and a second
+> device.
 
 The system has to provide 3 options to create account:
 
@@ -69,12 +149,36 @@ The system has to provide 3 options to create account:
 
 #### Edge case
 
+> **Superseded by issue #7 (2026-08-30).** Identity is the provider's `sub` and only
+> `sub`; the email address is never used to match accounts. A provider sign-in with an
+> unseen `sub` creates a new account even when the address matches an existing one.
+> Attaching a second provider to an existing account is a deliberate action the user
+> takes from Profile while signed in to the account she wants to keep (see §Settings,
+> Manage connected accounts). The cost, stated in #7 so nobody is surprised by it: a user
+> with an email/password account who taps Sign in with Apple or Google gets a second
+> account until she links them. Auto-linking on a self-asserted address is an
+> account-takeover shape, and would not work for Hide My Email relay addresses anyway.
+
 1. If the user who has created an account with email\&password try to sign up with a Google account \- do not create a new one, proceed as log in to the existing profile.
 
 #### Other requirements
 
 1. All validations have to be displayed under the input fields.  
 2. The activation link is valid for 24 hours.
+
+#### Profile fields
+
+Decided 2026-08-30 (review §8 A8 and A12). These are the questionnaire's fields wherever they are collected — in Profile, per #19 — and the one canonical list each; the canvas' `settings` and `editProfile` rows and the code are to be unified to it.
+
+1. Date of birth is stored; age is derived from it and never stored. The user must be 18 or over (§Product frame, Age).  
+2. Weight and height, as in the feature list.  
+3. Goals & lifestyle (multiple choices): Steady energy, Better sleep, Understand my cycle, Build strength, Manage stress, Conceive within a year.  
+4. Hormonal medications: Combined pill, Progestogen-only pill, Hormonal IUD, Implant, HRT, None.  
+5. Conditions: PCOS, Endometriosis, Thyroid condition, Anaemia, Diabetes, Coeliac disease, Food allergies, None of these.  
+6. Activity band, one of four: Mostly sitting, Lightly active, Active, Very active — the bands in `mobile/Eva/Onboarding/OnboardingModel.swift`. §Nutrition coach maps them onto its activity factors.  
+7. Preferred sports: Strength, Running, Yoga, Pilates, Cycling, Swimming, Dancing, Walking — the list in the same file.
+
+This is a schema change on `users/{uid}` — `profile.age` becomes `profile.dateOfBirth`, medications become an enumeration, conditions gain entries — and falls under the always-human gate in `docs/AUTONOMY.md`. #19 builds to this list; `parseProfile` re-derives its ranges from date of birth.
 
 ### Log in
 
@@ -98,6 +202,11 @@ The calendar operates in one of four modes. Cycle is the default; the other thre
 The mode determines which events are offered and which predictions are shown. The calendar view, day cells, day detail and logging rules are identical in every mode.
 
 #### View
+
+> **Superseded in part (2026-08-30; settled in Calendar C1, issue #23, and recorded in
+> `docs/ARCHITECTURE.md` §4).** Item 4 below: future dates accept **appointments only**.
+> Any other event type on a future date is refused by the API with
+> `FUTURE_DATE_NOT_ALLOWED`. Predictions on future dates are unchanged.
 
 1. Month grid, current month, today highlighted  
 2. Swipe left/right between months; tap header to jump to month/year picker  
@@ -161,6 +270,11 @@ The picker displays only the events available in the current mode:
 
 ##### Menstrual cycle
 
+> **Superseded in part (2026-08-30, issue #23).** Option 1 below: spotting is a separate
+> marker, not a flow level. A spotting day does not start a period. What "cycle day N"
+> means across spotting days is not yet defined; it belongs with the prediction
+> constants routed to #26 (§Predictions in Cycle mode).
+
 Options:
 
 1. Spotting  
@@ -175,7 +289,14 @@ Only one flow level per day. Logging a second replaces the first, with a confirm
 
 Period end is marked by the first day with no flow logged. The user can also mark it explicitly from the day detail sheet.
 
+Requirement (2026-08-30, review H5): the explicit period-end mark needs its own stored field in the cycle data model. Inference from the first day with no flow logged is the default; the explicit mark from day detail is a separate, stored fact and must not be represented by the absence of a flow entry. It is not yet modelled — `CyclePayload` has no such field (engineering issue I1 in the review).
+
 ##### Sex
+
+> **Confirmed against the canvas (2026-08-30, decision A7; Calendar C10 in #11).** The
+> sheet with collapsed "Add details" described below stands; the canvas' one-tap toast is
+> to be redrawn to it. The stored payload is `protection` (protected / unprotected / other)
+> and `type` (solo / partnered), both optional.
 
 Single confirm step: sheet shows the date and a large Log button. No mandatory options — as specified.
 
@@ -200,31 +321,38 @@ Zone 1 — three scales, always visible, 5-point rating with emoji. All three ar
 2. Mood  
 3. Sleep
 
-Zone 2 — optional, multi-select chip grid:
+> **Superseded (2026-08-30, issue #24).** The Zone 2 lists below were rewritten to the
+> shipped vocabulary in `api/scripts/seed-refdata.ts`; the catalogue itself lives in
+> Firestore (Other requirements, item 1), so labels may be edited there while codes are
+> permanent. "Libido changes" is retired: one `libido` chip carries the direction as a
+> low / high value, the way `discharge` carries its type. Discharge keeps its value
+> picker. This also resolves the old "14 chips, maximum 12 visible" contradiction.
 
-1. Bloating  
-2. Cramps  
-3. Headache  
-4. Nausea  
-5. Breast tenderness  
-6. Back pain  
-7. Acne / breakout  
-8. Cravings  
-9. Anxious  
-10. Stressed  
-11. Brain fog  
-12. Poor appetite  
-13. Heavy appetite  
-14. Libido changes
+Zone 2 — optional, multi-select chip grid. Fourteen primary chips, visible at once:
+
+1. Bloating (`bloating`)  
+2. Cramps (`cramps`)  
+3. Headache (`headache`)  
+4. Nausea (`nausea`)  
+5. Breast tenderness (`breast-tenderness`)  
+6. Back pain (`back-pain`)  
+7. Acne / breakout (`acne`)  
+8. Cravings (`cravings`)  
+9. Anxious (`anxious`)  
+10. Stressed (`stressed`)  
+11. Brain fog (`brain-fog`)  
+12. Poor appetite (`poor-appetite`)  
+13. Heavy appetite (`heavy-appetite`)  
+14. Libido (`libido`) — carries a value, low / high
 
 Requirements:
 
-1. Maximum 12 chips visible at once. The remainder sit behind "More…" (dizziness, hot flashes, constipation, loose stool, insomnia, discharge, itching).  
+1. The 14 primary chips are visible at once. Seven more sit behind "More…": Dizziness (`dizziness`), Hot flashes (`hot-flashes`), Constipation (`constipation`), Loose stool (`loose-stool`), Insomnia (`insomnia`), Discharge (`discharge`), Itching (`itching`).  
 2. Chip order adapts: chips logged in the last 7 days float up, then the rest are weighted by cycle phase (luteal surfaces bloating and cravings, menstrual surfaces cramps and back pain).  
 3. A chip logged 3 times is automatically pinned into the visible grid.  
 4. Second tap on Cramps, Headache or Nausea marks it as severe (chip fills darker). No extra screen.  
 5. One Body signals entry per day. Re-opening the sheet loads the existing entry for editing and never creates a second one.  
-6. Discharge is the only chip that keeps a value picker: dry / sticky / creamy / watery / egg-white.
+6. Two chips carry a value, and a value is a category separate from severity: Discharge keeps its value picker — dry / sticky / creamy / watery / egg-white; Libido carries low / high.
 
 The chip vocabulary is swapped by mode. Pregnancy and Postpartum sets are listed in the Pregnancy mode section.
 
@@ -276,19 +404,35 @@ Fields:
 1. Date & time — required  
 2. Type — optional: Scan / Midwife / GP / Gynaecologist / Obstetrician / Blood test / Glucose test / Other  
 3. Notes — free text, no 280-char limit. This is where results and instructions are written down.  
-4. Reminder — optional, default 1 day before
+4. Reminder — optional, default 1 day before. Requires Notifications (see §Notifications).
 
 Questions list:
 
 1. The user can add questions to the next upcoming appointment at any time from the day detail or the appointment itself.  
 2. On the appointment day the questions are surfaced as a list she can open in the consulting room.  
-3. Eva can help phrase or expand a question from the chat.
+3. Eva can help phrase or expand a question from the chat. Requires Eva Chat (see §Eva Chat).
+
+#### Predictions in Cycle mode
+
+Decided 2026-08-30 (review §8 A11; closes #11 Q4 and Q5 procedurally). The ovulation and confidence rules written under §Phase 1 \- Planning are the only prediction maths in this document; nothing defines the Cycle-mode prediction the calendar and the Today card show.
+
+1. The constants that define a prediction are clinical decisions and are routed to #26's clinician; they are not chosen by engineering and are not written here: what counts as a logged cycle, how the next period is derived from past cycles, the irregularity threshold above which no prediction is shown, whether the fertile window is shown in Cycle mode at all, and where the not-a-contraceptive notice (§Phase 1 \- Planning) appears.  
+2. Engineering builds the cycle maths (Calendar slice C11, #11) against an interface — cycles in; next-period date, fertile window and confidence out — with config-driven constants that fail loudly when unset. Nothing falls back to a plausible-looking default.  
+3. Predictions are shown as outlines on future dates (§View) and feed the Today card under its confidence rules (§Dashboard, Confidence and cold start).
 
 #### Pregnancy mode
+
+The two sections that follow this one — Edge cases and Other requirements — are calendar-wide, not part of Pregnancy mode; they sit at the same heading level as this section and apply in every mode.
 
 Pregnancy mode is one switch with three phases. The phases advance automatically on the triggering event — the user never selects a phase from a menu.
 
 ##### Turning it on
+
+> **Confirmed against the canvas (2026-08-30, decision A6; closes #11 Q1).** Mode entry is
+> Settings only, as item 1 says. The calendar shows a read-only label of the current mode
+> and has no mode-switcher control; the canvas' four-way segmented control is removed, and
+> cycle-only Calendar slices ship no control. The one-time dismissible prompt in item 1
+> stands and still needs drawing.
 
 1. Entry point: Settings → Pregnancy mode. Also offered once on the calendar as a dismissible prompt, never repeated after dismissal.  
 2. On activation the system asks one question: "Where are you now?"  
@@ -467,6 +611,11 @@ Mood screening
 
 #### Edge cases
 
+> **Superseded in part (2026-08-30; settled in Calendar C1, issue #23, and recorded in
+> `docs/ARCHITECTURE.md` §4).** Item 2 below: a future date accepts **appointments only**;
+> the API refuses every other type with `FUTURE_DATE_NOT_ALLOWED`. A tapped future day
+> still shows predictions.
+
 1. Backdating is allowed for any past date, capped at 12 months by default.  
 2. Logging on future dates is disabled. Tapping a future date shows predictions only.  
 3. Deleting an entry is a soft delete, recoverable for 30 days.  
@@ -483,7 +632,7 @@ Mood screening
 1. All option lists (symptom chips, sport activities, appointment types) are server-configurable reference data, not hardcoded in the client. New options must ship without an app release.  
 2. Symptom chips are stored against a single shared vocabulary regardless of which flow they were logged from.  
 3. Body signals entries are unique per user per day and are upserted. Cycle, Sex, Sport, Appointment and Feeding entries may repeat within a day.  
-4. Entries created by Eva from chat are marked as such so they can be identified and reverted.  
+4. Entries created by Eva from chat are marked as such so they can be identified and reverted. Requires Eva Chat (see §Eva Chat).  
 5. Red-flag escalation is deterministic and bypasses the model entirely. Triggers: vaginal bleeding in pregnancy, severe or persistent headache with visual changes, reduced fetal movement, severe itching especially of palms and soles, fluid leaking, regular contractions before 37 weeks, fever, persistent vomiting with inability to keep fluids down, calf pain or swelling. The escalation card directs the user to contact her provider.  
 6. Eva never diagnoses and never reassures. Acceptable: "that's common in the second trimester, and here's when to call someone." Not acceptable: "you're fine."  
 7. Emergency guidance is region-aware.  
@@ -548,7 +697,7 @@ The 3-item cap is deliberate. Focus areas drive the wording of every note the ad
 
 1. Meals per day: 2 / 3 / 4 / 5  
 2. Snacks: yes / no  
-3. Optional: usual times for each meal, used for reminders and for spacing advice
+3. Optional: usual times for each meal, used for reminders and for spacing advice. Reminders require Notifications (see §Notifications).
 
 ##### Step 4 \- Body metrics
 
@@ -578,6 +727,14 @@ Guardrails, applied before the target is accepted:
 #### Daily targets calculation
 
 ##### **Calories**
+
+> **Superseded in part (2026-08-30, issue #25 Q4).** Item 2 below: the profile stores four
+> activity bands (Mostly sitting, Lightly active, Active, Very active — see §Sign Up), and
+> they map one-to-one onto four factors; "Extremely active" is dropped. Nothing is
+> invented and the questionnaire does not change. The cost, stated in #25 so it is not
+> rediscovered: a genuinely very active user is under-fed by the model — the safer
+> direction to be wrong in a product with this eating-disorder-risk profile, but still
+> wrong, and the reason to revisit if the band ever gains a source.
 
 1. Basal metabolic rate uses Mifflin-St Jeor for women: BMR \= (10 × weight in kg) \+ (6.25 × height in cm) − (5 × age) − 161  
 2. Total daily energy expenditure \= BMR × activity factor:  
@@ -664,6 +821,12 @@ Presentation rules:
 
 #### Nutrition score
 
+> **Superseded in part (2026-08-30, issue #25 Q1).** The score is shown, but under a
+> non-judgmental name that is not yet chosen — "Nutrition score" here and "Fit" on the
+> canvas are both placeholders, and a name that reads as a grade is the thing being
+> avoided. It ships only after the clinical sign-off in #26 has landed, not alongside it.
+> The composition and requirements below are not addressed by that decision.
+
 A 0–100 score shown per scanned meal, composed of four parts:
 
 1. Food quality (40%) — fibre, protein density, micronutrient content, added sugar, sodium, saturated fat, degree of processing  
@@ -718,7 +881,7 @@ Requirements:
 3. A week view shows adherence trends and focus-area progress.  
 4. Remaining budget is displayed neutrally. No warnings when a target is exceeded, no celebration when it is not.  
 5. Water intake is tracked if focus area 7 is selected.  
-6. Meal entries appear in the Calendar day detail alongside other events.
+6. Meal entries appear in the Calendar day detail alongside other events. The calendar indicator scheme (§Calendar, Day cell indicators) has no position for meals — a Calendar decision, open.
 
 #### Edge cases
 
@@ -868,4 +1031,163 @@ These apply to the Today card, banners, nudges and notifications alike.
 3. The card is generated once per day and cached, so it is available offline and does not change on repeated opens.  
 4. Clinical content in cards and banners follows the same review requirement as the rest of the product.  
 5. Accessibility: the card is a single readable block, not a set of decorative fragments; the glance row announces values rather than relying on ring shapes.
+
+### Eva Chat
+
+Decided 2026-08-30 (review §8 A5). Eva Chat is the feature the product is named for; it has its own tab (§Product frame, Navigation) and a shortcut on the Dashboard.
+
+#### Scope
+
+1. One assistant across every domain. The Nutrition coach's chat (§Nutrition coach, Chat) is one scope of this assistant, not a separate one; that section's rules apply within it.  
+2. It sees the profile, the current cycle or pregnancy phase, recent calendar logs, recent meals and the user's goals.  
+3. It answers questions about nutrition, training, well-being and planning.  
+4. It may create or edit calendar entries. Every entry it creates is marked `source: eva` so it can be identified and reverted (§Calendar, Other requirements).  
+5. It helps phrase or expand a question for a doctor (§Doctor appointment, Questions list).  
+6. Within the nutrition scope, answers reference Blog articles where one exists (§Nutrition coach, Chat). Whether that rule extends to every domain is not decided.
+
+#### What it does not do
+
+1. It does not interpret symptoms. A symptom question is answered by the deterministic red-flag escalation layer (§Calendar, Other requirements) and by "contact your provider" language, never by the model. §Calendar's rule stands: Eva never diagnoses and never reassures.  
+2. It cannot set or change nutrition targets; target changes go through the setup flow (§Nutrition coach, Chat). It may not produce a meal plan that conflicts with the nutrition guardrails.  
+3. The tone and framing rules of §Dashboard apply to every answer.  
+4. The regulatory line in §Calendar, Other requirements stands: symptom interpretation may be a medical device, and the scope above holds until #26 says otherwise.
+
+#### Open
+
+1. LLM vendor, cost, and who acts as data processor for a prompt that carries health data (#25 Q12) — now a product-wide question, not a nutrition one.  
+2. History and memory; safety and refusal rules beyond the ones above.
+
+Not yet specified — needs a /explore
+
+### Blog
+
+Reached from the Learn tab (§Product frame, Navigation), from Dashboard banners and from Eva Chat answers.
+
+Constraints already binding:
+
+1. Content is the transparent scientific basis for recommendations (feature list). Cards, banners and chat answers reference an article where one exists (§Dashboard, Banner area; §Nutrition coach, Chat).  
+2. All medical content requires clinician sign-off and a documented review cycle (§Calendar, Other requirements); nutrition content requires a registered dietitian's (§Nutrition coach, Other requirements).
+
+Content model, CMS, in-app reader versus web, video, search, and how articles are linked from cards, notes and chat: Not yet specified — needs a /explore
+
+### Personal trainer
+
+Reached from a Dashboard shortcut, never a tab (§Product frame, Navigation). In v1, in the last group of the build order (§Product frame, Scope and order).
+
+Constraints already binding:
+
+1. §Dashboard, Tone and framing rules, rule 2: "The app must not tell a woman what she is capable of on a given day. Suggesting that hard work or important decisions belong in one phase and not another is out of scope, and runs against the premise the product is built on." A training-programme generator walks straight into this rule and must be designed around it.  
+2. All medical content requires clinician sign-off and a documented review cycle (§Calendar, Other requirements).
+
+Not yet specified — needs a /explore
+
+### Mental well-being coach
+
+Reached from a Dashboard shortcut, never a tab (§Product frame, Navigation). In v1, in the last group of the build order (§Product frame, Scope and order).
+
+Constraints already binding:
+
+1. §Dashboard, Tone and framing rules, rule 2: "The app must not tell a woman what she is capable of on a given day."  
+2. If it implements the Edinburgh Postnatal Depression Scale, §Phase 3 \- Postpartum, Mood screening applies: item 10 covers self-harm and requires a defined escalation path, not only a score. Whether any other screening instrument is used, and its escalation path, is not decided.  
+3. All medical content requires clinician sign-off and a documented review cycle (§Calendar, Other requirements).
+
+Not yet specified — needs a /explore
+
+### Notifications
+
+Decided 2026-08-30 (review §8 A9) and constrained by what the canvas draws (review §3.2 F5). These rules bind the appointment reminder (§Doctor appointment), the meal reminder (§Nutrition coach, Step 3), the fertile-window heads-up (§Phase 1 \- Planning) and the pregnancy-loss stop rule (§Pregnancy loss).
+
+#### Transport
+
+1. APNs, sent directly from the API. The app does not link the Firebase iOS SDK.  
+2. The device token is stored against the user on `users/{uid}`; scheduled sends run as a server job. The API surface is engineering issue I5 in the review.
+
+#### Content rules
+
+1. A preview never shows symptoms, flow, sex or appointment details. The preview text is "Eva has an update" until the app is unlocked.  
+2. Sex entries never appear in a notification (§Sex).  
+3. The tone and framing rules of §Dashboard apply. In Planning, §Phase 1 \- Planning's notification tone applies. A pregnancy loss stops every pregnancy notification immediately, including anything already queued (§Pregnancy loss).  
+4. Well-being check-ins are opt-in and never streak-based.
+
+#### Categories
+
+As drawn on the canvas (`notifications` screen). The list is what is drawn, not a catalogue:
+
+1. Cycle reminders  
+2. Appointment reminders  
+3. Well-being check-ins — opt-in, never streak-based  
+4. Educational content  
+5. Meal reminders (Nutrition coach, from the usual meal times in Step 3)
+
+One global switch turns notifications on or off (feature list).
+
+#### Open
+
+The full catalogue with triggers and copy, quiet hours, permission-prompt timing, and the notification-centre screen the feature list names: Not yet specified — needs a /explore
+
+### Settings
+
+The canvas draws 23 rows across its `settings`, `privacy` and `notifications` screens. Only the rows below are required by a decision, an issue or a line of this document; a row the canvas draws that nothing has decided is marked *drawn only* and is not a spec.
+
+| Row | Status | Source |
+| ----- | ----- | ----- |
+| Personal profile — date of birth, weight and height, goals & lifestyle, hormonal medications, conditions, activity band, preferred sports | Decided | §Sign Up, Profile fields (A8); #19 |
+| Pregnancy mode — the only entry point to the mode; "End pregnancy tracking" lives here | Decided | §Pregnancy mode, Turning it on (A6); §Pregnancy loss |
+| Language — English only at launch, list to grow | Decided | §Product frame, Markets and language (A2) |
+| Units — metric default, imperial as a setting | Decided | A2; §Nutrition coach, Step 4 |
+| Notifications — one global switch | Decided | feature list; §Notifications |
+| Notifications — per-category switches | Drawn only | canvas `notifications` |
+| Calorie display — hide calorie numbers and use qualitative guidance; the disordered-eating state is reversible only here | Decided | §Nutrition coach, Other requirements |
+| Privacy & security — app lock, biometric access, hide the Sex event type | Drawn only; hiding Sex is anticipated by §Sex requirement 3 and §Dashboard edge case 6 | canvas `privacy` |
+| Change password | Decided; flow depends on #6 | feature list; §Account |
+| Manage connected accounts — link a second sign-in provider to this account | Decided; required by #7's manual linking | #7; §Sign Up, Edge case |
+| Data export | Decided; format and delivery open | #58; §Account |
+| Manage subscription | Decided | §Product frame, Monetisation (A14) |
+| Support rows | Drawn only | §Support |
+| Log out | Decided | feature list |
+| Delete profile | Decided | feature list; §Account (#8) |
+
+Other rows the canvas draws — Personalisation, Content preferences, Privacy settings, About — are drawn only.
+
+### Support
+
+Rows as drawn on the canvas; none has decided content:
+
+1. Help centre  
+2. Contact support  
+3. Report a problem  
+4. Medical and emergency information — region-aware, per country (§Calendar, Other requirements; §Product frame, Markets and language)
+
+Channels and content: Not yet specified — needs a /explore
+
+### Account
+
+Account-lifecycle rules that until now lived only in `docs/ARCHITECTURE.md` and in issues.
+
+#### Deletion
+
+> **Decided (2026-08-30; issue #8, `docs/ARCHITECTURE.md` §4).** This document had no rule
+> on deletion timing. Deletion is immediate and complete:
+> `DELETE /me` removes the Auth user, the user document and every calendar entry —
+> including soft-deleted entries still inside their 30-day window. There is no recovery
+> window and no undo. The confirmation follows the destructive pattern in
+> `docs/DESIGN.md` §5, and a deleted account's email can sign up again.
+
+#### Password reset
+
+1. The flow is §Log in, Restore password, built by #6.  
+2. Resetting the password does not sign out other devices. The session token is stateless and cannot be revoked (`docs/ARCHITECTURE.md` §3), so the canvas' "Other devices were signed out." is not yet true and may not be shown unless #6 adds session revocation — a `users/{uid}` schema change under the always-human gate (review E2, engineering issue I2).
+
+#### Data export
+
+1. A signed-in user can obtain everything stored under her account in one file, readable outside Eva (#58). Format and delivery are #58's open questions.  
+2. Sex entries are excluded from an export unless explicitly opted in (§Sex).
+
+#### Privacy copy
+
+1. The app claims encryption in transit and at rest, never "on your device" (A10). There is no client-side encryption and none is planned. The agreed wording: "encrypted in transit and at rest, never sold, never shared with advertisers, deletable in full".
+
+#### Email change
+
+Not yet specified — needs a /explore
 
