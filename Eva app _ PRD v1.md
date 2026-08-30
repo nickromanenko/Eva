@@ -92,7 +92,7 @@ Undecided as of 2026-08-30:
 2. Non-functional requirements — availability, latency, backup and restore, data retention, session length, account security, accessibility target  
 3. Analytics constraints on health data  
 4. Trial length and price  
-5. Whether entitlement is checked client-side or server-side
+5. Whether entitlement is checked client-side or server-side, and how often — the chosen option assumed one check at launch; that is an assumption, not a decision
 
 ## Requirements
 
