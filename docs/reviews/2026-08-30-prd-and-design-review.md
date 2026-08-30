@@ -341,7 +341,26 @@ triggers, so the write-backs (§6.2–6.4) can be done from this table alone.
 
 | A16 | Markets, revisited | **US + worldwide, English only, no localisation in v1.** Supersedes A2 (same day). | `docs/LAUNCH.md` works through what has to be true: FDA general-wellness scope, FTC HBNR and state consumer-health-data laws alongside GDPR/UK; worldwide barcode coverage for the food DB; locale-driven units; per-country emergency guidance with a neutral fallback; appointment templates only where reviewed; App Store storefront exclusions; English variant open. |
 
-### Still open after both rounds
+### Third round, same day — the launch decisions
+
+Nick, 2026-08-30 (later). Item 4 of the same exchange: **there is no counsel and no clinician to retain — every decision #26 routed outward is ours to make, sourced.** A24 records that.
+
+| # | Decision | Answer | Triggers |
+|---|---|---|---|
+| A17 | English variant | **US English; neutral clinical roles** ("your provider", "your doctor"). | Canvas copy re-read once (CHANGES §1–8); refdata labels (`Anaemia` → `Anemia`, `Gynaecologist` → `Gynecologist`); DESIGN.md §8 examples. |
+| A18 | Storefronts | **All except China mainland and Russia.** | App Store Connect availability list; LAUNCH §3.4 closed. |
+| A19 | Request policy | **All three**: legal process only, user notification unless barred, transparency report. | #91 becomes `ready` once drafted; a sentence in the app's privacy screen; the policy page on the website. |
+| A20 | EPDS | **Deferred.** The postpartum mood check is a non-scored check-in with a pointer to support resources; no threshold, no escalation logic. | PRD §Phase 3 Mood screening 2 superseded; well-being coach constraint updated; #26 loses the EPDS item. |
+| A21 | Consent | **One screen, two separate opt-ins (collect / share), worldwide.** Neither pre-checked, no accept-all. | #86 loses its model question; canvas `consent` screen per CHANGES §8. |
+| A22 | Food database | **Open Food Facts + USDA FoodData Central base, one metered commercial fallback.** ODbL attribution; enrichment queue feeds OFF. | #25 Q10 closed; ODbL scope is ours to read (A24). |
+| A23 | Backups | **Daily Firestore backups, 30-day retention, disclosed** in the privacy policy ("may persist in backups up to 30 days, never selectively restored"). | #89 → `ready`; privacy copy line. |
+| A14b | Subscription terms | **7-day trial; monthly + yearly tiers; entitlement verified server-side** (App Store Server API) and stored on `users/{uid}`. Exact prices set in App Store Connect. | #88 loses its entitlement question; a `subscription` field on `users/{uid}` (always-human schema); paywall placeholders → "7-day trial · monthly / yearly". |
+| A24 | Clinical and legal review | **No external counsel or clinician.** Every clinical constant, threshold and legal position is decided by Nick with the agent, **with a cited source per value**, recorded in the PRD. | #26 changes from "retain a dietitian / assess with counsel" to "decide each item with a source"; the PRD's "clinician sign-off" requirements are re-worded to "sourced and reviewed by the product owner"; LAUNCH's *counsel* markers become "product-owner decision, sourced". Highest-risk item in the project — stated as such. |
+
+### Still open after three rounds
+
+P5 legal document texts (now ours to write) · P6 non-functional requirements · P8 analytics constraints · exact prices · the #26 clinical constants, one by one (A24 makes them a question list for Nick, next).
+
 
 P5 legal/consent flow · P6 non-functional requirements · P8 analytics constraints ·
 trial length and price point (A14) · whether entitlement is checked client-side

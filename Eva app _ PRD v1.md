@@ -95,19 +95,29 @@ Under A16:
 1. Transport is APNs, sent directly from the API (A9). The app does not link the Firebase iOS SDK.  
 2. A notification preview says "Eva has an update" and nothing else. Requirements are in §Notifications.
 
+### Review without counsel or a clinician (A24)
+
+There is no external counsel and no retained clinician (decision A24, 2026-08-30). Every clinical constant, threshold and legal position in this document is decided by the product owner with a **cited source per value**, recorded where the value is used. Wherever this document says "clinician sign-off" or "registered dietitian", read: *sourced, and reviewed by the product owner*. This is the highest-risk decision in the project and is recorded as such, not softened.
+
+### Decided later on 2026-08-30 (third round)
+
+1. English: **US English**, with neutral clinical role names — "your provider", "your doctor" — never GP / OB-GYN / midwife (A17).  
+2. Storefronts: **all except China mainland and Russia** (A18).  
+3. Third-party requests for health data: **legal process only, the user is notified unless a court forbids it, and a transparency report is published** (A19; the policy is #91).  
+4. The Edinburgh Postnatal Depression Scale is **deferred**; the postpartum mood check is a non-scored check-in with a pointer to support resources (A20; supersedes §Phase 3 \- Postpartum, Mood screening 2).  
+5. Consent: **one screen, two separate opt-ins** — store my health entries; let trusted providers process them — neither pre-selected, no accept-all, the same everywhere (A21; #86).  
+6. Food database: **Open Food Facts + USDA FoodData Central** as the base, one metered commercial fallback; "not found" queues enrichment to Open Food Facts (A22).  
+7. **Daily Firestore backups, 30-day retention**, disclosed in the privacy policy (A23).  
+8. Subscription: **7-day trial, monthly and yearly tiers, entitlement verified server-side** and stored on `users/{uid}` (A14, follow-up). Prices are set in App Store Connect.
+
 ### Open
 
-Undecided as of 2026-08-30:
+Undecided as of 2026-08-30 (after three rounds):
 
-1. The legal and consent flow for health data — lawful basis, data-processor list, retention, the "not a medical device" disclaimer, the privacy policy and terms the sign-up screen already links to  
-2. Non-functional requirements — availability, latency, backup and restore, data retention, session length, account security, accessibility target  
+1. The legal texts themselves — privacy policy, consumer-health-data policy, terms, subscription terms, the request policy (A19) — now written by the product owner (A24)  
+2. Non-functional requirements — availability, latency, backup restore drills, session length, account security, accessibility target  
 3. Analytics constraints on health data  
-4. Trial length and price  
-5. Whether entitlement is checked client-side or server-side, and how often — the chosen option assumed one check at launch; that is an assumption, not a decision
-6. Which English the copy uses and how clinical roles are named (A17, `docs/LAUNCH.md` §4.1)  
-7. App Store storefront exclusions beyond China and Russia (A18, `docs/LAUNCH.md` §3.4)  
-8. The law-enforcement and third-party request policy for reproductive-health data (A19, `docs/LAUNCH.md` §2.4)  
-9. The consent model — one screen, two separate opt-ins, applied worldwide (A21, `docs/LAUNCH.md` §4.6)
+4. Exact prices per tier
 
 ## Requirements
 
@@ -605,6 +615,13 @@ Return of cycle
 3. The postpartum phase ends when the user switches the mode off. It does not end automatically.
 
 Mood screening
+
+> **Superseded in part (2026-08-30, decision A20).** Item 2: the EPDS is **not** implemented in
+> v1. The mood check is a non-scored check-in — a plain question and a pointer to support
+> resources — with no threshold and no escalation logic. A validated screening instrument
+> with an escalation path is the feature closest to clinical decision support under FDA's
+> 2026 general-wellness guidance (`docs/LAUNCH.md` §1.1), and there is no clinician to sign
+> it off (A24).
 
 1. The system offers a mood check at approximately 6 weeks and periodically after.  
 2. If the Edinburgh Postnatal Depression Scale is implemented, item 10 covers self-harm and requires a defined escalation path, not only a score.
