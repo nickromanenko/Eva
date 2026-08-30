@@ -419,6 +419,28 @@ to take an option away. Retired codes stay listed in the seed file carrying
 `status: 'retired'`, so a project seeded for the first time reproduces the retirements
 instead of depending on the retire script having been run against it afterwards.
 
+**Planned (A3, A9 — §8 and §9 below; not yet in code):**
+
+```
+users/{uid}/devices/{deviceId}         // §9 — one per installed device
+  apnsToken      string                // rotated by iOS; replaced in place
+  environment    'sandbox' | 'production'
+  timeZone       string                // IANA; the device's, for scheduling
+  updatedAt      serverTimestamp
+
+users/{uid}/notifications/{id}         // §9 — what was, or will be, delivered
+  kind           'appointment' | 'meal' | 'cycle' | 'wellbeing' | 'education' | 'update'
+  dueAt          Timestamp             // instant, derived from a local wall-clock time
+  sentAt         Timestamp | null
+  readAt         Timestamp | null      // the notification centre marks it
+  ref            { type, id } | null   // what it points at; never its content
+  createdAt      serverTimestamp
+```
+
+Both are keyed under the uid so **account deletion (§4 above) must enumerate them too** —
+`DELETE /me` fans out over `events/` today and nothing else; adding a subcollection without
+adding it to the delete is the way health-adjacent identifiers outlive their owner.
+
 ## 5. iOS app structure (`mobile/Eva/`)
 
 | Folder | Owns |
@@ -545,8 +567,247 @@ CI authenticates by Workload Identity Federation — **no key files in CI, ever*
   everything (`Test Rules`, `scripts/verify-rules.sh`) but never deploys them on push:
   `Deploy Rules` is `workflow_dispatch`-only and run by a human.
 - Firebase iOS SDK is not linked (commented out in `project.yml`).
+- **One region, and no backups.** Everything lives in `us-central1`; the Firestore
+  location is immutable, so serving another region later is a migration, not a setting.
+  Nothing schedules a Firestore backup — a daily schedule with a stated retention is a
+  one-time human act (`docs/LAUNCH.md` §7, A23). Until it exists, a bad deploy or a bad
+  purge is unrecoverable.
+- No local store on iOS and no push transport — designed in §8 and §9, not built.
 - The production API base URL is out of the source (§5) but still baked in at build
   time: changing it means a new build and a new release, and there is still no staging
   configuration to point at — `Release` is the only non-local one.
 
 Anything here is a candidate backlog item, not something to "fix while nearby".
+
+## 8. Offline: the local store and the sync queue (A3)
+
+**Decision (2026-08-30, A3):** offline is v1, and the store comes first — before Calendar
+slice C3 (#11), because every screen from C3 on reads from it. This section is the design
+those slices build to; its implementation issue is gated on this text being approved.
+
+### 8.1 The rule
+
+**Screens read the store. Only the sync engine talks to the API.** No view, view model or
+`AppSession` path fetches events, refdata or the Today card from the network for display;
+it reads the local copy, and the sync engine refreshes that copy when it can. The one
+exception stays: authentication (`/auth/*`, `/me`) is online-only and goes through
+`AppSession` exactly as §5 describes — a token is not health data and does not queue.
+
+The PRD asks for three things this rule delivers at once: full logging offline with entries
+that queue and sync (§Calendar Edge cases 4), a calendar that reads from the local store
+(same line), and a Today card that is cached and does not change on repeated opens
+(§Dashboard Other requirements 3).
+
+### 8.2 What is stored
+
+SwiftData, one model per wire type, mirroring `APIModels` field for field — the store is a
+cache of the server's shape, not a second schema:
+
+| Model | Mirrors | Key |
+|---|---|---|
+| `LocalEvent` | `EvaEvent` (§4) | `serverId` (nullable until acknowledged) + `clientId` (UUID, created on device, **is** the `idempotencyKey`) |
+| `LocalRefdata` | `/refdata` catalogues + `version` | catalogue id |
+| `LocalTodayCard` | the Dashboard card (#10, when it exists) | date |
+| `PendingOperation` | the queue (§8.4) | FIFO sequence |
+
+`LocalEvent` carries the server's `localDate`, `loggedAt`, `type`, `payload`, `note`,
+`source`, `deletedAt`, `updatedAt` verbatim, plus two device-only fields: `syncState`
+(`synced | pendingCreate | pendingUpdate | pendingDelete | failed`) and `lastError`
+(the API error `code`, for the "Couldn't sync your last entry" card in the Design System).
+
+The store's file is in Application Support with `NSFileProtectionCompleteUntilFirstUserAuthentication`
+(background sync must be able to open it after a reboot-and-unlock; `Complete` would not),
+and is **excluded from iCloud and iTunes backup** — the server is the copy of record, and a
+device backup would be a second copy of a health record living somewhere Eva does not
+control. The Keychain token is currently backup-restorable (#64); the store must not repeat
+that.
+
+### 8.3 Reads
+
+- The month grid and day sheet query `LocalEvent` by `localDate` range, excluding
+  `deletedAt != nil` — the same predicate the API's range read applies.
+- On foreground, on a month change, and after the queue drains, the engine calls
+  `GET /me/events?from=&to=` for the visible range ±1 month and **reconciles by `serverId`**:
+  server rows replace local rows in `synced` state; local rows in any `pending*` state are
+  left alone (their operation has not been acknowledged yet, so the server's view is older
+  than the device's); server rows absent locally are inserted; local `synced` rows absent
+  from the server response inside the fetched range are deleted (they were purged or
+  deleted elsewhere).
+- Refdata uses the version handshake that already exists: the stored `version` goes out as
+  `?version=`, a `304` means keep the copy.
+- A screen never blocks on the network. The first-run empty state (PRD §Calendar Edge cases
+  9) is the empty store, not a spinner.
+
+### 8.4 Writes and the queue
+
+Every user action writes the store first and appends a `PendingOperation`; the UI reflects
+the store immediately. The engine drains the queue FIFO whenever the network is reachable,
+one operation at a time, and never reorders — because an edit to an entry must follow its
+creation, and a delete must follow both.
+
+| Local action | Store | Queued operation | On acknowledgement |
+|---|---|---|---|
+| Log an entry | insert, `pendingCreate`, `clientId` = new UUID | `POST /me/events` with `idempotencyKey: clientId` | write `serverId`, `synced` |
+| Edit | update fields, `pendingUpdate` | `PATCH /me/events/{serverId}` (must carry `type` and `localDate`, §3) | `synced` |
+| Body signals for a day | upsert, `pendingUpdate` | `PUT /me/body-signals/{date}` | `synced` |
+| Delete | set `deletedAt` locally, `pendingDelete` — the row leaves the screen now | `DELETE /me/events/{serverId}` | `synced` |
+| Undo, toast still up | clear `deletedAt`; if the delete op is still queued, **remove it** | — (or `POST …/restore` if it already went) | `synced` |
+
+**How the API's idempotency actually works, verified against `api/src/events.ts`:**
+
+- For `sport`, `appointment` (and `sex` when C10 lands) `createEvent` runs a transaction
+  that looks up `idempotencyKey` and returns the existing document if one matches. A
+  `POST` the device retries after a timeout therefore cannot double-log. This is the
+  guarantee the queue relies on, and `api/test/` must keep pinning it.
+- For the one-per-day types `cycle` and `bodySignals` the key is **ignored** — the
+  deterministic document ID (`cycle_2026-08-27`) makes the write idempotent by
+  construction, and a repeat simply re-sets the same day. Same guarantee, different
+  mechanism; the client does not need to know which.
+- An edit to a one-per-day entry that would move its `localDate` is refused by the API
+  (`immutable-date`); the client mirrors this by never offering a date change on those
+  types — delete and re-log, as §4 already says.
+- An operation that comes back `4xx` is **not retried**: the store row goes to `failed`
+  with `lastError`, the entry shows the error card with Retry, and the queue moves on so
+  one bad entry cannot block the rest. `5xx`, `429` (`Retry-After`) and network failures
+  back off — 1 s, 2 s, 4 s … capped at 5 min — and the queue **does** block, because order
+  matters. A `401` on a request that carried the token is the session's business (§5) and
+  the queue pauses until there is a session again; nothing is discarded.
+
+**Conflicts.** Two devices are possible (the token is not device-bound). The rule is
+last-write-wins by the server's `updatedAt`, which is what a reconcile (§8.3) applies.
+That is honest for a single-user health log: the newest entry the user made anywhere is the
+one she meant. A one-per-day type resolves at the server by its document ID; the client
+never sees a merge.
+
+**Dates.** `localDate` and `loggedAt` are the device's wall clock at the moment of logging
+and are stored as strings on both sides — a queued entry logged in Lisbon and synced from
+New York keeps its Lisbon day (§4, PRD §Calendar Edge cases 5). The request's optional
+`timeZone` is sent for the "today" check; it is still not stored on the event.
+
+### 8.5 Session and account boundaries
+
+- **Log out** wipes the store and the queue. Pending operations are lost, and the log-out
+  confirmation must say so when the queue is non-empty ("2 entries have not synced yet").
+- **Account deletion** wipes the store *after* `DELETE /me` succeeds; a queued operation
+  is dropped, not sent.
+- **`EVA_UITEST_RESET=1`** (§5) wipes the store as well as the Keychain — the hook's contract
+  is "a fresh install", and a fresh install has no store.
+- A second account signing in on the same device starts from an empty store; the store is
+  keyed to the uid and a mismatch wipes it.
+
+### 8.6 Testing
+
+The store and the engine are the unit under test, driven through `EvaStubURLProtocol`
+(already in `EvaTests`), which can answer a `POST` with a timeout and then a `201` for the
+same `idempotencyKey` — the retry case that matters. The UI tests (`EvaUITests`) run with
+the network stub set to "offline" for one flow: log, kill, relaunch, come online, assert one
+entry on the server. `scripts/e2e.sh` gains that flow against the real API.
+
+### 8.7 What this adds to GUARDRAILS.md (in the implementation PR, not here)
+
+- Screens read the local store; only the sync engine calls `/me/events`, `/me/body-signals`
+  and `/refdata`.
+- Every created event carries a device-generated `idempotencyKey`; the API's lookup on it is
+  a pinned test.
+- The store is excluded from backups and wiped on log-out, account deletion and
+  `EVA_UITEST_RESET`.
+- The `events` composite index (#27) must be deployed before the first range read runs
+  against production; the sync engine's first reconcile is that read.
+
+## 9. Push notifications (A9)
+
+**Decision (2026-08-30, A9):** APNs, sent directly from the API. The app does not link the
+Firebase iOS SDK; "the iOS app talks only to the Eva API" (§2) stays true, because
+registering a device token with the API is talking to the API.
+
+### 9.1 Two kinds of notification, two transports
+
+Not everything needs the server. With the local store (§8) on the device, anything the
+device already knows can be a **local notification**, scheduled by iOS from the store:
+
+| Notification | Source of truth is on the device? | Transport |
+|---|---|---|
+| Appointment reminder (`reminderMinutesBefore` on the entry) | yes | local |
+| Meal reminders (usual meal times, Nutrition Step 3) | yes | local |
+| Period predicted within two days (C11 output, once cached) | yes, once synced | local |
+| Educational content, "your Today card is ready", well-being check-ins | no — the server chooses | **APNs** |
+| Pregnancy-loss stop rule: cancel everything queued | both | local cancel + server marks `notifications/` |
+
+Local notifications work offline, need no device registry to be correct, and cannot leak
+what the server does not know. APNs is for what originates on the server. The rule is
+"local if the device can compute it; APNs otherwise" — not "APNs for everything", which
+would make an appointment reminder depend on a Cloud Scheduler tick.
+
+### 9.2 API side
+
+- **`apns.ts`** — the transport. Token-based auth (`.p8` key, key id, team id) over HTTP/2
+  to `api.push.apple.com` / `api.sandbox.push.apple.com`. The key lives in Secret Manager
+  as `eva-apns-key:latest`, declared as `APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID` in
+  `config.ts` and `.env.example`; **this file is the only reader**, the way
+  `identity-toolkit.ts` is the only reader of the web API key (GUARDRAILS 4).
+- **`devices.ts`** — owns `users/{uid}/devices/` (GUARDRAILS 10: one owner per collection).
+  `PUT /me/devices/{deviceId}` registers or replaces a token with its environment and IANA
+  time zone; `DELETE /me/devices/{deviceId}` on log-out. Tokens rotate; the device id is
+  a UUID the app mints once per install so a rotation is a replace, not a second row.
+- **`notifications.ts`** — owns `users/{uid}/notifications/`: the intents, what was sent,
+  what was read. `GET /me/notifications` is the notification centre the PRD's feature list
+  names. Sends are recorded here **before** the APNs call (`sentAt` set in the same
+  write that claims the row), so a job that dies mid-run re-sends nothing: reminders are
+  at-most-once by design; a missed one is a smaller harm than a duplicate.
+- **The sender is a Cloud Run job**, same image, entrypoint `scripts/send-notifications.ts`,
+  on a Cloud Scheduler tick every 5 minutes — the same shape as the purge job (§4), for
+  the same reasons: no HTTP surface, IAM-authorised, `--dry-run`. It selects
+  `notifications` with `dueAt <= now` and `sentAt == null`, fans out to the account's
+  devices, and handles APNs' answers: `410` / `BadDeviceToken` deletes the device row;
+  `429` and `5xx` leave the row for the next tick.
+- **Time zones.** `dueAt` is an instant computed from a local wall-clock time in the
+  *device's* time zone (from the device row) at the moment the intent is created. A user
+  who travels keeps the reminder at the time it was set for, in the zone it was set in —
+  the same rule as `localDate` (§4). The device's zone is updated on every register call.
+
+### 9.3 What a payload may contain
+
+**Nothing.** The APNs payload is the fixed title `Eva`, the fixed body `Eva has an update`,
+a `kind`, and the `notifications/{id}` — never a symptom, a flow level, a date that is a
+cycle day, an appointment type, or a name. GUARDRAILS 12 already forbids health data in
+logs; a push payload transits Apple and is displayed on a lock screen, so the rule extends
+to it verbatim. The canvas' notification screen says exactly this ("Previews never show
+symptoms, flow, sex or appointment details") and the PRD makes it a requirement
+(§Notifications, Content rules). The app fetches the detail after unlock. `mutable-content`
+and notification service extensions are not used — decrypting a richer payload on device
+would only be a second way to get this wrong.
+
+Local notifications follow the same rule for their *visible* text, and may carry the
+entry's id in `userInfo` for deep-linking.
+
+### 9.4 iOS side
+
+`UNUserNotificationCenter` for permission and local scheduling;
+`registerForRemoteNotifications` for the token, which `AppSession` sends to
+`PUT /me/devices/{deviceId}` after any successful bootstrap. The permission prompt's
+timing is open (`docs/LAUNCH.md`); the design only requires that it is **never** shown
+before the first thing that would benefit from it exists (an appointment with a reminder,
+a completed Nutrition setup). Device id and the last-registered token live in the Keychain
+beside the JWT — `KeychainTokenStore` grows, no second store.
+
+### 9.5 Deletion and privacy
+
+- `DELETE /me` (§4) gains two steps: delete `devices/` and `notifications/`, before the
+  user document. An APNs token is a device identifier and `notifications/` is a log of
+  what Eva reminded someone about — both are exactly the kind of record `docs/LAUNCH.md`
+  §2.4 wants gone when the account is gone.
+- The sender job never logs a uid–token pair or a `kind` with a uid; its log line is
+  counts, like the purge's.
+- A pregnancy loss (PRD §Pregnancy loss 3) must stop everything *immediately, including
+  anything already queued*: the app cancels its local notifications and calls the API,
+  which marks every pending pregnancy-kind row `sentAt = now` with a `cancelled` flag in
+  the same transaction that changes the mode. The 5-minute tick is not fast enough on its
+  own; the cancellation is synchronous.
+
+### 9.6 What this adds to GUARDRAILS.md (in the implementation PR, not here)
+
+- No push payload, local or remote, carries health content; the visible text is fixed.
+- `apns.ts` is the only reader of the APNs credentials.
+- `devices.ts` and `notifications.ts` are the only modules touching their collections, and
+  `DELETE /me` enumerates both.
+- The sender is a job, not a route, and is at-most-once.
