@@ -357,7 +357,25 @@ Nick, 2026-08-30 (later). Item 4 of the same exchange: **there is no counsel and
 | A14b | Subscription terms | **7-day trial; monthly + yearly tiers; entitlement verified server-side** (App Store Server API) and stored on `users/{uid}`. Exact prices set in App Store Connect. | #88 loses its entitlement question; a `subscription` field on `users/{uid}` (always-human schema); paywall placeholders → "7-day trial · monthly / yearly". |
 | A24 | Clinical and legal review | **No external counsel or clinician.** Every clinical constant, threshold and legal position is decided by Nick with the agent, **with a cited source per value**, recorded in the PRD. | #26 changes from "retain a dietitian / assess with counsel" to "decide each item with a source"; the PRD's "clinician sign-off" requirements are re-worded to "sourced and reviewed by the product owner"; LAUNCH's *counsel* markers become "product-owner decision, sourced". Highest-risk item in the project — stated as such. |
 
-### Still open after three rounds
+### Fourth round, same day — the clinical constants, decided under A24
+
+Each value carries its source; where a value is a product choice rather than a finding, it says so.
+
+| # | Decision | Answer | Source |
+|---|---|---|---|
+| A25 | Logged cycle; irregular | A cycle runs from a first flow day to the next first flow day, both logged as flow (spotting never starts one). Counted if **21–45 days**; outside that it is excluded from estimates and labelled "unusual length". **Irregular** = shortest-to-longest variation over the last 6 counted cycles exceeds FIGO's band: >9 days at 18–25, >7 days at 26–41, >9 days at 42+. | FIGO AUB System 1 — Munro MG et al., *Int J Gynecol Obstet* 2018;143:393–408. The PRD's "7–9 days" is this rule. |
+| A26 | Prediction method | Next period = **median of the last 6 counted cycles**; needs ≥3. Ovulation = next period − 14; fertile window = ovulation −5 … +1; peak = −2 … 0. | PRD §Phase 1 (its own rule); fixed-luteal calendar convention — Wilcox AJ, Dunson D, Baird DD, *BMJ* 2000;321:1259. |
+| A27 | Fertile window in Cycle mode | **Shown**, under the same gates (≥3 counted cycles, not irregular; 3–5 cycles wide band, ≥6 tight), with "not a contraceptive method" on the legend and in Cycle history. | PRD confidence rules; product choice on placement. |
+| A28 | Nutrition targets in pregnancy / postpartum | **Qualitative only** while Pregnancy Mode is on and for the first 6 postpartum weeks: no kcal or macro numbers; composition, regularity, hydration, "not eating for two". Weight goals stay paused. | FDA *General Wellness* guidance (Jan 2026) — a numeric energy prescription in pregnancy is the feature closest to guiding clinical management; no clinician (A24). Supersedes PRD §Cycle phase adjustment 4. |
+| A29 | Lowest weight target | **BMI 18.5**, and a plan may not target below **current weight − 15%**; reach it, then set a new plan. | WHO BMI classification (underweight < 18.5); the 15% cap is a product choice. |
+| A30 | Constants | Deficit **−15%**; protein **1.6** (lose) / **1.8** (build muscle) / **1.2** (others) g/kg; fat floor **20%** of kcal; fiber **25 g** (14 g per 1,000 kcal at ~1,800); luteal **+5%**; activity factors **1.2 / 1.375 / 1.55 / 1.725** for the four bands. | Deficit: product choice at the safer end of the PRD's range. Protein: within Phillips SM & Van Loon LJC, *J Sports Sci* 2011;29(S1):S29–38 and Jäger R et al. (ISSN), *JISSN* 2017;14:20. Fat: AMDR 20–35% (IOM 2005). Fiber: DGA 2020–2025, 14 g/1,000 kcal. Luteal: Barr SI et al., *Am J Clin Nutr* 1995;61:39–43. Factors: Mifflin–St Jeor convention (Mifflin MD et al., *Am J Clin Nutr* 1990;51:241–7). |
+| A31 | Disordered eating | **Self-declared only.** One optional question in Profile; yes → qualitative mode, weight goals off, reversible only in Settings. **No detection in chat.** Chat refuses to help set extreme targets and points to resources when asked. | Supersedes PRD §Nutrition Other requirements 7's "detected in chat"; consistent with §Nutrition Other requirements 5 ("does not diagnose"). |
+| A32 | Dashboard rung 2 — "a pattern worth naming" | **Three consecutive logged days** with mood ≤ 2, energy ≤ 2 or sleep ≤ 2 of 5, or the same symptom marked severe on three consecutive days. The card names the pattern and points outward, never a cause. | A product heuristic, stated as one; not a clinical instrument. The canvas' `home_h` copy is the shape. |
+
+### Still open after four rounds
+
+P5 legal document texts · P6 non-functional requirements · P8 analytics constraints · exact prices · the per-country tables (emergency numbers, support lines) · the pregnancy-phase content (appointment templates, folic-acid screen copy) — all product-owner-written under A24.
+
 
 P5 legal document texts (now ours to write) · P6 non-functional requirements · P8 analytics constraints · exact prices · the #26 clinical constants, one by one (A24 makes them a question list for Nick, next).
 

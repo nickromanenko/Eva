@@ -110,9 +110,13 @@ There is no external counsel and no retained clinician (decision A24, 2026-08-30
 7. **Daily Firestore backups, 30-day retention**, disclosed in the privacy policy (A23).  
 8. Subscription: **7-day trial, monthly and yearly tiers, entitlement verified server-side** and stored on `users/{uid}` (A14, follow-up). Prices are set in App Store Connect.
 
+### Decided later on 2026-08-30 (fourth round — the clinical constants, under A24)
+
+Recorded where they apply, each with its source: cycle definition and irregularity (A25, §Predictions in Cycle mode), the prediction method (A26), the fertile window in Cycle mode (A27), qualitative-only nutrition in pregnancy and postpartum (A28, §Cycle phase adjustment), the weight-target floor (A29, §Step 5), the nutrition constants (A30, §Daily targets calculation), disordered eating as self-declared only (A31, §Nutrition Other requirements), and the Dashboard's pattern rule (A32, §Priority ladder). Sources are listed with each; a value that is a product choice rather than a finding says so.
+
 ### Open
 
-Undecided as of 2026-08-30 (after three rounds):
+Undecided as of 2026-08-30 (after four rounds):
 
 1. The legal texts themselves — privacy policy, consumer-health-data policy, terms, subscription terms, the request policy (A19) — now written by the product owner (A24)  
 2. Non-functional requirements — availability, latency, backup restore drills, session length, account security, accessibility target  
@@ -186,7 +190,8 @@ Decided 2026-08-30 (review §8 A8 and A12). These are the questionnaire's fields
 4. Hormonal medications: Combined pill, Progestogen-only pill, Hormonal IUD, Implant, HRT, None.  
 5. Conditions: PCOS, Endometriosis, Thyroid condition, Anaemia, Diabetes, Coeliac disease, Food allergies, None of these.  
 6. Activity band, one of four: Mostly sitting, Lightly active, Active, Very active — the bands in `mobile/Eva/Onboarding/OnboardingModel.swift`. §Nutrition coach maps them onto its activity factors.  
-7. Preferred sports: Strength, Running, Yoga, Pilates, Cycling, Swimming, Dancing, Walking — the list in the same file.
+7. Preferred sports: Strength, Running, Yoga, Pilates, Cycling, Swimming, Dancing, Walking — the list in the same file.  
+8. Optional, asked once, never inferred (A31): "Have you been treated for disordered eating?" Yes turns the nutrition coach's qualitative mode on (§Nutrition coach, Other requirements 7–8).
 
 This is a schema change on `users/{uid}` — `profile.age` becomes `profile.dateOfBirth`, medications become an enumeration, conditions gain entries — and falls under the always-human gate in `docs/AUTONOMY.md`. #19 builds to this list; `parseProfile` re-derives its ranges from date of birth.
 
@@ -424,11 +429,14 @@ Questions list:
 
 #### Predictions in Cycle mode
 
-Decided 2026-08-30 (review §8 A11; closes #11 Q4 and Q5 procedurally). The ovulation and confidence rules written under §Phase 1 \- Planning are the only prediction maths in this document; nothing defines the Cycle-mode prediction the calendar and the Today card show.
+Decided 2026-08-30 (A11 routed the constants; A25–A27 set them, under A24, with sources). These are the initial values of the config-driven constants that Calendar slice C11 (#11) reads; the code fails loudly if any is unset, and none is hard-coded.
 
-1. The constants that define a prediction are clinical decisions and are routed to #26's clinician; they are not chosen by engineering and are not written here: what counts as a logged cycle, how the next period is derived from past cycles, the irregularity threshold above which no prediction is shown, whether the fertile window is shown in Cycle mode at all, and where the not-a-contraceptive notice (§Phase 1 \- Planning) appears.  
-2. Engineering builds the cycle maths (Calendar slice C11, #11) against an interface — cycles in; next-period date, fertile window and confidence out — with config-driven constants that fail loudly when unset. Nothing falls back to a plausible-looking default.  
-3. Predictions are shown as outlines on future dates (§View) and feed the Today card under its confidence rules (§Dashboard, Confidence and cold start).
+1. **A counted cycle** runs from a first flow day to the next first flow day, both logged as flow. A spotting day never starts a cycle (#23). A cycle is counted only if it is **21–45 days** long; outside that range it is excluded from estimates and shown as "unusual length" in Cycle history, never silently dropped.  
+2. **Irregular** means the shortest-to-longest variation over the last 6 counted cycles exceeds the FIGO band for the user's age: more than 9 days at 18–25, more than 7 days at 26–41, more than 9 days at 42 and over. *Source: FIGO AUB System 1 — Munro MG et al., Int J Gynecol Obstet 2018;143:393–408. This is the "7–9 days" §Phase 1 already cites.*  
+3. **Next period** = the **median** of the last 6 counted cycles, applied from the last first flow day; shown only with **3 or more** counted cycles (§Dashboard, Confidence and cold start 2). Ovulation = next period − 14 days; fertile window = ovulation − 5 through ovulation + 1; peak = the two days before ovulation and ovulation day (§Phase 1 \- Planning). *Source: the fixed-luteal calendar convention — Wilcox AJ, Dunson D, Baird DD, BMJ 2000;321:1259.*  
+4. **The fertile window is shown in Cycle mode** (A27), under the same gates as Planning: withheld below 3 counted cycles or when irregular; a wide band at 3–5 cycles, a tighter band at 6 or more. "Not a contraceptive method" appears on the calendar legend and in Cycle history, not only in Planning.  
+5. Predictions are recomputed on every edit to a flow entry (§Edge cases 6) and shown as outlines on future dates (§View); the Today card takes the same confidence class (§Dashboard).  
+6. What "cycle day N" means across spotting days: the count starts at the first flow day of the current counted cycle; spotting days before it belong to the previous cycle.
 
 #### Pregnancy mode
 
@@ -735,7 +743,7 @@ Shown only for goals 1, 2 and 3\. Skipped entirely for goals 4 and 5\.
 
 Guardrails, applied before the target is accepted:
 
-1. A target below BMI 18.5 is not accepted. The system explains why and offers the lowest target it will support.  
+1. A target below BMI 18.5 is not accepted. The system explains why and offers the lowest target it will support. *Decided 2026-08-30 (A29): 18.5 stands — the WHO underweight threshold — and a single plan may not target below the current weight minus 15%; when she reaches it she can set a new plan. The 15% cap is a product choice, not a finding.*  
 2. Rate of weight loss is capped at approximately 0.5 kg per week, or 1% of body weight per week, whichever is lower.  
 3. The calculated calorie target is never set below the user's basal metabolic rate.  
 4. An absolute floor of 1200 kcal applies. If the maths produces less, the timeline is extended instead of lowering the target further.  
@@ -759,9 +767,9 @@ Guardrails, applied before the target is accepted:
    2. Lightly active — 1.375  
    3. Moderately active — 1.55  
    4. Very active — 1.725  
-   5. Extremely active — 1.9  
+   5. Extremely active — 1.9 *(dropped, #25 Q4; the four bands map to 1.2 / 1.375 / 1.55 / 1.725 — Mifflin MD et al., Am J Clin Nutr 1990;51:241–7)*  
 3. Goal adjustment applied to TDEE:  
-   1. Lose weight — minus 15 to 20%  
+   1. Lose weight — minus 15 to 20% *(A30: −15%, the safer end of the range; a product choice)*  
    2. Maintain / eat better — no adjustment  
    3. Gain weight — plus 10 to 15%  
    4. Build muscle — plus 5 to 10%  
@@ -770,12 +778,12 @@ Guardrails, applied before the target is accepted:
 ##### Macronutrients
 
 1. Protein is set first, by body weight:  
-   1. Lose weight — 1.6 to 2.0 g per kg  
-   2. Build muscle — 1.6 to 2.2 g per kg  
-   3. All other goals — 1.2 to 1.6 g per kg  
+   1. Lose weight — 1.6 to 2.0 g per kg *(A30: 1.6)*  
+   2. Build muscle — 1.6 to 2.2 g per kg *(A30: 1.8)*  
+   3. All other goals — 1.2 to 1.6 g per kg *(A30: 1.2)* — *within Phillips SM & Van Loon LJC, J Sports Sci 2011;29(S1):S29–38 and the ISSN position stand, Jäger R et al., JISSN 2017;14:20*  
 2. Fat is set second, and must not fall below 20% of total calories. This is a hard floor, not a default. Sustained low fat intake is associated with menstrual disruption, and an adviser built for women must not produce a plan that causes it.  
 3. Carbohydrate is the remainder.  
-4. Fibre target is set at 25–30 g per day, and is raised when focus area 1 or 11 is selected.
+4. Fibre target is set at 25–30 g per day, and is raised when focus area 1 or 11 is selected. *(A30: 25 g, from the DGA 2020–2025 rule of 14 g per 1,000 kcal at ~1,800 kcal; raised to 30 g when focus area 1 or 11 is selected.)*
 
 ##### Cycle phase adjustment
 
@@ -785,6 +793,15 @@ This is the part that distinguishes Eva from a generic calorie tracker and it mu
 2. During menstruation, if focus area 3 is selected or anaemia was declared at Sign Up, iron-rich foods are prioritised in suggestions.  
 3. The daily target displayed in the UI is the phase-adjusted one. The adjustment is explained in one line, not hidden.  
 4. In Planning, Pregnancy and Postpartum modes the phase adjustment is replaced by the mode adjustment: pregnancy adds roughly 340 kcal in the second trimester and 450 in the third, and breastfeeding adds roughly 330–500 kcal.
+
+> **Superseded (2026-08-30, decision A28).** While Pregnancy Mode is on, and for the first six
+> weeks postpartum, the coach shows **no calorie or macronutrient numbers at all** — only
+> qualitative guidance: meal composition, regularity, hydration, and the "not eating for two"
+> framing. Weight-change goals stay paused (Step 5 guardrail 5). A numeric energy
+> prescription in pregnancy is the feature closest to guiding clinical management under
+> FDA's 2026 general-wellness guidance (`docs/LAUNCH.md` §1.1), and there is no clinician to
+> sign it off (A24). The luteal adjustment (item 1) is unaffected. Planning mode keeps
+> numbers.
 
 The intent is that a woman eating more in her luteal phase sees her target move to meet her, rather than seeing herself fail against a flat number. This single behaviour is the strongest argument for the feature existing.
 
@@ -920,6 +937,7 @@ Requirements:
 5. The adviser does not diagnose. Iron deficiency anaemia in particular can only be confirmed by a blood test; the adviser may support a diagnosis the user already has, and must signpost testing rather than infer the condition from symptoms.  
 6. The adviser does not recommend specific supplements or doses. It may state which foods are sources of a nutrient.  
 7. If disordered eating is declared at Sign Up or detected in chat, weight-change goals and calorie display are disabled and the adviser switches to qualitative guidance only. This state is user-reversible only through Settings, never through a prompt in the flow.  
+   > **Superseded in part (2026-08-30, decision A31).** Self-declared only: one optional question in Profile ("Have you been treated for disordered eating?"); yes switches qualitative mode on and weight goals off, reversible only in Settings. **The assistant never infers it** — "detected in chat" is removed, because a model screening for a psychiatric condition and silently changing the product contradicts item 5. The assistant still refuses to help set extreme targets and points to support resources when asked directly.  
 8. A global setting allows any user to hide calorie numbers and use qualitative guidance alone, with no loss of other functionality.  
 9. Accessibility: scores and macronutrient splits are announced with values, not conveyed by colour or chart shape alone.
 
@@ -972,7 +990,7 @@ Worked example, same day, energy logged at 1 of 5 and sleep at 2 of 5:
 The card selects its message by priority. The first applicable rule wins and no other message is shown that day:
 
 1. Red-flag escalation (Pregnancy mode) — always wins, and is displayed as an escalation card rather than a Today card  
-2. A pattern in her own logged data that is worth naming — for example a third consecutive day of low mood  
+2. A pattern in her own logged data that is worth naming — for example a third consecutive day of low mood. *Decided 2026-08-30 (A32): three consecutive logged days with mood, energy or sleep at 2 of 5 or below, or the same symptom marked severe on three consecutive days. The card names the pattern and points outward — a person, a provider — never a cause. A product heuristic, stated as one; not a clinical instrument.*  
 3. A mode milestone — an upcoming scan, the 6-week check, a due appointment  
 4. Cycle phase context  
 5. A nutrition or training suggestion derived from her goal and today's totals  
