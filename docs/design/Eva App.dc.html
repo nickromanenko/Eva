@@ -81,9 +81,9 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         <div style="display:flex;gap:10px;padding:14px;border-radius:18px;background:rgba(90,123,160,.10);border:1px solid rgba(90,123,160,.28);margin-bottom:16px">
           <span style="flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid #5A7BA0;color:#5A7BA0;font:700 12px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">i</span>
           <div>
-            <div style="font:600 13px/1.4 Montserrat,sans-serif;color:#2F4763">This email already uses Apple sign-in</div>
-            <div style="font:400 12.5px/1.5 Montserrat,sans-serif;color:#4A6480;margin-top:3px">We won't create a second profile. Continue with Apple and everything you've logged stays in one place.</div>
-            <button onClick="{{ goApple }}" style="margin-top:10px;height:38px;padding:0 16px;border:0;border-radius:12px;background:#1C1A1B;color:#fff;font:600 13px Montserrat,sans-serif;cursor:pointer">Continue with Apple</button>
+            <div style="font:600 13px/1.4 Montserrat,sans-serif;color:#2F4763">This email already has an Eva account</div>
+            <div style="font:400 12.5px/1.5 Montserrat,sans-serif;color:#4A6480;margin-top:3px">Log in with the sign-in you used before, and everything you've logged stays in one place.</div>
+            <button onClick="{{ goLogin }}" style="margin-top:10px;height:38px;padding:0 16px;border:1px solid rgba(90,123,160,.35);border-radius:12px;background:rgba(255,255,255,.8);color:#2F4763;font:600 13px Montserrat,sans-serif;cursor:pointer">Log in</button>
           </div>
         </div>
       </sc-if>
@@ -136,6 +136,12 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         <button onClick="{{ goCalendar }}" style="height:54px;border:1px solid rgba(40,33,38,.10);border-radius:17px;background:rgba(255,255,255,.82);backdrop-filter:blur(18px);font:600 15px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:conic-gradient(#E9825F,#CDE79D,#5A7BA0,#E982A5,#E9825F)"></span>Continue with Google</button>
       </div>
       <div style="display:flex;align-items:center;gap:12px;margin:22px 0 18px"><span style="flex:1;height:1px;background:rgba(40,33,38,.10)"></span><span style="font:500 12px Montserrat,sans-serif;color:#9A9095">or use your email</span><span style="flex:1;height:1px;background:rgba(40,33,38,.10)"></span></div>
+      <sc-if value="{{ rateLimited }}">
+        <div style="display:flex;gap:10px;padding:12px 14px;border-radius:16px;background:rgba(90,123,160,.10);border:1px solid rgba(90,123,160,.28);margin-bottom:14px;animation:fadeIn .2s">
+          <span style="flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid #5A7BA0;color:#5A7BA0;font:700 12px Montserrat,sans-serif;display:flex;align-items:center;justify-content:center">i</span>
+          <div><div style="font:600 13px/1.4 Montserrat,sans-serif;color:#2F4763">Too many attempts</div><div style="font:400 12.5px/1.5 Montserrat,sans-serif;color:#4A6480;margin-top:3px">Try again in a minute. Nothing about your account has changed.</div></div>
+        </div>
+      </sc-if>
       <div style="display:flex;flex-direction:column;gap:14px">
         <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:7px">Email</label>
         <input value="maria.ferreira@gmail.com" onChange="{{ noop }}" style="width:100%;height:54px;border-radius:17px;border:1px solid rgba(40,33,38,.10);background:rgba(255,255,255,.72);padding:0 16px;font:400 15px Montserrat,sans-serif;color:#282126"></div>
@@ -188,9 +194,128 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
       <div style="margin-top:70px;text-align:center;display:flex;flex-direction:column;align-items:center">
         <div style="width:88px;height:88px;border-radius:50%;background:rgba(205,231,157,.5);border:1px solid rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center;font:400 34px Montserrat,sans-serif;color:#5C7434">✓</div>
         <h1 style="margin:24px 0 0;font:400 30px/1.15 Montserrat,sans-serif">Password updated</h1>
-        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:280px">You're signed in on this device. Other devices were signed out.</p>
+        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:280px">You're signed in on this device.</p>
       </div>
       <div style="margin-top:auto;padding-top:32px"><button onClick="{{ goCalendar }}" style="width:100%;height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Go to Eva</button></div>
+    </sc-if>
+
+    <sc-if value="{{ isActivated }}">
+      <div style="margin-top:70px;text-align:center;display:flex;flex-direction:column;align-items:center">
+        <div style="width:88px;height:88px;border-radius:50%;background:rgba(205,231,157,.5);border:1px solid rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center;font:400 34px Montserrat,sans-serif;color:#5C7434">✓</div>
+        <h1 style="margin:24px 0 0;font:400 30px/1.15 Montserrat,sans-serif">Account activated</h1>
+        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:280px">You're signed in on this device.</p>
+      </div>
+      <div style="margin-top:auto;padding-top:32px"><button onClick="{{ goConsent }}" style="width:100%;height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Go to Eva</button></div>
+    </sc-if>
+
+    <sc-if value="{{ isNotActivated }}">
+      <div style="margin-top:56px;display:flex;flex-direction:column;align-items:center;text-align:center">
+        <div style="width:96px;height:96px;border-radius:32px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.8);backdrop-filter:blur(22px);box-shadow:0 14px 30px -14px rgba(40,33,38,.24);display:flex;align-items:center;justify-content:center">
+          <span style="width:46px;height:34px;border:1.6px solid #C95F86;border-radius:8px;position:relative;display:block"><span style="position:absolute;left:5px;top:5px;width:34px;height:1.6px;background:#C95F86;transform:rotate(19deg);transform-origin:left"></span><span style="position:absolute;right:5px;top:5px;width:34px;height:1.6px;background:#C95F86;transform:rotate(-19deg);transform-origin:right"></span></span>
+        </div>
+        <h1 style="margin:26px 0 0;font:400 30px/1.15 Montserrat,sans-serif">Check your inbox first</h1>
+        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:300px">Your password is right, but this address hasn't been confirmed yet. We sent the activation link to</p>
+        <div style="margin-top:8px;font:600 15px Montserrat,sans-serif;color:#282126">maria.ferreira@gmail.com</div>
+      </div>
+      <div style="margin-top:auto;padding-top:32px;display:flex;flex-direction:column;gap:10px">
+        <button onClick="{{ toastResend }}" style="height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Resend the link</button>
+        <button onClick="{{ goSignup }}" style="height:48px;border:0;background:transparent;font:600 14px Montserrat,sans-serif;color:#C95F86;cursor:pointer">Change email</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isLinkExpired }}">
+      <div style="margin-top:70px;text-align:center;display:flex;flex-direction:column;align-items:center">
+        <div style="width:88px;height:88px;border-radius:30px;background:rgba(201,145,63,.14);border:1px solid rgba(201,145,63,.35);display:flex;align-items:center;justify-content:center;font:700 30px Montserrat,sans-serif;color:#8A6425">!</div>
+        <h1 style="margin:24px 0 0;font:400 30px/1.15 Montserrat,sans-serif">This link has expired</h1>
+        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:290px">Activation links work for 24 hours and reset links for 60 minutes. Nothing has changed on your account.</p>
+      </div>
+      <div style="margin-top:auto;padding-top:32px;display:flex;flex-direction:column;gap:10px">
+        <button onClick="{{ toastResend }}" style="height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Send a new one</button>
+        <button onClick="{{ goLogin }}" style="height:48px;border:0;background:transparent;font:600 14px Montserrat,sans-serif;color:#C95F86;cursor:pointer">Back to log in</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isUnreachable }}">
+      <div style="margin-top:70px;text-align:center;display:flex;flex-direction:column;align-items:center">
+        <div style="width:88px;height:88px;border-radius:30px;background:rgba(90,123,160,.12);border:1px solid rgba(90,123,160,.3);display:flex;align-items:center;justify-content:center;font:700 26px Montserrat,sans-serif;color:#3F5A76">i</div>
+        <h1 style="margin:24px 0 0;font:400 30px/1.15 Montserrat,sans-serif">Eva can't reach its servers</h1>
+        <p style="margin:12px 0 0;font:400 15px/1.6 Montserrat,sans-serif;color:#6F656B;max-width:300px">You're still signed in. Anything you log now is saved on this device and syncs when the connection is back.</p>
+      </div>
+      <div style="margin-top:auto;padding-top:32px;display:flex;flex-direction:column;gap:10px">
+        <button onClick="{{ goCalendar }}" style="height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Retry</button>
+        <button onClick="{{ goCalendar }}" style="height:54px;border:1px solid rgba(40,33,38,.10);border-radius:17px;background:rgba(255,255,255,.7);font:600 15px Montserrat,sans-serif;cursor:pointer">Continue offline</button>
+        <button onClick="{{ goLogin }}" style="height:48px;border:0;background:transparent;font:600 14px Montserrat,sans-serif;color:#A9524A;cursor:pointer">Log out</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isGoogleWeb }}">
+      <div style="margin-top:14px;border-radius:22px;overflow:hidden;background:#fff;border:1px solid rgba(40,33,38,.1);box-shadow:0 18px 40px -22px rgba(40,33,38,.5)">
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:#F8F3F0;border-bottom:1px solid rgba(40,33,38,.08)">
+          <button onClick="{{ goSignup }}" style="min-height:36px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer;padding:0">Cancel</button>
+          <span style="flex:1;text-align:center;font:500 12px Montserrat,sans-serif;color:#6F656B">accounts.google.com</span>
+          <span style="width:14px;height:14px;border:1.5px solid #9A9095;border-radius:3px;display:block"></span>
+        </div>
+        <div style="padding:26px 22px 30px;text-align:center">
+          <span style="width:26px;height:26px;border-radius:50%;background:conic-gradient(#E9825F,#CDE79D,#5A7BA0,#E982A5,#E9825F);display:inline-block"></span>
+          <div style="font:500 20px/1.3 Montserrat,sans-serif;margin-top:14px">Sign in</div>
+          <div style="font:400 13px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:4px">to continue to Eva</div>
+          <input value="maria.ferreira@gmail.com" onChange="{{ noop }}" style="width:100%;height:50px;margin-top:22px;border-radius:8px;border:1px solid rgba(40,33,38,.2);padding:0 14px;font:400 14px Montserrat,sans-serif">
+          <button onClick="{{ goActivation }}" style="margin-top:18px;width:100%;height:44px;border:0;border-radius:8px;background:#1A73E8;color:#fff;font:600 14px Montserrat,sans-serif;cursor:pointer">Next</button>
+        </div>
+      </div>
+      <div style="margin-top:14px;font:400 11.5px/1.55 Montserrat,sans-serif;color:#9A9095;text-align:center">Opens in an in-app web view — never a redirect to the browser.</div>
+    </sc-if>
+
+    <sc-if value="{{ isConsent }}">
+      <div style="margin-top:30px">
+        <h1 style="margin:0;font:400 32px/1.15 Montserrat,sans-serif">Before you start</h1>
+        <p style="margin:12px 0 0;font:400 14.5px/1.6 Montserrat,sans-serif;color:#6F656B">Two choices, both yours. Neither is on until you turn it on, and you can change either later in Settings › Privacy.</p>
+      </div>
+      <div style="margin-top:22px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:flex-start;gap:12px;padding:16px;border-radius:22px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
+          <span style="flex:1">
+            <span style="display:block;font:600 14.5px/1.35 Montserrat,sans-serif">Store my health entries so Eva can work</span>
+            <span style="display:block;font:400 12px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:4px">Cycle days, symptoms, notes and appointments, kept under your account. Required to use Eva.</span>
+          </span>
+          <div onClick="{{ toggleConsentStore }}" aria-label="Store my health entries" style="{{ consentStoreTrack }}"><span style="{{ consentStoreKnob }}"></span></div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:12px;padding:16px;border-radius:22px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
+          <span style="flex:1">
+            <span style="display:block;font:600 14.5px/1.35 Montserrat,sans-serif">Let trusted providers process my entries</span>
+            <span style="display:block;font:400 12px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:4px">The services that run Eva — hosting, email, food data, the assistant. Never advertisers. <a href="#" onClick="{{ toggleProcessors }}">Who?</a></span>
+            <sc-if value="{{ processorsOpen }}">
+              <span style="display:block;margin-top:8px;padding:10px 12px;border-radius:14px;background:rgba(90,123,160,.08);border:1px solid rgba(90,123,160,.2);font:400 11.5px/1.5 Montserrat,sans-serif;color:#3F5A76">Google Cloud (hosting, US) · Postmark (email) · [assistant vendor — pending] · [food database — pending] · Apple (purchases). Each under a data-processing agreement.</span>
+            </sc-if>
+          </span>
+          <div onClick="{{ toggleConsentShare }}" aria-label="Let trusted providers process my entries" style="{{ consentShareTrack }}"><span style="{{ consentShareKnob }}"></span></div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font:400 11.5px/1.55 Montserrat,sans-serif;color:#9A9095">Consent v1 · 2026-08-30. If the terms change, Eva asks again. <a href="#">Read the health-data privacy policy</a>.</div>
+      <div style="margin-top:auto;padding-top:24px"><button onClick="{{ consentContinue }}" style="{{ consentCtaStyle }}">Continue</button></div>
+    </sc-if>
+
+    <sc-if value="{{ isPaywall }}">
+      <div style="display:flex;justify-content:flex-end;margin-top:-6px"><button onClick="{{ goCalendar }}" aria-label="Close" style="width:44px;height:44px;border-radius:50%;border:0;background:rgba(40,33,38,.06);color:#6F656B;font:400 18px Montserrat,sans-serif;cursor:pointer">×</button></div>
+      <div style="margin-top:6px">
+        <h1 style="margin:0;font:400 32px/1.15 Montserrat,sans-serif">Eva, for your whole cycle</h1>
+        <p style="margin:12px 0 0;font:400 14.5px/1.6 Montserrat,sans-serif;color:#6F656B">Calendar, daily briefing, nutrition coach, Eva Chat, pregnancy mode — everything, on one subscription.</p>
+      </div>
+      <div style="margin-top:22px;display:flex;flex-direction:column;gap:10px">
+        <sc-for list="{{ plans }}" as="p" hint-placeholder-count="2">
+          <div onClick="{{ p.onClick }}" style="{{ p.style }}">
+            <span style="{{ p.radio }}"></span>
+            <span style="flex:1">
+              <span style="display:block;font:600 14.5px Montserrat,sans-serif">{{ p.label }}</span>
+              <span style="display:block;font:400 12px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:3px">{{ p.desc }}</span>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="margin-top:14px;padding:12px 14px;border-radius:16px;background:rgba(205,231,157,.26);border:1px solid rgba(142,173,86,.3);font:400 12px/1.55 Montserrat,sans-serif;color:#5C7434">7-day free trial, then {{ planPrice }}. Renews automatically until cancelled at least 24 hours before the end of the current period. Manage or cancel in your App Store settings.</div>
+      <div style="margin-top:auto;padding-top:22px">
+        <button onClick="{{ goCalendar }}" style="width:100%;height:54px;border:0;border-radius:17px;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -10px rgba(201,95,134,.7)">Start 7-day free trial</button>
+        <div style="margin-top:12px;display:flex;justify-content:center;gap:16px;font:600 12px Montserrat,sans-serif"><a href="#">Terms</a><a href="#">Privacy</a><a href="#" onClick="{{ toastRestore }}">Restore purchases</a></div>
+      </div>
     </sc-if>
   </div>
 </sc-if>
@@ -210,15 +335,32 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
       </div>
     </div>
 
-    <div style="display:flex;gap:6px;margin-top:12px;padding:4px;border-radius:16px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.75);backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,.9)">
-      <sc-for list="{{ modes }}" as="m" hint-placeholder-count="4">
-        <div onClick="{{ m.onClick }}" style="{{ m.style }}">{{ m.label }}</div>
-      </sc-for>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:12px">
+      <span aria-label="Current mode" style="display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:0 13px;border-radius:12px;background:{{ modeBg }};border:1px solid {{ modeBorder }};font:600 12px Montserrat,sans-serif;color:{{ modeInk }}"><span style="width:7px;height:7px;border-radius:50%;background:{{ modeDot }};display:block"></span>{{ modeLabel }}</span>
+      <span style="font:400 11px Montserrat,sans-serif;color:#9A9095">Change in Profile › Pregnancy Mode</span>
     </div>
+
+    <sc-if value="{{ pregPrompt }}">
+      <div style="margin-top:12px;display:flex;gap:12px;padding:14px 12px 14px 16px;border-radius:20px;background:rgba(255,255,255,.66);border:1px solid rgba(255,255,255,.9);backdrop-filter:blur(20px);box-shadow:0 8px 20px -18px rgba(150,72,100,.6);animation:fadeIn .2s">
+        <div style="flex:1">
+          <div style="font:600 13px/1.45 Montserrat,sans-serif">Trying to conceive, or pregnant?</div>
+          <div style="font:400 12px/1.5 Montserrat,sans-serif;color:#6F656B;margin-top:3px">Pregnancy Mode changes what Eva tracks and shows. Nothing is deleted.</div>
+          <button onClick="{{ goPregMode }}" style="margin-top:8px;min-height:38px;padding:0 14px;border-radius:12px;border:1px solid rgba(201,95,134,.35);background:rgba(255,255,255,.8);font:600 12.5px Montserrat,sans-serif;color:#C95F86;cursor:pointer">See what changes</button>
+        </div>
+        <button onClick="{{ dismissPregPrompt }}" aria-label="Dismiss permanently" style="flex:none;width:44px;height:44px;border-radius:50%;border:0;background:rgba(40,33,38,.05);color:#6F656B;font:400 16px Montserrat,sans-serif;cursor:pointer">×</button>
+      </div>
+    </sc-if>
 
     <sc-if value="{{ monthPickerOpen }}">
       <div style="margin-top:10px;padding:14px;border-radius:22px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.9);backdrop-filter:blur(24px);box-shadow:0 12px 28px -14px rgba(40,33,38,.25);animation:fadeIn .2s">
-        <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:10px">Jump to month</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span style="font:600 12px Montserrat,sans-serif;color:#6F656B">Jump to month</span>
+          <span style="display:flex;align-items:center;gap:4px">
+            <button aria-label="Previous year" onClick="{{ yearPrev }}" style="width:36px;height:36px;border-radius:11px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.8);font:400 15px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
+            <span style="min-width:48px;text-align:center;font:600 13px Montserrat,sans-serif">{{ pickerYear }}</span>
+            <button aria-label="Next year" onClick="{{ yearNext }}" style="width:36px;height:36px;border-radius:11px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.8);font:400 15px Montserrat,sans-serif;color:#6F656B;cursor:pointer">›</button>
+          </span>
+        </div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
           <sc-for list="{{ monthChips }}" as="mo" hint-placeholder-count="12">
             <div onClick="{{ mo.onClick }}" style="{{ mo.style }}">{{ mo.label }}</div>
@@ -253,6 +395,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
           <sc-if value="{{ c.body }}"><span aria-label="Body signals logged" style="position:absolute;left:50%;margin-left:-3px;bottom:6px;width:6px;height:6px;border-radius:2px;background:#C95F86"></span></sc-if>
           <sc-if value="{{ c.sport }}"><span aria-label="Sport logged" style="position:absolute;right:8px;bottom:5px;width:6px;height:6px;background:#7A9B45;transform:rotate(45deg)"></span></sc-if>
           <sc-if value="{{ c.doc }}"><span aria-label="Doctor appointment" style="position:absolute;right:4px;top:3px;width:13px;height:13px;border-radius:4px;border:1px solid rgba(74,100,128,.65);color:#4A6480;font:700 9px/11px Montserrat,sans-serif;text-align:center">+</span></sc-if>
+          <sc-if value="{{ c.test }}"><span aria-label="Positive test" style="position:absolute;left:4px;top:3px;width:9px;height:9px;border-radius:3px;border:1.5px solid #A9436E"></span></sc-if>
         </div>
       </sc-for>
     </div>
@@ -331,7 +474,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
     </sc-if>
 
     <sc-if value="{{ glanceOn }}">
-      <div onClick="{{ noop }}" aria-label="Today at a glance. 620 kilocalories remaining. 68 of 100 grams protein. 1.4 of 2 litres water. 45 minutes activity." style="margin-top:20px;padding:16px;border-radius:22px;background:linear-gradient(150deg,rgba(255,255,255,.86),rgba(255,255,255,.6));border:1px solid rgba(255,255,255,.9);box-shadow:0 10px 24px -20px rgba(150,72,100,.6);cursor:pointer">
+      <div onClick="{{ noop }}" aria-label="Today at a glance. 620 kilocalories remaining. 68 of 100 grams protein. 1.4 of 2 liters water. 45 minutes activity." style="margin-top:20px;padding:16px;border-radius:22px;background:linear-gradient(150deg,rgba(255,255,255,.86),rgba(255,255,255,.6));border:1px solid rgba(255,255,255,.9);box-shadow:0 10px 24px -20px rgba(150,72,100,.6);cursor:pointer">
         <div style="display:flex;align-items:baseline;justify-content:space-between">
           <span style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095">Today at a glance</span>
           <span style="font:500 11.5px Montserrat,sans-serif;color:#C95F86">Open meal log</span>
@@ -425,7 +568,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
 
     <div style="margin-top:36px;padding:16px;border-radius:22px;background:rgba(196,100,90,.06);border:1px solid rgba(196,100,90,.22)">
       <div style="font:600 13.5px Montserrat,sans-serif;color:#A9524A">Delete profile</div>
-      <div style="font:400 12px/1.55 Montserrat,sans-serif;color:#8C6460;margin-top:4px">Removes all logs, notes and predictions. This cannot be undone.</div>
+      <div style="font:400 12px/1.55 Montserrat,sans-serif;color:#8C6460;margin-top:4px">Removes your cycle history, logs and notes. This cannot be undone.</div>
       <button onClick="{{ openDelete }}" style="margin-top:12px;min-height:44px;padding:0 18px;border-radius:14px;border:1px solid rgba(184,82,72,.5);background:transparent;font:600 13px Montserrat,sans-serif;color:#A9524A;cursor:pointer">Delete profile</button>
     </div>
     <div style="text-align:center;font:400 11px Montserrat,sans-serif;color:#B3A9AE;margin-top:20px">Eva 2.4.1 · Not a medical device</div>
@@ -446,7 +589,8 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
       <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Name</label>
       <input value="Maria" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);padding:0 16px;font:500 14.5px Montserrat,sans-serif"></div>
       <div><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Date of birth</label>
-      <input value="14 March 1994" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);padding:0 16px;font:500 14.5px Montserrat,sans-serif"></div>
+      <input value="March 14, 1994" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);padding:0 16px;font:500 14.5px Montserrat,sans-serif">
+      <div style="font:400 11.5px/1.5 Montserrat,sans-serif;color:#9A9095;margin-top:6px">Eva is for adults 18 and over. Your age is worked out from this and never stored on its own.</div></div>
       <div style="display:flex;gap:10px">
         <div style="flex:1"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Height</label>
         <input value="168 cm" onChange="{{ noop }}" style="width:100%;height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.75);padding:0 16px;font:500 14.5px Montserrat,sans-serif"></div>
@@ -514,6 +658,98 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
   </div>
 </sc-if>
 
+<sc-if value="{{ isCycleHistory }}">
+  <div style="padding:6px 20px 40px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px"><button onClick="{{ goHome }}" style="min-height:44px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer;padding:0 8px 0 0">‹ Home</button><span style="flex:1;text-align:center;font:600 14px Montserrat,sans-serif;margin-right:60px">Cycle history</span></div>
+    <div style="padding:16px 18px;border-radius:22px;background:rgba(255,255,255,.68);border:1px solid rgba(255,255,255,.85);backdrop-filter:blur(22px);box-shadow:0 8px 22px -14px rgba(40,33,38,.2)">
+      <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095">Now</div>
+      <div style="font:600 17px/1.35 Montserrat,sans-serif;margin-top:6px">Cycle day 15 · likely follicular</div>
+      <div style="font:400 13px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:4px">Based on your last 4 logged cycles. Confidence is moderate — their lengths varied by 4 days. Two more logged cycles would narrow this.</div>
+    </div>
+    <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Logged cycles</div>
+    <div style="border-radius:22px;overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85)">
+      <sc-for list="{{ cycleRows }}" as="c" hint-placeholder-count="4">
+        <div style="min-height:52px;display:flex;align-items:center;gap:12px;padding:8px 16px;border-top:1px solid rgba(40,33,38,.05)">
+          <span style="flex:1;font:500 13.5px Montserrat,sans-serif">{{ c.range }}</span>
+          <span style="font:600 13px Montserrat,sans-serif;color:#6F656B">{{ c.len }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div onClick="{{ toggleHistoryWhy }}" style="margin-top:14px;min-height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.9);cursor:pointer">
+      <span style="font:600 13.5px Montserrat,sans-serif;color:#6F656B">How this is estimated</span>
+      <span style="font:400 17px Montserrat,sans-serif;color:#C8BFC3">{{ historyCaret }}</span>
+    </div>
+    <sc-if value="{{ historyWhyOpen }}">
+      <div style="margin-top:8px;padding:14px 16px;border-radius:18px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.24);font:400 12px/1.6 Montserrat,sans-serif;color:#3F5A76;animation:fadeIn .2s">How Eva counts a cycle, estimates the next period, and when it withholds a prediction are set with cited sources and reviewed by the product owner (#26). Until those are set, this card shows what you logged and no estimate. Eva's predictions are not a contraceptive method.</div>
+    </sc-if>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isContactOptions }}">
+  <div style="padding:6px 20px 40px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px"><button onClick="{{ goHome }}" style="min-height:44px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer;padding:0 8px 0 0">‹ Home</button><span style="flex:1;text-align:center;font:600 14px Montserrat,sans-serif;margin-right:60px">Contact options</span></div>
+    <div style="padding:16px;border-radius:22px;background:linear-gradient(155deg,rgba(255,247,235,.97),rgba(255,250,244,.92));border:1.5px solid rgba(201,145,63,.55)">
+      <div style="font:600 14.5px/1.4 Montserrat,sans-serif;color:#5A431A">Eva cannot assess this. If you are worried, call.</div>
+      <div style="font:400 12.5px/1.55 Montserrat,sans-serif;color:#7A5A22;margin-top:4px">You logged reduced fetal movement at 14:20. Contact your maternity provider or local urgent care now.</div>
+    </div>
+    <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">United States · from your region</div>
+    <div style="border-radius:22px;overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85)">
+      <sc-for list="{{ contactRows }}" as="r" hint-placeholder-count="3">
+        <div onClick="{{ r.onClick }}" style="min-height:56px;display:flex;align-items:center;gap:12px;padding:8px 16px;border-top:1px solid rgba(40,33,38,.05);cursor:pointer">
+          <span style="flex:1"><span style="display:block;font:600 14px Montserrat,sans-serif">{{ r.label }}</span><span style="display:block;font:400 11.5px Montserrat,sans-serif;color:#9A9095;margin-top:2px">{{ r.meta }}</span></span>
+          <span style="font:600 12.5px Montserrat,sans-serif;color:#C95F86">{{ r.action }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:14px;font:400 11.5px/1.55 Montserrat,sans-serif;color:#9A9095">In a country Eva has no table for, this screen shows "contact your maternity provider or local emergency services" and nothing it cannot vouch for. Change your region in Profile.</div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isSupportResources }}">
+  <div style="padding:6px 20px 40px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px"><button onClick="{{ goHome }}" style="min-height:44px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer;padding:0 8px 0 0">‹ Home</button><span style="flex:1;text-align:center;font:600 14px Montserrat,sans-serif;margin-right:60px">Support resources</span></div>
+    <div style="padding:18px;border-radius:24px;background:rgba(255,255,255,.86);border:1px solid rgba(40,33,38,.08)">
+      <div style="font:600 15px/1.4 Montserrat,sans-serif">If you want to talk to someone</div>
+      <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:6px">These are here if you want them. Eva won't bring them up again unless you open this screen.</div>
+    </div>
+    <div style="margin-top:14px;border-radius:22px;overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85)">
+      <sc-for list="{{ supportRows }}" as="r" hint-placeholder-count="3">
+        <div onClick="{{ r.onClick }}" style="min-height:56px;display:flex;align-items:center;gap:12px;padding:8px 16px;border-top:1px solid rgba(40,33,38,.05);cursor:pointer">
+          <span style="flex:1"><span style="display:block;font:500 14px Montserrat,sans-serif">{{ r.label }}</span><span style="display:block;font:400 11.5px Montserrat,sans-serif;color:#9A9095;margin-top:2px">{{ r.meta }}</span></span>
+          <span style="font:400 17px Montserrat,sans-serif;color:#C8BFC3">›</span>
+        </div>
+      </sc-for>
+    </div>
+    <button onClick="{{ hideSupport }}" style="margin-top:18px;width:100%;min-height:52px;border-radius:17px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.7);font:600 14px Montserrat,sans-serif;color:#282126;cursor:pointer">Hide this from the Dashboard permanently</button>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isLinked }}">
+  <div style="padding:6px 20px 40px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px"><button onClick="{{ goSettings }}" style="min-height:44px;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer;padding:0 8px 0 0">‹ Profile</button><span style="flex:1;text-align:center;font:600 14px Montserrat,sans-serif;margin-right:60px">Connected accounts</span></div>
+    <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#6F656B;margin-bottom:14px">Link another sign-in to this account so you can log in either way. Eva never links accounts on its own — a new sign-in that Eva has not seen creates a new account.</div>
+    <div style="border-radius:22px;overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85)">
+      <sc-for list="{{ providerRows }}" as="p" hint-placeholder-count="3">
+        <div style="min-height:60px;display:flex;align-items:center;gap:12px;padding:8px 16px;border-top:1px solid rgba(40,33,38,.05)">
+          <span style="{{ p.icon }}"></span>
+          <span style="flex:1"><span style="display:block;font:600 14px Montserrat,sans-serif">{{ p.label }}</span><span style="display:block;font:400 11.5px Montserrat,sans-serif;color:#9A9095;margin-top:2px">{{ p.meta }}</span></span>
+          <button onClick="{{ p.onClick }}" style="{{ p.btn }}">{{ p.action }}</button>
+        </div>
+      </sc-for>
+    </div>
+    <sc-if value="{{ linkConfirm }}">
+      <div style="margin-top:14px;padding:16px;border-radius:22px;background:rgba(255,252,250,.95);border:1px solid rgba(255,255,255,.95);box-shadow:0 18px 40px -24px rgba(40,33,38,.5);animation:fadeIn .2s">
+        <div style="font:600 14.5px/1.35 Montserrat,sans-serif">Link {{ linkConfirm }} to this account?</div>
+        <div style="font:400 12.5px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:5px">You'll be able to log in either way. Everything you've logged stays here.</div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button onClick="{{ cancelLink }}" style="flex:1;min-height:44px;border-radius:14px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);font:600 13px Montserrat,sans-serif;color:#6F656B;cursor:pointer">Cancel</button>
+          <button onClick="{{ confirmLink }}" style="flex:1;min-height:44px;border-radius:14px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 13px Montserrat,sans-serif;cursor:pointer">Link</button>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</sc-if>
+
 <sc-if value="{{ isNotifications }}">
   <div style="padding:6px 20px 40px">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
@@ -568,7 +804,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         </div>
       </sc-for>
     </div>
-    <div style="margin-top:14px;padding:14px 16px;border-radius:20px;background:rgba(205,231,157,.26);border:1px solid rgba(142,173,86,.3);font:400 12px/1.6 Montserrat,sans-serif;color:#5C7434">Health entries are encrypted on your device before they sync. Eva never sells data and never shares it with advertisers.</div>
+    <div style="margin-top:14px;padding:14px 16px;border-radius:20px;background:rgba(205,231,157,.26);border:1px solid rgba(142,173,86,.3);font:400 12px/1.6 Montserrat,sans-serif;color:#5C7434">Your health entries are encrypted in transit and at rest, never sold, never shared with advertisers, and deletable in full. Eva hands data to no one without legal process, tells you when it does unless a court forbids it, and publishes how often it was asked.</div>
   </div>
 </sc-if>
 
@@ -619,6 +855,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
                 <div style="display:flex;gap:6px;margin-top:10px">
                   <button onClick="{{ e.onEdit }}" style="min-height:36px;padding:0 14px;border-radius:11px;border:1px solid rgba(40,33,38,.10);background:rgba(255,255,255,.8);font:600 12.5px Montserrat,sans-serif;color:#282126;cursor:pointer">Edit</button>
                   <button onClick="{{ e.onDelete }}" style="min-height:36px;padding:0 14px;border-radius:11px;border:1px solid rgba(196,100,90,.3);background:transparent;font:600 12.5px Montserrat,sans-serif;color:#A9524A;cursor:pointer">Delete</button>
+                  <sc-if value="{{ e.canEndPeriod }}"><button onClick="{{ e.onEndPeriod }}" style="min-height:36px;padding:0 14px;border-radius:11px;border:1px solid rgba(201,95,134,.35);background:rgba(255,255,255,.8);font:600 12.5px Montserrat,sans-serif;color:#C95F86;cursor:pointer">Mark period end</button></sc-if>
                 </div>
               </div>
             </sc-for>
@@ -696,6 +933,16 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
             </sc-for>
             <div onClick="{{ toggleMore }}" style="min-height:44px;display:flex;align-items:center;padding:0 16px;border-radius:14px;border:1px dashed rgba(40,33,38,.2);background:transparent;font:600 13px Montserrat,sans-serif;color:#6F656B;cursor:pointer">{{ moreLabel }}</div>
           </div>
+          <sc-if value="{{ valuePicker }}">
+            <div style="margin-top:12px;padding:12px 14px;border-radius:18px;background:rgba(255,255,255,.66);border:1px solid rgba(255,255,255,.9);animation:fadeIn .2s">
+              <div style="font:600 12px Montserrat,sans-serif;color:#6F656B">{{ valuePicker.title }}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+                <sc-for list="{{ valuePicker.opts }}" as="v" hint-placeholder-count="5">
+                  <div onClick="{{ v.onClick }}" style="{{ v.style }}">{{ v.label }}</div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
 
           <div onClick="{{ toggleNote }}" style="margin-top:16px;min-height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.9);cursor:pointer">
             <span style="font:600 13.5px Montserrat,sans-serif;color:#6F656B">Add note (optional)</span>
@@ -797,6 +1044,58 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         </div>
       </sc-if>
 
+      <sc-if value="{{ isSexSheet }}">
+        <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:78%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.30),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.38),rgba(205,231,157,0) 60%),radial-gradient(95% 40% at 18% 78%,rgba(249,220,230,.45),rgba(249,220,230,0) 62%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 26px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
+          <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 14px"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
+          <div style="position:sticky;top:-10px;z-index:6;margin:-30px -20px 0;padding:38px 20px 26px"><div style="position:absolute;inset:0;pointer-events:none;backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);background:linear-gradient(180deg,rgba(255,251,248,.4),rgba(255,251,248,.04));-webkit-mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%)"></div><div style="position:relative">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+            <button onClick="{{ openPicker }}" style="min-height:40px;padding:0 10px 0 0;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer">‹ Back</button>
+            <div style="font:600 14px Montserrat,sans-serif">Sex</div>
+            <button onClick="{{ closeSheet }}" aria-label="Close" style="width:40px;height:40px;border-radius:50%;border:0;background:rgba(40,33,38,.06);color:#6F656B;font:400 17px Montserrat,sans-serif;cursor:pointer">×</button>
+          </div>
+            <div style="font:400 12.5px Montserrat,sans-serif;color:#6F656B;text-align:center;margin-top:6px">Wed 12 August · private</div>
+          </div></div>
+          <div style="margin-top:18px;padding:18px;border-radius:22px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
+            <div style="font:600 15px/1.35 Montserrat,sans-serif">Logging to Wednesday, 12 August</div>
+            <div style="font:400 12.5px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:6px">Shown on the calendar as a small neutral dot with no label. Never in notifications, widgets or exports unless you opt in. You can hide this event type entirely in Privacy.</div>
+          </div>
+          <div onClick="{{ toggleSexDetails }}" style="margin-top:12px;min-height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.9);cursor:pointer">
+            <span style="font:600 13.5px Montserrat,sans-serif;color:#6F656B">Add details (optional)</span>
+            <span style="font:400 17px Montserrat,sans-serif;color:#C8BFC3">{{ sexCaret }}</span>
+          </div>
+          <sc-if value="{{ sexDetailsOpen }}">
+            <div style="animation:fadeIn .2s">
+              <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:16px 0 8px">Protection</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                <sc-for list="{{ sexProtection }}" as="o" hint-placeholder-count="3"><div onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</div></sc-for>
+              </div>
+              <div style="font:600 11px Montserrat,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#9A9095;margin:16px 0 8px">Type</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                <sc-for list="{{ sexType }}" as="o" hint-placeholder-count="2"><div onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</div></sc-for>
+              </div>
+            </div>
+          </sc-if>
+          <button onClick="{{ saveSex }}" style="margin-top:20px;width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Log</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isTestSheet }}">
+        <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:70%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.30),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.38),rgba(205,231,157,0) 60%),radial-gradient(95% 40% at 18% 78%,rgba(249,220,230,.45),rgba(249,220,230,0) 62%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 26px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
+          <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 14px"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
+          <div style="position:sticky;top:-10px;z-index:6;margin:-30px -20px 0;padding:38px 20px 26px"><div style="position:absolute;inset:0;pointer-events:none;backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);background:linear-gradient(180deg,rgba(255,251,248,.4),rgba(255,251,248,.04));-webkit-mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0,#000 68%,rgba(0,0,0,.45) 87%,rgba(0,0,0,0) 100%)"></div><div style="position:relative;display:flex;align-items:center;justify-content:space-between">
+            <button onClick="{{ openPicker }}" style="min-height:40px;padding:0 10px 0 0;border:0;background:transparent;font:600 13px Montserrat,sans-serif;color:#C95F86;cursor:pointer">‹ Back</button>
+            <div style="font:600 14px Montserrat,sans-serif">Positive test</div>
+            <button onClick="{{ closeSheet }}" aria-label="Close" style="width:40px;height:40px;border-radius:50%;border:0;background:rgba(40,33,38,.06);color:#6F656B;font:400 17px Montserrat,sans-serif;cursor:pointer">×</button>
+          </div></div>
+          <div style="margin-top:18px;padding:18px;border-radius:22px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
+            <div style="font:600 15px/1.35 Montserrat,sans-serif">Mark Wednesday, 12 August as a positive pregnancy test</div>
+            <div style="font:400 12.5px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:6px">This records the day. It does not change your mode or start pregnancy tracking — that is a separate step in Profile › Pregnancy Mode, whenever you choose. One tap undoes it.</div>
+          </div>
+          <div style="margin-top:12px;padding:12px 14px;border-radius:16px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.24);font:400 12px/1.55 Montserrat,sans-serif;color:#3F5A76">Available in Cycle and Planning modes. Eva will not ask you anything about it.</div>
+          <button onClick="{{ saveTest }}" style="margin-top:20px;width:100%;min-height:52px;border-radius:17px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 15px Montserrat,sans-serif;cursor:pointer;box-shadow:0 12px 26px -12px rgba(201,95,134,.8)">Mark positive test</button>
+        </div>
+      </sc-if>
+
       <sc-if value="{{ isDoctorSheet }}">
         <div class="sb" style="position:absolute;left:0;right:0;bottom:0;max-height:92%;overflow-y:auto;background:radial-gradient(120% 55% at 8% 0%,rgba(233,130,165,.30),rgba(233,130,165,0) 62%),radial-gradient(110% 45% at 96% 22%,rgba(205,231,157,.38),rgba(205,231,157,0) 60%),radial-gradient(95% 40% at 18% 78%,rgba(249,220,230,.45),rgba(249,220,230,0) 62%),linear-gradient(180deg,rgba(255,251,248,.97),rgba(255,249,246,.99));border-radius:30px 30px 0 0;border-top:1px solid rgba(255,255,255,.95);box-shadow:0 -22px 50px -22px rgba(150,72,100,.45);padding:10px 20px 26px;animation:sheetUp .34s cubic-bezier(.32,.72,0,1)">
           <div style="position:sticky;top:-10px;z-index:8;margin:-10px -20px 0;padding:12px 0 14px"><div style="width:40px;height:4px;border-radius:2px;background:rgba(40,33,38,.22);margin:0 auto"></div></div>
@@ -858,12 +1157,10 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         <div style="position:absolute;inset:0;background:rgba(40,33,38,.38);display:flex;align-items:center;justify-content:center;padding:26px;animation:fadeIn .2s">
           <div style="width:100%;padding:22px;border-radius:26px;background:radial-gradient(120% 60% at 10% 0%,rgba(233,130,165,.28),rgba(233,130,165,0) 62%),radial-gradient(110% 50% at 95% 30%,rgba(205,231,157,.34),rgba(205,231,157,0) 62%),linear-gradient(180deg,rgba(255,251,248,.94),rgba(255,249,246,.96));backdrop-filter:blur(26px) saturate(1.4);-webkit-backdrop-filter:blur(26px) saturate(1.4);border:1px solid rgba(255,255,255,.95);box-shadow:0 24px 50px -20px rgba(40,33,38,.5)">
             <div style="font:600 16.5px/1.35 Montserrat,sans-serif">Delete your Eva profile?</div>
-            <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:8px">This removes your cycle history, logs, notes and appointments from Eva's servers within 30 days. It cannot be undone.</div>
-            <div style="margin-top:14px;padding:12px 14px;border-radius:16px;background:rgba(205,231,157,.26);border:1px solid rgba(142,173,86,.3);font:500 12.5px/1.5 Montserrat,sans-serif;color:#5C7434">Export your data first — one file, readable outside Eva.</div>
+            <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:8px">This removes your cycle history, logs, notes and appointments from Eva's servers straight away. It cannot be undone.</div>
             <div style="margin-top:14px"><label style="display:block;font:600 12px Montserrat,sans-serif;color:#6F656B;margin-bottom:6px">Type DELETE to confirm</label>
             <input onChange="{{ noop }}" placeholder="DELETE" style="width:100%;height:50px;border-radius:16px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);padding:0 14px;font:600 14px Montserrat,sans-serif"></div>
             <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
-              <button onClick="{{ closeModal }}" style="min-height:48px;border-radius:16px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);font:600 14px Montserrat,sans-serif;cursor:pointer">Export data instead</button>
               <button onClick="{{ closeModal }}" style="min-height:48px;border-radius:16px;border:0;background:#B85248;color:#fff;font:600 14px Montserrat,sans-serif;cursor:pointer;opacity:.55">Delete profile</button>
               <button onClick="{{ closeModal }}" style="min-height:44px;border:0;background:transparent;font:600 13.5px Montserrat,sans-serif;color:#6F656B;cursor:pointer">Cancel</button>
             </div>
@@ -904,7 +1201,15 @@ const RAIL = [
     ['forgot','Forgot password',{screen:'forgot'}],
     ['forgotSent','Reset link sent',{screen:'forgotSent'}],
     ['newpass','New password',{screen:'newpass'}],
-    ['resetDone','Password updated',{screen:'resetDone'}]]},
+    ['resetDone','Password updated',{screen:'resetDone'}],
+    ['activated','Account activated',{screen:'activated'}],
+    ['notActivated','Log in · not activated yet',{screen:'notActivated'}],
+    ['linkExpired','Link expired',{screen:'linkExpired'}],
+    ['rateLimited','Log in · rate limited',{screen:'login',rateLimited:true}],
+    ['googleWeb','Google · in-app web view',{screen:'googleWeb'}],
+    ['unreachable','Launch · servers unreachable',{screen:'unreachable'}],
+    ['consent','Consent · two opt-ins',{screen:'consent'}],
+    ['paywall','Subscription · 7-day trial',{screen:'paywall'}]]},
   {title:'Dashboard', items:[
     ['home_d','Cycle · daily briefing',{screen:'home',card:'D',nudge:'period',glance:true,mealSetup:true,offline:false}],
     ['home_e','Signals override phase',{screen:'home',card:'E',nudge:null,glance:true,mealSetup:true,offline:false}],
@@ -923,9 +1228,13 @@ const RAIL = [
     ['home_setup','Nutrition setup pending',{screen:'home',card:'D',nudge:'setup',glance:false,mealSetup:false,offline:false}],
     ['home_gap','Logging-gap nudge',{screen:'home',card:'D',nudge:'gap',glance:true,mealSetup:true,offline:false}],
     ['home_dis','Nudge dismissed',{screen:'home',card:'D',nudge:null,glance:true,mealSetup:true,offline:false}],
-    ['home_off','Offline cached',{screen:'home',card:'D',nudge:null,glance:true,mealSetup:true,offline:true}]]},
+    ['home_off','Offline cached',{screen:'home',card:'D',nudge:null,glance:true,mealSetup:true,offline:true}],
+    ['cycleHistory','Cycle history',{screen:'cycleHistory'}],
+    ['contactOptions','Contact options',{screen:'contactOptions'}],
+    ['supportResources','Support resources',{screen:'supportResources'}]]},
   {title:'Calendar', items:[
     ['cal','Month · Cycle mode',{screen:'cal',mode:'Cycle',empty:false}],
+    ['calPrompt','Month · Pregnancy Mode prompt',{screen:'cal',mode:'Cycle',empty:false,pregPromptOn:true}],
     ['calEmpty','First-run empty state',{screen:'cal',empty:true}],
     ['calPreg','Pregnancy mode · w14',{screen:'cal',mode:'Pregnancy',empty:false}],
     ['day','Day detail sheet',{screen:'cal',empty:false,sheet:'day',sel:12}],
@@ -933,6 +1242,8 @@ const RAIL = [
     ['body','Body signals logging',{screen:'cal',empty:false,sheet:'body'}],
     ['sport','Sport logging',{screen:'cal',empty:false,sheet:'sport'}],
     ['cycle','Menstrual flow logging',{screen:'cal',empty:false,sheet:'cycle'}],
+    ['sex','Sex logging',{screen:'cal',empty:false,sheet:'sex'}],
+    ['test','Positive test',{screen:'cal',empty:false,sheet:'test'}],
     ['doctor','Doctor appointment',{screen:'cal',empty:false,sheet:'doctor'}]]},
   {title:'Profile', items:[
     ['settings','Settings',{screen:'settings'}],
@@ -940,11 +1251,13 @@ const RAIL = [
     ['pregMode','Pregnancy Mode',{screen:'pregMode'}],
     ['notifications','Notifications',{screen:'notifications'}],
     ['privacy','Privacy & security',{screen:'privacy'}],
+    ['linked','Connected accounts',{screen:'linked'}],
     ['danger','Delete profile',{screen:'settings',modal:'delete'}]]}
 ];
 
-const BODY_CHIPS = ['Bloating','Cramps','Headache','Nausea','Breast tenderness','Back pain','Acne','Cravings','Anxious','Stressed','Brain fog','Appetite changes'];
-const EXTRA_CHIPS = ['Dizziness','Insomnia','Hot flushes','Low libido','Constipation','Spotting'];
+const BODY_CHIPS = ['Bloating','Cramps','Headache','Nausea','Breast tenderness','Back pain','Acne / breakout','Cravings','Anxious','Stressed','Brain fog','Poor appetite','Heavy appetite','Libido'];
+const EXTRA_CHIPS = ['Dizziness','Hot flashes','Constipation','Loose stool','Insomnia','Discharge','Itching'];
+const CHIP_VALUES = {Libido:{title:'Libido · which way?',opts:['Low','High']},Discharge:{title:'Discharge · type',opts:['Dry','Sticky','Creamy','Watery','Egg-white']}};
 
 function chip(v){
   const base='min-height:44px;display:flex;align-items:center;gap:6px;padding:0 15px;border-radius:14px;cursor:pointer;font:600 13px Montserrat,sans-serif;';
@@ -967,7 +1280,7 @@ const CARDS = {
      line2:'Although energy can be higher around this phase, your own log comes first.',
      line3:'Sleep, stress and iron affect daily energy more than cycle phase. A lighter session may feel more manageable today.',actions:['Review this morning\u2019s log']},
   A:{title:'Start with your first log',
-     line2:'Log your period or today\u2019s body signals so Eva can begin recognising patterns that are specific to you.',
+     line2:'Log your period or today\u2019s body signals so Eva can begin recognizing patterns that are specific to you.',
      actions:['Log now','Open Calendar']},
   B:{kicker:'Cycle tracking · 1 of 3 cycles',title:'Eva is still learning your cycle',
      line2:'Log two more periods to help estimate your cycle phases more reliably. Until then, no phase is shown.',actions:['Open Calendar']},
@@ -981,7 +1294,7 @@ const CARDS = {
      line2:'Sleep has also been below your usual level during the same period. Eva can see the pattern but not its cause.',
      line3:'Consider checking in with yourself, or talking it through with someone you trust.',actions:['View pattern']},
   EDU:{tone:'edu',kicker:'Today\u2019s read',title:'Why sleep can affect appetite more than willpower',
-     line2:'Educational content, not personalised insight \u2014 nothing new in your logs today.',
+     line2:'Educational content, not personalized insight \u2014 nothing new in your logs today.',
      meta:'Nutrition · 4 min read',actions:['Read article']},
   PLAN:{kicker:'Planning · cycle day 18',title:'Your fertile window most likely closed two days ago',
      line2:'Based on your last three cycles. Confidence is moderate \u2014 cycle lengths varied by four days.',
@@ -1002,8 +1315,8 @@ const CARDS = {
 
 const NUDGES = {
   period:{text:'Your period is likely to start within two days.',action:'View prediction'},
-  appt:{text:'You have a gynaecologist appointment tomorrow at 10:30.',action:'Review questions'},
-  gap:{text:'You haven\u2019t added any body signals recently.',sub:'Logging today may help Eva recognise patterns over time.',action:'Log signals'},
+  appt:{text:'You have a gynecologist appointment tomorrow at 10:30.',action:'Review questions'},
+  gap:{text:'You haven\u2019t added any body signals recently.',sub:'Logging today may help Eva recognize patterns over time.',action:'Log signals'},
   setup:{text:'Complete your Nutrition setup to see today\u2019s targets here.',action:'Continue setup'}
 };
 
@@ -1012,13 +1325,13 @@ const HOME_SPEC = ['One card, one subject: the priority ladder picks it (red fla
 const SPEC = {
   home_d:HOME_SPEC.concat(['Nudge slot shows at most one item per day, below the glance row and visually secondary to the hero card.']),
   home_e:['User-reported state wins: the phase line stays, but the message leads with what she logged.','Never contradicts her own data with a generic phase prediction.','Suggestion is optional in wording and can be ignored without consequence.'],
-  home_a:['No cycle phase, no predictions, no fake personalisation before there is data.','The Dashboard is still useful: shortcuts, education and setup are all reachable.','Glance row is hidden entirely rather than shown empty.'],
+  home_a:['No cycle phase, no predictions, no fake personalization before there is data.','The Dashboard is still useful: shortcuts, education and setup are all reachable.','Glance row is hidden entirely rather than shown empty.'],
   home_b:['Fewer than three cycles: Eva names its own uncertainty instead of estimating a phase.','Progress is stated as a fact ("1 of 3 cycles"), not as a streak or completion score.'],
   home_c:['Irregular cycles: no confident prediction is shown at all.','Copy avoids implying anything is wrong — variation is described, not diagnosed.'],
   home_f:['Late period: states the observation and stops. No speculation about pregnancy, stress or conditions.','Two equal actions — log period, log test — neither is framed as the expected one.'],
   home_g:['Signals without cycle data: the card responds to signals only and never mentions a phase.'],
   home_h:['A pattern may be named; its cause may not. No diagnosis, no severity scoring.','Suggestion points outward (a person, a provider), not to an in-app fix.'],
-  home_edu:['Educational fallback is clearly labelled "Today\u2019s read" so it is never mistaken for personal insight.','Category and reading time are always shown; the banner rail never repeats the card\u2019s subject that day.'],
+  home_edu:['Educational fallback is clearly labeled "Today\u2019s read" so it is never mistaken for personal insight.','Category and reading time are always shown; the banner rail never repeats the card\u2019s subject that day.'],
   home_plan:['Planning mode names the confidence level and what would improve it.','No scoring of sexual activity, no "missed opportunity", no pregnancy countdown, no asking whether she is pregnant.'],
   home_preg:['Pregnancy header carries week and day plus the next appointment.','Milestones are informational by default — no celebratory progress bars.'],
   home_flag:['Priority 1: a red-flag symptom replaces the normal card entirely.','Calm amber treatment, no decorative gradient, no diagnosis and no reassurance.','Primary action reaches contact options; secondary returns to what was logged.'],
@@ -1029,28 +1342,43 @@ const SPEC = {
   home_dis:['A dismissed nudge does not return the next day; the slot simply stays empty.','Dismiss control is 44px with an explicit accessible label.'],
   home_off:['Offline shows the cached daily card with an explicit sync timestamp, not a stale-looking blank.'],
   signup:['Apple and Google sit above the email form and carry more visual weight — one tap, no password to invent.','Email sign-up is progressive: validation runs on blur, never while typing.','Password rules are stated up front as helper text, not revealed as an error after failure.'],
-  signupErr:['Field errors render directly under their input, in text plus an icon — never colour alone.','If the email already exists, Eva never creates a second profile: it offers account linking into the existing profile so logged data stays intact.','The linking card uses information blue, not error red — nothing went wrong.'],
+  signupErr:['Field errors render directly under their input, in text plus an icon — never color alone.','If the email already exists, Eva never creates a second profile from this form: it sends her to log in with whatever sign-in she used before. The API says only that the address is taken, never which provider (#77), and identity is the provider sub, never the address (#7).','The card uses information blue, not error red — nothing went wrong.'],
+  activated:['Landing after the universal link. One line, one action; if the app is not installed the web page says to open it.'],
+  notActivated:['Told apart only after the password verifies (#6) — an unknown address and a wrong password still get the same answer, so nothing here leaks whether an address exists.','Resend is throttled to once per 60s with a toast.'],
+  linkExpired:['Activation links last 24h, reset links 60 minutes. Nothing about the account changes when one expires.'],
+  rateLimited:['429 RATE_LIMITED answers sign-up and sign-in alike; the banner is information-toned, not an error (#38).','No hint about the address; the same banner for a registered and an unknown one.'],
+  googleWeb:['Google sign-in is a system web view inside the app — never a redirect to the browser (PRD §Sign Up 4).','Sign in with Apple sits above it: App Store 4.8 requires an equivalent privacy-preserving login when Google is offered (#7).'],
+  unreachable:['A token that could not be validated is kept, not destroyed (#61). Retry, continue offline (A3) and a real Log out are all reachable.','Anything logged while unreachable is saved on the device and syncs later (ARCHITECTURE §8).'],
+  consent:['Two separate opt-ins, neither pre-selected, no accept-all — the strictest rule (Washington MHMDA, GDPR Art. 9) applied everywhere (A21, #86).','The first toggle is required to use Eva; the second governs processors only. Both withdrawable in Settings › Privacy.','The version consented to is stored, so a change of terms re-prompts.','Copy is a starting point: it is the product owner\'s to finalize, sourced (A24).'],
+  paywall:['App Store 3.1.2: price, duration, auto-renewal and links to Terms and Privacy are on the screen; Restore purchases is present (A14, #88).','The close control is a 44 pt target from the first frame — no dark patterns.','Prices are placeholders set in App Store Connect; entitlement is verified server-side.'],
   activation:['Activation link is valid 24h; nothing is written to the profile until confirmed.','Resend is rate-limited to once per 60s and shows a toast confirmation.','Change email returns to sign-up with the address pre-filled.'],
   login:['Same auth hierarchy as sign-up so the two screens feel like one system.','Forgot password is right-aligned under the password field, 44px tall.','No error is shown before submit; failed login shows one combined message to avoid leaking which emails exist.'],
   forgot:['Response is identical whether or not the email exists.','Copy stays short and reassuring — no security lecture.'],
   forgotSent:['Reset link expires in 60 minutes.','Resend triggers a toast rather than navigating away.'],
   newpass:['Match state confirms with icon + text, not just a green border.','Saving signs out other devices and says so.'],
-  resetDone:['Success is a state, not a celebration — one line, one action.'],
-  cal:['Month grid is the default landing surface: today ringed, selected day outlined dark.','Each event type has a fixed position and shape as well as a colour: sex bottom-left dot, body signals bottom-centre square, sport bottom-right diamond, appointment top-right badge.','Predicted period and fertile window use dashed outlines and patterned shading so predictions can never be mistaken for logged data.','Future dates can be selected and appointments scheduled, but body, flow and sport logging is disabled beyond today.','Swipe left/right changes month; tapping the header opens the month picker.'],
+  resetDone:['Success is a state, not a celebration — one line, one action.','"Other devices were signed out" is not shown: the session token is stateless and cannot be revoked until #76 adds a token version.'],
+  cal:['Month grid is the default landing surface: today ringed, selected day outlined dark.','The mode chip is read-only (A6): Pregnancy Mode is entered from Profile, and the phases advance on events, never from a switch.','Each event type has a fixed position and shape as well as a color: sex bottom-left dot, body signals bottom-center square, sport bottom-right diamond, appointment top-right badge.','Predicted period and fertile window use dashed outlines and patterned shading so predictions can never be mistaken for logged data.','Future dates can be selected and appointments scheduled, but body, flow and sport logging is disabled beyond today.','Swipe left/right changes month; tapping the header opens the month picker.'],
   calEmpty:['Calendar stays fully explorable with zero data — no blocking modal.','A single pointer nudges the Log button; it disappears after the first entry.','Copy: "Log your first period to start predictions."'],
   calPreg:['Week number (w14) is pinned to the start of each week row.','Mode change never rewrites history — cycle data stays, prediction layers switch off.'],
-  day:['Tapping any day opens a large sheet with the full day, times included.','Delete is a soft delete: the row leaves, an Undo toast stays for 5s, the record is purged after.','Add entry inherits the day already in context — the sheet never saves to the wrong date.'],
+  day:['Tapping any day opens a large sheet with the full day, times included.','Delete is a soft delete: the row leaves, an Undo toast stays for 5s; the entry stays recoverable for 30 days (Undo restores it), then is purged (#28).','Add entry inherits the day already in context — the sheet never saves to the wrong date.','A flow entry on the latest period day offers "Mark period end" — an explicit stored mark, not inferred from a missing day (#75).'],
+  cycleHistory:['The screen every "View cycle details / history / window / pattern" action opens.','The confidence sentence is C11\'s output; no number here is set by the app until the prediction constants are decided with sources (#26, A11).','"Not a contraceptive method" is stated at the point of use.'],
+  contactOptions:['Reached from the red-flag card. Country table from the region setting (US, UK, IE, CA, AU, NZ in v1); a neutral fallback elsewhere (LAUNCH §4.3, #87).','Eva states it cannot assess the symptom and points to a person, never a reassurance.'],
+  supportResources:['Offered once after pregnancy tracking ends, never pushed; permanently dismissible (PRD §Pregnancy loss 5).','No question about trying again, no prompt to resume cycle tracking.'],
+  calPrompt:['The one-time Pregnancy Mode prompt (PRD §Turning it on 1): offered once on the calendar, dismissible, never repeated after dismissal.','The mode itself is entered only from Profile › Pregnancy Mode (A6); the chip on the calendar is a label, not a control.'],
+  sex:['A sheet with the date and one Log button; details are collapsed and optional — protection and type (PRD §Sex, A7).','The calendar shows a neutral dot with no label. Never in notification previews, widgets or exports unless opted in; the whole type can be hidden in Privacy.'],
+  test:['One tap from the picker in Cycle and Planning (PRD §Positive test). It marks the day; it does not change the mode.','Neutral language, no celebration, no follow-up question. Undo is one tap.'],
+  linked:['Linking is a deliberate action taken here while signed in to the account she wants to keep (#7). Nothing links automatically — a sign-in Eva has not seen creates a new account, by design.','Apple\'s email and name arrive only on the first authorization and are stored then.'],
   picker:['Header states the target date and offers an obvious change control.','Options adapt to the active mode; sensitive types stay visually neutral.','Sex uses a neutral label and dot — no imagery, and it can be hidden entirely in Privacy.'],
-  body:['Three 5-point scales, nothing preselected; each option is labelled "Energy, 2 of 5" for screen readers.','Second tap on Cramps, Headache or Nausea escalates to severe — fill plus a bar mark changes, not colour alone.','Multi-select requires an explicit Save; note field stays collapsed until asked for.'],
+  body:['Three 5-point scales, nothing preselected; each option is labeled "Energy, 2 of 5" for screen readers.','Second tap on Cramps, Headache or Nausea escalates to severe — fill plus a bar mark changes, not color alone.','Multi-select requires an explicit Save; note field stays collapsed until asked for.'],
   sport:['Recently used activities are ordered first.','Duration chips plus a custom stepper for anything else.','Intensity descriptions are always visible, never behind a tooltip.'],
   cycle:['One flow value per day. Replacing an existing value asks for confirmation first.','After flow is chosen the sheet expands in place with body-signal chips — still one screen.'],
   doctor:['Notes are unlimited — appointment notes are the one place users write a lot.','Reminder defaults on, 24h before; sensitive detail never appears in the notification preview.','"Questions for the doctor" is a checkable list you can bring to the appointment.'],
-  settings:['Sensitive content is never surfaced on the main screen — labels only, detail one level down.','Pregnancy Mode opens its own screen instead of switching immediately.','Delete profile is separated from everything else and uses destructive styling.'],
+  settings:['Sensitive content is never surfaced on the main screen — labels only, detail one level down.','Pregnancy Mode opens its own screen instead of switching immediately.','Delete profile is separated from everything else and uses destructive styling.','Subscription rows deep-link to App Store management (A14); Manage connected accounts is where a second sign-in is linked (#7).'],
   editProfile:['Health fields use progressive disclosure — never one long questionnaire.','Units follow the account preference; both systems are accepted on input.'],
   pregMode:['Asks "Where are you now?" before changing anything, and confirms what will change.','No default celebratory language — the same screen serves trying, pregnant and loss journeys.'],
   notifications:['One global switch, granular controls below it, all disabled visually when global is off.','Well-being check-ins are opt-in, never streak-based.'],
-  privacy:['Sensitive events are excluded from notification previews by default.','Hiding Sex removes the type from pickers and calendar indicators without deleting history.'],
-  danger:['Destructive action requires typed confirmation and states what is irreversible.','Export is offered before deletion, in the same modal.']
+  privacy:['Sensitive events are excluded from notification previews by default.','Hiding Sex removes the type from pickers and calendar indicators without deleting history.','The footer says only what is true: encrypted in transit and at rest, deletable in full (A10); requests for data are answered only to legal process, disclosed, and counted (A19, #91).'],
+  danger:['Destructive action requires typed confirmation and states what is irreversible.','Deletion is immediate and complete (#8) — the copy says "straight away", not "within 30 days".','"Export data instead" returns to this modal when #58 ships; an inert escape route next to an irreversible action is worse than none.']
 };
 
 class Component extends DCLogic {
@@ -1062,13 +1390,18 @@ class Component extends DCLogic {
     energy:0, mood:0, sleep:0, chips:{}, noteOpen:false, moreChips:false,
     activity:null, dur:45, customDur:false, intensity:'Medium',
     flow:null, cycleStep:1,
-    apptType:'Gynaecologist', remind:true, questions:{'Is this cramping pattern normal for me?':true,'Should I review my iron levels?':false},
+    apptType:'Gynecologist', remind:true, questions:{'Is this cramping pattern normal for me?':true,'Should I review my iron levels?':false},
     notifAll:true, notif:{cycle:true,appt:true,well:false,edu:false},
     hideSex:false, appLock:true, bio:true, health:false, goals:false,
+    rateLimited:false, pregPromptOn:false, pregPromptGone:false, pickerYear:2026,
+    chipValues:{}, sexDetailsOpen:false, sexProt:null, sexKind:null,
+    consentStore:false, consentShare:false, processorsOpen:false, plan:'yearly',
+    historyWhyOpen:false, linkConfirm:null, linkedGoogle:false,
     entries:[
       {id:1,t:'08:30',type:'Body signals',sum:'Low energy, mild headache'},
       {id:2,t:'18:15',type:'Strength training',sum:'45 min · medium intensity'},
-      {id:3,t:'20:00',type:'Doctor appointment',sum:'Gynaecologist · Dr. Almeida'}
+      {id:3,t:'20:00',type:'Doctor appointment',sum:'Gynecologist · Dr. Almeida'},
+      {id:4,t:'07:10',type:'Menstrual cycle',sum:'Light flow · day 5'}
     ]
   };
 
@@ -1079,12 +1412,14 @@ class Component extends DCLogic {
     const sev=['Cramps','Headache','Nausea'].indexOf(name)>-1;
     const c=Object.assign({},this.state.chips); const v=c[name]||0;
     c[name]= v===0?1:(v===1&&sev?2:0);
-    this.setState({chips:c});
+    const cv=Object.assign({},this.state.chipValues); if(c[name]===0) delete cv[name];
+    this.setState({chips:c,chipValues:cv,valueFor:(c[name]&&CHIP_VALUES[name])?name:null});
   }
 
   cells(){
     const preg=this.state.mode==='Pregnancy', empty=this.state.empty;
     const data = empty?{}:{4:{flow:2},5:{flow:3,sport:1},6:{flow:3},7:{flow:2},8:{flow:1},9:{sport:1},10:{sex:1},12:{body:1,doc:1},13:{sport:1},14:{body:1},16:{sport:1},18:{body:1},20:{doc:1}};
+    if(!empty && this.state.mode!=='Pregnancy' && this.state.railKey==='test') data[12]=Object.assign({},data[12]||{},{test:1});
     const fertile = (empty||preg)?[]:[17,18,19,20,21];
     const pred = (empty||preg)?[]:[31];
     const predNext = (empty||preg)?[]:[1,2,3,4];
@@ -1109,7 +1444,8 @@ class Component extends DCLogic {
       const bits=[]; if(d.flow) bits.push(['Spotting','Light','Medium','Heavy'][d.flow]+' flow logged');
       if(d.sex) bits.push('Sex logged'); if(d.body) bits.push('Body signals logged'); if(d.sport) bits.push('Sport logged'); if(d.doc) bits.push('Doctor appointment');
       if(isFert) bits.push('Predicted fertile window'); if(isPred) bits.push('Predicted period');
-      return {n:String(n),style:s,numStyle:ns,sex:!!d.sex,body:!!d.body,sport:!!d.sport,doc:!!d.doc,
+      if(d.test) bits.push('Positive test');
+      return {n:String(n),style:s,numStyle:ns,sex:!!d.sex,body:!!d.body,sport:!!d.sport,doc:!!d.doc,test:!!d.test,
         aria:'August '+n+(bits.length?'. '+bits.join('. '):'. No entries'),
         onClick:inMonth&&!nextMonth?()=>this.go({sel:n,sheet:'day'}):()=>{}};
     };
@@ -1146,8 +1482,9 @@ class Component extends DCLogic {
       {label:'Predicted period (dashed)',swatch:'width:16px;height:16px;border-radius:5px;border:1px dashed rgba(201,95,134,.6);background:repeating-linear-gradient(45deg,rgba(233,130,165,.2) 0 3px,transparent 3px 7px);display:block'},
       {label:'Fertile window (predicted)',swatch:'width:16px;height:16px;border-radius:5px;border:1px dashed rgba(142,173,86,.7);background:repeating-linear-gradient(45deg,rgba(205,231,157,.45) 0 3px,transparent 3px 7px);display:block'},
       {label:'Sex · bottom-left dot',swatch:'width:6px;height:6px;border-radius:50%;background:#6F656B;display:block;margin:0 5px'},
-      {label:'Body signals · centre square',swatch:'width:7px;height:7px;border-radius:2px;background:#C95F86;display:block;margin:0 5px'},
-      {label:'Sport · right diamond',swatch:'width:7px;height:7px;background:#7A9B45;transform:rotate(45deg);display:block;margin:0 5px'}
+      {label:'Body signals · center square',swatch:'width:7px;height:7px;border-radius:2px;background:#C95F86;display:block;margin:0 5px'},
+      {label:'Sport · right diamond',swatch:'width:7px;height:7px;background:#7A9B45;transform:rotate(45deg);display:block;margin:0 5px'},
+      {label:'Positive test · top-left mark',swatch:'width:9px;height:9px;border-radius:3px;border:1.5px solid #A9436E;display:block;margin:0 4px'}
     ];
 
     const spec=SPEC[S.railKey]||[];
@@ -1156,7 +1493,23 @@ class Component extends DCLogic {
     return {
       railGroups, specTitle:specLabel, specNotes:spec,
       noop:()=>{},
-      isAuth:['signup','activation','login','forgot','forgotSent','newpass','resetDone'].indexOf(S.screen)>-1,
+      isAuth:['signup','activation','login','forgot','forgotSent','newpass','resetDone','activated','notActivated','linkExpired','googleWeb','unreachable','consent','paywall'].indexOf(S.screen)>-1,
+      isActivated:S.screen==='activated', isNotActivated:S.screen==='notActivated', isLinkExpired:S.screen==='linkExpired',
+      isGoogleWeb:S.screen==='googleWeb', isUnreachable:S.screen==='unreachable', isConsent:S.screen==='consent', isPaywall:S.screen==='paywall',
+      rateLimited:!!S.rateLimited,
+      goConsent:()=>this.go({screen:'consent',railKey:'consent'}),
+      toggleConsentStore:()=>this.setState({consentStore:!S.consentStore}),
+      toggleConsentShare:()=>this.setState({consentShare:!S.consentShare}),
+      toggleProcessors:()=>this.setState({processorsOpen:!S.processorsOpen}),
+      consentStoreTrack:track(S.consentStore), consentStoreKnob:knob(S.consentStore),
+      consentShareTrack:track(S.consentShare), consentShareKnob:knob(S.consentShare),
+      consentCtaStyle:'width:100%;height:54px;border:0;border-radius:17px;color:#fff;font:600 15.5px Montserrat,sans-serif;cursor:pointer;'+(S.consentStore?'background:linear-gradient(180deg,#EE93B1,#C95F86);box-shadow:0 12px 26px -10px rgba(201,95,134,.7);':'background:rgba(201,95,134,.28);color:#282126;cursor:not-allowed;'),
+      consentContinue:()=>{ if(!S.consentStore){ this.toast('Eva needs the first choice to work. The second is yours either way.'); return; } this.go({screen:'paywall',railKey:'paywall'}); },
+      plans:[['monthly','Monthly','[price] per month'],['yearly','Yearly','[price] per year']].map(p=>({label:p[1],desc:p[2],onClick:()=>this.setState({plan:p[0]}),
+        style:'min-height:70px;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:20px;cursor:pointer;background:'+(S.plan===p[0]?'rgba(233,130,165,.14)':'rgba(255,255,255,.66)')+';border:1px solid '+(S.plan===p[0]?'rgba(201,95,134,.45)':'rgba(255,255,255,.9)')+';',
+        radio:'flex:none;width:20px;height:20px;border-radius:50%;display:block;background:#fff;border:'+(S.plan===p[0]?'6px solid #C95F86':'1.5px solid rgba(40,33,38,.25)')+';'})),
+      planPrice:S.plan==='yearly'?'[price] per year':'[price] per month',
+      toastRestore:()=>this.toast('Checking your App Store purchases…'),
       isSignup:S.screen==='signup', isActivation:S.screen==='activation', isLogin:S.screen==='login',
       isForgot:S.screen==='forgot', isForgotSent:S.screen==='forgotSent', isNewPass:S.screen==='newpass', isResetDone:S.screen==='resetDone',
       isCal, isEmptyCal:isCal&&S.empty, notEmpty:isCal&&!S.empty,
@@ -1176,14 +1529,46 @@ class Component extends DCLogic {
       goResetDone:()=>this.go({screen:'resetDone',railKey:'resetDone'}),
       goCalendar:()=>this.go({screen:'cal',railKey:'cal'}),
       toastResend:()=>this.toast('Email sent again. Check spam if it hasn\u2019t arrived.'),
-      showNav:['home','cal','settings','editProfile','pregMode','notifications','privacy'].indexOf(S.screen)>-1,
+      showNav:['home','cal','settings','editProfile','pregMode','notifications','privacy','cycleHistory','contactOptions','supportResources','linked'].indexOf(S.screen)>-1,
+      goHome:()=>this.go({screen:'home',railKey:'home_d'}),
+      goPregMode:()=>this.go({screen:'pregMode',railKey:'pregMode'}),
+      pregPrompt:S.pregPromptOn&&!S.pregPromptGone,
+      dismissPregPrompt:()=>{ this.setState({pregPromptGone:true}); this.toast('Okay. Pregnancy Mode stays in Profile whenever you want it.'); },
+      modeLabel:S.mode==='Pregnancy'?'Pregnancy Mode · week 14':'Cycle tracking',
+      modeDot:S.mode==='Pregnancy'?'#8EAD56':'#C95F86',
+      modeBg:S.mode==='Pregnancy'?'rgba(205,231,157,.34)':'rgba(233,130,165,.12)',
+      modeBorder:S.mode==='Pregnancy'?'rgba(142,173,86,.34)':'rgba(201,95,134,.3)',
+      modeInk:S.mode==='Pregnancy'?'#5C7434':'#A9436E',
+      pickerYear:String(S.pickerYear), yearPrev:()=>this.setState({pickerYear:S.pickerYear-1}), yearNext:()=>this.setState({pickerYear:S.pickerYear+1}),
+      isCycleHistory:S.screen==='cycleHistory', isContactOptions:S.screen==='contactOptions', isSupportResources:S.screen==='supportResources', isLinked:S.screen==='linked',
+      cycleRows:[['Jul 14 → Aug 11','29 days'],['Jun 17 → Jul 13','27 days'],['May 17 → Jun 16','31 days'],['Apr 19 → May 16','28 days']].map(r=>({range:r[0],len:r[1]})),
+      toggleHistoryWhy:()=>this.setState({historyWhyOpen:!S.historyWhyOpen}), historyWhyOpen:S.historyWhyOpen, historyCaret:S.historyWhyOpen?'⌃':'⌄',
+      contactRows:[
+        {label:'Emergency services',meta:'911',action:'Call'},
+        {label:'Your maternity provider',meta:'Dr. Almeida · from your appointments',action:'Call'},
+        {label:'Nearest urgent maternity care',meta:'Opens Maps',action:'Open'}
+      ].map(r=>({label:r.label,meta:r.meta,action:r.action,onClick:()=>this.toast('Opens the phone / Maps')})),
+      supportRows:[
+        {label:'Talk to your provider',meta:'The people who know your history'},
+        {label:'Pregnancy and infant loss support line',meta:'United States · from your region'},
+        {label:'Resources in your country',meta:'Where Eva has a reviewed list'}
+      ].map(r=>({label:r.label,meta:r.meta,onClick:()=>this.toast('Opens the resource')})),
+      hideSupport:()=>{ this.go({screen:'home',railKey:'home_loss'}); this.toast('Hidden. It stays in Profile › Support if you ever want it.'); },
+      providerRows:[
+        {label:'Email & password',meta:'maria.ferreira@gmail.com',action:'Linked',linked:true,icon:'flex:none;width:34px;height:34px;border-radius:12px;background:rgba(233,130,165,.18);display:block;'},
+        {label:'Apple',meta:'Sign in with Apple',action:'Linked',linked:true,icon:'flex:none;width:34px;height:34px;border-radius:12px;background:#1C1A1B;display:block;'},
+        {label:'Google',meta:S.linkedGoogle?'Linked just now':'Not linked',action:S.linkedGoogle?'Linked':'Link',linked:S.linkedGoogle,icon:'flex:none;width:34px;height:34px;border-radius:12px;background:conic-gradient(#E9825F,#CDE79D,#5A7BA0,#E982A5,#E9825F);display:block;'}
+      ].map(p=>({label:p.label,meta:p.meta,action:p.action,icon:p.icon,
+        btn:'min-height:36px;padding:0 14px;border-radius:11px;font:600 12.5px Montserrat,sans-serif;cursor:pointer;'+(p.linked?'border:0;background:rgba(205,231,157,.4);color:#5C7434;':'border:1px solid rgba(201,95,134,.35);background:rgba(255,255,255,.8);color:#C95F86;'),
+        onClick:p.linked?()=>this.toast('Unlinking is out of scope for v1 (#7)'):()=>this.setState({linkConfirm:p.label})})),
+      linkConfirm:S.linkConfirm, cancelLink:()=>this.setState({linkConfirm:null}),
+      confirmLink:()=>{ this.setState({linkConfirm:null,linkedGoogle:true}); this.toast('Google linked. You can log in either way.'); },
       showFab:isCal&&!S.sheet&&!S.modal,
       tabs:[tab('Home',S.screen==='home',()=>this.go({screen:'home',railKey:'home_d',card:'D',nudge:'period',glance:true,mealSetup:true,offline:false})),
             tab('Calendar',isCal,()=>this.go({screen:'cal',railKey:'cal',sheet:null})),
-            tab('Eva Chat',false,()=>this.toast('Eva Chat is out of scope for this prototype.')),
-            tab('Learn',false,()=>this.toast('Learn is out of scope for this prototype.')),
+            tab('Eva Chat',false,()=>this.toast('Eva Chat is not drawn yet — it is v1 (A1, A5); its own design phase follows the Dashboard.')),
+            tab('Learn',false,()=>this.toast('Learn is not drawn yet — it is v1 (A1); its own design phase follows the Dashboard.')),
             tab('Profile',['settings','editProfile','pregMode','notifications','privacy'].indexOf(S.screen)>-1,()=>this.go({screen:'settings',railKey:'settings'}))],
-      modes:['Cycle','Planning','Pregnancy','Postpartum'].map(modeChip),
       monthPickerOpen:S.monthPickerOpen,
       toggleMonthPicker:()=>this.setState({monthPickerOpen:!S.monthPickerOpen}),
       monthChips:months.map((m,i)=>({label:m,onClick:()=>this.setState({monthPickerOpen:false}),
@@ -1199,7 +1584,15 @@ class Component extends DCLogic {
       toastMsg:S.toast, toastAction:S.toastAction,
 
       anySheet:!!S.sheet, closeSheet:()=>this.go({sheet:null}),
-      isDaySheet:S.sheet==='day', isPickerSheet:S.sheet==='picker', isBodySheet:S.sheet==='body',
+      isDaySheet:S.sheet==='day', isPickerSheet:S.sheet==='picker', isBodySheet:S.sheet==='body', isSexSheet:S.sheet==='sex', isTestSheet:S.sheet==='test',
+      toggleSexDetails:()=>this.setState({sexDetailsOpen:!S.sexDetailsOpen}), sexDetailsOpen:S.sexDetailsOpen, sexCaret:S.sexDetailsOpen?'⌃':'⌄',
+      sexProtection:['Protected','Unprotected','Other'].map(o=>({label:o,onClick:()=>this.setState({sexProt:S.sexProt===o?null:o}),style:chip(S.sexProt===o?1:0)})),
+      sexType:['Solo','Partnered'].map(o=>({label:o,onClick:()=>this.setState({sexKind:S.sexKind===o?null:o}),style:chip(S.sexKind===o?1:0)})),
+      saveSex:()=>{ this.go({sheet:'day'}); this.toast('Sex logged for 12 August', ()=>this.setState({toast:null,toastAction:null})); },
+      saveTest:()=>{ this.go({sheet:'day'}); this.toast('Positive test marked · 12 August', ()=>this.setState({toast:null,toastAction:null})); },
+      valuePicker:(S.valueFor&&CHIP_VALUES[S.valueFor])?{title:CHIP_VALUES[S.valueFor].title,opts:CHIP_VALUES[S.valueFor].opts.map(o=>({label:o,
+        onClick:()=>{const cv=Object.assign({},S.chipValues);cv[S.valueFor]=o;this.setState({chipValues:cv});},
+        style:chip(S.chipValues[S.valueFor]===o?1:0)+'min-height:38px;padding:0 12px;font-size:12.5px;'}))}:null,
       isSportSheet:S.sheet==='sport', isCycleSheet:S.sheet==='cycle', isDoctorSheet:S.sheet==='doctor',
       isFlowModal:S.modal==='flow', isDeleteModal:S.modal==='delete',
       closeModal:()=>this.setState({modal:null}),
@@ -1208,24 +1601,27 @@ class Component extends DCLogic {
       dayIsEmpty:S.entries.length===0,
       dayEntries:S.entries.map(e=>({
         t:e.t, type:e.type, sum:e.sum,
-        mark:'width:8px;height:8px;display:block;'+(e.type==='Body signals'?'border-radius:2px;background:#C95F86;':e.type==='Doctor appointment'?'border-radius:3px;border:1.5px solid #4A6480;':'background:#7A9B45;transform:rotate(45deg);'),
-        onEdit:()=>this.go({sheet:e.type==='Body signals'?'body':e.type==='Doctor appointment'?'doctor':'sport'}),
+        mark:'width:8px;height:8px;display:block;'+(e.type==='Body signals'?'border-radius:2px;background:#C95F86;':e.type==='Doctor appointment'?'border-radius:3px;border:1.5px solid #4A6480;':e.type==='Menstrual cycle'?'border-radius:50%;background:rgba(201,95,134,.42);border:1px solid #C95F86;':'background:#7A9B45;transform:rotate(45deg);'),
+        canEndPeriod:e.type==='Menstrual cycle',
+        onEndPeriod:()=>this.toast('Period end marked · 12 August', ()=>this.setState({toast:null,toastAction:null})),
+        onEdit:()=>this.go({sheet:e.type==='Body signals'?'body':e.type==='Doctor appointment'?'doctor':e.type==='Menstrual cycle'?'cycle':'sport'}),
         onDelete:()=>{ const rest=S.entries.filter(x=>x.id!==e.id); const prev=S.entries;
           this.setState({entries:rest}); this.toast(e.type+' deleted', ()=>{ this.setState({entries:prev,toast:null,toastAction:null}); }); }
       })),
 
       eventTypes:[
-        {label:'Menstrual cycle',hint:'Spotting to heavy flow',key:'cycle'},
-        {label:'Sex',hint:'Private · neutral indicator',key:null},
+        {label:'Menstrual cycle',hint:'Spotting marker, or light to heavy flow',key:'cycle'},
+        {label:'Sex',hint:'Private · neutral indicator',key:'sex'},
         {label:'Body signals',hint:'Energy, mood, sleep, symptoms',key:'body'},
         {label:'Sport',hint:'Activity, duration, intensity',key:'sport'},
-        {label:'Doctor appointment',hint:'Type, notes, reminder',key:'doctor'}
+        {label:'Doctor appointment',hint:'Type, notes, reminder',key:'doctor'},
+        {label:'Positive test',hint:'Marks the day · does not change your mode',key:'test'}
       ].map((e,i)=>({label:e.label,hint:e.hint,
-        icon:'flex:none;width:42px;height:42px;border-radius:14px;display:block;background:'+['rgba(233,130,165,.22)','rgba(40,33,38,.07)','rgba(201,95,134,.16)','rgba(205,231,157,.4)','rgba(90,123,160,.16)'][i]+';border:1px solid rgba(255,255,255,.8);',
-        onClick:e.key?()=>this.go({sheet:e.key,railKey:e.key}):()=>this.toast('Sex logged for 12 August', ()=>this.setState({toast:null,toastAction:null}))})),
+        icon:'flex:none;width:42px;height:42px;border-radius:14px;display:block;background:'+['rgba(233,130,165,.22)','rgba(40,33,38,.07)','rgba(201,95,134,.16)','rgba(205,231,157,.4)','rgba(90,123,160,.16)','rgba(249,220,230,.7)'][i]+';border:1px solid rgba(255,255,255,.8);',
+        onClick:()=>this.go({sheet:e.key,railKey:e.key})})),
 
       scales:[
-        {label:'Energy',key:'energy',low:'Depleted',high:'Energised',emoji:['\uD83D\uDE34','\uD83E\uDD71','\uD83D\uDE10','\uD83D\uDE42','\u26A1'],words:['Depleted','Low','Steady','Good','High']},
+        {label:'Energy',key:'energy',low:'Depleted',high:'Energized',emoji:['\uD83D\uDE34','\uD83E\uDD71','\uD83D\uDE10','\uD83D\uDE42','\u26A1'],words:['Depleted','Low','Steady','Good','High']},
         {label:'Mood',key:'mood',low:'Low',high:'Bright',emoji:['\uD83D\uDE22','\uD83D\uDE15','\uD83D\uDE10','\uD83D\uDE42','\uD83D\uDE04'],words:['Low','Down','Neutral','Good','Bright']},
         {label:'Sleep',key:'sleep',low:'Restless',high:'Deep',emoji:['\uD83D\uDE29','\uD83D\uDE2A','\uD83D\uDE36','\uD83D\uDE0C','\uD83D\uDCA4'],words:['Barely slept','Restless','Broken','Solid','Deep']}
       ].map(sc=>{
@@ -1270,17 +1666,17 @@ class Component extends DCLogic {
       saveSport:()=>{ if(!S.activity){ this.toast('Pick an activity first'); return; } this.go({sheet:'day'}); this.toast(S.activity+' saved · '+S.dur+' min', ()=>this.setState({toast:null,toastAction:null})); },
 
       flowChosen:!!S.flow,
-      flowOptions:[['Spotting','Barely there'],['Light flow','1–2 changes'],['Medium flow','3–4 changes'],['Heavy flow','5+ changes']].map((f,i)=>({
+      flowOptions:[['Spotting','Marker only · doesn\'t start a period'],['Light flow','1–2 changes'],['Medium flow','3–4 changes'],['Heavy flow','5+ changes']].map((f,i)=>({
         label:f[0],hint:f[1],selected:S.flow===f[0],
         onClick:()=>{ if(S.flow && S.flow!==f[0]) this.setState({modal:'flow',pendingFlow:f[0]}); else this.setState({flow:f[0]}); },
         style:'min-height:58px;display:flex;align-items:center;gap:12px;padding:0 16px;border-radius:18px;cursor:pointer;background:'+(S.flow===f[0]?'rgba(233,130,165,.16)':'rgba(255,255,255,.7)')+';border:1px solid '+(S.flow===f[0]?'rgba(201,95,134,.5)':'rgba(255,255,255,.9)')+';',
-        swatch:'flex:none;width:22px;height:22px;border-radius:8px;display:block;background:rgba(201,95,134,'+[0.12,0.24,0.36,0.5][i]+');border:1px solid rgba(201,95,134,.35);'})),
-      cycleChips:['Cramps','Bloating','Back pain','Headache','Low energy','Cravings'].map(c=>({label:c,onClick:()=>this.tapChip(c),style:chip(S.chips[c]||0)})),
+        swatch:i===0?'flex:none;width:22px;height:22px;border-radius:50%;display:block;background:transparent;border:1.5px dashed rgba(201,95,134,.6);':'flex:none;width:22px;height:22px;border-radius:8px;display:block;background:rgba(201,95,134,'+[0.12,0.24,0.36,0.5][i]+');border:1px solid rgba(201,95,134,.35);'})),
+      cycleChips:['Cramps','Bloating','Back pain','Headache','Cravings'].map(c=>({label:c,onClick:()=>this.tapChip(c),style:chip(S.chips[c]||0)})),
       saveCycle:()=>{ this.go({sheet:'day'}); this.toast(S.flow+' saved to 12 August', ()=>this.setState({toast:null,toastAction:null})); },
       cancelFlow:()=>this.setState({modal:null,pendingFlow:null}),
       confirmFlow:()=>this.setState({flow:S.pendingFlow,modal:null,pendingFlow:null}),
 
-      apptTypes:['Scan','Midwife','GP','Gynaecologist','Obstetrician','Blood test','Other'].map(t=>({label:t,onClick:()=>this.setState({apptType:t}),style:chip(S.apptType===t?1:0)})),
+      apptTypes:['Scan','Primary care','Gynecologist','Obstetrician','Midwife','Blood test','Glucose test','Other'].map(t=>({label:t,onClick:()=>this.setState({apptType:t}),style:chip(S.apptType===t?1:0)})),
       toggleRemind:()=>this.setState({remind:!S.remind}),
       remindTrack:track(S.remind), remindKnob:knob(S.remind),
       questions:Object.keys(S.questions).map(q=>({label:q,tick:S.questions[q]?'✓':'',
@@ -1315,7 +1711,7 @@ class Component extends DCLogic {
           meta:c.meta||'',style:surf,
           aria:'Today. '+(c.kicker?c.kicker+'. ':'')+c.title+'. '+c.line2+(c.line3?' '+c.line3:''),
           actions:c.actions.map((label,i)=>({label,
-            onClick:i===0&&/Log/.test(label)?()=>this.go({screen:'cal',railKey:'picker',sheet:'picker'}):(/Calendar|cycle|window|pattern/i.test(label)?()=>this.go({screen:'cal',railKey:'cal'}):()=>this.toast('Opens the related detail screen')),
+            onClick:i===0&&/Log/.test(label)?()=>this.go({screen:'cal',railKey:'picker',sheet:'picker'}):(/Calendar/.test(label)?()=>this.go({screen:'cal',railKey:'cal'}):(/cycle|window|pattern/i.test(label)?()=>this.go({screen:'cycleHistory',railKey:'cycleHistory'}):(/contact/i.test(label)?()=>this.go({screen:'contactOptions',railKey:'contactOptions'}):(/support/i.test(label)?()=>this.go({screen:'supportResources',railKey:'supportResources'}):(/logged|log$/i.test(label)?()=>this.go({screen:'cal',railKey:'day',sheet:'day'}):()=>this.toast('Opens the related detail screen')))))),
             style:i===0
               ?'min-height:46px;padding:0 18px;border-radius:15px;border:0;background:'+(tone==='flag'?'#B5822E':'linear-gradient(180deg,#EE93B1,#C95F86)')+';color:#fff;font:600 13.5px Montserrat,sans-serif;cursor:pointer;box-shadow:0 10px 22px -12px rgba(150,72,100,.8);'
               :'min-height:46px;padding:0 18px;border-radius:15px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.8);color:#282126;font:600 13.5px Montserrat,sans-serif;cursor:pointer;'}))};
@@ -1368,40 +1764,47 @@ class Component extends DCLogic {
       settingsSections:[
         {title:'Personal profile', rows:[
           {label:'Personal information',meta:'Name, date of birth, contact'},
-          {label:'Body measurements',meta:'Age, height, weight',value:'Set'},
-          {label:'Goals',value:'3 active'},
-          {label:'Lifestyle',meta:'Sleep, work pattern, stress'},
+          {label:'Body measurements',meta:'Date of birth, height, weight',value:'Set'},
+          {label:'Goals & lifestyle',value:'3 active'},
+          {label:'Activity',meta:'Mostly sitting · Lightly active · Active · Very active',value:'Active'},
           {label:'Preferred sports',value:'4'},
           {label:'Health information',meta:'Conditions and history'},
-          {label:'Medications affecting hormones',meta:'Kept private'}]},
+          {label:'Hormonal medications',meta:'Kept private'}]},
         {title:'Eva experience', rows:[
-          {label:'Pregnancy Mode',meta:'Changes tracking and content',value:'Off',go:'pregMode'},
-          {label:'Language',value:'English (UK)'},
-          {label:'Units',value:'Metric'},
-          {label:'Personalisation',meta:'How Eva adapts to your logs'},
+          {label:'Pregnancy Mode',meta:'The only place to turn it on or off',value:'Off',go:'pregMode'},
+          {label:'Language',value:'English'},
+          {label:'Units',meta:'Follows your region by default',value:'Imperial'},
+          {label:'Personalization',meta:'How Eva adapts to your logs'},
           {label:'Content preferences',meta:'Topics you want to see'}]},
         {title:'Notifications', rows:[
           {label:'Notification settings',meta:'Reminders, check-ins, content',value:'On',go:'notifications'}]},
+        {title:'Subscription', rows:[
+          {label:'Manage subscription',meta:'Opens App Store subscription settings',value:'Yearly · trial'},
+          {label:'Restore purchases'}]},
         {title:'Privacy and security', rows:[
           {label:'Privacy & security',meta:'App lock, biometrics, data export',go:'privacy'},
           {label:'Change password'},
-          {label:'Manage connected accounts',value:'Apple'},
+          {label:'Manage connected accounts',value:'Email · Apple',go:'linked'},
           {label:'Data export',meta:'Download everything you logged'}]},
         {title:'Support', rows:[
-          {label:'Help centre'},{label:'Contact support'},{label:'Report a problem'},
+          {label:'Help center'},{label:'Contact support'},{label:'Report a problem'},
           {label:'Medical and emergency information',meta:'When to contact a provider'},
           {label:'About Eva',value:'2.4.1'}]}
       ].map(s=>({title:s.title,rows:s.rows.map(r=>({label:r.label,meta:r.meta||'',value:r.value||'',
-        onClick:r.go?()=>this.go({screen:r.go,railKey:r.go==='pregMode'?'pregMode':r.go}):()=>this.toast('Detail screen out of scope')}))})),
+        onClick:r.go?()=>this.go({screen:r.go,railKey:r.go}):()=>this.toast('Detail screen not drawn yet')}))})),
 
       discloseSections:[
         {key:'goals',title:'Goals & lifestyle',meta:'3 selected · tap to change',
          chips:['Steady energy','Better sleep','Understand my cycle','Build strength','Manage stress','Conceive within a year']},
         {key:'health',title:'Health information',meta:'Optional · always private',
-         chips:['PCOS','Endometriosis','Thyroid condition','Anaemia','None of these'],
+         chips:['PCOS','Endometriosis','Thyroid condition','Anemia','Diabetes','Celiac disease','Food allergies','None of these'],
          note:'Eva uses this to phrase what it shows you — it never diagnoses and never shares this with anyone.'},
         {key:'meds',title:'Hormonal medications',meta:'Affects predictions',
-         chips:['Combined pill','Progestogen-only pill','Hormonal IUD','Implant','HRT','None']}
+         chips:['Combined pill','Progestogen-only pill','Hormonal IUD','Implant','HRT','None']},
+        {key:'activity',title:'Activity',meta:'One of four · the nutrition coach reads this',
+         chips:['Mostly sitting','Lightly active','Active','Very active']},
+        {key:'sports',title:'Preferred sports',meta:'4 selected',
+         chips:['Strength','Running','Yoga','Pilates','Cycling','Swimming','Dancing','Walking']}
       ].map(d=>({title:d.title,meta:d.meta,note:d.note||'',open:!!S['open_'+d.key],caret:S['open_'+d.key]?'⌃':'⌄',
         onClick:()=>this.setState({['open_'+d.key]:!S['open_'+d.key]}),
         chips:d.chips.map(c=>({label:c,onClick:()=>this.tapChip(c),style:chip((S.chips[c]||0)?1:0)}))})),
@@ -1437,8 +1840,9 @@ class Component extends DCLogic {
       ].map(p=>({label:p.label,desc:p.desc,track:track(p.on),knob:knob(p.on),onClick:p.f})),
       privacyRows:[
         {label:'Change password',value:''},
-        {label:'Manage connected accounts',value:'Apple'},
+        {label:'Manage connected accounts',value:'Email · Apple'},
         {label:'Data export',value:'JSON, CSV'},
+        {label:'Requests for your data',value:'Policy'},
         {label:'Privacy settings',value:''}
       ]
     };
