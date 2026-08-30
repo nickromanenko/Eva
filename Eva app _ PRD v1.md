@@ -114,14 +114,19 @@ There is no external counsel and no retained clinician (decision A24, 2026-08-30
 
 Recorded where they apply, each with its source: cycle definition and irregularity (A25, §Predictions in Cycle mode), the prediction method (A26), the fertile window in Cycle mode (A27), qualitative-only nutrition in pregnancy and postpartum (A28, §Cycle phase adjustment), the weight-target floor (A29, §Step 5), the nutrition constants (A30, §Daily targets calculation), disordered eating as self-declared only (A31, §Nutrition Other requirements), and the Dashboard's pattern rule (A32, §Priority ladder). Sources are listed with each; a value that is a product choice rather than a finding says so.
 
+### Decided later on 2026-08-30 (fifth round)
+
+1. The meal score is called **"Meal fit"** (A33; §Nutrition score).  
+2. Analytics: **first-party aggregate counts only, no third-party SDK** — event type, never payload, never a stable user id; no analytics or crash SDK that uploads breadcrumbs; crash reports through Apple's opt-in only (A34). A guardrail, not a preference.  
+3. Availability target **99.5% a month, RPO 24 hours, RTO 4 hours**, a public status page, a quarterly restore drill; stated in the terms as a target (A35).  
+4. Prices: **$9.99 a month, $59.99 a year**, 7-day trial on both, set in App Store Connect (A36).
+
 ### Open
 
-Undecided as of 2026-08-30 (after four rounds):
+Undecided as of 2026-08-30 (after five rounds):
 
-1. The legal texts themselves — privacy policy, consumer-health-data policy, terms, subscription terms, the request policy (A19) — now written by the product owner (A24)  
-2. Non-functional requirements — availability, latency, backup restore drills, session length, account security, accessibility target  
-3. Analytics constraints on health data  
-4. Exact prices per tier
+1. The legal texts — privacy policy, consumer-health-data policy, terms, subscription terms, the request policy (A19) — written by the product owner (A24)  
+2. The per-country tables (emergency numbers, support lines) and the pregnancy-phase content (appointment templates, folic-acid screen)
 
 ## Requirements
 
@@ -860,6 +865,7 @@ Presentation rules:
 > canvas are both placeholders, and a name that reads as a grade is the thing being
 > avoided. It ships only after the clinical sign-off in #26 has landed, not alongside it.
 > The composition and requirements below are not addressed by that decision.
+> **Name decided 2026-08-30 (A33): "Meal fit".**
 
 A 0–100 score shown per scanned meal, composed of four parts:
 

@@ -372,7 +372,19 @@ Each value carries its source; where a value is a product choice rather than a f
 | A31 | Disordered eating | **Self-declared only.** One optional question in Profile; yes → qualitative mode, weight goals off, reversible only in Settings. **No detection in chat.** Chat refuses to help set extreme targets and points to resources when asked. | Supersedes PRD §Nutrition Other requirements 7's "detected in chat"; consistent with §Nutrition Other requirements 5 ("does not diagnose"). |
 | A32 | Dashboard rung 2 — "a pattern worth naming" | **Three consecutive logged days** with mood ≤ 2, energy ≤ 2 or sleep ≤ 2 of 5, or the same symptom marked severe on three consecutive days. The card names the pattern and points outward, never a cause. | A product heuristic, stated as one; not a clinical instrument. The canvas' `home_h` copy is the shape. |
 
-### Still open after four rounds
+### Fifth round, same day
+
+| # | Decision | Answer | Triggers |
+|---|---|---|---|
+| A33 | Meal score name | **"Meal fit"** — card label "Meal fit 78". | Closes #25 Q1; canvas placeholder replaced (PR #108 branch). Ships only after the score's composition is reviewed under A24. |
+| A34 | Analytics | **First-party counts only, no third-party SDK.** The API records aggregate event counts (type only, never payload, daily-rotating id); no Firebase Analytics, no Mixpanel, no crash SDK with breadcrumbs; crash reports via Apple's opt-in only. | GUARDRAILS rule via #93; PRD Product frame. |
+| A35 | Availability | **99.5% monthly, RPO 24 h, RTO 4 h, public status page**; restore drilled quarterly; stated in the terms as a target. | ARCHITECTURE §7; #89 (backups) gains the drill; terms text. |
+| A36 | Prices | **$9.99 / month · $59.99 / year**, 7-day trial on both; set in App Store Connect. | Paywall placeholders replaced; #88. |
+
+### Still open after five rounds
+
+P5 legal document texts · the per-country tables · the pregnancy-phase content — all product-owner-written under A24. No decision-shaped item remains.
+
 
 P5 legal document texts · P6 non-functional requirements · P8 analytics constraints · exact prices · the per-country tables (emergency numbers, support lines) · the pregnancy-phase content (appointment templates, folic-acid screen copy) — all product-owner-written under A24.
 
