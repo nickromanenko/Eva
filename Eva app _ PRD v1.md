@@ -60,7 +60,7 @@ Decisions recorded on 2026-08-30 in `docs/reviews/2026-08-30-prd-and-design-revi
 
 ### Monetisation
 
-1. Paid subscription with a trial (A14), sold through StoreKit. The canvas gains a subscription / paywall screen and Settings gains a "Manage subscription" row (§Settings). Privacy policy and terms must cover billing.  
+1. Paid subscription with a trial (A14): everything is behind the one subscription once the trial ends. Sold through StoreKit. The canvas gains a subscription / paywall screen and Settings gains a "Manage subscription" row (§Settings). Privacy policy and terms must cover billing.  
 2. Open: trial length, price, and whether entitlement is checked client-side (StoreKit 2 receipts) or server-side (App Store Server API) — see Open below.
 
 ### Platform
@@ -77,7 +77,7 @@ Decisions recorded on 2026-08-30 in `docs/reviews/2026-08-30-prd-and-design-revi
 ### Navigation
 
 1. Five tabs (A4): Home · Calendar · Eva Chat · Learn · Profile.  
-2. The Nutrition coach, Personal trainer and Mental well-being coach are reached from Dashboard shortcuts, never from a tab (#25 Q3).
+2. The Nutrition coach, Personal trainer and Mental well-being coach are reached from Dashboard shortcuts, never from a tab (A4; for the Nutrition coach also #25 Q3).
 
 ### Push notifications
 
@@ -257,7 +257,8 @@ The picker displays only the events available in the current mode:
 
 > **Superseded in part (2026-08-30, issue #23).** Option 1 below: spotting is a separate
 > marker, not a flow level. A spotting day does not start a period. What "cycle day N"
-> means across spotting days is not yet defined (see §Predictions in Cycle mode).
+> means across spotting days is not yet defined; it belongs with the prediction
+> constants routed to #26 (§Predictions in Cycle mode).
 
 Options:
 
@@ -809,7 +810,7 @@ Presentation rules:
 > non-judgmental name that is not yet chosen — "Nutrition score" here and "Fit" on the
 > canvas are both placeholders, and a name that reads as a grade is the thing being
 > avoided. It ships only after the clinical sign-off in #26 has landed, not alongside it.
-> The composition and requirements below are unchanged by that decision.
+> The composition and requirements below are not addressed by that decision.
 
 A 0–100 score shown per scanned meal, composed of four parts:
 
@@ -1027,7 +1028,7 @@ Decided 2026-08-30 (review §8 A5). Eva Chat is the feature the product is named
 3. It answers questions about nutrition, training, well-being and planning.  
 4. It may create or edit calendar entries. Every entry it creates is marked `source: eva` so it can be identified and reverted (§Calendar, Other requirements).  
 5. It helps phrase or expand a question for a doctor (§Doctor appointment, Questions list).  
-6. Answers reference Blog articles where one exists, so the scientific basis is visible.
+6. Within the nutrition scope, answers reference Blog articles where one exists (§Nutrition coach, Chat). Whether that rule extends to every domain is not decided.
 
 #### What it does not do
 
@@ -1045,11 +1046,11 @@ Not yet specified — needs a /explore
 
 ### Blog
 
-Reached from the Learn tab (§Product frame, Navigation), from Dashboard banners, from Eva Chat answers and from the Nutrition coach's post-scan notes.
+Reached from the Learn tab (§Product frame, Navigation), from Dashboard banners and from Eva Chat answers.
 
 Constraints already binding:
 
-1. Content is the transparent scientific basis for recommendations (feature list). Where a card, note or answer cites an article, the article must exist.  
+1. Content is the transparent scientific basis for recommendations (feature list). Cards, banners and chat answers reference an article where one exists (§Dashboard, Banner area; §Nutrition coach, Chat).  
 2. All medical content requires clinician sign-off and a documented review cycle (§Calendar, Other requirements); nutrition content requires a registered dietitian's (§Nutrition coach, Other requirements).
 
 Content model, CMS, in-app reader versus web, video, search, and how articles are linked from cards, notes and chat: Not yet specified — needs a /explore
@@ -1072,7 +1073,7 @@ Reached from a Dashboard shortcut, never a tab (§Product frame, Navigation). In
 Constraints already binding:
 
 1. §Dashboard, Tone and framing rules, rule 2: "The app must not tell a woman what she is capable of on a given day."  
-2. Any screening it runs is bound by the Postpartum mood-screening requirement (§Phase 3 \- Postpartum, Mood screening): if the Edinburgh Postnatal Depression Scale is implemented, item 10 covers self-harm and requires a defined escalation path, not only a score. The same applies to any other screening instrument.  
+2. If it implements the Edinburgh Postnatal Depression Scale, §Phase 3 \- Postpartum, Mood screening applies: item 10 covers self-harm and requires a defined escalation path, not only a score. Whether any other screening instrument is used, and its escalation path, is not decided.  
 3. All medical content requires clinician sign-off and a documented review cycle (§Calendar, Other requirements).
 
 Not yet specified — needs a /explore
@@ -1150,8 +1151,8 @@ Account-lifecycle rules that until now lived only in `docs/ARCHITECTURE.md` and 
 
 #### Deletion
 
-> **Superseded question (2026-08-30; issue #8, `docs/ARCHITECTURE.md` §4).** #8 asked
-> whether deletion is immediate or has a grace period. It is immediate and complete:
+> **Decided (2026-08-30; issue #8, `docs/ARCHITECTURE.md` §4).** This document had no rule
+> on deletion timing. Deletion is immediate and complete:
 > `DELETE /me` removes the Auth user, the user document and every calendar entry —
 > including soft-deleted entries still inside their 30-day window. There is no recovery
 > window and no undo. The confirmation follows the destructive pattern in
