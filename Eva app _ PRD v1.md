@@ -48,10 +48,21 @@ Decisions recorded on 2026-08-30 in `docs/reviews/2026-08-30-prd-and-design-revi
 
 ### Markets and language
 
+> **Superseded (2026-08-30, decision A16 — same day, later in the day).** A2 chose the EU
+> and the UK. A16 replaces it: launch in the **US and worldwide**, English only, no
+> localisation in v1. The consequences are worked through in `docs/LAUNCH.md`. Items 1
+> and 4 below are A2's and no longer hold; items 2 and 3 stand.
+
 1. Launch markets are the EU and the UK (A2).  
 2. English only at launch. Localisation is planned, not v1. The Language row in Settings lists English until that changes; copy is reviewed for cultural and language variants, never machine-translated (§Dashboard, Tone and framing rules).  
 3. Units: metric by default, imperial as a setting.  
 4. What follows from the markets: #26 assesses regulation under GDPR, EU MDR and UK MHRA; the food database must cover the EU and the UK (#25); the appointment timeline template (§Phase 2 \- Pregnancy, Appointment schedule) and emergency guidance (§Calendar, Other requirements) are per country.
+
+Under A16:
+
+5. Launch markets are the United States and every App Store storefront Eva is not excluded from; the exclusion list is a decision recorded in `docs/LAUNCH.md`.  
+6. Units default from the device locale (imperial for a US locale), with the setting in item 3.  
+7. What follows from the markets: #26 assesses regulation under the FDA general wellness policy, the FTC's Health Breach Notification Rule and US state consumer-health-data laws **as well as** GDPR, EU MDR and UK MHRA; the food database must cover the US and have worldwide barcode coverage (#25); the appointment timeline template exists only for countries whose content has been reviewed, with no template elsewhere; emergency guidance is per country with a neutral fallback. Which English variant the copy uses is open (`docs/LAUNCH.md`).
 
 ### Age
 

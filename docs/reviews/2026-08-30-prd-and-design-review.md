@@ -339,6 +339,8 @@ triggers, so the write-backs (§6.2–6.4) can be done from this table alone.
 | A14 | Monetisation | **Paid subscription with a trial.** | New PRD section: StoreKit subscription, trial length and gating rule (one entitlement check at launch), a subscription/paywall screen and a "Manage subscription" Settings row for the canvas (new G-item), entitlement state on `users/{uid}` or verified server-side from App Store Server API — an API design question. Privacy/terms must cover billing. |
 | A15 | HealthKit | **Not in v1; the PRD says so.** | No entitlement, no import. Revisit after Calendar logging ships. |
 
+| A16 | Markets, revisited | **US + worldwide, English only, no localisation in v1.** Supersedes A2 (same day). | `docs/LAUNCH.md` works through what has to be true: FDA general-wellness scope, FTC HBNR and state consumer-health-data laws alongside GDPR/UK; worldwide barcode coverage for the food DB; locale-driven units; per-country emergency guidance with a neutral fallback; appointment templates only where reviewed; App Store storefront exclusions; English variant open. |
+
 ### Still open after both rounds
 
 P5 legal/consent flow · P6 non-functional requirements · P8 analytics constraints ·
