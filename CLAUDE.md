@@ -10,6 +10,7 @@ emotional state, habits and goals. iOS app + API + landing site.
 - [docs/GUARDRAILS.md](docs/GUARDRAILS.md) — hard rules; violating one fails review
 - [docs/AUTONOMY.md](docs/AUTONOMY.md) — which decisions need a human
 - [Eva app _ PRD v1.md](<Eva app _ PRD v1.md>) — product requirements
+- [docs/LAUNCH.md](docs/LAUNCH.md) — what a US + worldwide launch requires; the decisions it still needs
 
 ## Layout
 
