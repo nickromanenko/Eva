@@ -23,9 +23,9 @@ Eva helps women care for their physical and mental health, plan activity and rec
 
 | Feature | Description |
 | ----- | ----- |
-| Onboarding | 1-2 screens that describe the idea of the app. Ideally, 1 screen with science facts (2-5 bullets of pain) and 1 screen about our solution |
-| Sign Up | Apple ID Google account Email \+ password Age Weight and height Questionary: What do you want to improve? (multiple choices) Do you have any diseases? What is your lifestyle? What sports do you prefer? Do you take any medications that affect your hormones? |
-| Dashboard | The dashboard has to contain: Shortcuts to main features (action buttons) Banner area with tips and interesting facts (by clicking the user is redirected to blog article / youtube video related to it) Chat area |
+| Onboarding | Superseded (2026-08-23, #3): there are no info screens. Authentication is one screen — Apple, Google, or email and password inline — see §Onboarding and §Sign Up. |
+| Sign Up | Three ways to create an account: Apple ID, Google account, email \+ password (#3). The questionnaire is not part of sign-up; its fields live in Profile (#19) — what it collects is listed under §Sign Up. |
+| Dashboard | The dashboard has to contain: Shortcuts to main features (action buttons) Banner area with tips and interesting facts (by clicking the user is redirected to blog article / youtube video related to it) Chat shortcut (Eva Chat has its own tab — see §Eva Chat) |
 | Calendar | The calendar provides next options: Cycle tracking Sex life tracking Body signals tracking Training tracking Doctor appointments Pregnancy mode (planning, pregnancy, postpartum) |
 | Nutrition adviser | A woman can specify her nutritional goals, food preferences, and deficiencies. The coach will advise on the calorie requirements for the expected activity level and cycle phase. |
 | Personal trainer | Based on your desired training frequency and goals, the app creates a training program and explains the basic principles and differences of training for women. |
@@ -51,6 +51,12 @@ Eva helps women care for their physical and mental health, plan activity and rec
 > The questionnaire below is **not** part of sign-up: the canvas places these fields in
 > Profile instead. Until a Profile screen exists it still runs as a post-auth step, so the
 > requirements below remain accurate about *what* is collected, not *when*.
+>
+> **Superseded further (2026-08-30, issue #19).** The questionnaire moves to Profile as
+> individually editable rows and the post-auth gate is removed; an incomplete profile is
+> asked for once, through a dismissible nudge in the Dashboard's nudge slot, whose
+> dismissal is stored server-side on `users/{uid}` so it survives reinstall and a second
+> device.
 
 The system has to provide 3 options to create account:
 
@@ -68,6 +74,16 @@ The system has to provide 3 options to create account:
 6. After account creation by email & password the user receives email with activation link.
 
 #### Edge case
+
+> **Superseded by issue #7 (2026-08-30).** Identity is the provider's `sub` and only
+> `sub`; the email address is never used to match accounts. A provider sign-in with an
+> unseen `sub` creates a new account even when the address matches an existing one.
+> Attaching a second provider to an existing account is a deliberate action the user
+> takes from Profile while signed in to the account she wants to keep (see §Settings,
+> Manage connected accounts). The cost, stated in #7 so nobody is surprised by it: a user
+> with an email/password account who taps Sign in with Apple or Google gets a second
+> account until she links them. Auto-linking on a self-asserted address is an
+> account-takeover shape, and would not work for Hide My Email relay addresses anyway.
 
 1. If the user who has created an account with email\&password try to sign up with a Google account \- do not create a new one, proceed as log in to the existing profile.
 
@@ -98,6 +114,11 @@ The calendar operates in one of four modes. Cycle is the default; the other thre
 The mode determines which events are offered and which predictions are shown. The calendar view, day cells, day detail and logging rules are identical in every mode.
 
 #### View
+
+> **Superseded in part (2026-08-30; settled in Calendar C1, issue #23, and recorded in
+> `docs/ARCHITECTURE.md` §4).** Item 4 below: future dates accept **appointments only**.
+> Any other event type on a future date is refused by the API with
+> `FUTURE_DATE_NOT_ALLOWED`. Predictions on future dates are unchanged.
 
 1. Month grid, current month, today highlighted  
 2. Swipe left/right between months; tap header to jump to month/year picker  
@@ -161,6 +182,10 @@ The picker displays only the events available in the current mode:
 
 ##### Menstrual cycle
 
+> **Superseded in part (2026-08-30, issue #23).** Option 1 below: spotting is a separate
+> marker, not a flow level. A spotting day does not start a period. What "cycle day N"
+> means across spotting days is not yet defined (see §Predictions in Cycle mode).
+
 Options:
 
 1. Spotting  
@@ -200,31 +225,38 @@ Zone 1 — three scales, always visible, 5-point rating with emoji. All three ar
 2. Mood  
 3. Sleep
 
-Zone 2 — optional, multi-select chip grid:
+> **Superseded (2026-08-30, issue #24).** The Zone 2 lists below were rewritten to the
+> shipped vocabulary in `api/scripts/seed-refdata.ts`; the catalogue itself lives in
+> Firestore (Other requirements, item 1), so labels may be edited there while codes are
+> permanent. "Libido changes" is retired: one `libido` chip carries the direction as a
+> low / high value, the way `discharge` carries its type. Discharge keeps its value
+> picker. This also resolves the old "14 chips, maximum 12 visible" contradiction.
 
-1. Bloating  
-2. Cramps  
-3. Headache  
-4. Nausea  
-5. Breast tenderness  
-6. Back pain  
-7. Acne / breakout  
-8. Cravings  
-9. Anxious  
-10. Stressed  
-11. Brain fog  
-12. Poor appetite  
-13. Heavy appetite  
-14. Libido changes
+Zone 2 — optional, multi-select chip grid. Fourteen primary chips, visible at once:
+
+1. Bloating (`bloating`)  
+2. Cramps (`cramps`)  
+3. Headache (`headache`)  
+4. Nausea (`nausea`)  
+5. Breast tenderness (`breast-tenderness`)  
+6. Back pain (`back-pain`)  
+7. Acne / breakout (`acne`)  
+8. Cravings (`cravings`)  
+9. Anxious (`anxious`)  
+10. Stressed (`stressed`)  
+11. Brain fog (`brain-fog`)  
+12. Poor appetite (`poor-appetite`)  
+13. Heavy appetite (`heavy-appetite`)  
+14. Libido (`libido`) — carries a value, low / high
 
 Requirements:
 
-1. Maximum 12 chips visible at once. The remainder sit behind "More…" (dizziness, hot flashes, constipation, loose stool, insomnia, discharge, itching).  
+1. The 14 primary chips are visible at once. Seven more sit behind "More…": Dizziness (`dizziness`), Hot flashes (`hot-flashes`), Constipation (`constipation`), Loose stool (`loose-stool`), Insomnia (`insomnia`), Discharge (`discharge`), Itching (`itching`).  
 2. Chip order adapts: chips logged in the last 7 days float up, then the rest are weighted by cycle phase (luteal surfaces bloating and cravings, menstrual surfaces cramps and back pain).  
 3. A chip logged 3 times is automatically pinned into the visible grid.  
 4. Second tap on Cramps, Headache or Nausea marks it as severe (chip fills darker). No extra screen.  
 5. One Body signals entry per day. Re-opening the sheet loads the existing entry for editing and never creates a second one.  
-6. Discharge is the only chip that keeps a value picker: dry / sticky / creamy / watery / egg-white.
+6. Two chips carry a value, and a value is a category separate from severity: Discharge keeps its value picker — dry / sticky / creamy / watery / egg-white; Libido carries low / high.
 
 The chip vocabulary is swapped by mode. Pregnancy and Postpartum sets are listed in the Pregnancy mode section.
 
@@ -285,6 +317,8 @@ Questions list:
 3. Eva can help phrase or expand a question from the chat.
 
 #### Pregnancy mode
+
+The two sections that follow this one — Edge cases and Other requirements — are calendar-wide, not part of Pregnancy mode; they sit at the same heading level as this section and apply in every mode.
 
 Pregnancy mode is one switch with three phases. The phases advance automatically on the triggering event — the user never selects a phase from a menu.
 
@@ -467,6 +501,11 @@ Mood screening
 
 #### Edge cases
 
+> **Superseded in part (2026-08-30; settled in Calendar C1, issue #23, and recorded in
+> `docs/ARCHITECTURE.md` §4).** Item 2 below: a future date accepts **appointments only**;
+> the API refuses every other type with `FUTURE_DATE_NOT_ALLOWED`. A tapped future day
+> still shows predictions.
+
 1. Backdating is allowed for any past date, capped at 12 months by default.  
 2. Logging on future dates is disabled. Tapping a future date shows predictions only.  
 3. Deleting an entry is a soft delete, recoverable for 30 days.  
@@ -579,6 +618,14 @@ Guardrails, applied before the target is accepted:
 
 ##### **Calories**
 
+> **Superseded in part (2026-08-30, issue #25 Q4).** Item 2 below: the profile stores four
+> activity bands (Mostly sitting, Lightly active, Active, Very active — see §Sign Up), and
+> they map one-to-one onto four factors; "Extremely active" is dropped. Nothing is
+> invented and the questionnaire does not change. The cost, stated in #25 so it is not
+> rediscovered: a genuinely very active user is under-fed by the model — the safer
+> direction to be wrong in a product with this eating-disorder-risk profile, but still
+> wrong, and the reason to revisit if the band ever gains a source.
+
 1. Basal metabolic rate uses Mifflin-St Jeor for women: BMR \= (10 × weight in kg) \+ (6.25 × height in cm) − (5 × age) − 161  
 2. Total daily energy expenditure \= BMR × activity factor:  
    1. Sedentary — 1.2  
@@ -663,6 +710,12 @@ Presentation rules:
 3. The scan can be saved to a meal slot (breakfast, lunch, dinner, snack) or discarded.
 
 #### Nutrition score
+
+> **Superseded in part (2026-08-30, issue #25 Q1).** The score is shown, but under a
+> non-judgmental name that is not yet chosen — "Nutrition score" here and "Fit" on the
+> canvas are both placeholders, and a name that reads as a grade is the thing being
+> avoided. It ships only after the clinical sign-off in #26 has landed, not alongside it.
+> The composition and requirements below are unchanged by that decision.
 
 A 0–100 score shown per scanned meal, composed of four parts:
 
