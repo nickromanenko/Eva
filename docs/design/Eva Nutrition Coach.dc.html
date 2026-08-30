@@ -871,8 +871,9 @@ const RAIL = [
     ['s3','Step 3 · Meal pattern',{screen:'setup',step:3}],
     ['s4','Step 4 · Body metrics',{screen:'setup',step:4}],
     ['s5','Step 5 · Target weight',{screen:'setup',step:5,target:65}],
-    ['sGuard','Unsafe target · guardrail',{screen:'setup',step:5,target:52}],
-    ['sRate','Timeline extended',{screen:'setup',step:5,target:58}],
+    ['sGuard','Unsafe target · BMI floor',{screen:'setup',step:5,target:50}],
+    ['sCap','Per-plan cap · 15%',{screen:'setup',step:5,target:58}],
+    ['sRate','Timeline extended',{screen:'setup',step:5,target:63}],
     ['sPreg','Pregnancy restriction',{screen:'setup',step:0,pregBlock:true}],
     ['sSum','Plan summary',{screen:'setup',step:6}],
     ['sResume','Setup resumed later',{screen:'setup',step:-1}]]},
@@ -914,7 +915,8 @@ const SPEC = {
   s3:['Meal count and snacks are neutral choices; no pattern is presented as healthier.','Times are optional and skippable, used only for spacing and reminders.','Slots are generated from the meal count, so 3 meals + snack yields four rows.'],
   s4:['Age comes from the profile (date of birth) and is never asked twice; units follow the account setting.','Four activity bands, the profile\'s own (#25 Q4, A8): Mostly sitting · Lightly active · Active · Very active. "Extremely active" is dropped; a genuinely very active user is under-fed, which is the safer direction to be wrong.','Logged Calendar workouts can override the declared band later — stated up front.'],
   s5:['Shown only for lose / gain / build-muscle goals; skipped entirely otherwise.','Calories are always framed as approximate.','Rate cap: 0.5 kg per week or 1% of body weight, whichever is lower.'],
-  sGuard:['A target below the supported floor is refused with neutral language and the lowest supported value offered. The floor itself is not set here — it is a sourced decision in #26, and the screen shows a placeholder until then.','No implication of an eating disorder from a single input.','The input stays editable — Eva does not lock the field.'],
+  sGuard:['A target below BMI 18.5 — the WHO underweight threshold (A29) — is refused with neutral language and the lowest supported value offered.',
+  sCap:['A single plan may not target more than 15% below the current weight (A29, a product choice): reach it, then set a new plan. Keeps every plan gradual without ever calling a target wrong.','The input stays editable; the cap is a message and an offered value, not a lock.'],'No implication of an eating disorder from a single input.','The input stays editable — Eva does not lock the field.'],
   sRate:['When the requested pace is too fast, Eva extends the timeline instead of cutting calories.','Calorie floor is the higher of BMR and 1,200 kcal; hitting it also extends the timeline.'],
   sPreg:['Weight-change goals are unavailable in Pregnancy Mode and for the first six postpartum weeks.','The rule is applied without asking for confirmation, and shown once.','The earlier goal is retained but not restored automatically afterwards.'],
   sSum:['Summary states every target plus the cycle-adjustment status before anything is activated.','"How this is calculated" opens a sheet; formulas are never forced on screen.','The dietitian disclaimer appears once here, not on every screen.'],
@@ -977,10 +979,13 @@ class Component extends DCLogic {
     const setupStep=S.step;
     const guard=(()=>{
       if(S.screen!=='setup'||setupStep!==5) return null;
-      if(S.target<=54) return {title:'That target falls below the range Eva can support',
-        body:'A target of '+S.target+' kg is under the floor Eva supports. Lowest supported target: — (pending #26; the floor and its source are the product owner\'s to set).',
-        action:'Use the lowest supported target',onFix:()=>this.toast('Sets the target to the floor once #26 decides it')};
-      if(S.target<=58) return {title:'Eva has extended the timeline',
+      if(S.target<52.2) return {title:'That target falls below the range Eva can support',
+        body:'A target of '+S.target+' kg would put you under BMI 18.5 at 168 cm. Lowest supported target: 52.2 kg (WHO underweight threshold — A29).',
+        action:'Use 52.2 kg',onFix:()=>this.setState({target:52.2,railKey:'sGuard'})};
+      if(S.target<62.1) return {title:'One plan goes down to 62.1 kg',
+        body:'A single plan targets no more than 15% below your current weight (73 kg). Reach 62.1 kg, then set a new plan if you want to — that keeps each plan gradual (A29).',
+        action:'Use 62.1 kg',onFix:()=>this.setState({target:62.1,railKey:'s5'})};
+      if(S.target<=63) return {title:'Eva has extended the timeline',
         body:'Reaching '+S.target+' kg at a gradual pace takes longer than the date you picked. Rate is capped at about 0.5 kg per week, and calories never drop below your BMR.',
         action:'View adjusted timeline',onFix:()=>this.toast('Timeline extended to 28–32 weeks')};
       return null;
@@ -1057,7 +1062,7 @@ class Component extends DCLogic {
       activities:ACTS.map(a=>({label:a[1],desc:a[2],onClick:()=>this.setState({activity:a[0]}),style:card(S.activity===a[0]),radio:radio(S.activity===a[0])})),
       targetValue:S.target+' kg',
       targetInputStyle:'width:100%;height:52px;border-radius:17px;border:1px solid '+(guard?'#C9913F':'rgba(40,33,38,.1)')+';background:rgba(255,255,255,.85);padding:0 15px;font:600 14.5px Montserrat,sans-serif;'+(guard?'box-shadow:0 0 0 3px rgba(201,145,63,.16);':''),
-      targetPresets:[65,62,60].map(t=>({label:t+' kg',onClick:()=>this.setState({target:t}),style:pill(S.target===t)})),
+      targetPresets:[65,63,62.1].map(t=>({label:t+' kg',onClick:()=>this.setState({target:t}),style:pill(S.target===t)})),
       guardrail:guard,
       planRange:'From 73 kg to '+S.target+' kg',
       planTimeline:guard?'Estimated timeline: approximately 28–32 weeks (extended to keep the pace gradual)':'Estimated timeline: approximately 16–20 weeks',
