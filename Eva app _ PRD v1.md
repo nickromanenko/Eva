@@ -104,6 +104,10 @@ Undecided as of 2026-08-30:
 3. Analytics constraints on health data  
 4. Trial length and price  
 5. Whether entitlement is checked client-side or server-side, and how often — the chosen option assumed one check at launch; that is an assumption, not a decision
+6. Which English the copy uses and how clinical roles are named (A17, `docs/LAUNCH.md` §4.1)  
+7. App Store storefront exclusions beyond China and Russia (A18, `docs/LAUNCH.md` §3.4)  
+8. The law-enforcement and third-party request policy for reproductive-health data (A19, `docs/LAUNCH.md` §2.4)  
+9. The consent model — one screen, two separate opt-ins, applied worldwide (A21, `docs/LAUNCH.md` §4.6)
 
 ## Requirements
 
