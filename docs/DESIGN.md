@@ -189,6 +189,15 @@ language *and* in indicators.
 
 This applies to every user-facing string an engineer writes, not just marketing copy.
 
+## 8a. Pending canvas changes (2026-08-30)
+
+The decisions of 2026-08-30 change the canvas and it has not been updated yet — the work
+order is `design/CHANGES-2026-08-30.md`. Two rows of this transcription are known to be
+about to change: §6's five-point scale becomes the emoji cells the App canvas draws, and
+§7's tab bar becomes five tabs (Home · Calendar · Eva Chat · Learn · Profile, A4). Build to
+the work order where it and this document disagree; remove this section when the canvas is
+re-pulled.
+
 ## 9. Drift: implemented vs designed
 
 The onboarding flow in `mobile/Eva/` was built against an earlier direction and does

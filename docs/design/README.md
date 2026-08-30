@@ -20,3 +20,7 @@ These are a snapshot. Re-pull rather than editing them; a session with the `Desi
 tool can refresh them from the project above. If the artboard has moved on, the
 transcription and the code inherit the staleness — say so rather than assuming the
 mirror is current.
+
+**Pending changes.** `CHANGES-2026-08-30.md` is a work order for the next `DesignSync`
+session — the canvas does not yet reflect the 2026-08-30 decisions. Until it is applied and
+the mirrors re-pulled, read the mirrors *with* that file.
