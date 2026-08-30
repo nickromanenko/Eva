@@ -1016,3 +1016,162 @@ These apply to the Today card, banners, nudges and notifications alike.
 4. Clinical content in cards and banners follows the same review requirement as the rest of the product.  
 5. Accessibility: the card is a single readable block, not a set of decorative fragments; the glance row announces values rather than relying on ring shapes.
 
+### Eva Chat
+
+Decided 2026-08-30 (review §8 A5). Eva Chat is the feature the product is named for; it has its own tab (§Product frame, Navigation) and a shortcut on the Dashboard.
+
+#### Scope
+
+1. One assistant across every domain. The Nutrition coach's chat (§Nutrition coach, Chat) is one scope of this assistant, not a separate one; that section's rules apply within it.  
+2. It sees the profile, the current cycle or pregnancy phase, recent calendar logs, recent meals and the user's goals.  
+3. It answers questions about nutrition, training, well-being and planning.  
+4. It may create or edit calendar entries. Every entry it creates is marked `source: eva` so it can be identified and reverted (§Calendar, Other requirements).  
+5. It helps phrase or expand a question for a doctor (§Doctor appointment, Questions list).  
+6. Answers reference Blog articles where one exists, so the scientific basis is visible.
+
+#### What it does not do
+
+1. It does not interpret symptoms. A symptom question is answered by the deterministic red-flag escalation layer (§Calendar, Other requirements) and by "contact your provider" language, never by the model. §Calendar's rule stands: Eva never diagnoses and never reassures.  
+2. It cannot set or change nutrition targets; target changes go through the setup flow (§Nutrition coach, Chat). It may not produce a meal plan that conflicts with the nutrition guardrails.  
+3. The tone and framing rules of §Dashboard apply to every answer.  
+4. The regulatory line in §Calendar, Other requirements stands: symptom interpretation may be a medical device, and the scope above holds until #26 says otherwise.
+
+#### Open
+
+1. LLM vendor, cost, and who acts as data processor for a prompt that carries health data (#25 Q12) — now a product-wide question, not a nutrition one.  
+2. History and memory; safety and refusal rules beyond the ones above.
+
+Not yet specified — needs a /explore
+
+### Blog
+
+Reached from the Learn tab (§Product frame, Navigation), from Dashboard banners, from Eva Chat answers and from the Nutrition coach's post-scan notes.
+
+Constraints already binding:
+
+1. Content is the transparent scientific basis for recommendations (feature list). Where a card, note or answer cites an article, the article must exist.  
+2. All medical content requires clinician sign-off and a documented review cycle (§Calendar, Other requirements); nutrition content requires a registered dietitian's (§Nutrition coach, Other requirements).
+
+Content model, CMS, in-app reader versus web, video, search, and how articles are linked from cards, notes and chat: Not yet specified — needs a /explore
+
+### Personal trainer
+
+Reached from a Dashboard shortcut, never a tab (§Product frame, Navigation). In v1, in the last group of the build order (§Product frame, Scope and order).
+
+Constraints already binding:
+
+1. §Dashboard, Tone and framing rules, rule 2: "The app must not tell a woman what she is capable of on a given day. Suggesting that hard work or important decisions belong in one phase and not another is out of scope, and runs against the premise the product is built on." A training-programme generator walks straight into this rule and must be designed around it.  
+2. All medical content requires clinician sign-off and a documented review cycle (§Calendar, Other requirements).
+
+Not yet specified — needs a /explore
+
+### Mental well-being coach
+
+Reached from a Dashboard shortcut, never a tab (§Product frame, Navigation). In v1, in the last group of the build order (§Product frame, Scope and order).
+
+Constraints already binding:
+
+1. §Dashboard, Tone and framing rules, rule 2: "The app must not tell a woman what she is capable of on a given day."  
+2. Any screening it runs is bound by the Postpartum mood-screening requirement (§Phase 3 \- Postpartum, Mood screening): if the Edinburgh Postnatal Depression Scale is implemented, item 10 covers self-harm and requires a defined escalation path, not only a score. The same applies to any other screening instrument.  
+3. All medical content requires clinician sign-off and a documented review cycle (§Calendar, Other requirements).
+
+Not yet specified — needs a /explore
+
+### Notifications
+
+Decided 2026-08-30 (review §8 A9) and constrained by what the canvas draws (review §3.2 F5). These rules bind the appointment reminder (§Doctor appointment), the meal reminder (§Nutrition coach, Step 3), the fertile-window heads-up (§Phase 1 \- Planning) and the pregnancy-loss stop rule (§Pregnancy loss).
+
+#### Transport
+
+1. APNs, sent directly from the API. The app does not link the Firebase iOS SDK.  
+2. The device token is stored against the user on `users/{uid}`; scheduled sends run as a server job. The API surface is engineering issue I5 in the review.
+
+#### Content rules
+
+1. A preview never shows symptoms, flow, sex or appointment details. The preview text is "Eva has an update" until the app is unlocked.  
+2. Sex entries never appear in a notification (§Sex).  
+3. The tone and framing rules of §Dashboard apply. In Planning, §Phase 1 \- Planning's notification tone applies. A pregnancy loss stops every pregnancy notification immediately, including anything already queued (§Pregnancy loss).  
+4. Well-being check-ins are opt-in and never streak-based.
+
+#### Categories
+
+As drawn on the canvas (`notifications` screen). The list is what is drawn, not a catalogue:
+
+1. Cycle reminders  
+2. Appointment reminders  
+3. Well-being check-ins — opt-in, never streak-based  
+4. Educational content  
+5. Meal reminders (Nutrition coach, from the usual meal times in Step 3)
+
+One global switch turns notifications on or off (feature list).
+
+#### Open
+
+The full catalogue with triggers and copy, quiet hours, permission-prompt timing, and the notification-centre screen the feature list names: Not yet specified — needs a /explore
+
+### Settings
+
+The canvas draws 23 rows across its `settings`, `privacy` and `notifications` screens. Only the rows below are required by a decision, an issue or a line of this document; a row the canvas draws that nothing has decided is marked *drawn only* and is not a spec.
+
+| Row | Status | Source |
+| ----- | ----- | ----- |
+| Personal profile — date of birth, weight and height, goals & lifestyle, hormonal medications, conditions, activity band, preferred sports | Decided | §Sign Up, Profile fields (A8); #19 |
+| Pregnancy mode — the only entry point to the mode; "End pregnancy tracking" lives here | Decided | §Pregnancy mode, Turning it on (A6); §Pregnancy loss |
+| Language — English only at launch, list to grow | Decided | §Product frame, Markets and language (A2) |
+| Units — metric default, imperial as a setting | Decided | A2; §Nutrition coach, Step 4 |
+| Notifications — one global switch | Decided | feature list; §Notifications |
+| Notifications — per-category switches | Drawn only | canvas `notifications` |
+| Calorie display — hide calorie numbers and use qualitative guidance; the disordered-eating state is reversible only here | Decided | §Nutrition coach, Other requirements |
+| Privacy & security — app lock, biometric access, hide the Sex event type | Drawn only; hiding Sex is anticipated by §Sex requirement 3 and §Dashboard edge case 6 | canvas `privacy` |
+| Change password | Decided; flow depends on #6 | feature list; §Account |
+| Manage connected accounts — link a second sign-in provider to this account | Decided; required by #7's manual linking | #7; §Sign Up, Edge case |
+| Data export | Decided; format and delivery open | #58; §Account |
+| Manage subscription | Decided | §Product frame, Monetisation (A14) |
+| Support rows | Drawn only | §Support |
+| Log out | Decided | feature list |
+| Delete profile | Decided | feature list; §Account (#8) |
+
+Other rows the canvas draws — Personalisation, Content preferences, Privacy settings, About — are drawn only.
+
+### Support
+
+Rows as drawn on the canvas; none has decided content:
+
+1. Help centre  
+2. Contact support  
+3. Report a problem  
+4. Medical and emergency information — region-aware, per country (§Calendar, Other requirements; §Product frame, Markets and language)
+
+Channels and content: Not yet specified — needs a /explore
+
+### Account
+
+Account-lifecycle rules that until now lived only in `docs/ARCHITECTURE.md` and in issues.
+
+#### Deletion
+
+> **Superseded question (2026-08-30; issue #8, `docs/ARCHITECTURE.md` §4).** #8 asked
+> whether deletion is immediate or has a grace period. It is immediate and complete:
+> `DELETE /me` removes the Auth user, the user document and every calendar entry —
+> including soft-deleted entries still inside their 30-day window. There is no recovery
+> window and no undo. The confirmation follows the destructive pattern in
+> `docs/DESIGN.md` §5, and a deleted account's email can sign up again.
+
+#### Password reset
+
+1. The flow is §Log in, Restore password, built by #6.  
+2. Resetting the password does not sign out other devices. The session token is stateless and cannot be revoked (`docs/ARCHITECTURE.md` §3), so the canvas' "Other devices were signed out." is not yet true and may not be shown unless #6 adds session revocation — a `users/{uid}` schema change under the always-human gate (review E2, engineering issue I2).
+
+#### Data export
+
+1. A signed-in user can obtain everything stored under her account in one file, readable outside Eva (#58). Format and delivery are #58's open questions.  
+2. Sex entries are excluded from an export unless explicitly opted in (§Sex).
+
+#### Privacy copy
+
+1. The app claims encryption in transit and at rest, never "on your device" (A10). There is no client-side encryption and none is planned. The agreed wording: "encrypted in transit and at rest, never sold, never shared with advertisers, deletable in full".
+
+#### Email change
+
+Not yet specified — needs a /explore
+
