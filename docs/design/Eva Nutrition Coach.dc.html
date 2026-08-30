@@ -940,7 +940,7 @@ const SPEC = {
   scNoBar:['Not-found leads to manual entry or search by name; the product is queued for database enrichment.'],
   scSearch:['Generic foods, branded products and restaurant items are visually distinguished.','Recent searches are one tap away.'],
   scManual:['Full manual logging including fiber, portion, slot, time, photo and favorite.','Works offline; errors appear next to the field they belong to.'],
-  scScore:['The score is shown under a name that is not yet chosen — a non-judgmental one, never a grade (#25 Q1); it ships only after #26. The label here is a placeholder.','Breakdown is one tap: food quality 40%, goal fit 30%, focus areas 20%, cycle context 10%.','A lower score explains what would raise the fit — it never labels food as bad.','Scores apply to meals only. Never to a day, and never to a person.'],
+  scScore:['The score is called "Meal fit" (A33) — fit to today\'s context, never a grade of the food or the person. It ships only after its composition is reviewed under A24.','Breakdown is one tap: food quality 40%, goal fit 30%, focus areas 20%, cycle context 10%.','A lower score explains what would raise the fit — it never labels food as bad.','Scores apply to meals only. Never to a day, and never to a person.'],
   scPriv:['Shown once, before the first photo scan.','Model-training consent is a separate, off-by-default toggle.'],
   chEmpty:['Suggested prompts come from her actual context: goal, focus areas, targets, recent meals, cycle.'],
   chBusy:['Answers are short, practical and reference a reviewed article where one exists.','The chat cannot set targets, diagnose, infer deficiency or recommend supplement doses — target changes redirect to setup.'],
@@ -1012,8 +1012,8 @@ class Component extends DCLogic {
       ?'min-height:40px;padding:0 14px;border-radius:13px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 12.5px Montserrat,sans-serif;cursor:pointer;'
       :'min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.82);font:600 12.5px Montserrat,sans-serif;color:#282126;cursor:pointer;';
     const mealsData=[
-      {name:'Greek yogurt, berries, walnuts',slot:'Breakfast · 08:10',score:'[score] 78',detail:S.hide?'Protein and fiber present · unsweetened':'Approximately 320 kcal · 24 g protein',logged:true},
-      {name:'Chicken pesto pasta',slot:'Lunch · 13:20',score:'[score] 72',detail:S.hide?'Protein present · refined carbohydrate base':'Approximately 640 kcal · 38 g protein',logged:true},
+      {name:'Greek yogurt, berries, walnuts',slot:'Breakfast · 08:10',score:'Meal fit 78',detail:S.hide?'Protein and fiber present · unsweetened':'Approximately 320 kcal · 24 g protein',logged:true},
+      {name:'Chicken pesto pasta',slot:'Lunch · 13:20',score:'Meal fit 72',detail:S.hide?'Protein present · refined carbohydrate base':'Approximately 640 kcal · 38 g protein',logged:true},
       {name:'Nothing logged yet',slot:'Dinner · usually 19:30',score:'',detail:'',logged:false},
       {name:'Nothing logged yet',slot:'Snack · usually 16:00',score:'',detail:'',logged:false}
     ];
@@ -1178,7 +1178,7 @@ class Component extends DCLogic {
         onClick:()=>this.setState({portion:p[0]}),style:pill(S.portion===p[0])+'flex:1;padding:0 10px;'})),
       kcalLabel:'Approximately '+({small:'380',est:'490',large:'640',custom:'490'}[S.portion])+' kcal',
       resultMacros:[{k:'Protein',v:'38 g'},{k:'Carbohydrates',v:'52 g'},{k:'Fat',v:'19 g'},{k:'Fiber',v:'5 g'}],
-      fitScore:S.conf==='low'?66:72, scoreName:'[score name · pending #25]',
+      fitScore:S.conf==='low'?66:72, scoreName:'Meal fit',
       scanNote:'This meal is high in refined carbohydrates and relatively low in protein for your target. Since you logged low energy today, adding a protein or fiber source may help it feel more sustaining.',
       slots:['Breakfast','Lunch','Dinner','Snack'].map((l,i)=>({label:l,onClick:()=>this.toast('Saving to '+l.toLowerCase()),style:pill(i===1)})),
       toggleFav:()=>this.setState({fav:!S.fav}),
