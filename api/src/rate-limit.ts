@@ -103,6 +103,15 @@ export const createRateLimiter = (
 export type AuthRoute = 'signin' | 'signup' | 'resend' | 'forgot'
 
 /**
+ * The two routes an emailed link lands on (#6). They are counted separately from
+ * `AuthRoute` because they have only one dimension: a link carries a token, not an
+ * address, so there is nothing per-account to count. Guessing a 256-bit token is
+ * infeasible — this exists so an unauthenticated route that runs a Firestore transaction
+ * per call cannot be used as a free amplifier.
+ */
+export type TokenRoute = 'activate' | 'reset'
+
+/**
  * Two dimensions per route, in separate maps so an address can never collide with an IP.
  *
  * The per-IP limits are the loose backstop and the per-address limits the sharp one: iOS
@@ -131,6 +140,17 @@ const limiters: Record<AuthRoute, { byIp: RateLimiter; byEmail: RateLimiter }> =
   resend: sendLinkLimiters(),
   forgot: sendLinkLimiters(),
 }
+
+const tokenLimiters: Record<TokenRoute, RateLimiter> = {
+  activate: createRateLimiter(config.rateLimit.tokenPerIp, config.rateLimit.windowSeconds),
+  reset: createRateLimiter(config.rateLimit.tokenPerIp, config.rateLimit.windowSeconds),
+}
+
+/** Counts one attempt on a link route. Per IP only — see `TokenRoute`. An unknown address
+ *  (no `x-forwarded-for`) is served: the alternative is refusing every caller behind a
+ *  proxy that strips it. */
+export const consumeTokenAttempt = (route: TokenRoute, ip: string | null): boolean =>
+  ip === null || tokenLimiters[route].consume(ip)
 
 /**
  * Counts one attempt on `route` and says whether to serve it. `ip` is `null` when the
@@ -175,10 +195,12 @@ export const authRetryAfterSeconds = (route: AuthRoute): number =>
     ? config.rateLimit.resendPerEmailSeconds || config.rateLimit.windowSeconds
     : config.rateLimit.windowSeconds
 
-/** Drops every auth counter. Test support — nothing in `src/` calls it. */
+/** Drops every auth counter, link routes included. Test support — nothing in `src/`
+ *  calls it. */
 export const resetAuthRateLimits = (): void => {
   for (const route of Object.values(limiters)) {
     route.byIp.reset()
     route.byEmail.reset()
   }
+  for (const limiter of Object.values(tokenLimiters)) limiter.reset()
 }

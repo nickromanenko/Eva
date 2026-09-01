@@ -22,12 +22,21 @@ export async function callAuthApi(base, path, init = {}) {
   };
 }
 
-// Reads `?token=` and then strips it from the address bar, so the token does
-// not survive in history, a bookmark, or a screenshot. It lives only in the
-// caller's local variable from here on.
+// Reads the token out of the URL **fragment** and then strips it, so it does not
+// survive in history, a bookmark, or a screenshot. It lives only in the caller's
+// local variable from here on.
+//
+// The fragment, not the query string, and that is the whole point: a fragment is
+// never sent to a server, so the token appears in no access log — not Firebase
+// Hosting's for this page, not the API's for the call behind it, and not in a
+// `Referer` to anything this page loads. A reset link is a live credential for an
+// hour; a query string would have put it in two sets of retained logs. `email.ts`
+// on the API side builds the links to match.
 export function readTokenAndScrubUrl() {
-  const token = new URLSearchParams(location.search).get('token');
-  if (location.search) history.replaceState(null, '', location.pathname);
+  const token = new URLSearchParams(location.hash.replace(/^#/, '')).get('token');
+  if (location.hash || location.search) {
+    history.replaceState(null, '', location.pathname);
+  }
   return token;
 }
 

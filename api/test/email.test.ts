@@ -82,7 +82,7 @@ describe("what goes to Postmark", () => {
         expect(headers["x-postmark-server-token"]).toBe(API_KEY);
         expect(headers["content-type"]).toBe("application/json");
 
-        const link = `https://web.eva.test/activate?token=${TOKEN}`;
+        const link = `https://web.eva.test/activate#token=${TOKEN}`;
         expect(call!.body.From).toBe("hello@eva.test");
         expect(call!.body.To).toBe(TO);
         expect(call!.body.Subject).toBe("Confirm your email for Eva");
@@ -99,7 +99,7 @@ describe("what goes to Postmark", () => {
         await sender.sendPasswordResetEmail(TO, TOKEN);
 
         const body = calls[0]!.body;
-        const link = `https://web.eva.test/reset?token=${TOKEN}`;
+        const link = `https://web.eva.test/reset#token=${TOKEN}`;
         expect(body.Subject).toBe("Reset your Eva password");
         expect(body.TextBody).toContain(link);
         expect(body.HtmlBody).toContain(`href="${link}"`);
@@ -196,10 +196,51 @@ describe("the log transport", () => {
         expect(calls).toHaveLength(0);
         expect(logged).toHaveLength(1);
         expect(logged[0]).toStartWith("[email:log] activation ");
-        expect(logged[0]).toContain(`https://web.eva.test/activate?token=${TOKEN}`);
+        expect(logged[0]).toContain(`https://web.eva.test/activate#token=${TOKEN}`);
     });
 
     test("the postmark transport refuses to be built without a key", () => {
         expect(() => createEmailSender({ ...postmarkOptions, postmarkApiKey: null })).toThrow();
     });
+
+    test(
+        "the process refuses to boot with the log transport in production",
+        async () => {
+            // The safety valve under GUARDRAILS 12: `log` writes whole links to stdout,
+            // which is a live credential in a log line. `config.ts` refuses it under
+            // NODE_ENV=production, and that refusal is the only thing standing between a
+            // careless deploy variable and every activation link in Cloud Logging — so it
+            // is worth a test that actually boots the module.
+            //
+            // A subprocess, because `config.ts` reads the environment once at import and
+            // this process has already imported it.
+            const boot = Bun.spawn(["bun", "run", "src/config.ts"], {
+                cwd: `${import.meta.dir}/..`,
+                env: {
+                    ...process.env,
+                    NODE_ENV: "production",
+                    EMAIL_TRANSPORT: "log",
+                },
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            const [code, stderr] = await Promise.all([
+                boot.exited,
+                new Response(boot.stderr).text(),
+            ]);
+
+            expect(code).not.toBe(0);
+            expect(stderr).toContain("EMAIL_TRANSPORT=log");
+            // And the same environment minus the production flag boots fine, so the test
+            // is about the refusal and not about some unrelated failure to start.
+            const dev = Bun.spawn(["bun", "run", "src/config.ts"], {
+                cwd: `${import.meta.dir}/..`,
+                env: { ...process.env, NODE_ENV: "development", EMAIL_TRANSPORT: "log" },
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            expect(await dev.exited).toBe(0);
+        },
+        20_000,
+    );
 });

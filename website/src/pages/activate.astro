@@ -1,6 +1,13 @@
 ---
 // The page an activation email links to. It confirms the token with the API
 // on load, then hands the user back to the app via the eva:// scheme.
+//
+// The API call has to stay **client-side**. Mail-security scanners (Safe Links,
+// URL Defense) fetch the emailed URL before the person does; they do not run
+// JavaScript, so the token survives the scan. Rendering this on the server —
+// or moving the confirm into a form action — would let a scanner spend the
+// link and hand the user a dead one. The token is in the fragment, which a
+// server could not see anyway, and both facts have to stay true together.
 import AuthLayout from '../layouts/AuthLayout.astro';
 
 const apiBase = import.meta.env.PUBLIC_API_BASE_URL ?? '';
@@ -73,7 +80,14 @@ const apiBase = import.meta.env.PUBLIC_API_BASE_URL ?? '';
     showState(root, 'pending');
     let result;
     try {
-      result = await callAuthApi(root.dataset.apiBase, '/auth/activate?token=' + encodeURIComponent(token));
+      // POST, with the token in the body. A `GET ...?token=` would put the raw
+      // token into the API's own request log, which is the leak the fragment
+      // above exists to avoid one layer out.
+      result = await callAuthApi(root.dataset.apiBase, '/auth/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
     } catch {
       showState(root, 'unreachable');
       return;

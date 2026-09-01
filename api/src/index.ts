@@ -9,6 +9,8 @@ import { TOKEN_LENGTH, consumeToken, deleteTokensForUid, issueToken } from "./em
 import {
     authRetryAfterSeconds,
     consumeAuthAttempt,
+    consumeTokenAttempt,
+    type TokenRoute,
     type AuthRoute,
 } from "./rate-limit";
 import {
@@ -126,9 +128,18 @@ app.onError((err, c) => {
     return c.json(error("INTERNAL", `${INTERNAL_MESSAGE} (ref: ${ref})`), 500);
 });
 
+/**
+ * `EMAIL_MAX_LENGTH` is RFC 5321's cap on a path. It is here rather than left to the
+ * pattern because every accepted address becomes a key in the throttle's maps
+ * (`rate-limit.ts`), which bound how many keys they hold but not how large each is — and
+ * #6 added four more maps keyed the same way.
+ */
+const EMAIL_MAX_LENGTH = 254;
+
 const normalizeEmail = (email: unknown): string | null => {
     if (typeof email !== "string") return null;
     const normalized = email.trim().toLowerCase();
+    if (normalized.length > EMAIL_MAX_LENGTH) return null;
     return /\S+@\S+\.\S+/.test(normalized) ? normalized : null;
 };
 
@@ -148,7 +159,23 @@ const PASSWORD_RULE = "At least 8 characters, including one number.";
  * sign-up CTA accepted, while quoting the rule the user just satisfied.
  */
 const isValidPassword = (password: string): boolean =>
-    password.length >= 8 && /\p{N}/u.test(password);
+    password.length >= 8 && password.length <= PASSWORD_MAX_LENGTH && /\p{N}/u.test(password);
+
+/**
+ * A ceiling, because Identity Platform has one of its own and enforces it late. Without
+ * this, `/auth/password/reset` spends the token and *then* fails in `setPassword`, which
+ * is a `500` and a dead link — precisely what checking the rule before the token is spent
+ * exists to prevent. 128 is well past any password a person or a manager produces.
+ *
+ * Its own message: quoting the "at least 8 characters" rule at someone who typed 400
+ * would be telling them a rule they had satisfied.
+ */
+const PASSWORD_MAX_LENGTH = 128;
+const PASSWORD_TOO_LONG = `Passwords are limited to ${PASSWORD_MAX_LENGTH} characters.`;
+
+/** The `WEAK_PASSWORD` message for a password that fails the rule: which end it failed. */
+const passwordFailure = (password: string): string =>
+    password.length > PASSWORD_MAX_LENGTH ? PASSWORD_TOO_LONG : PASSWORD_RULE;
 
 /**
  * The calling client's address, for the per-IP half of the auth throttle (issue #5).
@@ -281,7 +308,7 @@ app.post("/auth/signup", async (c) => {
     if (!email)
         return c.json(error("VALIDATION", "A valid email is required"), 400);
     if (!isValidPassword(password)) {
-        return c.json(error("WEAK_PASSWORD", PASSWORD_RULE), 400);
+        return c.json(error("WEAK_PASSWORD", passwordFailure(password)), 400);
     }
     const throttled = throttleAuth(c, "signup", email);
     if (throttled) return throttled;
@@ -296,7 +323,13 @@ app.post("/auth/signup", async (c) => {
         // No session (#6): the account exists but its address is not proven, and the
         // activation gate in `/auth/signin` is what proves it. The caller gets the address
         // back — the one it just sent — so the gate screen can name where the link went.
-        await sendActivationLink(localId, email);
+        //
+        // Nothing here is allowed to fail the request. The Auth user and the document are
+        // already committed, so a throw would answer `500` on an account that exists, and
+        // the retry would be `409 EMAIL_EXISTS` on an account nobody can sign into — with
+        // the recovery, Resend, living on the gate screen the failed sign-up never
+        // reached. Better a gate with no email yet and a working Resend.
+        await sendActivationLink(localId, email).catch(() => {});
         return c.json({ pending: true, email }, 201);
     } catch (err) {
         if (err instanceof IdentityToolkitError) {
@@ -395,11 +428,22 @@ app.post("/auth/signin", async (c) => {
 
 const webCors = cors({
     origin: config.publicWebOrigin,
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["POST", "OPTIONS"],
     allowHeaders: ["Content-Type"],
 });
 app.use("/auth/activate", webCors);
 app.use("/auth/password/reset", webCors);
+
+/** Both link routes change state and are reached with a one-time credential in the body.
+ *  Nothing between here and the browser may keep a copy of either half. */
+const noStore = createMiddleware(async (c, next) => {
+    await next();
+    // `c.res.headers`, not `c.header()`: after `next()` the handler has already built the
+    // response, and only the built response's headers are what goes out.
+    c.res.headers.set("cache-control", "no-store");
+});
+app.use("/auth/activate", noStore);
+app.use("/auth/password/reset", noStore);
 
 /**
  * The shape `email-tokens.ts` issues — `TOKEN_LENGTH` characters of base64url — and
@@ -407,6 +451,41 @@ app.use("/auth/password/reset", webCors);
  * one; a missing token altogether is a request the client built wrong.
  */
 const TOKEN_SHAPE = new RegExp(`^[A-Za-z0-9_-]{${TOKEN_LENGTH}}$`);
+
+/**
+ * The floor both "send me a link" routes answer against, comfortably above what the
+ * registered branch costs (an Auth lookup, a Firestore write and a POST to Postmark —
+ * a few hundred milliseconds). See the note on the routes for why a floor and not a
+ * detached send.
+ */
+const SEND_LINK_FLOOR_MS = 800;
+
+/** Runs `work` and does not return before `floor` milliseconds have passed, whichever
+ *  takes longer. A failure inside `work` still waits, or the floor would only apply to
+ *  the branch that succeeded. */
+const atLeast = async (floor: number, work: () => Promise<void>): Promise<void> => {
+    const [outcome] = await Promise.all([
+        work().then(
+            () => null,
+            (err: unknown) => err,
+        ),
+        new Promise((resolve) => setTimeout(resolve, floor)),
+    ]);
+    if (outcome !== null) throw outcome;
+};
+
+/**
+ * The per-IP throttle on the two routes a link lands on. They are unauthenticated, they
+ * run a Firestore transaction per call, and they carry no address to count against — so
+ * this is the only dimension there is. Guessing a token is infeasible at 256 bits; the
+ * counter is here so the routes cannot be used as a free amplifier against Firestore.
+ */
+const throttleToken = (c: Context, route: TokenRoute) => {
+    if (consumeTokenAttempt(route, clientIp(c))) return null;
+    return c.json(error("RATE_LIMITED", "Too many attempts. Try again later."), 429, {
+        "retry-after": String(authRetryAfterSeconds("signin")),
+    });
+};
 
 const parseToken = (value: unknown): string | null =>
     typeof value === "string" && TOKEN_SHAPE.test(value) ? value : null;
@@ -470,8 +549,14 @@ const activate = async (c: Context, raw: unknown) => {
     return c.json({ activated: true });
 };
 
-app.get("/auth/activate", (c) => activate(c, c.req.query("token")));
+// POST only, and the token is in the body. A `GET /auth/activate?token=…` would write
+// the raw token into Cloud Run's request log — `httpRequest.requestUrl` carries the query
+// string — which is the same secret `authTokens/` keeps by storing only a hash. The link
+// in the email carries its token in the URL *fragment* for the same reason one layer out
+// (`email.ts`), so the website's page has it and no server ever saw it.
 app.post("/auth/activate", async (c) => {
+    const throttled = throttleToken(c, "activate");
+    if (throttled) return throttled;
     const body = await c.req.json().catch(() => ({}));
     return activate(c, body.token);
 });
@@ -481,9 +566,17 @@ app.post("/auth/activate", async (c) => {
  * address, registered or not, activated or not — for the reason `/auth/signin` answers a
  * wrong password and an unknown address identically (§3): whether an address has an Eva
  * account is not the caller's to learn. The throttle runs before the lookup, so a refused
- * request is refused the same way for both. What remains is timing — a registered address
- * costs a token write and a send, an unknown one does not — which is named here rather
- * than hidden; closing it would mean doing fake work for unknown addresses.
+ * request is refused the same way for both.
+ *
+ * The branches also have to answer in the same *time*, which they do not naturally: a
+ * registered address costs a Firestore write and a POST to Postmark, an unknown one costs
+ * a failed Auth lookup and nothing else — hundreds of milliseconds against tens, readable
+ * from a single request. `atLeast` holds both to a floor well above the slow branch, so
+ * the fast one cannot be told from it. That is a floor, not a constant: a Postmark call
+ * slower than `SEND_LINK_FLOOR_MS` still overruns it, and the residue is bounded by
+ * Postmark's own variance rather than by the difference between doing the work and not.
+ * Answering before the send instead would be exact, but Cloud Run throttles CPU after the
+ * response, so the email would go out whenever the next request happened to arrive.
  */
 app.post("/auth/activation/resend", async (c) => {
     const body = await c.req.json().catch(() => ({}));
@@ -492,11 +585,12 @@ app.post("/auth/activation/resend", async (c) => {
     const throttled = throttleAuth(c, "resend", email);
     if (throttled) return throttled;
 
-    const uid = await findAuthUidByEmail(email);
-    if (uid) {
+    await atLeast(SEND_LINK_FLOOR_MS, async () => {
+        const uid = await findAuthUidByEmail(email);
+        if (!uid) return;
         const user = await getUser(uid);
         if (user && !isActivated(user)) await sendActivationLink(uid, user.email);
-    }
+    });
     return c.json({ sent: true });
 });
 
@@ -507,13 +601,14 @@ app.post("/auth/password/forgot", async (c) => {
     const throttled = throttleAuth(c, "forgot", email);
     if (throttled) return throttled;
 
-    const uid = await findAuthUidByEmail(email);
-    if (uid) {
+    await atLeast(SEND_LINK_FLOOR_MS, async () => {
+        const uid = await findAuthUidByEmail(email);
+        if (!uid) return;
         // Activated or not: a reset proves control of the address as surely as the
         // activation link does, and the reset route stamps the account accordingly.
         const user = await getUser(uid);
         if (user) await sendResetLink(uid, user.email);
-    }
+    });
     return c.json({ sent: true });
 });
 
@@ -525,6 +620,8 @@ app.post("/auth/password/forgot", async (c) => {
  * user a retry, not the link.
  */
 app.post("/auth/password/reset", async (c) => {
+    const throttled = throttleToken(c, "reset");
+    if (throttled) return throttled;
     const body = await c.req.json().catch(() => ({}));
     if (body.token === undefined || body.token === null || body.token === "") {
         return c.json(error("VALIDATION", "A token is required"), 400);
@@ -533,7 +630,7 @@ app.post("/auth/password/reset", async (c) => {
     if (!token) return tokenFailure(c, "invalid");
     const password = typeof body.password === "string" ? body.password : "";
     if (!isValidPassword(password)) {
-        return c.json(error("WEAK_PASSWORD", PASSWORD_RULE), 400);
+        return c.json(error("WEAK_PASSWORD", passwordFailure(password)), 400);
     }
 
     const result = await consumeToken(token, "reset");

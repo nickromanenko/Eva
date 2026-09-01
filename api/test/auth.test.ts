@@ -125,15 +125,24 @@ describe("auth", () => {
 
     test("the activation link confirms the address, once", async () => {
         await activateAccount(BASE, uid, email);
-        expect((await firestore.collection("users").doc(uid).get()).data()!.activatedAt)
-            .not.toBeNull();
+        const firstConfirmation = (await firestore.collection("users").doc(uid).get())
+            .data()!.activatedAt;
+        expect(firstConfirmation).not.toBeNull();
 
         // Single-use: the same link a second time is a dead link, not a second activation.
         const token = await issueToken(uid, email, "activation");
-        expect((await fetch(`${BASE}/auth/activate?token=${token}`)).status).toBe(200);
-        const replay = await fetch(`${BASE}/auth/activate?token=${token}`);
+        const activate = (body: unknown) =>
+            api("/auth/activate", { method: "POST", body: JSON.stringify(body) });
+        expect((await activate({ token })).status).toBe(200);
+        const replay = await activate({ token });
         expect(replay.status).toBe(400);
         expect((await json<ErrorResponse>(replay)).error.code).toBe("INVALID_TOKEN");
+
+        // The second valid link answered 200 — the user's side of it is done either way —
+        // but it must not restamp the account: the record of when the address was proven
+        // is the first confirmation, not the last.
+        expect((await firestore.collection("users").doc(uid).get()).data()!.activatedAt)
+            .toEqual(firstConfirmation);
     });
 
     test("duplicate signup is rejected with 409", async () => {
@@ -344,6 +353,11 @@ describe("signup password rule", () => {
             body: JSON.stringify({ email: legacyEmail, password: legacyPassword }),
         });
         expect(res.status).toBe(200);
-        expect((await json<AuthResponse>(res)).user.id).toBe(legacyUid);
+        const body = await json<AuthResponse>(res);
+        expect(body.user.id).toBe(legacyUid);
+        // And the activation gate lets it through, which is the other half of what
+        // "predates" means: a document with no `activatedAt` is an activated account, and
+        // reading that field as falsy would sign out everyone who signed up before #6.
+        expect(body.user.activated).toBe(true);
     });
 });

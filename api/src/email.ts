@@ -31,9 +31,9 @@ export interface EmailOptions {
 }
 
 export interface EmailSender {
-  /** The sign-up confirmation: `${publicWebUrl}/activate?token=…`, valid 24 hours. */
+  /** The sign-up confirmation: `${publicWebUrl}/activate#token=…`, valid 24 hours. */
   sendActivationEmail(to: string, rawToken: string): Promise<void>
-  /** The password reset: `${publicWebUrl}/reset?token=…`, valid 60 minutes. */
+  /** The password reset: `${publicWebUrl}/reset#token=…`, valid 60 minutes. */
   sendPasswordResetEmail(to: string, rawToken: string): Promise<void>
 }
 
@@ -188,8 +188,17 @@ export const createEmailSender = (
     transport = log
   }
 
+  /**
+   * The token rides in the URL **fragment**, never the query string. A fragment is not
+   * sent to any server, so it appears in no access log: not Firebase Hosting's for the
+   * page, not Cloud Run's for the API call behind it, and not in a `Referer`. A query
+   * string would have put a live credential — for a reset link, one good for an hour —
+   * into two sets of retained, broadly readable logs, which is the same secret the
+   * hash-only storage in `email-tokens.ts` exists to keep. `readTokenAndScrubUrl` in
+   * `website/src/scripts/auth-api.js` is the other half.
+   */
   const link = (path: string, rawToken: string): string =>
-    `${options.publicWebUrl}${path}?token=${encodeURIComponent(rawToken)}`
+    `${options.publicWebUrl}${path}#token=${encodeURIComponent(rawToken)}`
 
   return {
     sendActivationEmail: (to, rawToken) => {

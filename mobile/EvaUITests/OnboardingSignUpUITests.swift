@@ -241,6 +241,13 @@ final class OnboardingSignUpUITests: EvaUITestCase {
             app.staticTexts["Check your inbox"].waitForExistence(timeout: 15),
             "Sign-up did not reach the activation gate"
         )
+        // Sign-up has just sent one, so the cooldown is already running — the server's
+        // own throttle would refuse a second send inside the same minute anyway, and a
+        // button that enables onto a 429 is worse than one that says how long to wait.
+        XCTAssertFalse(
+            app.buttons["activation.resend"].isEnabled,
+            "Resend was available immediately after sign-up sent an email"
+        )
 
         // Start over as a returning user who never opened the link.
         app.terminate()
@@ -263,6 +270,13 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         XCTAssertEqual(
             app.staticTexts["activation.email"].label, email,
             "The gate does not show the address the link was sent to"
+        )
+        // Reached from a refused log in, **nothing was sent** — so Resend has to be
+        // available immediately. The cooldown only starts when this screen is the one
+        // that just caused an email to go out, which is the sign-up path below.
+        XCTAssertTrue(
+            app.buttons["activation.resend"].isEnabled,
+            "Resend started on a cooldown after a log in that sent no email"
         )
         XCTAssertFalse(
             app.staticTexts["dashboard.title"].exists,

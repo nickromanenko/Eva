@@ -72,6 +72,13 @@ export const config = {
      */
     resendPerEmailSeconds: optionalCount('RATE_LIMIT_RESEND_PER_EMAIL_SECONDS', 60),
     resendPerIp: optionalCount('RATE_LIMIT_RESEND_PER_IP', 30),
+    /**
+     * `/auth/activate` and `/auth/password/reset` (#6), per IP over the ordinary window.
+     * Loose: one person opening a link, failing, and asking for another is normal, and
+     * these routes cannot be guessed at. It is a ceiling on Firestore work, not a
+     * defence against a credential attack.
+     */
+    tokenPerIp: optionalCount('RATE_LIMIT_TOKEN_PER_IP', 60),
   },
   /** Transactional email (issue #6). Read only in `email.ts`. */
   email: {

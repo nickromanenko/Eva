@@ -48,10 +48,14 @@ const hashToken = (raw: string): string => createHash('sha256').update(raw).dige
  * inbox for a while cannot be picked up after a fresher one was asked for.
  */
 const invalidateResetTokens = async (uid: string): Promise<void> => {
+  // Bounded by construction — every issue invalidates first, so at most a handful can be
+  // unused at once — but limited anyway, because the batch below caps at 500 and "bounded
+  // by construction" is the kind of thing a later change quietly stops being true.
   const unused = await tokens()
     .where('uid', '==', uid)
     .where('kind', '==', 'reset')
     .where('usedAt', '==', null)
+    .limit(DELETE_BATCH)
     .get()
   if (unused.empty) return
   const batch = firestore.batch()
@@ -114,15 +118,28 @@ export const consumeToken = async (
   })
 }
 
+/** A Firestore `WriteBatch` caps at 500 operations. The same number `events.ts` pages by,
+ *  and for the same reason. */
+const DELETE_BATCH = 400
+
 /**
  * Removes every token of `uid`, used or not — part of account deletion (#8), because a
  * token document carries the account's address and a deleted account keeps nothing.
  * Deleting nothing succeeds, so a resumed delete passes through here quietly.
+ *
+ * A batch at a time, re-querying rather than paging a cursor, exactly as
+ * `deleteAllUserEvents` does. Nothing bounds how many tokens an account can accumulate —
+ * every Resend issues one and only reset tokens are ever revoked — so a single batch
+ * would throw past 500 and leave `DELETE /me` unable to finish, permanently: the
+ * tombstone would stay, every retry would fail the same way, and the documents holding
+ * the address would survive. An unbounded collection needs an unbounded delete.
  */
 export const deleteTokensForUid = async (uid: string): Promise<void> => {
-  const owned = await tokens().where('uid', '==', uid).get()
-  if (owned.empty) return
-  const batch = firestore.batch()
-  for (const doc of owned.docs) batch.delete(doc.ref)
-  await batch.commit()
+  for (;;) {
+    const owned = await tokens().where('uid', '==', uid).limit(DELETE_BATCH).get()
+    if (owned.empty) return
+    const batch = firestore.batch()
+    for (const doc of owned.docs) batch.delete(doc.ref)
+    await batch.commit()
+  }
 }

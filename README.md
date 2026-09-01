@@ -94,6 +94,24 @@ gh variable set GCP_WIF_PROVIDER --body "projects/PROJECT_NUMBER/locations/globa
 # 8. The website's /activate and /reset pages call the API; set its public URL
 #    (gcloud run services describe eva-api --region us-central1 --format 'value(status.url)')
 gh variable set API_BASE_URL --body "https://eva-api-XXXX.a.run.app"
+
+# 9. Transactional email (#6). The server token goes in Secret Manager and the runtime
+#    service account has to be able to read it — a deploy that skips this fails on a
+#    permission error, which is exactly the moment someone grants a role too broad.
+#    (The same is true of eva-jwt-secret, created the same way.)
+printf %s "POSTMARK_SERVER_TOKEN" | gcloud secrets create eva-postmark-key \
+  --data-file=- --project PROJECT_ID
+gcloud secrets add-iam-policy-binding eva-postmark-key --project PROJECT_ID \
+  --role roles/secretmanager.secretAccessor \
+  --member "serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+
+gh variable set POSTMARK_FROM --body "hello@evatracker.com"
+gh variable set PUBLIC_WEB_URL --body "https://evatracker.com"
+
+# 10. Link tokens carry their own expiry; a TTL policy is what actually reaps the
+#     documents nobody ever clicked, and with them the addresses they hold (#6).
+gcloud firestore fields ttls update expiresAt \
+  --collection-group=authTokens --enable-ttl --project PROJECT_ID
 ```
 
 Also set the real project ID in `.firebaserc`.

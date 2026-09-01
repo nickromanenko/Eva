@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import {
     ACTIVATION_TTL_SECONDS,
     RESET_TTL_SECONDS,
@@ -252,6 +252,27 @@ describe("a new reset link kills the old ones", () => {
     );
 });
 
+describe("a second activation link does NOT kill the first", () => {
+    test(
+        "only reset tokens are revoked on reissue, and the asymmetry is deliberate",
+        async () => {
+            // Resend issues another activation token and leaves the earlier one alive, so
+            // someone who clicks the first email after asking for a second still gets in.
+            // Reset is the opposite (`invalidateResetTokens`), because a reset link left
+            // live in an old inbox is a standing credential. A change that made the two
+            // symmetric would break Resend silently — hence a test that names it.
+            const uid = `email-tokens-test-${crypto.randomUUID()}`;
+            const first = await issueToken(uid, EMAIL, "activation");
+            const second = await issueToken(uid, EMAIL, "activation");
+
+            expect((await consumeToken(first, "activation")).ok).toBe(true);
+            expect((await consumeToken(second, "activation")).ok).toBe(true);
+            await deleteTokensForUid(uid);
+        },
+        SLOW,
+    );
+});
+
 describe("deleteTokensForUid", () => {
     test(
         "removes every token of the uid, used or not, and is a no-op the second time",
@@ -267,5 +288,39 @@ describe("deleteTokensForUid", () => {
             await deleteTokensForUid(uid);
         },
         SLOW,
+    );
+
+    test(
+        "removes more tokens than a single Firestore batch can hold",
+        async () => {
+            // A `WriteBatch` caps at 500 operations, and nothing bounds how many tokens an
+            // account accumulates — every Resend issues one and activation tokens are
+            // never revoked. A single-batch delete would throw here, and because
+            // `DELETE /me` deletes tokens before the tombstone, that account could never
+            // finish being deleted: every retry would fail in the same place.
+            //
+            // Written directly rather than through `issueToken`, which is one round trip
+            // each; the delete path does not care how they got there.
+            const uid = `email-tokens-test-${crypto.randomUUID()}`;
+            for (let written = 0; written < 520; written += 400) {
+                const batch = firestore.batch();
+                for (let i = written; i < Math.min(written + 400, 520); i++) {
+                    batch.set(tokenDocs().doc(sha256(`${uid}-${i}`)), {
+                        uid,
+                        email: EMAIL,
+                        kind: "activation",
+                        expiresAt: Timestamp.fromMillis(Date.now() + 86_400_000),
+                        usedAt: null,
+                        createdAt: FieldValue.serverTimestamp(),
+                    });
+                }
+                await batch.commit();
+            }
+            expect((await tokenDocs().where("uid", "==", uid).get()).size).toBe(520);
+
+            await deleteTokensForUid(uid);
+            expect((await tokenDocs().where("uid", "==", uid).get()).size).toBe(0);
+        },
+        60_000,
     );
 });

@@ -8,7 +8,7 @@ import { adminAuth, firestore } from "../../src/firebase";
  * The activation link never reaches a test — the server prints it (log transport) or
  * sends it (Postmark), and neither is readable from here — so the test process issues a
  * token of its own through the same `issueToken` the server uses, against the same
- * Firestore, and then spends it through the live `GET /auth/activate`. Every suite that
+ * Firestore, and then spends it through the live `POST /auth/activate`. Every suite that
  * signs up therefore also exercises the activation route for real.
  *
  * Not a test file: Bun only picks up `*.test.ts`.
@@ -24,7 +24,7 @@ const post = (base: string, path: string, body: unknown) =>
 /** Spends a freshly issued activation token on the live server. */
 export const activateAccount = async (base: string, uid: string, email: string): Promise<void> => {
     const token = await issueToken(uid, email, "activation");
-    const res = await fetch(`${base}/auth/activate?token=${token}`);
+    const res = await post(base, "/auth/activate", { token });
     if (res.status !== 200) throw new Error(`activate answered ${res.status}`);
 };
 

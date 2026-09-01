@@ -50,10 +50,13 @@ Each rule is stated so a reviewer can check it mechanically.
     data, and a symptom log in a log line is worse than a profile field. An activation or
     reset link is a token: never log the link, the raw token, its hash, or the address it
     went to. `EMAIL_TRANSPORT=log` is the one exception and is refused in production.
-12a. **A link token is stored as a hash and handed out once.** `authTokens/` documents are
-    keyed by `sha256(token)` and hold no copy of it, so a read of the collection opens
-    nothing. Single-use, spent in a transaction, and always with an expiry. A link token
-    is never a JWT and is never minted with `JWT_SECRET`.
+12a. **A link token is stored as a hash, handed out once, and never put in a URL a server
+    can see.** `authTokens/` documents are keyed by `sha256(token)` and hold no copy of it,
+    so a read of the collection opens nothing. Single-use, spent in a transaction, and
+    always with an expiry. A link token is never a JWT and is never minted with
+    `JWT_SECRET`. It travels in a POST body, and in the emailed link only as a URL
+    **fragment** — never a query string, which Cloud Run and Firebase Hosting both record
+    in their request logs.
 12b. **No route may reveal whether an address has an account.** `/auth/signin` answers a
     wrong password and an unknown address identically, and its activation gate sits
     *after* the password is verified; `/auth/activation/resend` and

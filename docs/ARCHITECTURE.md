@@ -90,7 +90,7 @@ change for the iOS client.
 | `GET /health` | — | `{ status: "ok" }` |
 | `POST /auth/signup` | — | `201 { pending: true, email }` — no session; an activation link is sent |
 | `POST /auth/signin` | — | `200 { token, user }`; `403 NOT_ACTIVATED` until the address is confirmed |
-| `GET \| POST /auth/activate` | Token in the link | `{ activated: true }` — token in `?token=` or the body |
+| `POST /auth/activate` | Token in the link | `{ activated: true }` — token in the body, never a query string |
 | `POST /auth/activation/resend` | — | `{ sent: true }`, always |
 | `POST /auth/password/forgot` | — | `{ sent: true }`, always |
 | `POST /auth/password/reset` | Token in the link | `200 { token, user }` — sets the password and signs in |
@@ -122,16 +122,41 @@ in on a password alone for months.
 action emails: a reset link has to be revocable (asking for a new one kills the old) and
 the page it lands on is ours. A token is 32 random bytes, handed out once as base64url and
 stored only as its SHA-256 under `authTokens/{hash}` — a leaked read of that collection
-opens nothing. Single-use, spent in a transaction, activation 24h, reset 60min. Links point
-at the website: `${PUBLIC_WEB_URL}/activate?token=…` and `/reset?token=…`.
+opens nothing. Single-use, spent in a transaction, activation 24h, reset 60min.
+
+**A token never appears in a URL a server can see.** Links point at the website with the
+token in the **fragment** — `${PUBLIC_WEB_URL}/activate#token=…`, `/reset#token=…` — which
+browsers do not transmit, so it is in no Hosting access log and no `Referer`. The page
+reads it from `location.hash`, scrubs it, and sends it in a **POST body**; there is no
+`GET /auth/activate?token=`, because Cloud Run's request log records the query string and
+a reset token is a live account credential for an hour. Hash-only storage is not worth
+much with the raw token sitting in two retained log streams. Both routes answer
+`Cache-Control: no-store` and carry a per-IP throttle.
+
+One consequence to know before changing those pages: the confirm call has to stay
+client-side. Mail-security scanners fetch the emailed URL before the person does and do not
+run JavaScript, so today the token survives the scan. Server-rendering `/activate` would
+let a scanner spend the link and hand the user a dead one.
+
+Only reset tokens are revoked on reissue. Asking for a second activation link leaves the
+first alive, deliberately: someone who presses Resend and then clicks the older email
+should still get in, whereas a reset link left live in an old inbox is a standing
+credential.
 
 `/auth/activation/resend` and `/auth/password/forgot` answer `200 { sent: true }` for every
 well-formed address, registered or not — the sign-in property above, extended to the two
 routes that would otherwise give it away for free. Both are throttled to one attempt per
 address per `RATE_LIMIT_RESEND_PER_EMAIL_SECONDS` (60), on separate counters, and the
-throttled answer is byte-identical across both branches. What remains is timing: a
-registered address costs a token write and a send. Named rather than hidden — closing it
-would mean doing fake work for unknown addresses.
+throttled answer is byte-identical across both branches, refused and served alike.
+
+Timing had to be closed too, and was not free. A registered address costs a Firestore
+write and a POST to Postmark; an unknown one costs a failed Auth lookup — hundreds of
+milliseconds against tens, readable from one request rather than by statistics. Both
+branches are held to a fixed floor (`SEND_LINK_FLOOR_MS`, 800ms) above the slow one. That
+is a floor, not a constant: a Postmark call slower than it still overruns, so the residue
+is bounded by Postmark's variance rather than by the difference between doing the work and
+skipping it. Answering before the send would be exact, but Cloud Run throttles CPU after
+the response and the mail would then go out whenever the next request happened to arrive.
 
 `POST /auth/password/reset` mints a session, because the user has just proven control of
 the address and chosen a password, which is more than a sign-in asks for. It also stamps
@@ -308,6 +333,16 @@ expiresAt  Timestamp         // 24h for activation, 60min for reset
 usedAt     Timestamp | null  // null until spent; spending is a transaction
 createdAt  serverTimestamp
 ```
+
+Retention is a **TTL policy on `expiresAt`**, not code — one `gcloud firestore fields ttls
+update`, in the README's setup block. It matters more than it looks: nothing bounds how
+many tokens an account accumulates (every Resend issues one, and activation tokens are
+never revoked), and each document holds the address it was sent to. Without the policy,
+`authTokens/` becomes a permanent index of every Eva address with its signup and reset
+times — which for a health app is the sensitive artefact, even though the tokens
+themselves are useless. `deleteTokensForUid` pages in batches for the same reason: an
+unbounded collection needs an unbounded delete, and one 500-op batch would leave
+`DELETE /me` unable to finish at all.
 
 The document ID **is** the hash, so nothing here can be turned back into a link, and there
 is no index from an account to a usable token. Account deletion takes them all — the

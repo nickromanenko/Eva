@@ -5,7 +5,7 @@
  * arrives by email, and a simulator has no mailbox. This is the seam. It runs beside the
  * API that `scripts/verify-mobile.sh` starts, and answers one question — "activate the
  * account at this address" — by issuing an activation token against the same Firestore
- * and then spending it through the **live** `GET /auth/activate`. The route under test is
+ * and then spending it through the **live** `POST /auth/activate`. The route under test is
  * the real one; only the delivery is short-circuited, which is the one part of the flow a
  * simulator genuinely cannot do.
  *
@@ -63,7 +63,11 @@ const server = Bun.serve({
     }
 
     const token = await issueToken(uid, email, 'activation')
-    const activated = await fetch(`${apiUrl}/auth/activate?token=${token}`)
+    const activated = await fetch(`${apiUrl}/auth/activate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
     if (!activated.ok) return json({ error: `activate answered ${activated.status}` }, 502)
     return json({ activated: true })
   },

@@ -103,6 +103,10 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
 - CORS is on exactly the two routes the website's link pages call (`/auth/activate`,
   `/auth/password/reset`), for exactly `config.publicWebOrigin`. Never `*`, never a third
   route: an allowed origin is a page that can spend a token it was handed.
+- **A link token never travels in a URL.** Both link routes are POST with the token in the
+  body, and the emailed link carries it in the fragment (`#token=`), which browsers do not
+  send. A query string would put a live credential into Cloud Run's and Hosting's request
+  logs. Do not add a `GET` convenience route.
 
 ## Style
 
