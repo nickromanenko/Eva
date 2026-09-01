@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 // question of what these should cost is #31.
 setDefaultTimeout(20_000);
 import { adminAuth, firestore } from "../src/firebase";
+import { signUpActivated } from "./support/session";
 
 /**
  * Integration tests against the REAL Firebase project, same pattern as auth.test.ts:
@@ -105,15 +106,11 @@ const range = async (from: string, to: string): Promise<EvaEventBody[]> =>
 const eventsCollection = () => firestore.collection("users").doc(uid).collection("events");
 
 beforeAll(async () => {
-    const res = await api("/auth/signup", {
-        method: "POST",
-        token: null,
-        body: JSON.stringify({ email, password }),
-    });
-    expect(res.status).toBe(201);
-    const body = await json<{ token: string; user: { id: string } }>(res);
-    token = body.token;
-    uid = body.user.id;
+    // Sign-up no longer hands out a session (#6): the account has to be activated first.
+    // `signUpActivated` does the three steps — sign up, spend an activation token, sign in.
+    const session = await signUpActivated(BASE, email, password);
+    token = session.token;
+    uid = session.uid;
 });
 
 afterAll(async () => {

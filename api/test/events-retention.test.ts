@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Timestamp } from "firebase-admin/firestore";
 import { adminAuth, firestore } from "../src/firebase";
+import { signUpActivated } from "./support/session";
 import { RETENTION_DAYS, purgeUserEvents, retentionCutoff } from "../src/events";
 
 /**
@@ -110,15 +111,11 @@ const clearAll = async () => {
 };
 
 beforeAll(async () => {
-    const res = await api("/auth/signup", {
-        method: "POST",
-        token: null,
-        body: JSON.stringify({ email, password }),
-    });
-    expect(res.status).toBe(201);
-    const body = await json<{ token: string; user: { id: string } }>(res);
-    token = body.token;
-    uid = body.user.id;
+    // Sign-up no longer hands out a session (#6): the account has to be activated first.
+    // `signUpActivated` does the three steps — sign up, spend an activation token, sign in.
+    const session = await signUpActivated(BASE, email, password);
+    token = session.token;
+    uid = session.uid;
 });
 
 afterAll(async () => {

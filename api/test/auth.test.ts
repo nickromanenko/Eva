@@ -1,13 +1,21 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { verify } from "hono/jwt";
 import { config } from "../src/config";
+import { issueToken } from "../src/email-tokens";
 import { adminAuth, firestore } from "../src/firebase";
+import { activateAccount, createLegacyAccount } from "./support/session";
 
 /**
  * Integration tests against the REAL Firebase project (per spec §6).
  * Every account uses the e2e+<uuid>@e2e.evaapp.dev pattern and is deleted
  * (Auth user + Firestore doc) in afterAll, success or failure.
  */
+
+// Sign-up now costs an Auth lookup and an activation round trip on top of the round
+// trips it always made (#6), which put two cases past Bun's 5000ms default. 20s is not a
+// measurement — it is a ceiling that still fails loudly on a genuine hang, the same one
+// events.test.ts sets and for the same reason (#31).
+setDefaultTimeout(20_000);
 
 const BASE = process.env.EVA_API_URL ?? "http://localhost:3003";
 const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
@@ -27,12 +35,17 @@ interface UserBody {
     id: string;
     email: string;
     questionnaireCompleted: boolean;
+    activated: boolean;
 }
 interface UserResponse {
     user: UserBody;
 }
 interface AuthResponse extends UserResponse {
     token: string;
+}
+interface PendingResponse {
+    pending: boolean;
+    email: string;
 }
 interface ErrorResponse {
     error: { code: string; message: string };
@@ -56,22 +69,18 @@ describe("auth", () => {
     let token = "";
     let uid = "";
 
-    test("signup creates account, JWT and Firestore record", async () => {
+    test("signup creates the account but no session, and the record starts unactivated", async () => {
         const res = await api("/auth/signup", {
             method: "POST",
             body: JSON.stringify({ email, password }),
         });
         expect(res.status).toBe(201);
-        const body = await json<AuthResponse>(res);
-        token = body.token;
-        uid = body.user.id;
+        // #6: the answer carries no token — the address is not proven yet — and echoes
+        // the address back so the gate screen can name where the link went.
+        expect(await json<PendingResponse>(res)).toEqual({ pending: true, email });
+
+        uid = (await adminAuth.getUserByEmail(email)).uid;
         createdUids.push(uid);
-
-        expect(body.user.email).toBe(email);
-        expect(body.user.questionnaireCompleted).toBe(false);
-
-        const claims = await verify(token, config.jwtSecret, "HS256");
-        expect(claims.sub).toBe(uid);
 
         // The spec's core assertion: the users/{uid} record exists in Firestore.
         const doc = await firestore.collection("users").doc(uid).get();
@@ -79,6 +88,52 @@ describe("auth", () => {
         expect(doc.data()!.email).toBe(email);
         expect(doc.data()!.authProviders).toEqual(["password"]);
         expect(doc.data()!.questionnaireCompleted).toBe(false);
+        // Explicitly null, not absent: absent is the pre-#6 shape and means activated.
+        expect(doc.data()!.activatedAt).toBeNull();
+    });
+
+    test("signin is refused until the address is confirmed", async () => {
+        const res = await api("/auth/signin", {
+            method: "POST",
+            body: JSON.stringify({ email, password }),
+        });
+        expect(res.status).toBe(403);
+        expect((await json<ErrorResponse>(res)).error.code).toBe("NOT_ACTIVATED");
+    });
+
+    test("an unconfirmed address with a wrong password is refused like any other", async () => {
+        // Where the gate sits is the design (#6): the 403 above is only reachable once
+        // Identity Toolkit has verified the password. Answering "not activated" first
+        // would tell anyone holding an address that an Eva account stands behind it —
+        // the question the 401 exists to refuse. So: same status, same bytes, for an
+        // unconfirmed real account and an address that was never registered.
+        const unconfirmed = await api("/auth/signin", {
+            method: "POST",
+            body: JSON.stringify({ email, password: "wrong-password-1" }),
+        });
+        const unknown = await api("/auth/signin", {
+            method: "POST",
+            body: JSON.stringify({
+                email: `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`,
+                password: "wrong-password-1",
+            }),
+        });
+        expect(unconfirmed.status).toBe(401);
+        expect(unknown.status).toBe(401);
+        expect(await unconfirmed.text()).toBe(await unknown.text());
+    });
+
+    test("the activation link confirms the address, once", async () => {
+        await activateAccount(BASE, uid, email);
+        expect((await firestore.collection("users").doc(uid).get()).data()!.activatedAt)
+            .not.toBeNull();
+
+        // Single-use: the same link a second time is a dead link, not a second activation.
+        const token = await issueToken(uid, email, "activation");
+        expect((await fetch(`${BASE}/auth/activate?token=${token}`)).status).toBe(200);
+        const replay = await fetch(`${BASE}/auth/activate?token=${token}`);
+        expect(replay.status).toBe(400);
+        expect((await json<ErrorResponse>(replay)).error.code).toBe("INVALID_TOKEN");
     });
 
     test("duplicate signup is rejected with 409", async () => {
@@ -115,7 +170,12 @@ describe("auth", () => {
         });
         expect(res.status).toBe(200);
         const body = await json<AuthResponse>(res);
+        token = body.token;
         expect(body.user.id).toBe(uid); // same uid → same users doc, no second record
+        expect(body.user.activated).toBe(true);
+
+        const claims = await verify(token, config.jwtSecret, "HS256");
+        expect(claims.sub).toBe(uid);
     });
 
     test("signin rejects wrong password with 401", async () => {
@@ -231,6 +291,11 @@ describe("signup password rule", () => {
             }),
         });
 
+    /** Sign-up answers with the address, not the account (#6), so the sweep list is
+     *  filled from Auth rather than from the body. */
+    const uidOf = async (res: Response): Promise<string> =>
+        (await adminAuth.getUserByEmail((await json<PendingResponse>(res)).email)).uid;
+
     test("8 characters without a digit is rejected", async () => {
         const res = await signup("password");
         expect(res.status).toBe(400);
@@ -246,7 +311,7 @@ describe("signup password rule", () => {
     test("8 characters with a digit is accepted", async () => {
         const res = await signup("passwor1");
         expect(res.status).toBe(201);
-        createdUids.push((await json<AuthResponse>(res)).user.id);
+        createdUids.push(await uidOf(res));
     });
 
     test("a non-ASCII digit counts as a number, as it does on the client", async () => {
@@ -255,7 +320,7 @@ describe("signup password rule", () => {
         // the user had just satisfied.
         const res = await signup("passwor\u0663");
         expect(res.status).toBe(201);
-        createdUids.push((await json<AuthResponse>(res)).user.id);
+        createdUids.push(await uidOf(res));
     });
 
     test("the rejection message is the sign-up screen's helper text", async () => {
@@ -266,13 +331,12 @@ describe("signup password rule", () => {
     test("signin still accepts a pre-rule password with no digit", async () => {
         // Created through the Admin SDK deliberately: signup itself now refuses this
         // password, so this is the only way to stand up an account that predates the
-        // rule. Sign-in must not start rejecting the users who already hold one.
+        // rule. Sign-in must not start rejecting the users who already hold one — and
+        // the document is written in the pre-#6 shape, with no `activatedAt`, which is
+        // what "predates" means for the activation gate too.
         const legacyEmail = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
         const legacyPassword = "horsestaple";
-        const { uid: legacyUid } = await adminAuth.createUser({
-            email: legacyEmail,
-            password: legacyPassword,
-        });
+        const legacyUid = await createLegacyAccount(legacyEmail, legacyPassword);
         createdUids.push(legacyUid);
 
         const res = await api("/auth/signin", {

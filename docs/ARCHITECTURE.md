@@ -66,11 +66,14 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `users.ts` | The `users/{uid}` document: read, create, update, mark deleted, delete, list IDs | The only module that touches `users/` |
 | `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all | The only module that touches `events/` |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
+| `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
+| `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
 
-Layering: `index.ts` → (`auth`, `identity-toolkit`, `rate-limit`, `users`, `events`, `refdata`)
-→ (`firebase`, `config`). Never call upward, never sideways along the middle row.
+Layering: `index.ts` → (`auth`, `identity-toolkit`, `rate-limit`, `users`, `events`,
+`refdata`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward, never
+sideways along the middle row.
 
 ### Contracts
 
@@ -78,15 +81,19 @@ Errors are always `{ "error": { "code": string, "message": string } }`. `code` i
 stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
 `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`,
 `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`, `SERVICE_UNAVAILABLE`,
-`DAY_ALREADY_LOGGED`, `INTERNAL`);
+`DAY_ALREADY_LOGGED`, `NOT_ACTIVATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INTERNAL`);
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
 | Route | Auth | Success |
 |---|---|---|
 | `GET /health` | — | `{ status: "ok" }` |
-| `POST /auth/signup` | — | `201 { token, user }` |
-| `POST /auth/signin` | — | `200 { token, user }` |
+| `POST /auth/signup` | — | `201 { pending: true, email }` — no session; an activation link is sent |
+| `POST /auth/signin` | — | `200 { token, user }`; `403 NOT_ACTIVATED` until the address is confirmed |
+| `GET \| POST /auth/activate` | Token in the link | `{ activated: true }` — token in `?token=` or the body |
+| `POST /auth/activation/resend` | — | `{ sent: true }`, always |
+| `POST /auth/password/forgot` | — | `{ sent: true }`, always |
+| `POST /auth/password/reset` | Token in the link | `200 { token, user }` — sets the password and signs in |
 | `GET /me` | Bearer | `{ user }` |
 | `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately |
 | `PUT /me/questionnaire` | Bearer | `{ user }` |
@@ -97,6 +104,44 @@ change for the iOS client.
 | `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
+
+**Sign-up hands out no session (#6).** The account exists after `201`, but the address is
+not proven, and `POST /auth/signin` refuses it with `403 NOT_ACTIVATED` until it is. The
+`user` object carries `activated: boolean` for the client to route on. Where that gate sits
+is the design: **after** Identity Toolkit has verified the password, so the only caller who
+can ever see the 403 already knows it — answering earlier would tell anyone holding an
+address that an Eva account stands behind it. `api/test/auth.test.ts` pins the ordering by
+comparing the bytes of an unconfirmed account's wrong-password 401 with an unknown
+address's.
+
+`users/{uid}.activatedAt` is `null` from creation and a timestamp after. **Absent means
+activated**: every document written before #6 has no such field, and those accounts signed
+in on a password alone for months.
+
+**The links, and who owns them.** Eva issues its own tokens rather than using Firebase's
+action emails: a reset link has to be revocable (asking for a new one kills the old) and
+the page it lands on is ours. A token is 32 random bytes, handed out once as base64url and
+stored only as its SHA-256 under `authTokens/{hash}` — a leaked read of that collection
+opens nothing. Single-use, spent in a transaction, activation 24h, reset 60min. Links point
+at the website: `${PUBLIC_WEB_URL}/activate?token=…` and `/reset?token=…`.
+
+`/auth/activation/resend` and `/auth/password/forgot` answer `200 { sent: true }` for every
+well-formed address, registered or not — the sign-in property above, extended to the two
+routes that would otherwise give it away for free. Both are throttled to one attempt per
+address per `RATE_LIMIT_RESEND_PER_EMAIL_SECONDS` (60), on separate counters, and the
+throttled answer is byte-identical across both branches. What remains is timing: a
+registered address costs a token write and a send. Named rather than hidden — closing it
+would mean doing fake work for unknown addresses.
+
+`POST /auth/password/reset` mints a session, because the user has just proven control of
+the address and chosen a password, which is more than a sign-in asks for. It also stamps
+`activatedAt`: a reset proves the address as surely as the activation link does. The
+password rule is checked **before** the token is spent, so a weak password costs a retry,
+not the link.
+
+**CORS is on exactly two routes** — `/auth/activate` and `/auth/password/reset`, the ones
+the website's link pages call from the browser — for exactly `PUBLIC_WEB_URL`'s origin.
+Never `*`: an allowed origin is a page that can spend a token it was handed.
 
 **Password rule — creation only.** `POST /auth/signup` enforces the rule the sign-up
 screen states as helper text: *at least 8 characters, including one number*. A password
@@ -232,6 +277,7 @@ email                  string
 authProviders          string[]        // arrayUnion, e.g. ["password"]
 questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
+activatedAt            Timestamp | null  // #6; null = unconfirmed, ABSENT = pre-#6 = confirmed
 deletedAt              Timestamp       // absent until a delete starts; see below
 createdAt, updatedAt   serverTimestamp
 ```
@@ -241,9 +287,31 @@ makes account deletion safe to interrupt: while it is set, `getUser` answers `nu
 account gate refuses every token, and `ensureUser` refuses to revive the document, so
 signing in cannot bring the account back either.
 
+`activatedAt` distinguishes three states with two values, which is the one subtle thing
+about it: `null` means the address has not been confirmed, a timestamp means it has, and
+**absent means confirmed too** — every document written before #6 lacks the field and those
+accounts must keep signing in. A truthiness test would lock them out.
+
 `Profile` is validated at the edge in `parseProfile` (`index.ts`) with hard ranges:
 age 13–99, weight 30–200 kg, height 120–220 cm. Widening a range is a product
 decision, not a bug fix.
+
+`authTokens/{sha256(token)}` — the activation and password-reset links (#6). Top-level
+rather than under `users/`, because the document is looked up by the token alone, before
+anyone knows whose it is. Owned by `api/src/email-tokens.ts`.
+
+```
+uid        string            // the account the link opens
+email      string            // the address it was sent to
+kind       'activation' | 'reset'
+expiresAt  Timestamp         // 24h for activation, 60min for reset
+usedAt     Timestamp | null  // null until spent; spending is a transaction
+createdAt  serverTimestamp
+```
+
+The document ID **is** the hash, so nothing here can be turned back into a link, and there
+is no index from an account to a usable token. Account deletion takes them all — the
+document carries the address.
 
 `users/{uid}/events/{eventId}` — one subcollection for every calendar entry,
 discriminated by `type` (`cycle`, `bodySignals`, `sport`, `appointment`; `sex` is
@@ -302,8 +370,8 @@ soft-deleted entries still inside their 30-day window**. That is a deliberate di
 from event retention above, not a conflict with it: deleting one entry is an edit someone
 may want to undo, deleting an account is a decision about all of it, and a recovery window
 inside an account that no longer exists is a promise to nobody. Nothing else is keyed to a
-uid; `refdata/` is global, and the `/auth/*` throttle's counters are in memory and keyed by
-address and IP rather than by account.
+uid except `authTokens/` (#6), which goes with it; `refdata/` is global, and the `/auth/*`
+throttle's counters are in memory and keyed by address and IP rather than by account.
 
 The order is the design, because a partial failure has to be safe *and* resumable:
 
@@ -311,7 +379,8 @@ The order is the design, because a partial failure has to be safe *and* resumabl
    `401`s, sign-in refuses to revive it);
 2. delete the Firebase Auth user — the credentials open nothing and the address is free
    again;
-3. delete every event, soft-deleted ones included, a batch at a time;
+3. delete every event, soft-deleted ones included, a batch at a time, and every
+   activation and reset token — a token document carries the address;
 4. delete `users/{uid}`, the tombstone step 1 wrote.
 
 Data goes before the tombstone, and the tombstone goes last, so that **a missing user
@@ -551,6 +620,14 @@ file that someone can forget to regenerate.
 
 The `RATE_LIMIT_*` knobs (§3) are optional in both environments — unset means the
 defaults in `api/src/config.ts`, and they are configuration, not secrets.
+
+The website has one build-time value, `PUBLIC_API_BASE_URL`: the API origin that the
+email-link pages (`/activate`, `/reset`) call. Locally it comes from `website/.env`
+(see `website/.env.example`); in CI from the `API_BASE_URL` repo variable, and the
+deploy workflow refuses to build without it. It is a public URL, not a secret — Astro
+inlines `PUBLIC_*` values into the static output. Those two pages are the only part of
+the site that talks to the API, and they do so from the browser, so the API must allow
+the site's origin on those routes.
 
 CI authenticates by Workload Identity Federation — **no key files in CI, ever**.
 `api/.env` and `api/.secrets/` are gitignored and stay that way.

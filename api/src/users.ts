@@ -17,15 +17,27 @@ export interface User {
   email: string
   questionnaireCompleted: boolean
   profile: Profile | null
+  /** Whether the address has been confirmed (#6). Derived from `activatedAt`, which the
+   *  client never sees. */
+  activated: boolean
 }
 
 const users = () => firestore.collection('users')
+
+/** `activatedAt` is `null` from creation until the activation link is used, and a
+ *  timestamp after. **Absent means activated**: every document written before #6 has no
+ *  such field, and those accounts signed in for months on a password alone — a gate that
+ *  locked them out until they found a confirmation email they were never sent would be a
+ *  regression, not security. Hence `!== null` rather than a truthiness test. */
+const isActivatedData = (data: FirebaseFirestore.DocumentData): boolean =>
+  data.activatedAt !== null
 
 const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => ({
   id,
   email: data.email,
   questionnaireCompleted: data.questionnaireCompleted ?? false,
   profile: data.profile ?? null,
+  activated: isActivatedData(data),
 })
 
 /** gRPC NOT_FOUND — the document the write was aimed at is not there. */
@@ -67,20 +79,47 @@ export const ensureUser = async (
     })
     return toUser(uid, snapshot.data()!)
   }
+  // A new document starts *not* activated, explicitly: `null`, never absent, because
+  // absent is what a pre-#6 document looks like and means the opposite (see
+  // `isActivatedData`). That holds for a sign-in that creates the document too — an Auth
+  // user with no document was made outside the API, and its address was never proven.
   await ref.set({
     email,
     authProviders: [provider],
     questionnaireCompleted: false,
     profile: null,
+    activatedAt: null,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   })
-  return { id: uid, email, questionnaireCompleted: false, profile: null }
+  return { id: uid, email, questionnaireCompleted: false, profile: null, activated: false }
 }
 
 export const getUser = async (uid: string): Promise<User | null> => {
   const snapshot = await users().doc(uid).get()
   return snapshot.exists && !isTombstone(snapshot) ? toUser(uid, snapshot.data()!) : null
+}
+
+/** The activation gate's question (#6). A named seam rather than a field read, so the
+ *  routes that ask it — sign-in, resend — say what they are asking. */
+export const isActivated = (user: User): boolean => user.activated
+
+/** Stamps `activatedAt`, once: a document already activated — by a timestamp, or by
+ *  predating the field — is left exactly as it is, so the first confirmation stays the
+ *  record of when the address was proven. `false` means there was nothing to activate: no
+ *  document, or a tombstone. The caller treats that as a dead link, not an error. */
+export const markActivated = async (uid: string): Promise<boolean> => {
+  const ref = users().doc(uid)
+  return firestore.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref)
+    if (!snapshot.exists || isTombstone(snapshot)) return false
+    if (isActivatedData(snapshot.data()!)) return true
+    tx.update(ref, {
+      activatedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    return true
+  })
 }
 
 export const saveQuestionnaire = async (uid: string, profile: Profile): Promise<User | null> => {

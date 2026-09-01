@@ -1,0 +1,128 @@
+import { createHash } from 'node:crypto'
+import { FieldValue, Timestamp } from 'firebase-admin/firestore'
+import { firestore } from './firebase'
+
+/**
+ * The tokens behind activation and password-reset links (issue #6). The only module that
+ * touches `authTokens/` (GUARDRAILS 10).
+ *
+ * A token is 32 random bytes, handed to the caller once as base64url and never stored:
+ * the document is keyed by its SHA-256, so a read of the collection — a leaked export, a
+ * console session — yields nothing that opens an account. Each is single-use, consumed in
+ * a transaction so two clicks racing on the same link cannot both win, and each expires
+ * on its own clock. They are deliberately not JWTs: a reset link must be revocable (a
+ * second request kills the first) and must not be minted with the session secret, which
+ * would make every reset link a session in disguise.
+ *
+ * Nothing in this file writes to the console, and nothing should start: a raw token or
+ * its hash in a log line is the link itself (GUARDRAILS 12).
+ */
+
+export type TokenKind = 'activation' | 'reset'
+
+/** How long an activation link works — what the email and the canvas both say. */
+export const ACTIVATION_TTL_SECONDS = 24 * 60 * 60
+/** How long a reset link works. Short, because it sets a password without one. */
+export const RESET_TTL_SECONDS = 60 * 60
+
+const TTL_SECONDS: Record<TokenKind, number> = {
+  activation: ACTIVATION_TTL_SECONDS,
+  reset: RESET_TTL_SECONDS,
+}
+
+const TOKEN_BYTES = 32
+/** `TOKEN_BYTES` as unpadded base64url, for the route edge to refuse anything else. */
+export const TOKEN_LENGTH = Math.ceil((TOKEN_BYTES * 4) / 3)
+
+export type ConsumeResult =
+  | { ok: true; uid: string; email: string }
+  | { ok: false; reason: 'invalid' | 'expired' }
+
+const tokens = () => firestore.collection('authTokens')
+
+const hashToken = (raw: string): string => createHash('sha256').update(raw).digest('hex')
+
+/**
+ * Marks every unused reset token of `uid` used. Requesting a new link is what kills the
+ * old one (PRD: "send link → invalidate the old one"), so a reset email that sat in an
+ * inbox for a while cannot be picked up after a fresher one was asked for.
+ */
+const invalidateResetTokens = async (uid: string): Promise<void> => {
+  const unused = await tokens()
+    .where('uid', '==', uid)
+    .where('kind', '==', 'reset')
+    .where('usedAt', '==', null)
+    .get()
+  if (unused.empty) return
+  const batch = firestore.batch()
+  for (const doc of unused.docs) batch.update(doc.ref, { usedAt: FieldValue.serverTimestamp() })
+  await batch.commit()
+}
+
+/**
+ * Issues a token and returns the only copy of it that will ever exist in the clear. The
+ * caller's job is to put it in a link and forget it.
+ *
+ * `now` is injectable so a test can issue a token that is already past its expiry
+ * without sleeping through a day.
+ */
+export const issueToken = async (
+  uid: string,
+  email: string,
+  kind: TokenKind,
+  now: () => number = Date.now,
+): Promise<string> => {
+  if (kind === 'reset') await invalidateResetTokens(uid)
+  const raw = Buffer.from(crypto.getRandomValues(new Uint8Array(TOKEN_BYTES))).toString('base64url')
+  await tokens()
+    .doc(hashToken(raw))
+    .set({
+      uid,
+      email,
+      kind,
+      expiresAt: Timestamp.fromMillis(now() + TTL_SECONDS[kind] * 1000),
+      usedAt: null,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+  return raw
+}
+
+/**
+ * Spends a token. `invalid` covers unknown, already used, and the wrong kind — three
+ * facts the caller has no use for telling apart, and one of which (unknown vs. used)
+ * would let a link's holder learn whether somebody else already clicked it. `expired`
+ * is separate because the user can act on it: ask for a new link.
+ *
+ * A transaction, so the read of `usedAt` and the write of it are one step: two requests
+ * carrying the same token cannot both see it unused.
+ */
+export const consumeToken = async (
+  raw: string,
+  kind: TokenKind,
+  now: () => number = Date.now,
+): Promise<ConsumeResult> => {
+  const ref = tokens().doc(hashToken(raw))
+  return firestore.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref)
+    if (!snapshot.exists) return { ok: false, reason: 'invalid' }
+    const data = snapshot.data()!
+    if (data.kind !== kind || data.usedAt !== null) return { ok: false, reason: 'invalid' }
+    const at = now()
+    if ((data.expiresAt as Timestamp).toMillis() <= at) return { ok: false, reason: 'expired' }
+    tx.update(ref, { usedAt: Timestamp.fromMillis(at) })
+    return { ok: true, uid: data.uid, email: data.email }
+  })
+}
+
+/**
+ * Removes every token of `uid`, used or not — part of account deletion (#8), because a
+ * token document carries the account's address and a deleted account keeps nothing.
+ * Deleting nothing succeeds, so a resumed delete passes through here quietly.
+ */
+export const deleteTokensForUid = async (uid: string): Promise<void> => {
+  const owned = await tokens().where('uid', '==', uid).get()
+  if (owned.empty) return
+  const batch = firestore.batch()
+  for (const doc of owned.docs) batch.delete(doc.ref)
+  await batch.commit()
+}

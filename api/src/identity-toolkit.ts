@@ -153,3 +153,30 @@ export const deleteAuthAccount = async (uid: string): Promise<void> => {
     if ((err as { code?: string }).code !== USER_NOT_FOUND) throw err
   }
 }
+
+/**
+ * The uid behind an address, or `null` when no Auth user holds it — the lookup behind
+ * the two "send me a link" routes (#6). Those routes answer `200 { sent: true }` either
+ * way, so the `null` never reaches a caller; it only decides whether there is anyone to
+ * write to. Here rather than in `users.ts` because the Auth account, not the document, is
+ * what a password reset acts on — and because `users/` is keyed by uid, never by email
+ * (GUARDRAILS 9). Logs nothing.
+ */
+export const findAuthUidByEmail = async (email: string): Promise<string | null> => {
+  try {
+    return (await adminAuth.getUserByEmail(email)).uid
+  } catch (err) {
+    if ((err as { code?: string }).code === USER_NOT_FOUND) return null
+    throw err
+  }
+}
+
+/**
+ * Sets a new password on the Auth account — the last step of a reset (#6), after the
+ * token has been spent. The Admin SDK can set a password even though it cannot verify one,
+ * so this is the one credential operation that needs no web API key. Never logs, and is
+ * never told the old password; the new one passes through and is gone.
+ */
+export const setPassword = async (uid: string, password: string): Promise<void> => {
+  await adminAuth.updateUser(uid, { password })
+}

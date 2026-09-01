@@ -37,6 +37,9 @@ const DOCS = [
   ["another user's document", `users/${OTHER_UID}`, "users"],
   ["the caller's own event", `users/${UID}/events/evt-1`, `users/${UID}/events`],
   ["reference data", "refdata/cycle-phases", "refdata"],
+  // Activation and password-reset tokens (#6). Only the API ever touches them, and a
+  // client that could read one could open somebody's account.
+  ["an activation token", "authTokens/deadbeef", "authTokens"],
   ["an arbitrary path", "anything/at-all", "anything"],
   ["a deeply nested arbitrary path", "a/b/c/d", "a/b/c"],
 ] as const;
