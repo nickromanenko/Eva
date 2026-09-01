@@ -1,0 +1,91 @@
+---
+// The page an activation email links to. It confirms the token with the API
+// on load, then hands the user back to the app via the eva:// scheme.
+import AuthLayout from '../layouts/AuthLayout.astro';
+
+const apiBase = import.meta.env.PUBLIC_API_BASE_URL ?? '';
+---
+
+<AuthLayout title="Confirm your email — Eva">
+  <div id="activate" data-api-base={apiBase}>
+    <div data-state="pending">
+      <span class="mark mark--pending" aria-hidden="true">…</span>
+      <h1 tabindex="-1">Confirming your email</h1>
+      <p>One moment.</p>
+    </div>
+
+    <div data-state="success" hidden>
+      <span class="mark mark--success" aria-hidden="true">✓</span>
+      <h1 tabindex="-1">Your email is confirmed</h1>
+      <p>You can go back to Eva now.</p>
+      <div class="actions">
+        <a class="btn-primary" href="eva://activated">Open Eva</a>
+      </div>
+      <p class="caption">Opening Eva on your phone? Go back to the app — it will log you in.</p>
+    </div>
+
+    <div data-state="expired" hidden>
+      <span class="mark mark--info" aria-hidden="true">i</span>
+      <h1 tabindex="-1">This link has expired</h1>
+      <p>Activation links work for 24 hours. Open Eva and tap Resend.</p>
+      <div class="actions">
+        <a class="btn-primary" href="eva://open">Open Eva</a>
+      </div>
+    </div>
+
+    <div data-state="invalid" hidden>
+      <span class="mark mark--error" aria-hidden="true">!</span>
+      <h1 tabindex="-1">This link can't be used</h1>
+      <p>It has already been used or isn't valid. Open Eva and tap Resend to get a new one.</p>
+      <div class="actions">
+        <a class="btn-primary" href="eva://open">Open Eva</a>
+      </div>
+    </div>
+
+    <div data-state="missing" hidden>
+      <span class="mark mark--error" aria-hidden="true">!</span>
+      <h1 tabindex="-1">This link is incomplete</h1>
+      <p>Open the link from your email again, or open Eva and tap Resend.</p>
+      <div class="actions">
+        <a class="btn-primary" href="eva://open">Open Eva</a>
+      </div>
+    </div>
+
+    <div data-state="unreachable" hidden>
+      <span class="mark mark--error" aria-hidden="true">!</span>
+      <h1 tabindex="-1">We couldn't reach Eva</h1>
+      <p>Check your connection and try again. Your link is still valid.</p>
+      <div class="actions">
+        <button class="btn-primary" type="button" data-action="retry">Try again</button>
+        <a class="btn-text" href="eva://open">Open Eva</a>
+      </div>
+    </div>
+  </div>
+</AuthLayout>
+
+<script>
+  import { callAuthApi, readTokenAndScrubUrl, showState } from '../scripts/auth-api.js';
+
+  const root = document.getElementById('activate');
+  const token = readTokenAndScrubUrl();
+
+  async function activate() {
+    showState(root, 'pending');
+    let result;
+    try {
+      result = await callAuthApi(root.dataset.apiBase, '/auth/activate?token=' + encodeURIComponent(token));
+    } catch {
+      showState(root, 'unreachable');
+      return;
+    }
+    if (result.ok) showState(root, 'success');
+    else if (result.code === 'TOKEN_EXPIRED') showState(root, 'expired');
+    else if (result.code === 'INVALID_TOKEN') showState(root, 'invalid');
+    else showState(root, 'unreachable');
+  }
+
+  root.querySelector('[data-action="retry"]').addEventListener('click', activate);
+
+  if (token) activate();
+  else showState(root, 'missing');
+</script>

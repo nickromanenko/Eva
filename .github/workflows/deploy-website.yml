@@ -25,7 +25,12 @@ jobs:
 
       - name: Build site
         working-directory: website
+        env:
+          # Inlined into /activate and /reset at build time, so a missing value
+          # would ship pages that call nowhere — fail here instead.
+          PUBLIC_API_BASE_URL: ${{ vars.API_BASE_URL }}
         run: |
+          test -n "$PUBLIC_API_BASE_URL" || { echo "::error::API_BASE_URL repo variable is not set (gh variable set API_BASE_URL --body https://<cloud-run-url>)"; exit 1; }
           bun install --frozen-lockfile
           bun run build
 

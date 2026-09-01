@@ -1,0 +1,150 @@
+---
+// The page a password-reset email links to. The rule is stated up front as the
+// helper; errors sit under the field with a mark (DESIGN.md §6). The session
+// token the API returns on success is deliberately dropped — the web has no
+// use for it, and the app logs the user in with the new password.
+import AuthLayout from '../layouts/AuthLayout.astro';
+
+const apiBase = import.meta.env.PUBLIC_API_BASE_URL ?? '';
+const passwordRule = 'At least 8 characters, including one number.';
+---
+
+<AuthLayout title="Choose a new password — Eva">
+  <div id="reset" data-api-base={apiBase}>
+    <div data-state="form">
+      <h1 tabindex="-1">Choose a new password</h1>
+      <form novalidate>
+        <!-- Password managers pair a new password with a username field; we don't know the
+             address here (the token is opaque), so it stays empty and hidden. -->
+        <input type="text" name="username" autocomplete="username" hidden tabindex="-1" aria-hidden="true" />
+        <div class="field">
+          <label for="password">New password</label>
+          <input id="password" name="password" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" aria-describedby="password-helper password-error" />
+          <p class="helper" id="password-helper">{passwordRule}</p>
+          <p class="error" id="password-error" hidden><span class="mark mark--error" aria-hidden="true">!</span><span data-message></span></p>
+        </div>
+        <div class="field">
+          <label for="repeat">Repeat password</label>
+          <input id="repeat" name="repeat" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" aria-describedby="repeat-error" />
+          <p class="error" id="repeat-error" hidden><span class="mark mark--error" aria-hidden="true">!</span><span data-message></span></p>
+        </div>
+        <p class="error error--form" id="form-error" hidden><span class="mark mark--error" aria-hidden="true">!</span><span data-message></span></p>
+        <div class="actions">
+          <button class="btn-primary" type="submit">Save password</button>
+        </div>
+      </form>
+    </div>
+
+    <div data-state="success" hidden>
+      <span class="mark mark--success" aria-hidden="true">✓</span>
+      <h1 tabindex="-1">Password updated</h1>
+      <p>Open Eva and log in with your new password.</p>
+      <div class="actions">
+        <a class="btn-primary" href="eva://open">Open Eva</a>
+      </div>
+    </div>
+
+    <div data-state="expired" hidden>
+      <span class="mark mark--info" aria-hidden="true">i</span>
+      <h1 tabindex="-1">This link has expired</h1>
+      <p>Reset links work for 60 minutes. Ask for a new one from the app.</p>
+      <div class="actions">
+        <a class="btn-primary" href="eva://open">Open Eva</a>
+      </div>
+    </div>
+
+    <div data-state="invalid" hidden>
+      <span class="mark mark--error" aria-hidden="true">!</span>
+      <h1 tabindex="-1">This link can't be used</h1>
+      <p>It has already been used or isn't valid. Ask for a new one from the app.</p>
+      <div class="actions">
+        <a class="btn-primary" href="eva://open">Open Eva</a>
+      </div>
+    </div>
+
+    <div data-state="missing" hidden>
+      <span class="mark mark--error" aria-hidden="true">!</span>
+      <h1 tabindex="-1">This link is incomplete</h1>
+      <p>Open the link from your email again, or ask for a new one from the app.</p>
+      <div class="actions">
+        <a class="btn-primary" href="eva://open">Open Eva</a>
+      </div>
+    </div>
+  </div>
+</AuthLayout>
+
+<script>
+  import { callAuthApi, readTokenAndScrubUrl, showState } from '../scripts/auth-api.js';
+
+  const root = document.getElementById('reset');
+  const token = readTokenAndScrubUrl();
+  const form = root.querySelector('form');
+  const password = root.querySelector('#password');
+  const repeat = root.querySelector('#repeat');
+  const submit = form.querySelector('button[type="submit"]');
+
+  function setError(input, message) {
+    const error = root.querySelector(`#${input.id}-error`);
+    error.querySelector('[data-message]').textContent = message ?? '';
+    error.hidden = !message;
+    input.setAttribute('aria-invalid', message ? 'true' : 'false');
+  }
+
+  function setFormError(message) {
+    const error = root.querySelector('#form-error');
+    error.querySelector('[data-message]').textContent = message ?? '';
+    error.hidden = !message;
+  }
+
+  function setBusy(busy) {
+    submit.disabled = busy;
+    submit.textContent = busy ? 'Saving…' : 'Save password';
+    password.disabled = busy;
+    repeat.disabled = busy;
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    setError(password, null);
+    setError(repeat, null);
+    setFormError(null);
+
+    if (!password.value) {
+      setError(password, 'Enter a password.');
+      password.focus();
+      return;
+    }
+    if (repeat.value !== password.value) {
+      setError(repeat, 'The passwords don’t match.');
+      repeat.focus();
+      return;
+    }
+
+    setBusy(true);
+    let result;
+    try {
+      result = await callAuthApi(root.dataset.apiBase, '/auth/password/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password: password.value }),
+      });
+    } catch {
+      setBusy(false);
+      setFormError('We couldn’t reach Eva. Check your connection and try again.');
+      return;
+    }
+    setBusy(false);
+
+    if (result.ok) showState(root, 'success');
+    else if (result.code === 'TOKEN_EXPIRED') showState(root, 'expired');
+    else if (result.code === 'INVALID_TOKEN') showState(root, 'invalid');
+    else if (result.code === 'WEAK_PASSWORD') {
+      setError(password, result.message || 'That password is too weak.');
+      password.focus();
+    } else {
+      setFormError('Something went wrong. Please try again.');
+    }
+  });
+
+  if (!token) showState(root, 'missing');
+</script>

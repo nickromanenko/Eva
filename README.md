@@ -90,6 +90,10 @@ gh variable set GCP_PROJECT_ID --body "PROJECT_ID"
 gh variable set GCP_REGION --body "us-central1"
 gh variable set GCP_DEPLOY_SA --body "github-deployer@PROJECT_ID.iam.gserviceaccount.com"
 gh variable set GCP_WIF_PROVIDER --body "projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions"
+
+# 8. The website's /activate and /reset pages call the API; set its public URL
+#    (gcloud run services describe eva-api --region us-central1 --format 'value(status.url)')
+gh variable set API_BASE_URL --body "https://eva-api-XXXX.a.run.app"
 ```
 
 Also set the real project ID in `.firebaserc`.
