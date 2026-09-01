@@ -56,11 +56,38 @@ if [ "$BUILD_ONLY" = "1" ]; then
 else
   # The UI test signs up for real, so it needs the API up.
   api_ensure_up || exit 1
+
+  # …and, since #6, an account cannot sign in until an emailed link has been opened,
+  # which a simulator cannot do. `api/scripts/uitest-mailbox.ts` is the stand-in: it is
+  # started here, on loopback, and torn down with this script. See its header for why it
+  # is safe to have at all.
+  MAILBOX_PORT=${EVA_MAILBOX_PORT:-3103}
+  MAILBOX_URL="http://127.0.0.1:$MAILBOX_PORT"
+  MAILBOX_LOG=$(mktemp -t eva-mailbox)
+  (cd "$ROOT/api" && PORT="$MAILBOX_PORT" EVA_API_URL="$API_URL" \
+    exec bun run scripts/uitest-mailbox.ts) >"$MAILBOX_LOG" 2>&1 &
+  MAILBOX_PID=$!
+  mailbox_stop() { kill "$MAILBOX_PID" 2>/dev/null || true; api_stop; }
+  trap mailbox_stop EXIT
+
+  MAILBOX_UP=0
+  for _ in $(seq 1 20); do
+    if [ "$(curl -sf --max-time 2 "$MAILBOX_URL/health" 2>/dev/null)" = "Eva UI-test mailbox" ]; then
+      MAILBOX_UP=1; break
+    fi
+    sleep 0.5
+  done
+  [ "$MAILBOX_UP" = "1" ] || { echo "✗ UI-test mailbox failed to start"; cat "$MAILBOX_LOG"; exit 1; }
+  echo "▶ UI-test mailbox at $MAILBOX_URL"
+
   echo "▶ build + UI tests (simulator $SIMULATOR, API $API_URL)"
   # xcodebuild forwards environment variables prefixed TEST_RUNNER_ into the UI
   # test runner with the prefix stripped; the test then hands EVA_API_BASE_URL to
   # app.launchEnvironment. It must be an env var — as a build setting it is ignored.
-  (cd "$ROOT/mobile" && TEST_RUNNER_EVA_API_BASE_URL="$API_URL" xcodebuild \
+  # The simulator reaches the host's loopback as `localhost`, so the runner is handed
+  # the mailbox by URL the same way it is handed the API.
+  (cd "$ROOT/mobile" && TEST_RUNNER_EVA_API_BASE_URL="$API_URL" \
+    TEST_RUNNER_EVA_MAILBOX_URL="http://localhost:$MAILBOX_PORT" xcodebuild \
     -project Eva.xcodeproj -scheme Eva \
     -destination "id=$SIMULATOR" \
     -derivedDataPath build test) || FAILED=1

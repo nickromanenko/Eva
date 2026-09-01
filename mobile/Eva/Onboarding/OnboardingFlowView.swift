@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Container for the onboarding flow: one auth screen (or log in) → 4-step
-/// questionnaire → done.
+/// Container for the onboarding flow: one auth screen (or log in) → the activation gate
+/// → 4-step questionnaire → done.
 ///
 /// The two halves are drawn on different grounds on purpose. Authentication is built to
 /// the canvas and sits on `EvaScreenBackground`; the questionnaire keeps the legacy mauve
@@ -46,10 +46,9 @@ struct OnboardingFlowView: View {
     /// questionnaire, which the canvas does not draw.
     @ViewBuilder
     private var background: some View {
-        switch model.step {
-        case .createAccount, .logIn:
+        if model.step.isAuthScreen {
             EvaScreenBackground()
-        default:
+        } else {
             LinearGradient.evaScreenBackground
         }
     }
@@ -61,21 +60,42 @@ struct OnboardingFlowView: View {
             CreateAccountStepView(
                 model: model,
                 onSubmit: { email, password in
-                    try await session.signUp(email: email, password: password)
-                    model.startQuestionnaire()
+                    // Sign-up no longer signs anyone in (#6): the account exists and an
+                    // activation link is on its way, so the next screen is the gate, not
+                    // the questionnaire.
+                    _ = try await session.signUp(email: email, password: password)
+                    model.showActivation(after: .signUp)
                 },
                 onGoToLogIn: model.chooseLogIn
             )
         case .logIn:
             LoginStepView(
-                onSubmit: { email, password in
-                    try await session.signIn(email: email, password: password)
-                    if session.state == .needsQuestionnaire {
-                        model.startQuestionnaire()
-                    }
-                    // .ready is handled by EvaApp switching to the dashboard.
+                model: model,
+                onSubmit: { _, _ in try await signIn() },
+                onGoToSignUp: model.chooseCreateAccount,
+                onForgotPassword: model.chooseForgotPassword
+            )
+        case .activation:
+            ActivationStepView(
+                model: model,
+                onRetrySignIn: signIn,
+                onResend: session.resendActivation,
+                onBack: model.back
+            )
+        case .forgot:
+            ForgotPasswordStepView(
+                model: model,
+                onSubmit: { email in
+                    try await session.requestPasswordReset(email: email)
+                    model.next()
                 },
-                onGoToSignUp: model.chooseCreateAccount
+                onBackToLogIn: model.back
+            )
+        case .forgotSent:
+            LinkSentStepView(
+                email: model.email,
+                onResend: session.requestPasswordReset,
+                onBackToLogIn: model.back
             )
         case .aboutYou:
             AboutYouStepView(model: model, onContinue: model.next)
@@ -90,6 +110,24 @@ struct OnboardingFlowView: View {
             }
         case .done:
             DoneStepView(onFinish: session.enterDashboard)
+        }
+    }
+
+    /// One sign-in, and the routing every caller of it shares: log in\'s CTA and the
+    /// activation gate\'s silent retry are the same request with the same three outcomes.
+    /// `NOT_ACTIVATED` is the one this flow answers itself, by showing the gate; the log-in
+    /// screen would otherwise have to put "confirm your email" under its password field,
+    /// which is not a thing the user typed wrong. Everything else is rethrown to whoever
+    /// asked, which is what lets the gate stay silent about its own probe.
+    private func signIn() async throws {
+        do {
+            try await session.signIn(email: model.email, password: model.password)
+            if session.state == .needsQuestionnaire {
+                model.startQuestionnaire()
+            }
+            // .ready is handled by EvaApp switching to the dashboard.
+        } catch APIError.notActivated {
+            model.showActivation(after: .logIn)
         }
     }
 

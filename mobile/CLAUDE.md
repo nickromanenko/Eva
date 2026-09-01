@@ -57,7 +57,7 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Onboarding/` | `OnboardingModel` state machine, `Steps/`, `Components/` |
 | `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field |
 | `Eva/Theme/Specimen/` | DEBUG-only design specimen — see above |
-| `EvaUITests/` | XCUITest — sign-up → questionnaire → dashboard |
+| `EvaUITests/` | XCUITest — sign-up → activation gate → questionnaire → dashboard |
 
 ## Rules
 
@@ -67,7 +67,18 @@ Adding a token or a component means adding it to the specimen too.
   no signal, a 5xx, a body that will not decode — is `.unreachable`, and the token
   stays. Do not add a path that clears the Keychain on a generic failure (#61).
 - Adding an onboarding screen = new `OnboardingStep` case + wiring **both** `next()`
-  and `back()`. The flow is explicit, not inferred.
+  and `back()`. The flow is explicit, not inferred. Append the case rather than slotting
+  it in: `EVA_ONBOARDING_STEP` addresses steps by raw value.
+- Sign-up does not sign anyone in (#6). It creates the account and routes to
+  `.activation`, which retries sign-in whenever the app returns to the foreground until
+  the emailed link has been opened. `403 NOT_ACTIVATED` on log in routes to the same
+  screen — never to a field error, which would make "confirm your email" look like
+  something the user typed wrong.
+- The `eva://` scheme (`EvaDeepLink`) carries **signals, never data**: `eva://activated`
+  and `eva://open`, both empty. A token must never travel through a URL the app can see.
+- UI tests reach an activated account through `signUpAndActivate`, which asks the
+  loopback mailbox `scripts/verify-mobile.sh` starts. Do not add an app-side way to skip
+  the gate.
 - Use the tokens and components in DESIGN.md. No literal hex, no ad-hoc font sizes,
   no second primary button.
 - User-facing strings follow the voice rules in DESIGN.md §8 — no diagnosis, no false

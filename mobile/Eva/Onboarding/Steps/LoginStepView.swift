@@ -12,19 +12,17 @@ import SwiftUI
 /// with a signed-in mock; on the real screen nobody has authenticated yet, so there is no
 /// name to greet.
 ///
-/// **"Forgot password?" raises "Coming soon".** The canvas draws the link and the two
-/// screens behind it (Reset your password, Link sent), but those need password reset to
-/// exist (#6). The link is drawn because the artboard puts it there and a log-in screen
-/// without one is a worse screen; it says what it can do rather than opening a screen
-/// that cannot send anything. Delete these four lines when #6 lands and point it at the
-/// real flow.
+/// **The address and password live on the model, not here.** Both are shared with
+/// sign-up, forgot password and the activation gate: the canvas pre-fills the address
+/// across those screens, and the activation gate retries sign-in with the credentials
+/// that were typed here. A screen-local `@State` could do neither.
 struct LoginStepView: View {
 
+    @Bindable var model: OnboardingModel
     let onSubmit: (_ email: String, _ password: String) async throws -> Void
     let onGoToSignUp: () -> Void
+    let onForgotPassword: () -> Void
 
-    @State private var email = ""
-    @State private var password = ""
     @State private var errorMessage: String?
     @State private var isRevealingPassword = false
     @State private var isLoading = false
@@ -38,7 +36,7 @@ struct LoginStepView: View {
     /// log-in shows **no error before submit** — anything stricter here would start
     /// telling a returning user their own address looks wrong.
     private var isValid: Bool {
-        email.wholeMatch(of: /\S+@\S+\.\S+/) != nil && !password.isEmpty
+        model.isEmailValid && !model.password.isEmpty
     }
 
     var body: some View {
@@ -92,7 +90,7 @@ struct LoginStepView: View {
                 placeholder: "you@email.com",
                 isFocused: focusedField == .email
             ) { prompt in
-                TextField("Email", text: $email, prompt: prompt)
+                TextField("Email", text: $model.email, prompt: prompt)
                     .keyboardType(.emailAddress)
                     .textContentType(.emailAddress)
                     .textInputAutocapitalization(.never)
@@ -126,7 +124,7 @@ struct LoginStepView: View {
 
             HStack {
                 Spacer(minLength: 0)
-                TextButton(title: "Forgot password?") { comingSoon(.passwordReset) }
+                TextButton(title: "Forgot password?", action: onForgotPassword)
             }
         }
     }
@@ -136,7 +134,7 @@ struct LoginStepView: View {
     @ViewBuilder
     private func passwordField(prompt: Text) -> some View {
         if isRevealingPassword {
-            TextField("Password", text: $password, prompt: prompt)
+            TextField("Password", text: $model.password, prompt: prompt)
                 .textContentType(.password)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -145,7 +143,7 @@ struct LoginStepView: View {
                 .onSubmit(submit)
                 .accessibilityIdentifier("login.password")
         } else {
-            SecureField("Password", text: $password, prompt: prompt)
+            SecureField("Password", text: $model.password, prompt: prompt)
                 .textContentType(.password)
                 .focused($focusedField, equals: .password)
                 .submitLabel(.go)
@@ -156,17 +154,14 @@ struct LoginStepView: View {
 
     // MARK: - Behaviour
 
-    /// The two things this screen draws but cannot do yet.
+    /// The one thing this screen draws but cannot do yet.
     private enum Unbuilt {
         case providers
-        case passwordReset
 
         var message: String {
             switch self {
             case .providers:
                 "Apple and Google sign-in are on the way. For now, log in with your email."
-            case .passwordReset:
-                "Password reset is on the way. Until then, get in touch and we'll help."
             }
         }
     }
@@ -183,7 +178,7 @@ struct LoginStepView: View {
         errorMessage = nil
         Task {
             do {
-                try await onSubmit(email, password)
+                try await onSubmit(model.email, model.password)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -195,6 +190,11 @@ struct LoginStepView: View {
 #Preview("Log in") {
     ZStack {
         EvaScreenBackground().ignoresSafeArea()
-        LoginStepView(onSubmit: { _, _ in }, onGoToSignUp: {})
+        LoginStepView(
+            model: OnboardingModel(),
+            onSubmit: { _, _ in },
+            onGoToSignUp: {},
+            onForgotPassword: {}
+        )
     }
 }

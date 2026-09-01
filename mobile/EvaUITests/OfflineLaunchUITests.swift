@@ -35,12 +35,7 @@ final class OfflineLaunchUITests: EvaUITestCase {
 
         // MARK: A real session to lose
 
-        fillSignUpForm(app, email: email)
-        tap(app.buttons["primary.Create account"], in: app)
-        XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 15),
-            "Could not create the account whose session this test takes away"
-        )
+        signUpAndActivate(app, email: email)
         completeQuestionnaire(app)
         XCTAssertTrue(
             app.staticTexts["You're all set"].waitForExistence(timeout: 15),

@@ -1,25 +1,26 @@
 import SwiftUI
 
-// The small pieces the canvas' two auth screens share — "Eva App.dc.html", rail items
-// **Sign up** and **Log in**. They are drawn identically on both, so they live here
-// rather than being written twice; they are grouped in one file for the same reason
+// The small pieces the canvas' auth screens share — "Eva App.dc.html", rail items
+// **Sign up**, **Log in**, **Check your inbox**, **Forgot password** and **Reset link
+// sent**. They are drawn identically across them, so they live here rather than being
+// written several times; they are grouped in one file for the same reason
 // `EvaButtons.swift` groups the button variants, and each is a handful of lines.
 //
 // None of them is a design-system component: they are screen furniture the auth screens
-// happen to share. Anything here that a third screen wants belongs in `Eva/Theme/`.
+// happen to share. Anything here that a non-auth screen wants belongs in `Eva/Theme/`.
 
 // MARK: - Type rows the §3 scale does not have
 //
-// The canvas draws the auth screens' two brand strings at sizes the design system's type
+// The canvas draws the auth screens' brand strings at sizes the design system's type
 // scale has no row for — the scale steps Display 46 → H1 28, and these sit between them.
 // They are modelled as `EvaTextStyle` values rather than bare `Font.custom` calls so they
 // still resolve their face through `EvaFont` and still carry tracking the way every other
 // string does; this is the same accommodation `EvaTextButtonStyle` makes for its 14pt
 // label.
 //
-// **If a second screen wants either of these, they belong in `EvaTypography.swift` as
-// scale rows.** Adding a row is a design decision, so it is reported rather than taken
-// here.
+// **These now serve five screens, which is past the point where the first version of this
+// note said they should move into `EvaTypography.swift` as scale rows.** They have not
+// moved: adding a row is a design decision, and #6 is a feature. Reported with #6.
 
 private extension EvaTextStyle {
 
@@ -45,6 +46,19 @@ private extension EvaTextStyle {
         size: 34,
         lineHeight: nil,
         tracking: -0.2,
+        textStyle: .largeTitle
+    )
+
+    /// The centred title of the two "check your email" screens — `font:400 30px/1.15` on
+    /// both **Check your inbox** and **Reset link sent**.
+    ///
+    /// No line height, for the reason `authHero` gives: 1.15 works out at 34.5, under
+    /// Montserrat's 36.6pt natural box at this size.
+    static let authStatusTitle = EvaTextStyle(
+        fontName: EvaFont.regular,
+        size: 30,
+        lineHeight: nil,
+        tracking: 0,
         textStyle: .largeTitle
     )
 }
@@ -185,6 +199,224 @@ struct AuthHero: View {
     }
 }
 
+// MARK: - Status hero
+
+/// The centred opening of the two "check your email" screens: a glass tile holding an
+/// envelope, the title under it, then a line of body copy — "Check your inbox" and
+/// "Reset link sent" on the canvas.
+///
+/// The tile is `96 × 96, radius 32` on the activation screen and `88 × 88, radius 30` on
+/// link sent; both are `rgba(255,255,255,.7)` over `blur(22px)` with a `.8` white hairline
+/// and `0 14px 30px -14px rgba(40,33,38,.24)` under them. Neither radius is on the §4
+/// scale, and both are a third of the edge — so that is the rule kept here, rather than
+/// two literals. The fill and blur are L2 glass to within a percent, which is what it
+/// takes. The envelope is `envelope` from SF Symbols in place of the canvas' CSS-drawn
+/// one, in the ink the artboard gives it: Deep Pink after sign-up, Deep Pistachio once a
+/// reset link is on its way.
+///
+/// The shadow's `-14px` spread has no SwiftUI expression; the radius is pulled in the way
+/// `EvaAuthButtonShadow` pulls the auth buttons' in, so it does not halo.
+struct AuthStatusHero: View {
+    let title: String
+    let subtitle: String
+    let tileSize: CGFloat
+    let envelopeColor: Color
+
+    /// The artboard's envelope is 46pt across on the larger tile; the symbol is sized to
+    /// match its footprint.
+    private var envelopeSize: CGFloat { tileSize * 0.44 }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "envelope")
+                .font(.system(size: envelopeSize, weight: .light))
+                .foregroundStyle(envelopeColor)
+                .frame(width: tileSize, height: tileSize)
+                .evaGlass(.card, cornerRadius: tileSize / 3)
+                .overlay {
+                    RoundedRectangle(cornerRadius: tileSize / 3, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.8), lineWidth: 1)
+                }
+                .shadow(color: Color.evaPrimaryText.opacity(0.24), radius: 8, y: 14)
+                .accessibilityHidden(true)
+
+            Text(title)
+                .evaTextStyle(.authStatusTitle)
+                .foregroundStyle(Color.evaPrimaryText)
+                .padding(.top, EvaSpacing.lg)
+                .accessibilityAddTraits(.isHeader)
+
+            Text(subtitle)
+                .evaTextStyle(.body)
+                .foregroundStyle(Color.evaSecondaryText)
+                .padding(.top, EvaSpacing.sm)
+        }
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Success note
+
+/// The pistachio note under the activation hero — "The link works for 24 hours. Nothing
+/// is saved to your profile until you confirm."
+///
+/// The artboard draws it as `padding:12px 16px; border-radius:16px;
+/// background:rgba(205,231,157,.28); border:1px solid rgba(142,173,86,.3); font:500
+/// 12.5px/1.5; color:#5C7434`. It takes the §2 Success tokens rather than those values —
+/// the design system is the authority for a semantic tint, the same call
+/// `EvaRadius.banner` makes for the information banner — and the §3 Caption row, whose
+/// size and leading match. Two things are rounded: the radius to the 17 control step
+/// (16 is off the scale), and the weight to Caption's 400.
+///
+/// It also gains the ✓ mark the artboard does not draw. §2 says every semantic state
+/// carries a mark as well as a colour, and Success's is a circled tick. Hidden from
+/// VoiceOver, which reads the sentence.
+struct AuthSuccessNote: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: EvaSpacing.xs) {
+            Image(systemName: "checkmark.circle")
+                .font(.evaCaption)
+                .accessibilityHidden(true)
+            Text(message)
+                .evaTextStyle(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color.evaSuccessInk)
+        .padding(.vertical, EvaSpacing.sm)
+        .padding(.horizontal, EvaSpacing.md)
+        .background(
+            Color.evaSuccessTint,
+            in: .rect(cornerRadius: EvaRadius.control, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: EvaRadius.control, style: .continuous)
+                .strokeBorder(Color.evaSuccessBorder, lineWidth: 1)
+        }
+    }
+}
+
+// MARK: - Rate-limited banner
+
+/// What sign up, log in and the reset screens show for a `429 RATE_LIMITED`.
+///
+/// The canvas change list (`rateLimited`, #38) asks for an inline banner in the
+/// Information tone, not Error: nothing the user typed was wrong and the server did not
+/// act on it, so the field treatment would blame the wrong thing. The copy is the change
+/// list's, with the second sentence saying what a 429 means in practice — the request was
+/// refused before anything happened.
+struct AuthRateLimitedBanner: View {
+    let identifier: String
+
+    var body: some View {
+        EvaInfoBanner(
+            title: "Too many attempts",
+            message: "Try again in a minute. Nothing about your account has changed."
+        )
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+// MARK: - Resend with a cooldown
+
+/// The "Resend email" / "Resend link" secondary button, which the canvas rate-limits to
+/// once per 60 seconds. It counts the wait down in its own label rather than in a toast:
+/// the design system draws a toast, but there is no toast component in `Eva/Theme/` yet
+/// and this screen is not the place to design one — see DESIGN.md §9a. The label is
+/// where the user is looking, and it says both that the button is unavailable and for how
+/// long, which is what §2 asks of a state: never colour (or dimming) alone.
+///
+/// `cooldownEnds` is owned by the screen — it is the screen that knows an email was just
+/// sent. A `TimelineView` redraws the label once a second only while a cooldown is
+/// running; with none there is nothing to tick.
+///
+/// The identifier is fixed by the caller rather than derived from the title, because the
+/// title changes every second and a UI test needs one name for the control.
+struct AuthResendButton: View {
+    let title: String
+    let identifier: String
+    let cooldownEnds: Date?
+    let action: () -> Void
+
+    var body: some View {
+        if let cooldownEnds {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remaining = Self.secondsRemaining(until: cooldownEnds, at: context.date)
+                button(remaining: remaining)
+            }
+        } else {
+            button(remaining: 0)
+        }
+    }
+
+    private func button(remaining: Int) -> some View {
+        Button(action: action) {
+            Text(remaining > 0 ? "\(title) · \(remaining)s" : title)
+                .monospacedDigit()
+        }
+        .buttonStyle(.evaSecondary)
+        .disabled(remaining > 0)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(remaining > 0 ? "Available in \(remaining) seconds" : ""))
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// Whole seconds left, rounded up so the label never reads "0s" while still disabled.
+    static func secondsRemaining(until end: Date, at now: Date) -> Int {
+        max(0, Int(end.timeIntervalSince(now).rounded(.up)))
+    }
+}
+
+/// How long a resend button stays unavailable after a send. The canvas' 60 seconds, which
+/// is also the server's own throttle on the resend route.
+enum AuthResendCooldown {
+    static let duration: TimeInterval = 60
+
+    /// When a cooldown started now would end.
+    static func endingNow() -> Date {
+        Date(timeIntervalSinceNow: duration)
+    }
+}
+
+// MARK: - Inline status
+
+/// A one-line message under a status screen's content — the resend confirmation the
+/// canvas shows as a toast, or a failure that has no field to hang off.
+///
+/// Error takes the §3 Error row with the `!` mark, the same pair `EvaInputField` draws
+/// under a field; the plain kind takes Caption in the secondary ink. Either way the
+/// text carries the identifier, so it stays a static text to UI tests.
+struct AuthStatusLine: View {
+    enum Kind {
+        case plain
+        case error
+    }
+
+    let message: String
+    let kind: Kind
+    let identifier: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: EvaSpacing.xxs) {
+            if kind == .error {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.evaError)
+                    .accessibilityHidden(true)
+            }
+            Text(message)
+                .evaTextStyle(kind == .error ? .error : .caption)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(identifier)
+        }
+        .foregroundStyle(kind == .error ? Color.evaErrorInk : Color.evaSecondaryText)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+    }
+}
+
 // MARK: - Divider
 
 /// The hairline-label-hairline rule that separates the provider buttons from the email
@@ -294,6 +526,32 @@ struct AuthLegalNote: View {
             AuthMethodDivider(title: "or continue with email")
             AuthLegalNote()
             AuthSwitchPrompt(question: "Already have an account?", actionTitle: "Log in") {}
+            AuthStatusHero(
+                title: "Check your inbox",
+                subtitle: "We sent an activation link to",
+                tileSize: 96,
+                envelopeColor: .evaDeepPink
+            )
+            AuthSuccessNote(
+                message: "The link works for 24 hours. Nothing is saved to your profile until you confirm."
+            )
+            AuthRateLimitedBanner(identifier: "preview.rateLimited")
+            AuthResendButton(
+                title: "Resend email",
+                identifier: "preview.resend",
+                cooldownEnds: AuthResendCooldown.endingNow()
+            ) {}
+            AuthResendButton(title: "Resend email", identifier: "preview.resend.ready", cooldownEnds: nil) {}
+            AuthStatusLine(
+                message: "Email sent again. Check spam if it hasn't arrived.",
+                kind: .plain,
+                identifier: "preview.status"
+            )
+            AuthStatusLine(
+                message: "Can't reach Eva right now. Check your connection.",
+                kind: .error,
+                identifier: "preview.error"
+            )
         }
         .padding(EvaSpacing.lg)
     }

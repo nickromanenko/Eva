@@ -34,19 +34,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         let app = launch()
         let email = Self.freshEmail()
 
-        fillSignUpForm(app, email: email)
-
-        // Fail here, not three screens later, if the form did not actually receive input.
-        let submit = app.buttons["primary.Create account"]
-        XCTAssertTrue(submit.waitForExistence(timeout: 5))
-        XCTAssertTrue(submit.isEnabled, "Sign-up CTA stayed disabled — form input did not land")
-        tap(submit, in: app)
-
-        XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 15),
-            "Sign-up did not redirect to the questionnaire"
-        )
-
+        signUpAndActivate(app, email: email)
         completeQuestionnaire(app)
 
         // Done screen after a successful PUT, then the dashboard.
@@ -79,12 +67,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         let app = launch()
         let email = Self.freshEmail()
 
-        fillSignUpForm(app, email: email)
-        tap(app.buttons["primary.Create account"], in: app)
-        XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 15),
-            "Could not create the account this test logs in with"
-        )
+        signUpAndActivate(app, email: email)
 
         // Relaunch with the Keychain cleared: the app is signed out and knows nothing
         // about the account that now exists on the server.
@@ -134,12 +117,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
 
         // A real account, so the wrong-password branch is genuinely reached rather than
         // collapsing into the no-such-user one.
-        fillSignUpForm(app, email: registered)
-        tap(app.buttons["primary.Create account"], in: app)
-        XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 15),
-            "Could not create the account this test then fails to log into"
-        )
+        signUpAndActivate(app, email: registered)
 
         app.terminate()
         launch(app)
@@ -187,10 +165,11 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         let app = launch()
         let email = Self.freshEmail()
 
+        // No activation needed: the address is taken the moment the account exists.
         fillSignUpForm(app, email: email)
         tap(app.buttons["primary.Create account"], in: app)
         XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 15),
+            app.staticTexts["Check your inbox"].waitForExistence(timeout: 15),
             "Could not create the account this test then duplicates"
         )
 
@@ -232,6 +211,100 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         XCTAssertFalse(
             app.staticTexts["A little about you"].exists,
             "A duplicate sign-up still routed into the questionnaire"
+        )
+    }
+
+    // MARK: - The activation gate (#6)
+
+    /// The gate as a user meets it after a *log in*, which is the path the sign-up flow
+    /// does not cover: an account exists, the password is right, and the address has
+    /// never been confirmed.
+    ///
+    /// Two things are asserted, and the second is the one that matters. The obvious one
+    /// is that log in does not get in. The load-bearing one is **where the refusal is
+    /// shown**: on the activation screen, not as an error under the password field. A
+    /// `login.error` here would mean the app had turned "confirm your email" into
+    /// "something you typed is wrong" — and, worse, would have to be a message that
+    /// differs from the wrong-password one, which is the enumeration leak
+    /// `testAFailedLogInSaysTheSameThingWhetherTheAccountExistsOrNot` exists to prevent.
+    ///
+    /// Then the same screen is driven the rest of the way: activate out of band, come
+    /// back to the foreground, and the account is through — without anything touching the
+    /// app to tell it so.
+    func testAnUnconfirmedAccountIsSentToTheActivationGateRatherThanFailingLogIn() throws {
+        let app = launch()
+        let email = Self.freshEmail()
+
+        fillSignUpForm(app, email: email)
+        tap(app.buttons["primary.Create account"], in: app)
+        XCTAssertTrue(
+            app.staticTexts["Check your inbox"].waitForExistence(timeout: 15),
+            "Sign-up did not reach the activation gate"
+        )
+
+        // Start over as a returning user who never opened the link.
+        app.terminate()
+        launch(app)
+
+        tap(app.buttons["text.Log in"], in: app)
+        XCTAssertTrue(app.staticTexts["Welcome back"].waitForExistence(timeout: 5))
+        type(email, into: app.textFields["login.email"], in: app)
+        revealAndTypePassword(Self.password, prefix: "login", in: app)
+        tap(app.buttons["primary.Log in"], in: app)
+
+        XCTAssertTrue(
+            app.staticTexts["Check your inbox first"].waitForExistence(timeout: 15),
+            "A correct password on an unconfirmed account did not reach the activation gate"
+        )
+        XCTAssertFalse(
+            app.staticTexts["login.error"].exists,
+            "The activation gate was shown as a log-in field error as well"
+        )
+        XCTAssertEqual(
+            app.staticTexts["activation.email"].label, email,
+            "The gate does not show the address the link was sent to"
+        )
+        XCTAssertFalse(
+            app.staticTexts["dashboard.title"].exists,
+            "An unconfirmed account reached the dashboard"
+        )
+
+        activate(email: email)
+        XCUIDevice.shared.press(.home)
+        app.activate()
+
+        XCTAssertTrue(
+            app.staticTexts["A little about you"].waitForExistence(timeout: 20),
+            "The gate did not let the account through once the link had been opened"
+        )
+    }
+
+    // MARK: - Password reset (#6)
+
+    /// "Forgot password?" reaches the request screen and the request is answered the same
+    /// way for any address — the app never learns whether one has an account.
+    ///
+    /// Driven with an address that was never registered, deliberately: if the screen
+    /// only advanced for real accounts, this test would fail, and that difference is
+    /// exactly the leak `POST /auth/password/forgot` is written to avoid.
+    func testForgotPasswordAdvancesForAnAddressThatHasNoAccount() throws {
+        let app = launch()
+
+        tap(app.buttons["text.Log in"], in: app)
+        XCTAssertTrue(app.staticTexts["Welcome back"].waitForExistence(timeout: 5))
+        tap(app.buttons["text.Forgot password?"], in: app)
+
+        XCTAssertTrue(
+            app.staticTexts["Reset your password"].waitForExistence(timeout: 5),
+            "The log-in screen's link did not reach the reset request screen"
+        )
+
+        type(Self.freshEmail(), into: app.textFields["forgot.email"], in: app)
+        tap(app.buttons["primary.Send reset link"], in: app)
+
+        XCTAssertTrue(
+            app.staticTexts["Link sent"].waitForExistence(timeout: 15),
+            "A reset request for an unknown address did not advance — the screen is telling callers which addresses exist"
         )
     }
 

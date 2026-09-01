@@ -9,6 +9,10 @@ enum OnboardingStep: Int, CaseIterable {
     // Questionnaire (post-auth). Still on legacy styling: the canvas puts these fields in
     // Profile, which does not exist yet — see DESIGN.md §9.
     case aboutYou, goals, health, lifestyle, done
+    // The activation gate and password reset (#6). Appended rather than slotted in next
+    // to the auth screens so the raw values 0–6 above keep meaning what
+    // `EVA_ONBOARDING_STEP` tooling expects: 7 activation, 8 forgot, 9 forgotSent.
+    case activation, forgot, forgotSent
 
     /// Index within the 4-step questionnaire, when applicable.
     var questionnaireIndex: Int? {
@@ -20,15 +24,40 @@ enum OnboardingStep: Int, CaseIterable {
         default: nil
         }
     }
+
+    /// Whether this step is one of the canvas' auth screens, drawn on
+    /// `EvaScreenBackground` — as opposed to the questionnaire on its legacy ground.
+    var isAuthScreen: Bool {
+        switch self {
+        case .createAccount, .logIn, .activation, .forgot, .forgotSent: true
+        case .aboutYou, .goals, .health, .lifestyle, .done: false
+        }
+    }
+}
+
+/// How the activation screen was reached, which decides what it says and where its
+/// tertiary action goes back to (#6).
+enum ActivationOrigin {
+    /// Sign-up just created the account and the email is on its way. "Change email"
+    /// returns to sign-up with the address pre-filled.
+    case signUp
+    /// Log in was refused with `NOT_ACTIVATED` — the password was right, the address is
+    /// not confirmed. The account exists, so the way back is to log in, not to sign up.
+    case logIn
 }
 
 @Observable
 final class OnboardingModel {
     var step: OnboardingStep = .createAccount
 
-    // Email sign-up form
+    // Email sign-up form. `email` is also what log in, forgot password and the
+    // activation screen read and write — it is the address the whole public flow is
+    // about, and the canvas pre-fills it across those screens.
     var email = ""
     var password = ""
+
+    /// Set when `showActivation(after:)` routes here. Read by `back()` and the screen.
+    private(set) var activationOrigin: ActivationOrigin = .signUp
 
     // Questionnaire answers (PRD: age, weight/height, goals, health, lifestyle, sports, meds)
     var age = 28
@@ -50,8 +79,10 @@ final class OnboardingModel {
         #if DEBUG
         // Lets tooling (screenshots, previews) jump straight to a step:
         // SIMCTL_CHILD_EVA_ONBOARDING_STEP=2 xcrun simctl launch <udid> com.evaapp.ios
-        // (0 createAccount, 1 logIn, 2 aboutYou, 3 goals, 4 health, 5 lifestyle, 6 done —
-        //  the raw values shifted when #3 collapsed the five public screens into one.)
+        // (0 createAccount, 1 logIn, 2 aboutYou, 3 goals, 4 health, 5 lifestyle, 6 done,
+        //  7 activation, 8 forgot, 9 forgotSent — the raw values shifted when #3
+        //  collapsed the five public screens into one; #6's three are appended so they
+        //  did not shift again.)
         if let raw = ProcessInfo.processInfo.environment["EVA_ONBOARDING_STEP"],
            let value = Int(raw),
            let debugStep = OnboardingStep(rawValue: value) {
@@ -105,29 +136,55 @@ final class OnboardingModel {
 
     func chooseCreateAccount() { step = .createAccount }
 
+    func chooseForgotPassword() { step = .forgot }
+
+    /// Routes to the activation gate. `email` and `password` are left as they are: the
+    /// screen retries sign-in with them when the app comes back to the foreground, so
+    /// clearing either would turn the retry into a request that cannot be made.
+    func showActivation(after origin: ActivationOrigin) {
+        activationOrigin = origin
+        step = .activation
+    }
+
     /// Called after any successful authentication with an incomplete questionnaire.
     func startQuestionnaire() { step = .aboutYou }
 
-    /// The questionnaire's back stack. The two auth screens cross-link to each other
-    /// instead — the canvas draws no back control on either — but `logIn` keeps an entry
-    /// here so every step in the enum has one place it goes back to.
+    /// The questionnaire's back stack, plus where each auth screen's tertiary action
+    /// returns to. The two main auth screens cross-link to each other instead — the
+    /// canvas draws no back control on either — but `logIn` keeps an entry here so every
+    /// step in the enum has one place it goes back to.
     func back() {
         switch step {
         case .logIn: step = .createAccount
         case .goals: step = .aboutYou
         case .health: step = .goals
         case .lifestyle: step = .health
+        // "Change email" after sign-up, "Back to log in" after a refused log in. The
+        // address stays in `email` either way, which is the canvas' pre-fill.
+        case .activation:
+            switch activationOrigin {
+            case .signUp: step = .createAccount
+            case .logIn: step = .logIn
+            }
+        // Both reset screens' "Back to log in". Link sent goes to log in rather than back
+        // to the form: the request has been made, and the next thing to do is log in
+        // with the new password once the website has set it.
+        case .forgot, .forgotSent: step = .logIn
         case .createAccount, .aboutYou, .done: break
         }
     }
 
     func next() {
         switch step {
-        case .createAccount, .logIn: step = .aboutYou
+        // The activation screen's foreground retry is the third way to sign in, so it
+        // lands where the other two do.
+        case .createAccount, .logIn, .activation: step = .aboutYou
         case .aboutYou: step = .goals
         case .goals: step = .health
         case .health: step = .lifestyle
         case .lifestyle: step = .done
+        case .forgot: step = .forgotSent
+        case .forgotSent: step = .logIn
         case .done: break
         }
     }

@@ -343,6 +343,26 @@ so a 40% surface read at roughly 70% and L1 was indistinguishable from L2. L1 is
 decorative and needs no backdrop blur; a plain 40% fill restores the separation. L2 and
 L3 keep `Material`.
 
+**The resend cooldown counts down in the button, not in a toast.** The canvas shows a
+toast for the once-per-60s limit on **Check your inbox** and **Reset link sent**. There
+is no toast component in `Eva/Theme/` and an auth screen is not where one should be
+designed, so `AuthResendButton` puts the wait in its own label ("Resend email · 42s") and
+disables itself. That satisfies §2 better than the toast did — the state is where the
+user is looking, and it says both *unavailable* and *for how long*, so it is never
+dimming alone. The resend confirmation takes the toast's copy as a line in place
+(`AuthStatusLine`). If a toast is ever built, both are candidates to move onto it.
+
+**"Back to log in" on Reset link sent is not on the artboard.** The canvas continues from
+that screen into an in-app "Choose a new password", which v1 does not build — the reset
+form is on the website. Without the extra text button the screen's only actions are "open
+another app" and "send it again", which strands someone who has already set their password
+in the browser. Same reasoning as `UnreachableView`'s log-out.
+
+**The activation gate's rate-limit banner is Information, not Error.** A `429` on Resend
+means the request was refused before anything happened; nothing the user typed was wrong
+and nothing about the account changed, so the field-error treatment would blame the wrong
+thing. `AuthRateLimitedBanner` uses `EvaInfoBanner`.
+
 ## 9b. Where iOS cannot express the canvas
 
 Real platform limits, not decisions:
@@ -376,6 +396,12 @@ Real platform limits, not decisions:
 - Buttons have no loading state. The auth buttons do (`#3A3436` with a 60% white label),
   which is the house pattern if one is wanted.
 - Motion is unspecified everywhere. Input focus and error transitions are instant.
+- The auth screens' two brand type rows (`authWordmark` 40, `authHero` 34) and the status
+  screens' 30pt title sit between the scale's Display 46 and H1 28 and have no row. They
+  now serve five screens — sign up, log in, the activation gate, forgot password and link
+  sent — which is past the point where one-off `EvaTextStyle` values in
+  `AuthScreenParts.swift` are defensible. Promoting them to scale rows is a design
+  decision, so it is reported here rather than taken in a feature PR.
 
 ## 10. Implementation conventions
 

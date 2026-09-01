@@ -15,7 +15,8 @@ Each rule is stated so a reviewer can check it mechanically.
 3. **CI never uses key files.** Authentication is Workload Identity Federation.
    Production secrets come from Secret Manager (`eva-jwt-secret:latest`).
 4. `JWT_SECRET` is read only in `api/src/auth.ts`; the Firebase web API key only in
-   `api/src/identity-toolkit.ts`. Don't spread them.
+   `api/src/identity-toolkit.ts`; `POSTMARK_API_KEY` only in `api/src/email.ts`. Don't
+   spread them.
 
 ## Security rules (Firestore / Storage)
 
@@ -36,7 +37,7 @@ Each rule is stated so a reviewer can check it mechanically.
    never key users by email.
 10. **Every Firestore collection has exactly one owning module, and nothing else touches
     it.** `users.ts` owns `users/`; `events.ts` owns `users/{uid}/events/`;
-    `refdata.ts` owns `refdata/`. Routes
+    `refdata.ts` owns `refdata/`; `email-tokens.ts` owns `authTokens/`. Routes
     delegate; they don't query. (Widened from "only `users.ts` touches Firestore" when the
     calendar needed a second collection — the intent was never one file, it was no
     scattered database access.)
@@ -46,7 +47,22 @@ Each rule is stated so a reviewer can check it mechanically.
     it here, because the copy goes stale (it already did).
 12. Never log a password, a token, a full JWT, a user's `profile` contents, or **any
     event payload** — cycle days, flow levels, symptoms, sex events. All of it is health
-    data, and a symptom log in a log line is worse than a profile field.
+    data, and a symptom log in a log line is worse than a profile field. An activation or
+    reset link is a token: never log the link, the raw token, its hash, or the address it
+    went to. `EMAIL_TRANSPORT=log` is the one exception and is refused in production.
+12a. **A link token is stored as a hash and handed out once.** `authTokens/` documents are
+    keyed by `sha256(token)` and hold no copy of it, so a read of the collection opens
+    nothing. Single-use, spent in a transaction, and always with an expiry. A link token
+    is never a JWT and is never minted with `JWT_SECRET`.
+12b. **No route may reveal whether an address has an account.** `/auth/signin` answers a
+    wrong password and an unknown address identically, and its activation gate sits
+    *after* the password is verified; `/auth/activation/resend` and
+    `/auth/password/forgot` answer `200 { sent: true }` for every well-formed address,
+    throttled the same way in both branches. Adding a route that takes an email and
+    branches visibly on whether it is registered is a guardrail violation.
+12c. **CORS is per route, for one origin.** Only the routes the website's link pages call
+    carry it, and only for `PUBLIC_WEB_URL`'s origin. `origin: '*'` on any `/auth/` route
+    is a violation: an allowed origin is a page that can spend a token it was handed.
 13. Validate untrusted input at the route edge before it reaches a module
     (`normalizeEmail`, `parseProfile`). Don't push validation downward.
 

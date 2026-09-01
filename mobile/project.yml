@@ -55,6 +55,21 @@ targets:
         # the post-build script below. Without the declaration the key would only ever
         # appear in build output, which is the class of invisibility that caused #42.
         EvaGitSHA: unstamped
+        # The `eva://` scheme the website's /activate and /reset pages hand back to
+        # (#6). A custom scheme rather than universal links in v1: no associated-domains
+        # file and no entitlement, which a paid-team capability would need. Neither URL
+        # carries data — `eva://activated` and `eva://open` are signals, and a token
+        # never travels through either. `EvaDeepLink` is the only reader.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.evaapp.ios.deeplink
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - eva
+        # `openURL` reports whether anything claimed `message://`, and iOS answers
+        # `false` for an unlisted scheme without ever asking the user. The activation
+        # screen's "Open email app" is the only caller.
+        LSApplicationQueriesSchemes:
+          - message
     # Stamps the *built* Info.plist with the build number and the commit (#46).
     #
     # CFBundleVersion is `git rev-list --count HEAD`: build 47 is the 47th commit, so
