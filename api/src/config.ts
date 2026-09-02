@@ -15,6 +15,14 @@ const optionalCount = (name: string, fallback: number): number => {
   return value
 }
 
+/** Unset or empty means "not provisioned yet" — `null`, not a throw. Used by the provider
+ *  block below, where a boot that refuses to start because Apple's signing key has not been
+ *  issued would take email/password sign-in down with it. */
+const optionalString = (name: string): string | null => {
+  const value = process.env[name]
+  return value === undefined || value === '' ? null : value
+}
+
 /** Required, and one of a fixed set of words — the boot names the choices when it fails. */
 const oneOf = <T extends string>(name: string, choices: readonly T[]): T => {
   const value = required(name)
@@ -123,6 +131,13 @@ export const config = {
      * defence against a credential attack.
      */
     tokenPerIp: optionalCount('RATE_LIMIT_TOKEN_PER_IP', 60),
+    /**
+     * `/auth/idp` and `/me/auth/providers` (#7), per IP over the ordinary window. Per IP is
+     * the only dimension there is: a provider credential carries no address we are willing
+     * to count against before the provider has vouched for it, and counting against one we
+     * had not verified would be a lockout primitive anyone could aim.
+     */
+    idpPerIp: optionalCount('RATE_LIMIT_IDP_PER_IP', 60),
   },
   /** Transactional email (issue #6). Read only in `email.ts`. */
   email: {
@@ -132,6 +147,40 @@ export const config = {
     from: required('POSTMARK_FROM'),
     /** Where the links point: `${publicWebUrl}/activate?token=…`, `/reset?token=…`. */
     publicWebUrl: publicWebUrl.href.replace(/\/+$/, ''),
+  },
+  /**
+   * Sign in with Apple and Google (#7). Every value here is **optional**, because none of
+   * it is provisioned yet (`docs/PROVIDER-SIGNIN.md` is the errand) and an API that will
+   * not boot without an Apple signing key is an API that cannot serve email/password
+   * sign-in either. Unconfigured is therefore a *capability* that is unavailable, answered
+   * `503` per provider, not a boot failure — see `providers.ts` and `index.ts`.
+   *
+   * Read only in `providers.ts`. Apple sign-*in* needs none of it: the app hands us an
+   * `identityToken` and Firebase holds the Apple credentials (console step 5). Only Google's
+   * PKCE code exchange and Apple's token *revocation* talk to a provider directly.
+   */
+  providers: {
+    /**
+     * The public iOS OAuth client (`docs/PROVIDER-SIGNIN.md` §4). Not a secret and not in
+     * Secret Manager: an iOS client has no secret, which is exactly what lets the app run
+     * PKCE itself instead of pulling in the GoogleSignIn SDK (GUARDRAILS 25).
+     */
+    googleIosClientId: optionalString('GOOGLE_IOS_CLIENT_ID'),
+    /**
+     * Apple's revocation credentials, and only revocation uses them. All four or none:
+     * a half-configured group would sign a client secret Apple rejects, so `providers.ts`
+     * treats a partial group as unconfigured rather than as an outage to retry.
+     *
+     * `signingKey` is the `.p8` contents (`-----BEGIN PRIVATE KEY-----…`), from Secret
+     * Manager. Env vars flatten newlines, so a literal `\n` is restored here — the only
+     * place that transformation happens.
+     */
+    apple: {
+      servicesId: optionalString('APPLE_SERVICES_ID'),
+      teamId: optionalString('APPLE_TEAM_ID'),
+      keyId: optionalString('APPLE_KEY_ID'),
+      signingKey: optionalString('APPLE_SIGNIN_KEY')?.replace(/\\n/g, '\n') ?? null,
+    },
   },
   /** The one origin allowed to call the two routes the website's pages use (CORS). */
   publicWebOrigin: publicWebUrl.origin,
