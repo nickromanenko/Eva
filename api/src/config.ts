@@ -47,7 +47,40 @@ if (emailTransport === 'log' && process.env.NODE_ENV === 'production') {
 
 const publicWebUrl = requiredUrl('PUBLIC_WEB_URL')
 
+/**
+ * The Firebase emulators, used by CI (#67) and by nothing in production.
+ *
+ * Both variables are Firebase's own, set by `firebase emulators:exec` — we read them
+ * rather than invent our own so one command configures the Admin SDK and our REST calls
+ * together, and so a stray value cannot point half the process at the emulator and half
+ * at Google. `FIRESTORE_EMULATOR_HOST` is the switch because the Admin SDK is what a
+ * missing credential breaks first (`firebase.ts`).
+ *
+ * The Auth emulator serves the Identity Toolkit REST API under the real API's path, so
+ * only the origin changes. It ignores the API key entirely, which is why CI can pass a
+ * placeholder and hold no secret at all.
+ */
+const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST
+const usingEmulators = Boolean(process.env.FIRESTORE_EMULATOR_HOST)
+
+// Refused under production for the same reason as `EMAIL_TRANSPORT=log` above, and more
+// sharply: `FIREBASE_AUTH_EMULATOR_HOST` decides where every credential call goes, and
+// that URL carries the web API key in its query string (GUARDRAILS 1). A deploy variable
+// set by mistake — or by anyone who can set one — would send both to a host of their
+// choosing, and nothing about the running service would look wrong. Checked
+// independently of `usingEmulators`, so setting either alone still fails the boot.
+for (const name of ['FIRESTORE_EMULATOR_HOST', 'FIREBASE_AUTH_EMULATOR_HOST']) {
+  if (process.env[name] && process.env.NODE_ENV === 'production') {
+    throw new Error(`${name} is set; refusing to run against emulators in production`)
+  }
+}
+
 export const config = {
+  usingEmulators,
+  /** Where `identity-toolkit.ts` sends credential calls. Google, unless CI redirected it. */
+  identityToolkitBaseUrl: authEmulatorHost
+    ? `http://${authEmulatorHost}/identitytoolkit.googleapis.com`
+    : 'https://identitytoolkit.googleapis.com',
   firebaseProjectId: required('FIREBASE_PROJECT_ID'),
   firebaseWebApiKey: required('FIREBASE_WEB_API_KEY'),
   jwtSecret: required('JWT_SECRET'),

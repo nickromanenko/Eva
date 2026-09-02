@@ -667,9 +667,74 @@ the site's origin on those routes.
 CI authenticates by Workload Identity Federation — **no key files in CI, ever**.
 `api/.env` and `api/.secrets/` are gitignored and stay that way.
 
+## 6a. What CI runs, and what it does not (#67)
+
+| Suite | Workflow | Runs on | Gates |
+|---|---|---|---|
+| `cd api && bun run verify` | `Test API` | PR touching `api/**`, then again on `main` | the API deploy |
+| `scripts/verify-website.sh` | `Test Website` | PR touching `website/**`, then again on `main` | the website deploy |
+| `scripts/verify-rules.sh` | `Test Rules` | PR + push touching the rules | — (rules deploy is manual) |
+| `scripts/verify-mobile.sh` | — | **nothing. A human, when they remember** | — |
+
+Before #67 exactly one of those ran, and `Deploy API` pushed to production Cloud Run on
+every merge touching `api/**` with no typecheck and no test in between. The deploys now
+`needs:` their suite, so a red one stops the release.
+
+**The API suite runs against the Firebase emulators in CI, not against a real project**
+(`scripts/ci-api.sh`). `api/test/` makes real Identity Toolkit and Firestore calls and
+creates real accounts; pointing that at production on every pull request is the obvious
+cheap move and the wrong one. The emulators need no credential, so the workflow holds no
+GCP token and is not granted the `id-token` permission that would let it get one — a
+`pull_request` workflow runs code from the branch, and this one can reach nothing.
+
+Two seams make it work, and both are in the emulators' own vocabulary rather than ours:
+`firebase.ts` skips `applicationDefault()` when `FIRESTORE_EMULATOR_HOST` is set (it
+throws when there is no credential to find), and `identity-toolkit.ts` takes its origin
+from `config.identityToolkitBaseUrl`, which points at `FIREBASE_AUTH_EMULATOR_HOST` when
+that is set. `firebase emulators:exec` sets both, so nothing has to remember to.
+
+All 196 tests pass under the emulators **unchanged** — no offline mode, no skips, no
+second code path — in ~28s against ~210s for the real project. The error-mapping suites
+survive the swap because they already control the upstream boundary themselves rather
+than provoking real Google errors (`auth-upstream-failures.test.ts`,
+`signin-non-enumeration.test.ts`), which is the property that made the emulators viable
+at all.
+
+**What it still costs, stated rather than implied: the emulators are a reimplementation.**
+A green CI run proves our code against Firebase's model of Firebase, not against Google.
+Anything whose behaviour is Google's rather than ours — the real Identity Toolkit reason
+strings behind §3's mapping table, Firestore TTL policies, production transaction
+contention — is unproven by CI whatever the count says. `scripts/verify-api.sh` still
+points at the real project and is what runs locally before a PR. CI is the floor, not the
+ceiling, and a green tick is not a substitute for the real run on anything that touches
+the auth boundary.
+
+**iOS is not verified by CI at all.** `scripts/verify-mobile.sh` needs a macOS runner and
+a simulator, takes ~350s, and macOS runners bill at a premium multiplier; running it per
+PR was considered and declined on cost (#67). So every claim about the iOS app in a PR is
+something a person ran by hand on one machine, and nothing catches the PR where they did
+not. Sign in with Apple could not be driven in CI regardless — it cannot be completed in
+a simulator.
+
+One consequence worth naming: **`docs/AUTONOMY.md`'s ratchet rule can now legitimately
+advance for `api/` and `website/`, and still cannot for `mobile/`.** The rule requires a
+surface's verify command to have caught a real regression a human would have missed, and
+a command nobody runs automatically cannot do that.
+
+**A red suite does not block the merge**, only the deploy. That half of #67 is not
+implementable from this repository: required status checks are branch protection or a
+ruleset, and GitHub serves both with `403 Upgrade to GitHub Pro or make this repository
+public` for a private repo on a free personal account. So the merge button stays green on
+a red suite, and the deploy that follows it does not run — the failure is caught one step
+later than intended, and `main` can hold a commit that does not pass.
+
+Closing it costs a GitHub Pro subscription, and is a decision rather than a task. Making
+the repository public is not the alternative it looks like: this is a health app whose
+issues and PRs discuss real user data handling.
+
 ## 7. Known gaps (deliberate, not oversights)
 
-- No refresh tokens; no password reset; no account deletion.
+- No refresh tokens. (Password reset landed in #6; account deletion in #8.)
 - The retention purge (§4) exists as code and a script but has no scheduler behind it
   until a human creates the Cloud Run job and the Cloud Scheduler trigger. Deleted
   events stay recoverable-forever until then.
