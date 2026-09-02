@@ -29,8 +29,16 @@ import { config } from './config'
  *   response that is not JSON, or a project configuration that refuses the operation.
  *   Retrying is reasonable for all but the last, which retrying cannot fix but which an
  *   operator must be paged about rather than shown to the user as a bad email.
+ * - `provider-linked` — the provider identity is already attached to a *different* Eva
+ *   account (#7). Only `POST /me/auth/providers` can reach it, and only the holder of a
+ *   valid session for one account and a provider credential for another, so answering it
+ *   plainly tells that caller nothing they did not already have.
  */
-export type IdentityToolkitFailure = 'email-exists' | 'rejected' | 'unavailable'
+export type IdentityToolkitFailure =
+  | 'email-exists'
+  | 'rejected'
+  | 'unavailable'
+  | 'provider-linked'
 
 /**
  * Reasons Google returns with a 4xx that are nonetheless "not now", not "not ever":
@@ -56,6 +64,7 @@ const classify = (reason: string, upstreamStatus: number | null): IdentityToolki
     return 'unavailable'
   }
   if (reason === 'EMAIL_EXISTS') return 'email-exists'
+  if (reason === 'FEDERATED_USER_ID_ALREADY_LINKED') return 'provider-linked'
   return UNAVAILABLE_REASONS.has(reason) ? 'unavailable' : 'rejected'
 }
 
@@ -84,7 +93,19 @@ interface TokenResponse {
   email: string
 }
 
-const call = async (endpoint: string, body: Record<string, unknown>): Promise<TokenResponse> => {
+/** Every field of Identity Toolkit's answer this file reads, across all four endpoints. */
+interface AccountsResponse {
+  localId?: string
+  email?: string
+  /** A Firebase ID token for the account. Only `signInWithCustomToken` asks for it. */
+  idToken?: string
+  error?: { message?: string }
+}
+
+const post = async (
+  endpoint: string,
+  body: Record<string, unknown>,
+): Promise<AccountsResponse> => {
   let response: Response
   try {
     response = await fetch(
@@ -102,13 +123,9 @@ const call = async (endpoint: string, body: Record<string, unknown>): Promise<To
     throw new IdentityToolkitError('NETWORK_FAILURE', null, 'unavailable')
   }
 
-  let json: {
-    localId?: string
-    email?: string
-    error?: { message?: string }
-  }
+  let json: AccountsResponse
   try {
-    json = (await response.json()) as typeof json
+    json = (await response.json()) as AccountsResponse
   } catch {
     // Not JSON means the answer did not come from Identity Toolkit at all — a proxy or
     // load balancer error page in front of it. Treat it as an outage, not as a verdict.
@@ -121,6 +138,11 @@ const call = async (endpoint: string, body: Record<string, unknown>): Promise<To
     const reason = json.error?.message?.split(' ')[0] ?? 'UNKNOWN'
     throw new IdentityToolkitError(reason, response.status)
   }
+  return json
+}
+
+const call = async (endpoint: string, body: Record<string, unknown>): Promise<TokenResponse> => {
+  const json = await post(endpoint, body)
   return { localId: json.localId!, email: json.email! }
 }
 
@@ -129,6 +151,107 @@ export const signUpWithPassword = (email: string, password: string) =>
 
 export const signInWithPassword = (email: string, password: string) =>
   call('signInWithPassword', { email, password })
+
+// ── Provider identities (#7) ───────────────────────────────────────────────────
+
+/** Firebase's own provider ids. They are what the Auth account is keyed to, so they are
+ *  also what goes into `users/{uid}.authProviders` — the same string on both sides. */
+export const PROVIDER_IDS = { apple: 'apple.com', google: 'google.com' } as const
+export type ProviderName = keyof typeof PROVIDER_IDS
+
+export interface IdpCredential {
+  provider: ProviderName
+  /** The provider's OIDC ID token: Apple's `identityToken`, or the `id_token` Google's
+   *  token endpoint returned for the app's PKCE authorization code. */
+  idToken: string
+  /**
+   * Apple only, and load-bearing: the **raw** nonce the app hashed into its
+   * `ASAuthorizationAppleIDRequest`. Apple puts the SHA-256 of it in the token, Firebase
+   * hashes this and compares — which is the whole of what stops a captured `identityToken`
+   * being replayed at this route by somebody else.
+   */
+  rawNonce?: string
+}
+
+/**
+ * Identity Toolkit wants a redirect URI even for a flow that has no redirect: ours is
+ * native, the app already holds the credential, and nothing is ever sent here. The project's
+ * own auth domain is used because it is a value the project owns and Google recognises,
+ * rather than an invented one.
+ */
+const REQUEST_URI = `https://${config.firebaseProjectId}.firebaseapp.com`
+
+/**
+ * Spends a provider credential at Firebase and gets back the account it belongs to — the
+ * one seam through which an Apple or Google identity becomes an Eva account (#7).
+ *
+ * **The uid is Firebase's, keyed to the provider's `sub`**, which is what makes the issue's
+ * "identity is `sub`, and only `sub`" true by construction: a `sub` Firebase has seen
+ * returns the uid it saw it with, so `ensureUser` lands on the same `users/{uid}` document,
+ * and an unseen one gets a new uid and therefore a new account. This code has no email
+ * lookup and must never grow one.
+ *
+ * That guarantee has a half we cannot enforce from here: with Firebase's **default**
+ * account-linking setting, Firebase merges a provider sign-in into an existing password
+ * account whenever the addresses match, underneath this code and whatever it says. Step 0
+ * of `docs/PROVIDER-SIGNIN.md` is the console change that turns that off, and it is a
+ * human's errand.
+ *
+ * `linkToIdToken` is the linking mode (`POST /me/auth/providers`): given a Firebase ID
+ * token for an existing account, Identity Toolkit attaches the provider identity to *that*
+ * account instead of resolving or creating one. A `sub` already attached elsewhere comes
+ * back as `FEDERATED_USER_ID_ALREADY_LINKED`, which classifies as `provider-linked`.
+ */
+export const signInWithIdp = async (
+  credential: IdpCredential,
+  linkToIdToken?: string,
+): Promise<TokenResponse> => {
+  // Form-encoded inside a JSON field, which is Identity Toolkit's own shape for this
+  // endpoint. `URLSearchParams` escapes each value, so nothing a caller sends can add a
+  // parameter of its own.
+  const postBody = new URLSearchParams({
+    id_token: credential.idToken,
+    providerId: PROVIDER_IDS[credential.provider],
+  })
+  if (credential.rawNonce) postBody.set('nonce', credential.rawNonce)
+
+  const json = await post('signInWithIdp', {
+    postBody: postBody.toString(),
+    requestUri: REQUEST_URI,
+    ...(linkToIdToken ? { idToken: linkToIdToken } : {}),
+  })
+  if (!json.localId) throw new IdentityToolkitError('MISSING_LOCAL_ID', null, 'unavailable')
+  // No address means there is nothing to write on a new `users/{uid}` document, and
+  // inventing one is worse than refusing. Classified as an outage rather than a rejection
+  // because it is a surprise about our project's configuration, not about the caller —
+  // so it pages an operator instead of telling a user their Apple ID is bad.
+  if (!json.email) throw new IdentityToolkitError('MISSING_EMAIL', null, 'unavailable')
+  return { localId: json.localId, email: json.email }
+}
+
+/**
+ * A Firebase ID token for `uid`, minted from our own Admin credentials — the first half of
+ * linking (#7). Two hops rather than one because `signInWithIdp` links against an *ID*
+ * token and the Admin SDK issues *custom* tokens; `signInWithCustomToken` is the exchange
+ * between them.
+ *
+ * Chosen over `adminAuth.updateUser(uid, { providerToLink })`, which is one call, because
+ * `providerToLink` takes a `sub` we would have had to verify ourselves — fetching Apple's
+ * and Google's JWKS, checking `iss`, `aud`, `exp` and the nonce, and owning the rotation of
+ * both. This way Firebase remains the only thing that validates a provider token, which is
+ * what ARCHITECTURE §2 already says about the password path.
+ *
+ * The Admin credentials must be able to sign: on Cloud Run the runtime service account
+ * needs `roles/iam.serviceAccountTokenCreator` **on itself**, or `createCustomToken` throws.
+ * That is an infra gate (`docs/PROVIDER-SIGNIN.md`), and until it is done this route is the
+ * only thing that fails.
+ */
+export const idTokenForUid = async (uid: string): Promise<string> => {
+  const customToken = await adminAuth.createCustomToken(uid)
+  const json = await post('signInWithCustomToken', { token: customToken })
+  if (!json.idToken) throw new IdentityToolkitError('MISSING_ID_TOKEN', null, 'unavailable')
+  return json.idToken
+}
 
 /** Firebase Admin's code for "no such user". */
 const USER_NOT_FOUND = 'auth/user-not-found'

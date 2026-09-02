@@ -15,8 +15,10 @@ Each rule is stated so a reviewer can check it mechanically.
 3. **CI never uses key files.** Authentication is Workload Identity Federation.
    Production secrets come from Secret Manager (`eva-jwt-secret:latest`).
 4. `JWT_SECRET` is read only in `api/src/auth.ts`; the Firebase web API key only in
-   `api/src/identity-toolkit.ts`; `POSTMARK_API_KEY` only in `api/src/email.ts`. Don't
-   spread them.
+   `api/src/identity-toolkit.ts`; `POSTMARK_API_KEY` only in `api/src/email.ts`;
+   `APPLE_SIGNIN_KEY` (and the rest of `config.providers`) only in `api/src/providers.ts`.
+   Don't spread them. `APPLE_SIGNIN_KEY` signs for Apple and `JWT_SECRET` signs for us —
+   neither file ever touches the other's key.
 
 ## Security rules (Firestore / Storage)
 
