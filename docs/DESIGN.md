@@ -157,8 +157,11 @@ Destructive-confirmed stays disabled until `DELETE` is typed.
   `rgba(233,130,165,.14)` with `rgba(201,95,134,.45)` border.
 - **Chips**: min-height 44, radius 14. Default glass · selected pink gradient ·
   severe solid `#C95F86` with a bar glyph · disabled muted.
-- **Five-point scale**: five 44-high cells, the selected one pink; dot size grows with
-  the value, so the scale reads without colour. Anchor labels at both ends.
+- **Five-point scale**: five 54-high cells, each an emoji with a word (Depleted · Low ·
+  Steady · Good · High); the selected one is raised, opaque and outlined in the scale's
+  ink, the rest greyed at 72%. The readout beside the label says "Low · 2 of 5" and each
+  cell is announced as "Energy, 2 of 5, Low". Anchor labels at both ends. One component —
+  the App canvas' `scales` — since 2026-08-30 (C6/D2).
 
 ## 7. Surfaces, feedback, states
 
@@ -173,8 +176,12 @@ bottom-right diamond, appointment = top-right badge. Flow uses three pink opacit
 predictions are always dashed and patterned. Today is a filled `#C95F86` circle;
 selected is a 2px outline.
 
-**Tab bar & FAB** — three tabs (Home, Calendar, Profile) in a `rgba(255,249,246,.8)`
-bar, active tab tinted; 56×56 FAB, radius 20, `linear-gradient(160deg,#F0A0BA,#C95F86)`.
+**Tab bar & FAB** — five tabs (Home · Calendar · Eva Chat · Learn · Profile, A4) in a
+`rgba(255,249,246,.8)` bar, active tab tinted; 56×56 FAB, radius 20,
+`linear-gradient(160deg,#F0A0BA,#C95F86)`. The Nutrition coach, Personal trainer and
+Well-being coach are pushed flows from Dashboard shortcuts and have no bar of their own.
+
+**Calendar cells** also carry a positive-test mark: a 9px outlined square, top-left.
 
 ## 8. Voice
 
@@ -189,14 +196,21 @@ language *and* in indicators.
 
 This applies to every user-facing string an engineer writes, not just marketing copy.
 
-## 8a. Pending canvas changes (2026-08-30)
+**US English, neutral roles (A17, 2026-08-30).** *anemia, hot flashes, color, fiber*; and
+"your provider" / "your doctor", never GP, OB-GYN or midwife as a role the copy addresses.
+Appointment *types* remain a catalogue (Scan · Primary care · Gynecologist · Obstetrician ·
+Midwife · Blood test · Glucose test · Other).
 
-The decisions of 2026-08-30 change the canvas and it has not been updated yet — the work
-order is `design/CHANGES-2026-08-30.md`. Two rows of this transcription are known to be
-about to change: §6's five-point scale becomes the emoji cells the App canvas draws, and
-§7's tab bar becomes five tabs (Home · Calendar · Eva Chat · Learn · Profile, A4). Build to
-the work order where it and this document disagree; remove this section when the canvas is
-re-pulled.
+## 8b. Canvas state
+
+The canvas was updated on 2026-08-30 to the decisions in
+`reviews/2026-08-30-prd-and-design-review.md` §8 (A1–A24): five tabs, the read-only mode
+chip, the Sex and Positive-test sheets, the shipped chip vocabulary, the A8 profile
+lists, six auth states, the consent and paywall screens, the cycle-history / contact /
+support screens, US English, and the copy corrections in §9a. The mirrors in
+`design/` are that upload. Placeholders remain wherever a decision fixed *that*
+something changes but not *to what*: the score name (#25), the BMI floor and every
+nutrition constant (#26), prices (App Store Connect).
 
 ## 9. Drift: implemented vs designed
 
@@ -388,8 +402,8 @@ Real platform limits, not decisions:
 
 ## 9c. Still unresolved on the canvas
 
-- The artboard's §02 type card says Button is 15; §04 draws 14.5. Components win, but
-  they disagree.
+- ~~The artboard's §02 type card says Button is 15; §04 draws 14.5.~~ Resolved 2026-08-30:
+  the type card now says 14.5.
 - The bottom sheet's prose says a 30px top radius; its own CSS is `24px 24px 8px 8px`.
 - The solid destructive has no pressed state. The current fill measures 1.09:1 against
   its resting fill — i.e. invisible; only the 0.97 scale communicates the press.

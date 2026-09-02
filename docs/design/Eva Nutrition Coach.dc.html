@@ -87,7 +87,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
 
     <sc-if value="{{ isStep2 }}">
       <h1 style="margin:26px 0 6px;font:600 25px/1.25 Montserrat,sans-serif">Focus areas</h1>
-      <p style="margin:0;font:400 13.5px/1.6 Montserrat,sans-serif;color:#6F656B">Choose up to 3 areas. Eva will use them to personalise your guidance — three focused priorities work better than everything at once.</p>
+      <p style="margin:0;font:400 13.5px/1.6 Montserrat,sans-serif;color:#6F656B">Choose up to 3 areas. Eva will use them to personalize your guidance — three focused priorities work better than everything at once.</p>
       <div style="display:flex;align-items:center;gap:8px;margin:16px 0 12px">
         <span style="{{ focusCountStyle }}">{{ focusCount }}</span>
         <sc-if value="{{ focusFull }}"><span style="font:500 11.5px/1.45 Montserrat,sans-serif;color:#8A6425">Remove one to add another.</span></sc-if>
@@ -142,9 +142,9 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         <span style="font:600 13px Montserrat,sans-serif;color:#6F656B">Age</span>
         <span style="font:600 13.5px Montserrat,sans-serif;color:#9A9095">32 · from your profile</span>
       </div>
-      <div style="font:600 12px Montserrat,sans-serif;color:#6F656B;margin:20px 0 8px">Activity level</div>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin:20px 0 8px"><span style="font:600 12px Montserrat,sans-serif;color:#6F656B">Activity level</span><span style="font:500 11px Montserrat,sans-serif;color:#9A9095">From your profile — change it there</span></div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        <sc-for list="{{ activities }}" as="a" hint-placeholder-count="5">
+        <sc-for list="{{ activities }}" as="a" hint-placeholder-count="4">
           <div onClick="{{ a.onClick }}" style="{{ a.style }}">
             <span style="{{ a.radio }}"></span>
             <span style="flex:1">
@@ -187,6 +187,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:6px">{{ planTimeline }}</div>
         <div style="font:400 13px/1.6 Montserrat,sans-serif;color:#6F656B">{{ planKcal }}</div>
         <div style="font:400 11.5px/1.55 Montserrat,sans-serif;color:#9A9095;margin-top:8px">Rate is capped at about 0.5 kg per week, or 1% of body weight — whichever is lower. Calories never go below your BMR or 1,200 kcal.</div>
+        <div style="font:500 11px/1.5 Montserrat,sans-serif;color:#8A6425;margin-top:8px">Every number on this screen is illustrative — a placeholder until the constants are set with sources (#25, #26).</div>
       </div>
     </sc-if>
 
@@ -196,6 +197,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         <div style="font:600 19px/1.35 Montserrat,sans-serif;margin-top:12px">Weight-change goals are paused during this phase</div>
         <div style="font:400 13.5px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:8px">Eva can still support balanced meals, energy, hydration and nutrient needs. Your previous goal is kept but not applied.</div>
         <div style="font:400 12px/1.55 Montserrat,sans-serif;color:#6F656B;margin-top:10px">The same applies during the first six weeks postpartum.</div>
+        <div style="font:500 11px/1.5 Montserrat,sans-serif;color:#8A6425;margin-top:10px">Whether any numeric target is shown in pregnancy at all is decided in #26; until then this screen shows guidance, not numbers.</div>
         <button onClick="{{ goSummary }}" style="margin-top:16px;min-height:48px;padding:0 18px;border-radius:15px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 14px Montserrat,sans-serif;cursor:pointer">Continue with balanced nutrition</button>
       </div>
     </sc-if>
@@ -211,14 +213,15 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
           </div>
         </sc-for>
         <button onClick="{{ openWhy }}" style="margin-top:12px;min-height:44px;width:100%;border-radius:14px;border:1px solid rgba(40,33,38,.1);background:rgba(255,255,255,.8);font:600 13px Montserrat,sans-serif;cursor:pointer">How this is calculated</button>
+        <div style="font:500 11px/1.5 Montserrat,sans-serif;color:#8A6425;margin-top:10px">Illustrative numbers — they do not reconcile and are not spec. The constants are set with sources by the product owner (#25, #26).</div>
       </div>
-      <div style="margin-top:14px;padding:14px;border-radius:18px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.26);font:400 12px/1.6 Montserrat,sans-serif;color:#3F5A76">Eva can help organise general nutrition information, but it does not replace personalised advice from a doctor or registered dietitian.</div>
+      <div style="margin-top:14px;padding:14px;border-radius:18px;background:rgba(90,123,160,.09);border:1px solid rgba(90,123,160,.26);font:400 12px/1.6 Montserrat,sans-serif;color:#3F5A76">Eva can help organize general nutrition information, but it does not replace personalized advice from a doctor or registered dietitian.</div>
     </sc-if>
 
     <sc-if value="{{ isResume }}">
       <div style="margin-top:40px;padding:22px;border-radius:26px;background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.95);box-shadow:0 16px 36px -26px rgba(150,72,100,.7)">
         <div style="font:600 20px/1.3 Montserrat,sans-serif">Pick up where you left off</div>
-        <div style="font:400 13.5px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:8px">You completed goal and focus areas on 9 August. Two steps remain before Eva can show any targets.</div>
+        <div style="font:400 13.5px/1.6 Montserrat,sans-serif;color:#4F464B;margin-top:8px">You completed goal and focus areas on August 9. Two steps remain before Eva can show any targets.</div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
           <sc-for list="{{ resumeSteps }}" as="r" hint-placeholder-count="5">
             <div style="display:flex;align-items:center;gap:10px;font:500 13px Montserrat,sans-serif;color:{{ r.color }}">
@@ -245,10 +248,12 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
 <sc-if value="{{ isToday }}">
   <div style="padding:2px 20px 40px">
     <div style="display:flex;align-items:flex-start;gap:10px">
+      <button onClick="{{ goHome }}" aria-label="Back to Home" style="flex:none;width:44px;height:44px;border-radius:15px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.62);font:400 18px Montserrat,sans-serif;color:#6F656B;cursor:pointer">‹</button>
       <div style="flex:1">
         <div style="font:600 22px/1.2 Montserrat,sans-serif">Nutrition</div>
-        <div style="font:500 12px Montserrat,sans-serif;color:#6F656B;margin-top:3px">Tuesday, 12 August</div>
+        <div style="font:500 12px Montserrat,sans-serif;color:#6F656B;margin-top:3px">Tuesday, August 12</div>
       </div>
+      <button onClick="{{ goScan }}" aria-label="Add a meal" style="flex:none;width:44px;height:44px;border-radius:15px;border:0;background:linear-gradient(160deg,#F0A0BA,#C95F86);color:#fff;font:300 24px/1 Montserrat,sans-serif;cursor:pointer;box-shadow:0 10px 22px -12px rgba(201,95,134,.85)">+</button>
       <button onClick="{{ goChat }}" aria-label="Nutrition chat" style="flex:none;width:44px;height:44px;border-radius:15px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.62);cursor:pointer"><span style="display:block;width:16px;height:13px;border:1.6px solid #6F656B;border-radius:5px;margin:0 auto"></span></button>
       <button onClick="{{ goSettings }}" aria-label="Nutrition settings" style="flex:none;width:44px;height:44px;border-radius:15px;border:1px solid rgba(255,255,255,.85);background:rgba(255,255,255,.62);cursor:pointer"><span style="display:block;width:15px;height:15px;border:1.6px solid #6F656B;border-radius:50%;margin:0 auto"></span></button>
     </div>
@@ -389,7 +394,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
       <div onClick="{{ goCamera }}" style="flex:1;min-height:150px;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;padding:16px;border-radius:24px;background:linear-gradient(160deg,rgba(243,174,196,.55),rgba(255,255,255,.8));border:1px solid rgba(255,255,255,.95);box-shadow:0 14px 32px -24px rgba(150,72,100,.8);cursor:pointer">
         <span style="width:38px;height:30px;border:1.8px solid #A9436E;border-radius:8px;display:block"></span>
         <span style="font:600 14.5px Montserrat,sans-serif;margin-top:6px">Take photo</span>
-        <span style="font:400 11.5px/1.45 Montserrat,sans-serif;color:#6F656B">Recognise a full meal from one image.</span>
+        <span style="font:400 11.5px/1.45 Montserrat,sans-serif;color:#6F656B">Recognize a full meal from one image.</span>
       </div>
       <div onClick="{{ goBarcode }}" style="flex:1;min-height:150px;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;padding:16px;border-radius:24px;background:linear-gradient(160deg,rgba(205,231,157,.55),rgba(255,255,255,.8));border:1px solid rgba(255,255,255,.95);box-shadow:0 14px 32px -24px rgba(110,130,70,.7);cursor:pointer">
         <span style="display:flex;align-items:flex-end;gap:2px;height:30px"><span style="width:2px;height:100%;background:#5C7434;display:block"></span><span style="width:4px;height:100%;background:#5C7434;display:block"></span><span style="width:2px;height:100%;background:#5C7434;display:block"></span><span style="width:5px;height:100%;background:#5C7434;display:block"></span><span style="width:2px;height:100%;background:#5C7434;display:block"></span></span>
@@ -413,7 +418,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         </div>
       </sc-for>
     </div>
-    <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Favourites</div>
+    <div style="font:600 10.5px Montserrat,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9A9095;margin:20px 0 10px">Favorites</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px">
       <sc-for list="{{ favFoods }}" as="f" hint-placeholder-count="4">
         <div onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</div>
@@ -490,7 +495,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
 
     <div onClick="{{ openScore }}" style="margin-top:14px;padding:16px;border-radius:22px;background:rgba(205,231,157,.28);border:1px solid rgba(142,173,86,.32);cursor:pointer">
       <div style="display:flex;align-items:center;justify-content:space-between">
-        <span style="font:600 14px Montserrat,sans-serif;color:#3F5220">Nutrition fit: {{ fitScore }}</span>
+        <span style="font:600 14px Montserrat,sans-serif;color:#3F5220">{{ scoreName }}: {{ fitScore }}</span>
         <span style="font:500 11.5px Montserrat,sans-serif;color:#5C7434">See breakdown ›</span>
       </div>
       <div style="font:400 12px/1.6 Montserrat,sans-serif;color:#4F5F30;margin-top:6px">Reflects how this meal fits your current goals, remaining targets and cycle context. The same meal may score differently on another day or for another person.</div>
@@ -508,8 +513,8 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
       </sc-for>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;min-height:52px;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
-      <span style="font:600 13px Montserrat,sans-serif;color:#4F464B">Add to favourites</span>
-      <div onClick="{{ toggleFav }}" aria-label="Add to favourites" style="{{ favTrack }}"><span style="{{ favKnob }}"></span></div>
+      <span style="font:600 13px Montserrat,sans-serif;color:#4F464B">Add to favorites</span>
+      <div onClick="{{ toggleFav }}" aria-label="Add to favorites" style="{{ favTrack }}"><span style="{{ favKnob }}"></span></div>
     </div>
   </div>
   <div style="position:absolute;left:0;right:0;bottom:0;padding:14px 20px 26px;background:linear-gradient(180deg,rgba(255,249,246,0),rgba(255,249,246,.94) 40%)">
@@ -582,7 +587,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
     <div style="margin-top:12px;display:flex;gap:14px">
       <span style="flex:none;width:88px;height:110px;border-radius:18px;background:repeating-linear-gradient(115deg,rgba(205,231,157,.6) 0 8px,rgba(237,246,218,.8) 8px 16px);border:1px solid rgba(255,255,255,.9);display:block"></span>
       <div style="flex:1">
-        <div style="font:600 16.5px/1.3 Montserrat,sans-serif">High-protein yoghurt, plain</div>
+        <div style="font:600 16.5px/1.3 Montserrat,sans-serif">High-protein yogurt, plain</div>
         <div style="font:500 12px Montserrat,sans-serif;color:#6F656B;margin-top:4px">Vale Verde · branded product</div>
         <div style="display:inline-flex;align-items:center;font:600 10.5px Montserrat,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#5C7434;padding:5px 10px;border-radius:9px;background:rgba(205,231,157,.4);margin-top:8px">Barcode 5601234567890</div>
       </div>
@@ -668,8 +673,8 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
         </sc-for>
       </div></div>
       <div style="display:flex;align-items:center;justify-content:space-between;min-height:52px;padding:0 16px;border-radius:17px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.92)">
-        <span style="font:600 13px Montserrat,sans-serif;color:#4F464B">Save to favourites</span>
-        <div onClick="{{ toggleFav }}" aria-label="Save to favourites" style="{{ favTrack }}"><span style="{{ favKnob }}"></span></div>
+        <span style="font:600 13px Montserrat,sans-serif;color:#4F464B">Save to favorites</span>
+        <div onClick="{{ toggleFav }}" aria-label="Save to favorites" style="{{ favTrack }}"><span style="{{ favKnob }}"></span></div>
       </div>
       <div onClick="{{ noop }}" style="min-height:50px;display:flex;align-items:center;justify-content:center;border-radius:17px;border:1px dashed rgba(40,33,38,.2);font:600 13px Montserrat,sans-serif;color:#6F656B;cursor:pointer">+ Add photo (optional)</div>
     </div>
@@ -752,16 +757,6 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
 
         </div>
 
-        <sc-if value="{{ showNav }}">
-          <div style="flex:none;height:88px;padding:8px 10px 26px;display:flex;align-items:flex-start;gap:2px;background:rgba(255,249,246,.72);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid rgba(40,33,38,.06)">
-            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
-              <div onClick="{{ t.onClick }}" aria-label="{{ t.label }}" style="{{ t.style }}">
-                <span style="{{ t.dot }}"></span>
-                <span style="font:600 10px Montserrat,sans-serif">{{ t.label }}</span>
-              </div>
-            </sc-for>
-          </div>
-        </sc-if>
       </div>
 
       <sc-if value="{{ anySheet }}">
@@ -789,11 +784,12 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
                 </div>
               </sc-for>
             </div>
+            <div style="font:500 11px/1.5 Montserrat,sans-serif;color:#8A6425;margin-top:10px">Illustrative — every constant above is a placeholder until set with a source (#26).</div>
             <div style="margin-top:14px;padding:13px 15px;border-radius:17px;background:rgba(205,231,157,.28);border:1px solid rgba(142,173,86,.3);font:400 12px/1.6 Montserrat,sans-serif;color:#4F5F30">Luteal phase adds about 5% (100–250 kcal). Pregnancy adds about 340 kcal in the second trimester and 450 in the third. Breastfeeding adds 330–500 kcal. Every figure is an estimate that adapts as you log.</div>
           </sc-if>
 
           <sc-if value="{{ sheetScore }}">
-            <div style="font:600 26px Montserrat,sans-serif">Nutrition fit: {{ fitScore }}</div>
+            <div style="font:600 26px Montserrat,sans-serif">{{ scoreName }}: {{ fitScore }}</div>
             <div style="font:400 12.5px/1.6 Montserrat,sans-serif;color:#6F656B;margin-top:6px">This score describes the meal in today’s context — never you, and never your day.</div>
             <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
               <sc-for list="{{ scoreRows }}" as="r" hint-placeholder-count="4">
@@ -807,7 +803,7 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
                 </div>
               </sc-for>
             </div>
-            <div style="margin-top:14px;padding:13px 15px;border-radius:17px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.9);font:400 12px/1.6 Montserrat,sans-serif;color:#4F464B">This meal is lower in protein than your current target. Adding yoghurt, tofu, eggs or legumes would increase the fit.</div>
+            <div style="margin-top:14px;padding:13px 15px;border-radius:17px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.9);font:400 12px/1.6 Montserrat,sans-serif;color:#4F464B">This meal is lower in protein than your current target. Adding yogurt, tofu, eggs or legumes would increase the fit.</div>
           </sc-if>
 
           <sc-if value="{{ sheetPrivacy }}">
@@ -851,17 +847,16 @@ a{color:#C95F86;text-decoration:none}a:hover{color:#E982A5}
 const GOALS = [
   ['lose','Lose weight','Create a gradual calorie deficit without going below safe limits.'],
   ['gain','Gain weight','Support gradual weight gain with balanced daily targets.'],
-  ['muscle','Build muscle','Prioritise protein and enough energy to support training.'],
+  ['muscle','Build muscle','Prioritize protein and enough energy to support training.'],
   ['maintain','Maintain my weight','Keep your weight stable while improving meal balance.'],
   ['better','Eat better without changing my weight','Focus on food quality, regular meals and how you feel.']
 ];
-const FOCUS = ['Eat more vegetables and fibre','Eat less ultra-processed food','Fight iron deficiency anaemia','Eat more protein','Cut down on sugar','Eat more regularly','Drink more water','Reduce caffeine','Reduce alcohol','Support bone health','Reduce bloating','Manage PMS cravings','Eat enough around my period','Reduce salt','Balance a vegetarian diet','Improve afternoon energy','Support skin'];
+const FOCUS = ['Eat more vegetables and fiber','Eat less ultra-processed food','Fight iron deficiency anemia','Eat more protein','Cut down on sugar','Eat more regularly','Drink more water','Reduce caffeine','Reduce alcohol','Support bone health','Reduce bloating','Manage PMS cravings','Eat enough around my period','Reduce salt','Balance a vegetarian diet','Improve afternoon energy','Support skin'];
 const ACTS = [
-  ['sed','Sedentary','Mostly seated with little regular exercise.'],
+  ['sed','Mostly sitting','Mostly seated with little regular exercise.'],
   ['light','Lightly active','Light activity or exercise around 1–3 times per week.'],
-  ['mod','Moderately active','Moderate exercise around 3–5 times per week.'],
-  ['very','Very active','Hard exercise most days.'],
-  ['extreme','Extremely active','Intense training or a highly physical daily routine.']
+  ['mod','Active','Moderate exercise around 3–5 times per week.'],
+  ['very','Very active','Hard exercise most days.']
 ];
 
 function track(on){
@@ -876,8 +871,9 @@ const RAIL = [
     ['s3','Step 3 · Meal pattern',{screen:'setup',step:3}],
     ['s4','Step 4 · Body metrics',{screen:'setup',step:4}],
     ['s5','Step 5 · Target weight',{screen:'setup',step:5,target:65}],
-    ['sGuard','Unsafe target · guardrail',{screen:'setup',step:5,target:52}],
-    ['sRate','Timeline extended',{screen:'setup',step:5,target:58}],
+    ['sGuard','Unsafe target · BMI floor',{screen:'setup',step:5,target:50}],
+    ['sCap','Per-plan cap · 15%',{screen:'setup',step:5,target:58}],
+    ['sRate','Timeline extended',{screen:'setup',step:5,target:63}],
     ['sPreg','Pregnancy restriction',{screen:'setup',step:0,pregBlock:true}],
     ['sSum','Plan summary',{screen:'setup',step:6}],
     ['sResume','Setup resumed later',{screen:'setup',step:-1}]]},
@@ -897,7 +893,7 @@ const RAIL = [
     ['scLow','Low confidence',{screen:'scan',scan:'result',conf:'low'}],
     ['scMulti','Multiple dishes',{screen:'scan',scan:'multi'}],
     ['scNotFood','Photo is not food',{screen:'scan',scan:'notfood'}],
-    ['scNone','Nothing recognised',{screen:'scan',scan:'none'}],
+    ['scNone','Nothing recognized',{screen:'scan',scan:'none'}],
     ['scOff','Offline · queued scan',{screen:'scan',scan:'offline'}],
     ['scBar','Barcode camera',{screen:'scan',scan:'barcode'}],
     ['scProd','Barcode product',{screen:'scan',scan:'product'}],
@@ -917,22 +913,23 @@ const SPEC = {
   s1:['All five goals carry identical visual weight — "maintain" and "eat better" are never secondary.','No body imagery, no transformation copy, no competitive framing.','Nothing is calculated yet; the goal only shapes later questions.'],
   s2:['Up to three focus areas. At three, the rest stay visible but disabled — Eva never silently swaps the oldest choice out.','Optional step with an explicit "Skip for now".','Focus areas change the wording of notes, not the maths.'],
   s3:['Meal count and snacks are neutral choices; no pattern is presented as healthier.','Times are optional and skippable, used only for spacing and reminders.','Slots are generated from the meal count, so 3 meals + snack yields four rows.'],
-  s4:['Age comes from the profile and is never asked twice; units follow the account setting.','Activity descriptions are concrete, not adjectives.','Logged Calendar workouts can override the declared band later — stated up front.'],
+  s4:['Age comes from the profile (date of birth) and is never asked twice; units follow the account setting.','Four activity bands, the profile\'s own (#25 Q4, A8): Mostly sitting · Lightly active · Active · Very active. "Extremely active" is dropped; a genuinely very active user is under-fed, which is the safer direction to be wrong.','Logged Calendar workouts can override the declared band later — stated up front.'],
   s5:['Shown only for lose / gain / build-muscle goals; skipped entirely otherwise.','Calories are always framed as approximate.','Rate cap: 0.5 kg per week or 1% of body weight, whichever is lower.'],
-  sGuard:['A target below BMI 18.5 is refused with neutral language and the lowest supported value offered.','No implication of an eating disorder from a single input.','The input stays editable — Eva does not lock the field.'],
+  sGuard:['A target below BMI 18.5 — the WHO underweight threshold (A29) — is refused with neutral language and the lowest supported value offered.','No implication of an eating disorder from a single input.','The input stays editable — Eva does not lock the field.'],
+  sCap:['A single plan may not target more than 15% below the current weight (A29, a product choice): reach it, then set a new plan. Keeps every plan gradual without ever calling a target wrong.','The input stays editable; the cap is a message and an offered value, not a lock.'],
   sRate:['When the requested pace is too fast, Eva extends the timeline instead of cutting calories.','Calorie floor is the higher of BMR and 1,200 kcal; hitting it also extends the timeline.'],
   sPreg:['Weight-change goals are unavailable in Pregnancy Mode and for the first six postpartum weeks.','The rule is applied without asking for confirmation, and shown once.','The earlier goal is retained but not restored automatically afterwards.'],
   sSum:['Summary states every target plus the cycle-adjustment status before anything is activated.','"How this is calculated" opens a sheet; formulas are never forced on screen.','The dietitian disclaimer appears once here, not on every screen.'],
   sResume:['Progress auto-saves after each step and resumes from the last completed one.','No partial targets are ever derived from an incomplete setup.'],
-  tLuteal:['The phase-adjusted number is the primary figure, with the reason directly beneath it — never buried in settings.','Adjustment is framed as a need, not a reward: no "earned", "allowed" or "burn it off".','Every bar has a written value; colour is never the only signal, and exceeding a target is not red.'],
+  tLuteal:['The coach has no tab bar of its own (A4, #25 Q3): it is pushed from the Dashboard\'s "Scan meal / Set up meals" shortcut. Log and Add a meal are header actions; Chat routes to the Eva Chat tab with nutrition context; Settings is the gear.','The phase-adjusted number is the primary figure, with the reason directly beneath it — never buried in settings.','Adjustment is framed as a need, not a reward: no "earned", "allowed" or "burn it off".','Every bar has a written value; color is never the only signal, and exceeding a target is not red.'],
   tRecalc:['One calm notification per change, stating the cause. Higher and lower are framed neutrally.','Recalculation triggers: weight, goal, target, phase, mode, or a one-band activity shift from Calendar data.'],
   tPreg:['Second trimester adds roughly 340 kcal, third roughly 450 — explained, never framed as "eating for two".','Understated treatment: no celebratory progress bars.'],
   tPost:['Breastfeeding adds roughly 330–500 kcal with an explicit explanation.','No feeding streaks, targets or comparisons with averages.'],
   tReached:['Reaching the target offers maintenance instead of silently continuing a deficit.','No body-transformation celebration.'],
   tHide:['Hiding calories keeps the screen complete: composition, macros and guidance remain.','No repeated prompts to switch numbers back on.'],
   tQual:['Qualitative mode disables weight-change goals, hides calories and replaces scores with description.','No disguised numeric score replaces the calories.','Reversible only from Settings, never from a banner.'],
-  tWeek:['Trends are described in plain sentences, never graded.','No adherence score, perfect days, or red/green day colouring.','Focus-area progress reflects only the areas she chose.'],
-  scEntry:['Photo, barcode and text search are equally discoverable — recognition is never the only prominent path.','Recent meals and favourites are one tap from the top of the screen.','Manual entry is always available and works fully offline.'],
+  tWeek:['Trends are described in plain sentences, never graded.','No adherence score, perfect days, or red/green day coloring.','Focus-area progress reflects only the areas she chose.'],
+  scEntry:['Photo, barcode and text search are equally discoverable — recognition is never the only prominent path.','Recent meals and favorites are one tap from the top of the screen.','Manual entry is always available and works fully offline.'],
   scCam:['Guidance overlay instead of a fake precision grid.','Shutter, upload, flash and close all carry accessible labels and 44px targets.'],
   scRes:['Calories are rounded to the nearest 10 and always prefixed "approximately".','Alternatives switch the match in one tap; portion is always editable.','Every value can be corrected, and corrections are remembered for the same dish.'],
   scLow:['Low confidence is stated plainly and asks for confirmation before saving.','Uncertain nutrition data is never presented as fact.'],
@@ -944,12 +941,12 @@ const SPEC = {
   scProd:['Product, brand, serving selector and per-serving nutrition, with ingredients when available.'],
   scNoBar:['Not-found leads to manual entry or search by name; the product is queued for database enrichment.'],
   scSearch:['Generic foods, branded products and restaurant items are visually distinguished.','Recent searches are one tap away.'],
-  scManual:['Full manual logging including fibre, portion, slot, time, photo and favourite.','Works offline; errors appear next to the field they belong to.'],
-  scScore:['Breakdown is one tap: food quality 40%, goal fit 30%, focus areas 20%, cycle context 10%.','A lower score explains what would raise the fit — it never labels food as bad.','Scores apply to meals only. Never to a day, and never to a person.'],
+  scManual:['Full manual logging including fiber, portion, slot, time, photo and favorite.','Works offline; errors appear next to the field they belong to.'],
+  scScore:['The score is called "Meal fit" (A33) — fit to today\'s context, never a grade of the food or the person. It ships only after its composition is reviewed under A24.','Breakdown is one tap: food quality 40%, goal fit 30%, focus areas 20%, cycle context 10%.','A lower score explains what would raise the fit — it never labels food as bad.','Scores apply to meals only. Never to a day, and never to a person.'],
   scPriv:['Shown once, before the first photo scan.','Model-training consent is a separate, off-by-default toggle.'],
   chEmpty:['Suggested prompts come from her actual context: goal, focus areas, targets, recent meals, cycle.'],
   chBusy:['Answers are short, practical and reference a reviewed article where one exists.','The chat cannot set targets, diagnose, infer deficiency or recommend supplement doses — target changes redirect to setup.'],
-  nSet:['Hide calorie numbers is available to anyone, with no repeated prompts to turn it back on.','Qualitative guidance mode can only be reversed here.','Conditions declared at sign-up suppress conflicting suggestions silently.'],
+  nSet:['Units, activity and health conditions are edited in Profile only — these rows deep-link there (one fact, one editor).','Hide calorie numbers is available to anyone, with no repeated prompts to turn it back on.','Qualitative guidance mode can only be reversed here.','Conditions declared at sign-up suppress conflicting suggestions silently.'],
   nCalc:['Formulas live behind "How this is calculated" — never forced onto the daily screen.','Cycle and mode adjustments are explained in the same sheet.']
 };
 
@@ -982,10 +979,13 @@ class Component extends DCLogic {
     const setupStep=S.step;
     const guard=(()=>{
       if(S.screen!=='setup'||setupStep!==5) return null;
-      if(S.target<=54) return {title:'That target falls below the range Eva can support',
-        body:'A target of '+S.target+' kg would put you under BMI 18.5. Lowest supported target: 59.5 kg.',
-        action:'Use 59.5 kg',onFix:()=>this.setState({target:59.5,railKey:'sGuard'})};
-      if(S.target<=58) return {title:'Eva has extended the timeline',
+      if(S.target<52.2) return {title:'That target falls below the range Eva can support',
+        body:'A target of '+S.target+' kg would put you under BMI 18.5 at 168 cm. Lowest supported target: 52.2 kg (WHO underweight threshold — A29).',
+        action:'Use 52.2 kg',onFix:()=>this.setState({target:52.2,railKey:'sGuard'})};
+      if(S.target<62.1) return {title:'One plan goes down to 62.1 kg',
+        body:'A single plan targets no more than 15% below your current weight (73 kg). Reach 62.1 kg, then set a new plan if you want to — that keeps each plan gradual (A29).',
+        action:'Use 62.1 kg',onFix:()=>this.setState({target:62.1,railKey:'s5'})};
+      if(S.target<=63) return {title:'Eva has extended the timeline',
         body:'Reaching '+S.target+' kg at a gradual pace takes longer than the date you picked. Rate is capped at about 0.5 kg per week, and calories never drop below your BMR.',
         action:'View adjusted timeline',onFix:()=>this.toast('Timeline extended to 28–32 weeks')};
       return null;
@@ -1003,12 +1003,12 @@ class Component extends DCLogic {
 
     const macro=(label,val,pct,c)=>({label,value:val,bar:'display:block;height:100%;width:'+Math.min(pct,100)+'%;border-radius:3px;background:'+c+';opacity:.6;'});
     const macroRows=S.hide
-      ? [macro('Protein','68 of 110 g',62,'#C95F86'),macro('Fibre','18 of 28 g',64,'#8EAD56'),macro('Water','1.4 of 2.0 L',70,'#5A7BA0')]
+      ? [macro('Protein','68 of 110 g',62,'#C95F86'),macro('Fiber','18 of 28 g',64,'#8EAD56'),macro('Water','1.4 of 2.0 L',70,'#5A7BA0')]
       : [macro('Calories',eaten.toLocaleString()+' of '+targets.kcal.toLocaleString()+' kcal',eaten/targets.kcal*100,'#C95F86'),
          macro('Protein','68 of 110 g',62,'#C95F86'),
          macro('Carbohydrates','150 of 210 g',71,'#8EAD56'),
          macro('Fat','48 of 62 g',77,'#C9913F'),
-         macro('Fibre','18 of 28 g',64,'#8EAD56')];
+         macro('Fiber','18 of 28 g',64,'#8EAD56')];
 
     const mealActs=(logged)=>logged
       ?[{label:'Edit',onClick:()=>this.toast('Opens the meal detail')},{label:'Duplicate',onClick:()=>this.toast('Duplicated to another slot')}]
@@ -1017,8 +1017,8 @@ class Component extends DCLogic {
       ?'min-height:40px;padding:0 14px;border-radius:13px;border:0;background:linear-gradient(180deg,#EE93B1,#C95F86);color:#fff;font:600 12.5px Montserrat,sans-serif;cursor:pointer;'
       :'min-height:40px;padding:0 14px;border-radius:13px;border:1px solid rgba(40,33,38,.12);background:rgba(255,255,255,.82);font:600 12.5px Montserrat,sans-serif;color:#282126;cursor:pointer;';
     const mealsData=[
-      {name:'Greek yoghurt, berries, walnuts',slot:'Breakfast · 08:10',score:'Fit 78',detail:S.hide?'Protein and fibre present · unsweetened':'Approximately 320 kcal · 24 g protein',logged:true},
-      {name:'Chicken pesto pasta',slot:'Lunch · 13:20',score:'Fit 72',detail:S.hide?'Protein present · refined carbohydrate base':'Approximately 640 kcal · 38 g protein',logged:true},
+      {name:'Greek yogurt, berries, walnuts',slot:'Breakfast · 08:10',score:'Meal fit 78',detail:S.hide?'Protein and fiber present · unsweetened':'Approximately 320 kcal · 24 g protein',logged:true},
+      {name:'Chicken pesto pasta',slot:'Lunch · 13:20',score:'Meal fit 72',detail:S.hide?'Protein present · refined carbohydrate base':'Approximately 640 kcal · 38 g protein',logged:true},
       {name:'Nothing logged yet',slot:'Dinner · usually 19:30',score:'',detail:'',logged:false},
       {name:'Nothing logged yet',slot:'Snack · usually 16:00',score:'',detail:'',logged:false}
     ];
@@ -1062,7 +1062,7 @@ class Component extends DCLogic {
       activities:ACTS.map(a=>({label:a[1],desc:a[2],onClick:()=>this.setState({activity:a[0]}),style:card(S.activity===a[0]),radio:radio(S.activity===a[0])})),
       targetValue:S.target+' kg',
       targetInputStyle:'width:100%;height:52px;border-radius:17px;border:1px solid '+(guard?'#C9913F':'rgba(40,33,38,.1)')+';background:rgba(255,255,255,.85);padding:0 15px;font:600 14.5px Montserrat,sans-serif;'+(guard?'box-shadow:0 0 0 3px rgba(201,145,63,.16);':''),
-      targetPresets:[65,62,59.5].map(t=>({label:t+' kg',onClick:()=>this.setState({target:t}),style:pill(S.target===t)})),
+      targetPresets:[65,63,62.1].map(t=>({label:t+' kg',onClick:()=>this.setState({target:t}),style:pill(S.target===t)})),
       guardrail:guard,
       planRange:'From 73 kg to '+S.target+' kg',
       planTimeline:guard?'Estimated timeline: approximately 28–32 weeks (extended to keep the pace gradual)':'Estimated timeline: approximately 16–20 weeks',
@@ -1075,7 +1075,7 @@ class Component extends DCLogic {
         {k:'Protein',v:'110–145 g'},
         {k:'Fat',v:'55–70 g (never below 20% of calories)'},
         {k:'Carbohydrates',v:'remaining energy · about 180–210 g'},
-        {k:'Fibre',v:'28–32 g'},
+        {k:'Fiber',v:'28–32 g'},
         {k:'Cycle-aware adjustment',v:'On · luteal phase +5%'},
         {k:'Focus areas',v:S.focus.length?S.focus.join(', '):'None selected'}
       ],
@@ -1091,11 +1091,11 @@ class Component extends DCLogic {
         style:'flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;border-radius:12px;cursor:pointer;font:'+(S.view===v[0]?'600':'500')+' 13px Montserrat,sans-serif;color:'+(S.view===v[0]?'#fff':'#6F656B')+';background:'+(S.view===v[0]?'linear-gradient(180deg,#EE93B1,#C95F86)':'transparent')+';'})),
       targetKicker:S.qual?'Today':(S.hide?'Today · calories hidden':'Today\u2019s estimate'),
       targetPrimary:S.qual?'Two meals logged, both with protein':(S.hide?'2 of 4 meals logged':eaten.toLocaleString()+' of '+targets.kcal.toLocaleString()+' kcal'),
-      targetSecondary:S.qual?'Regular spacing so far · next meal usually 19:30':(S.hide?'Protein and fibre on track for today':(targets.kcal-eaten)+' kcal remaining'),
+      targetSecondary:S.qual?'Regular spacing so far · next meal usually 19:30':(S.hide?'Protein and fiber on track for today':(targets.kcal-eaten)+' kcal remaining'),
       macroRows:S.qual?[]:macroRows,
       adjustNote:S.qual?'':targets.addNote,
       qualCard:S.qual,
-      qualLines:['Today\u2019s meals included protein at breakfast and lunch.','Fibre came from berries, walnuts and the salad at lunch.','You may want to add a fibre-rich option later if that feels useful.','Meals have been evenly spaced, with no long gap so far.'],
+      qualLines:['Today\u2019s meals included protein at breakfast and lunch.','Fiber came from berries, walnuts and the salad at lunch.','You may want to add a fiber-rich option later if that feels useful.','Meals have been evenly spaced, with no long gap so far.'],
       waterOn:S.focus.indexOf('Drink more water')>-1||S.hide,
       waterLabel:S.water.toFixed(1)+' of 2.0 L',
       waterBtns:[['+250 ml',.25],['+500 ml',.5],['Custom',0]].map(w=>({label:w[0],
@@ -1112,37 +1112,32 @@ class Component extends DCLogic {
       weekCards:[
         {title:'Calories',value:'avg 1,790 kcal',note:'Within about 100 kcal of your estimate on 5 of 7 days.',pcts:[82,95,70,88,100,64,78]},
         {title:'Protein',value:'avg 96 g',note:'Protein was closer to your target on 4 days.',pcts:[70,88,62,95,80,58,74]},
-        {title:'Fibre',value:'avg 24 g',note:'You logged vegetables with 9 meals this week.',pcts:[60,72,55,80,68,50,66]},
+        {title:'Fiber',value:'avg 24 g',note:'You logged vegetables with 9 meals this week.',pcts:[60,72,55,80,68,50,66]},
         {title:'Meal regularity',value:'18 of 21 slots',note:'Lunch was logged later than your usual time on 3 days.',pcts:[100,100,66,100,100,66,100]}
       ].map(w=>({title:w.title,value:w.value,note:w.note,days:['M','T','W','T','F','S','S'],
         bars:w.pcts.map(p=>({style:'flex:1;display:block;border-radius:5px 5px 3px 3px;height:'+p+'%;background:linear-gradient(180deg,rgba(233,130,165,.75),rgba(233,130,165,.35));'}))})),
       goLog:()=>this.toast('Opens the full day log'),
-      goChat:()=>this.toast('Opens Nutrition Chat'),
+      goChat:()=>this.toast('Opens the Eva Chat tab with nutrition context (A5)'),
       goSettings:()=>this.toast('Opens Nutrition Settings'),
 
-      showNav:S.screen==='today',
-      tabs:[['Today','today'],['Log','log'],['Scan','scan'],['Chat','chat'],['Settings','set']].map(t=>{
-        const active=(t[1]==='today'&&S.screen==='today');
-        return {label:t[0],onClick:()=>{ if(t[1]==='today') this.go({screen:'today',railKey:'tLuteal'}); else this.toast(t[0]+' is in the next section of this prototype.'); },
-          style:'flex:1;min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border-radius:14px;cursor:pointer;color:'+(active?'#C95F86':'#9A9095')+';background:'+(active?'rgba(233,130,165,.10)':'transparent')+';',
-          dot:'width:18px;height:18px;border-radius:'+(active?'7px':'6px')+';border:1.6px solid '+(active?'#C95F86':'#9A9095')+';background:'+(active?'rgba(233,130,165,.25)':'transparent')+';display:block;'};
-      }),
+      goHome:()=>this.toast('Returns to the Dashboard — the coach is a pushed flow, not a tab (A4, #25 Q3)'),
+      goScan:()=>this.go({screen:'scan',scan:'entry',railKey:'scEntry'}),
       anySheet:!!S.sheet, closeSheet:()=>this.setState({sheet:null}),
       sheetWhy:S.sheet==='why', sheetScore:S.sheet==='score', sheetPrivacy:S.sheet==='privacy',
       sheetTitle:S.sheet==='why'?'How this is calculated':(S.sheet==='score'?'Score breakdown':'Photos and privacy'),
       openScore:()=>this.setState({sheet:'score'}),
       calcRows:[
         {k:'Resting needs (BMR)',v:'1,455 kcal',note:'Mifflin–St Jeor: (10 × 73) + (6.25 × 168) − (5 × 32) − 161.'},
-        {k:'Activity factor',v:'× 1.55',note:'Moderately active — around 3–5 sessions a week, refined by your logged workouts.'},
+        {k:'Activity factor',v:'× 1.55',note:'Active — around 3–5 sessions a week, refined by your logged workouts.'},
         {k:'Daily needs (TDEE)',v:'2,255 kcal',note:'Resting needs multiplied by your activity factor.'},
         {k:'Goal adjustment',v:'−20%',note:'Gradual deficit for weight loss, clamped by every safety limit below.'},
         {k:'Safety floors',v:'BMR · 1,200 kcal',note:'Targets never fall below either. If the maths would, the timeline extends instead.'},
         {k:'Phase adjustment',v:'+140 kcal',note:'About 5% during the estimated luteal phase.'}
       ],
       scoreRows:[
-        {k:'Food quality',weight:'40%',note:'Good protein and fibre, with moderate sodium.',pct:78},
+        {k:'Food quality',weight:'40%',note:'Good protein and fiber, with moderate sodium.',pct:78},
         {k:'Goal fit',weight:'30%',note:'Fits today’s remaining energy target.',pct:82},
-        {k:'Focus areas',weight:'20%',note:'Supports your protein goal; fibre is a little low.',pct:60},
+        {k:'Focus areas',weight:'20%',note:'Supports your protein goal; fiber is a little low.',pct:60},
         {k:'Cycle context',weight:'10%',note:'Provides steady energy for your current phase.',pct:70}
       ].map(r=>({k:r.k,weight:r.weight,note:r.note,bar:'display:block;height:100%;width:'+r.pct+'%;border-radius:3px;background:#8EAD56;opacity:.6;'})),
       toggleConsent:()=>this.setState({consent:!S.consent}),
@@ -1170,11 +1165,11 @@ class Component extends DCLogic {
       frameH:S.scan==='barcode'?'140px':'300px',
       recentFoods:[
         {name:'Chicken pesto pasta',meta:'Approximately 640 kcal · logged twice this week'},
-        {name:'Greek yoghurt, berries, walnuts',meta:'Approximately 320 kcal · breakfast'},
+        {name:'Greek yogurt, berries, walnuts',meta:'Approximately 320 kcal · breakfast'},
         {name:'Lentil soup, homemade',meta:'Approximately 280 kcal · lunch'}
       ].map(f=>({name:f.name,meta:f.meta,onClick:()=>this.go({screen:'scan',scan:'result',conf:'high',railKey:'scRes'}),
         thumb:'flex:none;width:40px;height:40px;border-radius:13px;background:repeating-linear-gradient(115deg,rgba(249,220,230,.8) 0 6px,rgba(255,241,246,.9) 6px 12px);border:1px solid rgba(40,33,38,.08);display:block;'})),
-      favFoods:['Protein yoghurt','Overnight oats','Salmon and greens','Banana'].map(l=>({label:l,style:pill(false),onClick:()=>this.toast('Added to today')})),
+      favFoods:['Protein yogurt','Overnight oats','Salmon and greens','Banana'].map(l=>({label:l,style:pill(false),onClick:()=>this.toast('Added to today')})),
       lowConf:S.conf==='low',
       confLabel:S.conf==='low'?'Low confidence':'Likely match',
       confStyle:'display:inline-flex;align-items:center;gap:7px;margin-top:14px;padding:7px 12px;border-radius:11px;font:600 11.5px Montserrat,sans-serif;'+(S.conf==='low'
@@ -1187,9 +1182,9 @@ class Component extends DCLogic {
       portions:[['small','Smaller'],['est','Estimated'],['large','Larger'],['custom','Enter amount']].map(p=>({label:p[1],
         onClick:()=>this.setState({portion:p[0]}),style:pill(S.portion===p[0])+'flex:1;padding:0 10px;'})),
       kcalLabel:'Approximately '+({small:'380',est:'490',large:'640',custom:'490'}[S.portion])+' kcal',
-      resultMacros:[{k:'Protein',v:'38 g'},{k:'Carbohydrates',v:'52 g'},{k:'Fat',v:'19 g'},{k:'Fibre',v:'5 g'}],
-      fitScore:S.conf==='low'?66:72,
-      scanNote:'This meal is high in refined carbohydrates and relatively low in protein for your target. Since you logged low energy today, adding a protein or fibre source may help it feel more sustaining.',
+      resultMacros:[{k:'Protein',v:'38 g'},{k:'Carbohydrates',v:'52 g'},{k:'Fat',v:'19 g'},{k:'Fiber',v:'5 g'}],
+      fitScore:S.conf==='low'?66:72, scoreName:'Meal fit',
+      scanNote:'This meal is high in refined carbohydrates and relatively low in protein for your target. Since you logged low energy today, adding a protein or fiber source may help it feel more sustaining.',
       slots:['Breakfast','Lunch','Dinner','Snack'].map((l,i)=>({label:l,onClick:()=>this.toast('Saving to '+l.toLowerCase()),style:pill(i===1)})),
       toggleFav:()=>this.setState({fav:!S.fav}),
       favTrack:track(S.fav), favKnob:knob(S.fav),
@@ -1203,7 +1198,7 @@ class Component extends DCLogic {
         onRemove:()=>{const m=Object.assign({},S.multi);m[n]=false;this.setState({multi:m});}})),
       multiCount:Object.keys(S.multi).filter(k=>S.multi[k]).length,
       multiTotal:[330,220,70].filter((v,i)=>S.multi[['Grilled salmon','Roasted potatoes','Mixed salad'][i]]).reduce((a,b)=>a+b,0),
-      failTitle:{notfood:'No food found',none:'Not recognised',offline:'Offline',nobarcode:'Product not found'}[S.scan]||'',
+      failTitle:{notfood:'No food found',none:'Not recognized',offline:'Offline',nobarcode:'Product not found'}[S.scan]||'',
       failHead:{notfood:'This image does not appear to contain food.',none:'We couldn’t identify this meal confidently.',offline:'This scan will be processed when you are back online.',nobarcode:'We couldn’t find this product.'}[S.scan]||'',
       failBody:{notfood:'Try a photo of the plate itself, or search for the dish by name.',
         none:'You can search by name, enter the values manually, or take another photo — nothing has been saved.',
@@ -1226,12 +1221,12 @@ class Component extends DCLogic {
       })(),
       servingLabel:'1 pot · 150 g',
       servings:['1 pot · 150 g','100 g','2 pots'].map((l,i)=>({label:l,onClick:()=>this.toast('Serving set to '+l),style:pill(i===0)+'flex:1;padding:0 10px;'})),
-      productMacros:[{k:'Energy',v:'approximately 130 kcal'},{k:'Protein',v:'15 g'},{k:'Carbohydrates',v:'8 g'},{k:'Fat',v:'4 g'},{k:'Fibre',v:'0 g'}],
+      productMacros:[{k:'Energy',v:'approximately 130 kcal'},{k:'Protein',v:'15 g'},{k:'Carbohydrates',v:'8 g'},{k:'Fat',v:'4 g'},{k:'Fiber',v:'0 g'}],
       searchResults:[
-        {name:'Greek yoghurt, plain',meta:'Per 100 g · approximately 97 kcal · 9 g protein',tag:'Generic'},
-        {name:'Protein yoghurt, vanilla',meta:'Vale Verde · per pot · approximately 130 kcal',tag:'Branded'},
-        {name:'Frozen yoghurt, plain',meta:'Gelato Bianco · per 100 g · approximately 160 kcal',tag:'Restaurant'},
-        {name:'Yoghurt with granola',meta:'Per bowl · approximately 340 kcal · 14 g protein',tag:'Generic'},
+        {name:'Greek yogurt, plain',meta:'Per 100 g · approximately 97 kcal · 9 g protein',tag:'Generic'},
+        {name:'Protein yogurt, vanilla',meta:'Vale Verde · per pot · approximately 130 kcal',tag:'Branded'},
+        {name:'Frozen yogurt, plain',meta:'Gelato Bianco · per 100 g · approximately 160 kcal',tag:'Restaurant'},
+        {name:'Yogurt with granola',meta:'Per bowl · approximately 340 kcal · 14 g protein',tag:'Generic'},
         {name:'Skyr, natural',meta:'Per 150 g pot · approximately 96 kcal · 17 g protein',tag:'Branded'}
       ].map(r=>({name:r.name,meta:r.meta,tag:r.tag,onClick:()=>this.go({screen:'scan',scan:'result',conf:'high',railKey:'scRes'}),
         tagStyle:'flex:none;font:600 10px Montserrat,sans-serif;letter-spacing:.06em;text-transform:uppercase;padding:5px 9px;border-radius:9px;'+({
@@ -1239,16 +1234,16 @@ class Component extends DCLogic {
           Branded:'background:rgba(90,123,160,.14);color:#3F5A76;',
           Restaurant:'background:rgba(233,130,165,.16);color:#A9436E;'}[r.tag])})),
       recentSearches:['Lentil soup','Chicken breast','Banana','Pesto pasta'].map(l=>({label:l,style:pill(false)})),
-      manualFields:[{label:'Calories',value:'approx. 280'},{label:'Protein (g)',value:'18'},{label:'Carbohydrates (g)',value:'34'},{label:'Fat (g)',value:'6'},{label:'Fibre (g)',value:'11'},{label:'Portion (g)',value:'400'}],
+      manualFields:[{label:'Calories',value:'approx. 280'},{label:'Protein (g)',value:'18'},{label:'Carbohydrates (g)',value:'34'},{label:'Fat (g)',value:'6'},{label:'Fiber (g)',value:'11'},{label:'Portion (g)',value:'400'}],
 
       isChat:S.screen==='chat', chatEmpty:S.screen==='chat'&&!S.chat, chatBusy:S.screen==='chat'&&S.chat,
-      prompts:['What can I eat before training?','How can I add more fibre?','Which foods contain iron?','Help me plan lunches for this week','Why am I hungry before my period?','What could support steadier afternoon energy?']
+      prompts:['What can I eat before training?','How can I add more fiber?','Which foods contain iron?','Help me plan lunches for this week','Why am I hungry before my period?','What could support steadier afternoon energy?']
         .map(l=>({label:l,onClick:()=>this.go({screen:'chat',chat:true,railKey:'chBusy'})})),
       sendChat:()=>this.go({screen:'chat',chat:true,railKey:'chBusy'}),
       messages:[
         {who:'me',text:'Why am I hungry before my period?'},
         {who:'eva',text:'Appetite often rises in the luteal phase, partly because resting energy use increases slightly. Your target today is already about 140 kcal higher for that reason — the hunger is not a lapse in discipline.'},
-        {who:'eva',text:'If you want meals to feel more sustaining: protein at each meal, some fibre, and not leaving more than 4–5 hours between meals. Based on your log, lunch is where protein is usually lowest.',
+        {who:'eva',text:'If you want meals to feel more sustaining: protein at each meal, some fiber, and not leaving more than 4–5 hours between meals. Based on your log, lunch is where protein is usually lowest.',
          article:'Why appetite can change before your period',articleMeta:'Nutrition · 4 min read · evidence reviewed'},
         {who:'me',text:'Can you lower my calorie target instead?'},
         {who:'eva',text:'I can’t change targets from chat. To change your calorie target, update your goal or body metrics in Nutrition Settings — that way the safety limits are applied properly.'}
@@ -1267,9 +1262,9 @@ class Component extends DCLogic {
       nutRows:[
         {label:'Goal',value:'Lose weight'},{label:'Focus areas',value:S.focus.length+' selected'},
         {label:'Meal pattern',value:S.meals+' meals · snacks '+S.snacks.toLowerCase()},{label:'Body metrics',value:'168 cm · 73 kg'},
-        {label:'Activity level',value:'Moderately active'},{label:'Units',value:'Metric'},
-        {label:'Health conditions',value:'Private'},{label:'How targets are calculated',value:''}
-      ].map(r=>({label:r.label,value:r.value,onClick:r.label==='How targets are calculated'?()=>this.setState({sheet:'why'}):()=>this.go({screen:'setup',step:1,railKey:'s1'})}))
+        {label:'Activity level',value:'Active · set in Profile'},{label:'Units',value:'Set in Profile'},
+        {label:'Health conditions',value:'Set in Profile'},{label:'How targets are calculated',value:''}
+      ].map(r=>({label:r.label,value:r.value,onClick:r.label==='How targets are calculated'?()=>this.setState({sheet:'why'}):(/Profile/.test(r.value)?()=>this.toast('Opens Profile — one place to edit it'):()=>this.go({screen:'setup',step:1,railKey:'s1'}))}))
     };
   }
 }
