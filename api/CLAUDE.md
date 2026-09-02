@@ -24,8 +24,8 @@ Needs `api/.env` (copy `.env.example`) and Application Default Credentials
 ## Module boundaries — enforced by review
 
 ```
-index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts · events.ts · refdata.ts
-         ──► email.ts · email-tokens.ts
+index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.ts · users.ts
+         ──► events.ts · refdata.ts · email.ts · email-tokens.ts
          ──► firebase.ts · config.ts
 ```
 
@@ -33,13 +33,21 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
 - `auth.ts` — JWT mint/verify + `requireAuth`. The only user of `JWT_SECRET`. It proves a
   token is ours and nothing more; whether the account still exists is `requireAccount` in
   `index.ts`, which is where it has to live because this file must not reach Firestore.
-- `identity-toolkit.ts` — the Firebase Auth account: password credentials via Google REST
-  (the only user of the web API key — the Admin SDK cannot verify passwords, which is why
-  this exists), and `deleteAuthAccount` via the Admin SDK, which is the only place an Auth
-  user is deleted. Two transports, one owner.
+- `identity-toolkit.ts` — the Firebase Auth account: password *and* provider credentials via
+  Google REST (the only user of the web API key — the Admin SDK cannot verify either, which
+  is why this exists), and `deleteAuthAccount` via the Admin SDK, which is the only place an
+  Auth user is deleted. Two transports, one owner. `signInWithIdp` is the Apple/Google seam
+  (#7): Firebase returns the uid it keyed to the provider's `sub`, which is what makes
+  "identity is `sub`, and only `sub`" true by construction. Never add an email lookup to it.
   Also classifies every upstream failure as `email-exists | rejected | unavailable`;
   routes branch on that kind and never on Google's reason string, which must not reach a
   body, a header, or a log line (#32).
+- `providers.ts` — the only two calls that go to Apple or Google *directly*, and the only
+  user of `GOOGLE_IOS_CLIENT_ID` and the Apple keys (#7): Google's PKCE authorization-code
+  exchange (public iOS client, no client secret) and Apple's token revocation for
+  `DELETE /me` (an ES256 client secret signed with WebCrypto — no JWT library, and never
+  `JWT_SECRET`). Every credential it needs is optional; unconfigured is a `503` on that one
+  capability, never a boot failure, and never a failed delete. Writes no log line.
 - `rate-limit.ts` — attempt counters behind the `/auth/*` throttle. In-memory, so the
   limit is per Cloud Run instance — the guarantee, and what would have to change to make
   it real, are written out at the top of the file and in ARCHITECTURE §3. It never sees
@@ -82,7 +90,7 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
   `INVALID_CREDENTIALS`, `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`,
   `BACKDATE_LIMIT_EXCEEDED`, `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`,
   `SERVICE_UNAVAILABLE`, `DAY_ALREADY_LOGGED`, `NOT_ACTIVATED`, `INVALID_TOKEN`,
-  `TOKEN_EXPIRED`, `INTERNAL`.
+  `TOKEN_EXPIRED`, `PROVIDER_ALREADY_LINKED`, `INTERNAL`.
 - Every authenticated route carries `requireAuth, requireAccount` — the second is what
   makes a deleted account's still-valid token useless. `DELETE /me` is the one exception,
   so an interrupted delete can be retried with the same token.
@@ -100,6 +108,11 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
   earlier would tell any caller which addresses have Eva accounts. `/auth/activation/resend`
   and `/auth/password/forgot` answer `200 { sent: true }` for every well-formed address,
   registered or not, for the same reason.
+- **A provider sign-in never matches on email (#7).** `POST /auth/idp` resolves an account
+  from the provider's `sub` alone — an unseen `sub` is a new account even when the address
+  matches an existing one — and comes back already activated. Attaching a provider to an
+  existing account is `POST /me/auth/providers`, deliberate and authenticated. Neither
+  stores a display name, and `users/{uid}` gains no field.
 - CORS is on exactly the two routes the website's link pages call (`/auth/activate`,
   `/auth/password/reset`), for exactly `config.publicWebOrigin`. Never `*`, never a third
   route: an allowed origin is a page that can spend a token it was handed.
