@@ -73,6 +73,16 @@ struct APIClient: Sendable {
         try await send(path: path, method: "DELETE", body: nil as Never?, authorized: authorized)
     }
 
+    /// `DELETE` with a body, which `DELETE /me` grew when Apple token revocation landed
+    /// (#7). Separate from the bodyless overload rather than an optional parameter,
+    /// because "no body" and "an empty body" are different requests and the route treats
+    /// them the same only by accident.
+    func delete<Body: Encodable, Response: Decodable>(
+        _ path: String, body: Body, authorized: Bool = false
+    ) async throws -> Response {
+        try await send(path: path, method: "DELETE", body: body, authorized: authorized)
+    }
+
     private func send<Body: Encodable, Response: Decodable>(
         path: String, method: String, body: Body?, authorized: Bool
     ) async throws -> Response {

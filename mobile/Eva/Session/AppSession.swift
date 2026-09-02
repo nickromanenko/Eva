@@ -156,6 +156,43 @@ final class AppSession {
         }
     }
 
+    /// Signs in with Apple or Google, or creates the account the provider names (#7).
+    ///
+    /// **Outside `authorized(_:)`, like `signUp` and `signIn`.** The route sends no token,
+    /// so a 401 from it means the provider credential was refused — not that this device's
+    /// session ended — and running it through the wrapper would log a signed-in user out
+    /// for a failed *link-a-second-provider* attempt they made from Profile.
+    ///
+    /// There is no activation gate here and no `NOT_ACTIVATED` branch: the address comes
+    /// from Apple or Google having already proved it, which is the whole reason #6's
+    /// emailed link exists for passwords and not for these.
+    func signInWithProvider(_ credential: ProviderCredential) async throws {
+        let response: AuthResponse = try await client.post("/auth/idp", body: credential)
+        apply(response)
+    }
+
+    /// Attaches another provider to the account already signed in (#7).
+    ///
+    /// This is the **only** way two sign-in methods end up on one account: identity is the
+    /// provider's `sub` and never an email address, so a provider Eva has not seen before
+    /// makes a new account rather than joining an existing one. Joining is therefore
+    /// something the user does deliberately, from Profile, while signed in to the account
+    /// they want to keep — auto-linking on a self-asserted address is an account-takeover
+    /// shape, and it would not work for Hide My Email relays anyway (#7's decision).
+    ///
+    /// Inside `authorized(_:)`, unlike `signInWithProvider`: this one carries the token,
+    /// so its 401 really does mean the session is finished.
+    func attachProvider(_ credential: ProviderCredential) async throws {
+        let generation = sessionGeneration
+        let response: UserResponse = try await authorized {
+            try await client.post("/me/auth/providers", body: credential, authorized: true)
+        }
+        // The same guard every other await carries: a slow link that returns after the
+        // user logged out must not write a user into a session that is not theirs.
+        guard generation == sessionGeneration else { return }
+        user = response.user
+    }
+
     /// Asks for the activation email again. Sends no token and touches no state: the
     /// screen owns the 60-second cooldown, the server owns the throttle behind it
     /// (`429 RATE_LIMITED`), and the reply is the same whether or not the address exists.
@@ -190,10 +227,24 @@ final class AppSession {
     /// sign this client out, and a token left in the Keychain would name an account that
     /// no longer exists. A failure leaves the session untouched so the caller can show the
     /// error and offer a retry.
-    func deleteAccount() async throws {
+    ///
+    /// `appleAuthorizationCode` is a fresh code from a Sign in with Apple re-authorization,
+    /// which the API exchanges to **revoke** Apple's token — required of any app offering
+    /// both Sign in with Apple and in-app deletion (#7). It is optional at every layer,
+    /// including here, because deletion must never be the thing that fails: an account
+    /// with no Apple provider has no code to send, and a user who dismisses Apple's sheet
+    /// still gets their account deleted.
+    func deleteAccount(appleAuthorizationCode: String? = nil) async throws {
         let generation = sessionGeneration
         let response: DeleteAccountResponse = try await authorized {
-            try await client.delete("/me", authorized: true)
+            if let appleAuthorizationCode {
+                return try await client.delete(
+                    "/me",
+                    body: DeleteAccountRequest(appleAuthorizationCode: appleAuthorizationCode),
+                    authorized: true
+                )
+            }
+            return try await client.delete("/me", authorized: true)
         }
         // The same guard the other awaits carry. A slow `DELETE /me` that returns after
         // the user has logged out and signed in again would otherwise tear down the
