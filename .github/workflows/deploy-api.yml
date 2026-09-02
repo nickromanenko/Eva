@@ -26,11 +26,18 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v3
 
       - name: Deploy to Cloud Run
+        env:
+          # Where the activation and reset links point (#6). The API refuses to boot
+          # without it, so catch a missing variable here rather than on the revision.
+          PUBLIC_WEB_URL: ${{ vars.PUBLIC_WEB_URL }}
+          POSTMARK_FROM: ${{ vars.POSTMARK_FROM }}
         run: |
+          test -n "$PUBLIC_WEB_URL" || { echo "::error::PUBLIC_WEB_URL repo variable is not set"; exit 1; }
+          test -n "$POSTMARK_FROM" || { echo "::error::POSTMARK_FROM repo variable is not set"; exit 1; }
           gcloud run deploy eva-api \
             --source api \
             --project ${{ vars.GCP_PROJECT_ID }} \
             --region ${{ vars.GCP_REGION }} \
             --allow-unauthenticated \
-            --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }}" \
-            --set-secrets "JWT_SECRET=eva-jwt-secret:latest"
+            --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }},EMAIL_TRANSPORT=postmark,POSTMARK_FROM=$POSTMARK_FROM,PUBLIC_WEB_URL=$PUBLIC_WEB_URL" \
+            --set-secrets "JWT_SECRET=eva-jwt-secret:latest,POSTMARK_API_KEY=eva-postmark-key:latest"

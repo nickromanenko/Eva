@@ -117,18 +117,62 @@ final class AppSession {
         await bootstrap()
     }
 
-    func signUp(email: String, password: String) async throws {
-        let response: AuthResponse = try await client.post(
-            "/auth/signup", body: Credentials(email: email, password: password)
-        )
-        apply(response)
+    /// What signing up leaves the caller with. One case today, and an enum anyway: the
+    /// point of #6 is that sign-up **no longer returns a session**, and a return type
+    /// that could not express "you are not signed in yet" would invite the next caller
+    /// to assume it did.
+    enum SignUpOutcome: Equatable {
+        /// The account exists, an activation email is on its way to `email`, and sign-in
+        /// is refused until its link is opened.
+        case pendingActivation(email: String)
     }
 
-    func signIn(email: String, password: String) async throws {
-        let response: AuthResponse = try await client.post(
-            "/auth/signin", body: Credentials(email: email, password: password)
+    /// Creates the account. Does **not** sign in — the session state is untouched, and
+    /// the caller shows the activation screen (#6).
+    func signUp(email: String, password: String) async throws -> SignUpOutcome {
+        let response: SignUpResponse = try await client.post(
+            "/auth/signup", body: Credentials(email: email, password: password)
         )
-        apply(response)
+        // Read, not assumed — the same rule `deleteAccount` applies to its flag. The
+        // route has no `false` branch; if one ever answers, "pending" is the only thing
+        // this screen knows how to be, and saying so for an account that is not would
+        // leave the user waiting for an email that is never coming.
+        guard response.pending else { throw APIError.decoding }
+        return .pendingActivation(email: response.email)
+    }
+
+    /// Signs in. Throws `APIError.notActivated` for an account whose password was right
+    /// but whose address has not been confirmed — the caller routes to the activation
+    /// screen rather than showing a field error. Every other failure, including the
+    /// combined "wrong email or password", is thrown as it came.
+    func signIn(email: String, password: String) async throws {
+        do {
+            let response: AuthResponse = try await client.post(
+                "/auth/signin", body: Credentials(email: email, password: password)
+            )
+            apply(response)
+        } catch APIError.server(let code, let message, let status) where status == 403 && code == "NOT_ACTIVATED" {
+            throw APIError.notActivated(message: message)
+        }
+    }
+
+    /// Asks for the activation email again. Sends no token and touches no state: the
+    /// screen owns the 60-second cooldown, the server owns the throttle behind it
+    /// (`429 RATE_LIMITED`), and the reply is the same whether or not the address exists.
+    func resendActivation(email: String) async throws {
+        let response: SentResponse = try await client.post(
+            "/auth/activation/resend", body: EmailAddress(email: email)
+        )
+        guard response.sent else { throw APIError.decoding }
+    }
+
+    /// Asks for a password-reset email. The reset form itself is on the website in v1;
+    /// the app only ever sends the request and later receives `eva://open` (#6).
+    func requestPasswordReset(email: String) async throws {
+        let response: SentResponse = try await client.post(
+            "/auth/password/forgot", body: EmailAddress(email: email)
+        )
+        guard response.sent else { throw APIError.decoding }
     }
 
     func submitQuestionnaire(_ profile: ProfilePayload) async throws {
@@ -180,8 +224,8 @@ final class AppSession {
     /// Runs an authorized request and signs out if the credential it sent came back
     /// dead. Every authorized call goes through here so a mid-session 401 ends the
     /// session wherever it happens, not only at launch; the error is rethrown so the
-    /// caller still gets to react. Sign-up and sign-in stay outside it — they send no
-    /// token, and their 401 means "wrong password".
+    /// caller still gets to react. Sign-up, sign-in, resend and forgot stay outside it —
+    /// they send no token, and sign-in's 401 means "wrong password".
     private func authorized<T>(_ work: () async throws -> T) async throws -> T {
         // Captured before the await for the same reason `bootstrap()` captures it, and
         // guarding the same hazard one layer down: a request that started under an

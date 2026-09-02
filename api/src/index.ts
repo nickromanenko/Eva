@@ -1,15 +1,23 @@
 import { Hono, type Context } from "hono";
+import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
 import { routePath } from "hono/route";
 import { mintToken, requireAuth, type TokenClaims } from "./auth";
+import { config } from "./config";
+import { EmailError, sendActivationEmail, sendPasswordResetEmail } from "./email";
+import { TOKEN_LENGTH, consumeToken, deleteTokensForUid, issueToken } from "./email-tokens";
 import {
     authRetryAfterSeconds,
     consumeAuthAttempt,
+    consumeTokenAttempt,
+    type TokenRoute,
     type AuthRoute,
 } from "./rate-limit";
 import {
     IdentityToolkitError,
     deleteAuthAccount,
+    findAuthUidByEmail,
+    setPassword,
     signInWithPassword,
     signUpWithPassword,
 } from "./identity-toolkit";
@@ -38,6 +46,8 @@ import {
     deleteUserDocument,
     ensureUser,
     getUser,
+    isActivated,
+    markActivated,
     markUserDeleted,
     saveQuestionnaire,
     type Profile,
@@ -118,9 +128,18 @@ app.onError((err, c) => {
     return c.json(error("INTERNAL", `${INTERNAL_MESSAGE} (ref: ${ref})`), 500);
 });
 
+/**
+ * `EMAIL_MAX_LENGTH` is RFC 5321's cap on a path. It is here rather than left to the
+ * pattern because every accepted address becomes a key in the throttle's maps
+ * (`rate-limit.ts`), which bound how many keys they hold but not how large each is — and
+ * #6 added four more maps keyed the same way.
+ */
+const EMAIL_MAX_LENGTH = 254;
+
 const normalizeEmail = (email: unknown): string | null => {
     if (typeof email !== "string") return null;
     const normalized = email.trim().toLowerCase();
+    if (normalized.length > EMAIL_MAX_LENGTH) return null;
     return /\S+@\S+\.\S+/.test(normalized) ? normalized : null;
 };
 
@@ -140,7 +159,23 @@ const PASSWORD_RULE = "At least 8 characters, including one number.";
  * sign-up CTA accepted, while quoting the rule the user just satisfied.
  */
 const isValidPassword = (password: string): boolean =>
-    password.length >= 8 && /\p{N}/u.test(password);
+    password.length >= 8 && password.length <= PASSWORD_MAX_LENGTH && /\p{N}/u.test(password);
+
+/**
+ * A ceiling, because Identity Platform has one of its own and enforces it late. Without
+ * this, `/auth/password/reset` spends the token and *then* fails in `setPassword`, which
+ * is a `500` and a dead link — precisely what checking the rule before the token is spent
+ * exists to prevent. 128 is well past any password a person or a manager produces.
+ *
+ * Its own message: quoting the "at least 8 characters" rule at someone who typed 400
+ * would be telling them a rule they had satisfied.
+ */
+const PASSWORD_MAX_LENGTH = 128;
+const PASSWORD_TOO_LONG = `Passwords are limited to ${PASSWORD_MAX_LENGTH} characters.`;
+
+/** The `WEAK_PASSWORD` message for a password that fails the rule: which end it failed. */
+const passwordFailure = (password: string): string =>
+    password.length > PASSWORD_MAX_LENGTH ? PASSWORD_TOO_LONG : PASSWORD_RULE;
 
 /**
  * The calling client's address, for the per-IP half of the auth throttle (issue #5).
@@ -178,7 +213,7 @@ const clientIp = (c: Context): string | null => {
 const throttleAuth = (c: Context, route: AuthRoute, email: string) => {
     if (consumeAuthAttempt(route, clientIp(c), email)) return null;
     return c.json(error("RATE_LIMITED", "Too many attempts. Try again later."), 429, {
-        "retry-after": String(authRetryAfterSeconds),
+        "retry-after": String(authRetryAfterSeconds(route)),
     });
 };
 
@@ -273,7 +308,7 @@ app.post("/auth/signup", async (c) => {
     if (!email)
         return c.json(error("VALIDATION", "A valid email is required"), 400);
     if (!isValidPassword(password)) {
-        return c.json(error("WEAK_PASSWORD", PASSWORD_RULE), 400);
+        return c.json(error("WEAK_PASSWORD", passwordFailure(password)), 400);
     }
     const throttled = throttleAuth(c, "signup", email);
     if (throttled) return throttled;
@@ -285,7 +320,17 @@ app.post("/auth/signup", async (c) => {
         // one, so it cannot be. Raised as the fault it would be rather than papered over
         // with a plausible answer; `app.onError` shapes it into a 500 with a `ref`.
         if (!user) throw new Error("ensureUser refused a newly created uid");
-        return c.json({ token: await mintToken(localId, email), user }, 201);
+        // No session (#6): the account exists but its address is not proven, and the
+        // activation gate in `/auth/signin` is what proves it. The caller gets the address
+        // back — the one it just sent — so the gate screen can name where the link went.
+        //
+        // Nothing here is allowed to fail the request. The Auth user and the document are
+        // already committed, so a throw would answer `500` on an account that exists, and
+        // the retry would be `409 EMAIL_EXISTS` on an account nobody can sign into — with
+        // the recovery, Resend, living on the gate screen the failed sign-up never
+        // reached. Better a gate with no email yet and a working Resend.
+        await sendActivationLink(localId, email).catch(() => {});
+        return c.json({ pending: true, email }, 201);
     } catch (err) {
         if (err instanceof IdentityToolkitError) {
             if (err.kind === "email-exists") {
@@ -340,6 +385,18 @@ app.post("/auth/signin", async (c) => {
                 401,
             );
         }
+        // The activation gate (#6), and *where* it sits is the design: after Identity
+        // Toolkit has verified the password. Answering "not activated" for an unverified
+        // password would tell anyone holding an address that an account exists behind it,
+        // which is the question the 401 below refuses to answer. So the only caller who
+        // can ever see this 403 already knows the password.
+        // test/auth.test.ts pins the ordering, against the real upstream.
+        if (!isActivated(user)) {
+            return c.json(
+                error("NOT_ACTIVATED", "Confirm your email address first"),
+                403,
+            );
+        }
         return c.json({ token: await mintToken(localId, email), user });
     } catch (err) {
         if (err instanceof IdentityToolkitError) {
@@ -361,6 +418,237 @@ app.post("/auth/signin", async (c) => {
     }
 });
 
+// ── Activation and password reset (#6) ─────────────────────────────────────────
+// The API owns the tokens (issue, spend, expire — `email-tokens.ts`) and the delivery
+// (`email.ts`); Firebase's own action emails would have put both outside the code this
+// repo can test, and the link on a page we could barely brand. Links land on the website
+// (`PUBLIC_WEB_URL/activate`, `/reset`), whose pages call the two routes below
+// cross-origin — hence CORS on exactly those two, for exactly that origin, and nowhere
+// else. `*` would let any page on the web spend a token it was handed.
+
+const webCors = cors({
+    origin: config.publicWebOrigin,
+    allowMethods: ["POST", "OPTIONS"],
+    allowHeaders: ["Content-Type"],
+});
+app.use("/auth/activate", webCors);
+app.use("/auth/password/reset", webCors);
+
+/** Both link routes change state and are reached with a one-time credential in the body.
+ *  Nothing between here and the browser may keep a copy of either half. */
+const noStore = createMiddleware(async (c, next) => {
+    await next();
+    // `c.res.headers`, not `c.header()`: after `next()` the handler has already built the
+    // response, and only the built response's headers are what goes out.
+    c.res.headers.set("cache-control", "no-store");
+});
+app.use("/auth/activate", noStore);
+app.use("/auth/password/reset", noStore);
+
+/**
+ * The shape `email-tokens.ts` issues — `TOKEN_LENGTH` characters of base64url — and
+ * nothing else gets as far as a lookup. Anything malformed is a dead link, answered like
+ * one; a missing token altogether is a request the client built wrong.
+ */
+const TOKEN_SHAPE = new RegExp(`^[A-Za-z0-9_-]{${TOKEN_LENGTH}}$`);
+
+/**
+ * The floor both "send me a link" routes answer against, comfortably above what the
+ * registered branch costs (an Auth lookup, a Firestore write and a POST to Postmark —
+ * a few hundred milliseconds). See the note on the routes for why a floor and not a
+ * detached send.
+ */
+const SEND_LINK_FLOOR_MS = 800;
+
+/** Runs `work` and does not return before `floor` milliseconds have passed, whichever
+ *  takes longer. A failure inside `work` still waits, or the floor would only apply to
+ *  the branch that succeeded. */
+const atLeast = async (floor: number, work: () => Promise<void>): Promise<void> => {
+    const [outcome] = await Promise.all([
+        work().then(
+            () => null,
+            (err: unknown) => err,
+        ),
+        new Promise((resolve) => setTimeout(resolve, floor)),
+    ]);
+    if (outcome !== null) throw outcome;
+};
+
+/**
+ * The per-IP throttle on the two routes a link lands on. They are unauthenticated, they
+ * run a Firestore transaction per call, and they carry no address to count against — so
+ * this is the only dimension there is. Guessing a token is infeasible at 256 bits; the
+ * counter is here so the routes cannot be used as a free amplifier against Firestore.
+ */
+const throttleToken = (c: Context, route: TokenRoute) => {
+    if (consumeTokenAttempt(route, clientIp(c))) return null;
+    return c.json(error("RATE_LIMITED", "Too many attempts. Try again later."), 429, {
+        "retry-after": String(authRetryAfterSeconds("signin")),
+    });
+};
+
+const parseToken = (value: unknown): string | null =>
+    typeof value === "string" && TOKEN_SHAPE.test(value) ? value : null;
+
+/**
+ * A spent, unknown, or malformed token, and an expired one, are told apart — expiry is
+ * the one the user can act on by asking for a new link. Neither says which account the
+ * link named, and "used" is folded into "invalid" so the holder of a link cannot learn
+ * whether someone else already clicked it.
+ */
+const tokenFailure = (c: Context, reason: "invalid" | "expired") =>
+    reason === "expired"
+        ? c.json(error("TOKEN_EXPIRED", "This link has expired. Request a new one."), 400)
+        : c.json(error("INVALID_TOKEN", "This link is not valid. Request a new one."), 400);
+
+/**
+ * Issues an activation token and sends the link. A delivery failure is deliberately not
+ * the caller's failure: the account exists, the token is stored, and the gate screen has
+ * a Resend — so `email.ts` has already written the one line an operator needs and the
+ * typed error is swallowed here. Anything else (Firestore, on the token write) is a fault
+ * of ours and still lands in `app.onError`.
+ */
+const sendActivationLink = async (uid: string, email: string): Promise<void> => {
+    const token = await issueToken(uid, email, "activation");
+    try {
+        await sendActivationEmail(email, token);
+    } catch (err) {
+        if (!(err instanceof EmailError)) throw err;
+    }
+};
+
+/** The reset counterpart: issuing also invalidates every earlier reset link. */
+const sendResetLink = async (uid: string, email: string): Promise<void> => {
+    const token = await issueToken(uid, email, "reset");
+    try {
+        await sendPasswordResetEmail(email, token);
+    } catch (err) {
+        if (!(err instanceof EmailError)) throw err;
+    }
+};
+
+/**
+ * Spends an activation token and stamps the account. Idempotent from the user's side: a
+ * valid link on an account activated by some other route (a password reset, say) still
+ * answers `200`, because the thing the user did — prove the address — is done either way.
+ * The token is consumed regardless, so the link cannot be replayed.
+ */
+const activate = async (c: Context, raw: unknown) => {
+    if (raw === undefined || raw === null || raw === "") {
+        return c.json(error("VALIDATION", "A token is required"), 400);
+    }
+    const token = parseToken(raw);
+    if (!token) return tokenFailure(c, "invalid");
+
+    const result = await consumeToken(token, "activation");
+    if (!result.ok) return tokenFailure(c, result.reason);
+    // The token was real but the account behind it is gone or going — a delete landed
+    // between the email and the click. Nothing to activate, and a dead link is what the
+    // holder of a deleted account's link should see.
+    if (!(await markActivated(result.uid))) return tokenFailure(c, "invalid");
+    return c.json({ activated: true });
+};
+
+// POST only, and the token is in the body. A `GET /auth/activate?token=…` would write
+// the raw token into Cloud Run's request log — `httpRequest.requestUrl` carries the query
+// string — which is the same secret `authTokens/` keeps by storing only a hash. The link
+// in the email carries its token in the URL *fragment* for the same reason one layer out
+// (`email.ts`), so the website's page has it and no server ever saw it.
+app.post("/auth/activate", async (c) => {
+    const throttled = throttleToken(c, "activate");
+    if (throttled) return throttled;
+    const body = await c.req.json().catch(() => ({}));
+    return activate(c, body.token);
+});
+
+/**
+ * The two "send me a link" routes answer `200 { sent: true }` for every well-formed
+ * address, registered or not, activated or not — for the reason `/auth/signin` answers a
+ * wrong password and an unknown address identically (§3): whether an address has an Eva
+ * account is not the caller's to learn. The throttle runs before the lookup, so a refused
+ * request is refused the same way for both.
+ *
+ * The branches also have to answer in the same *time*, which they do not naturally: a
+ * registered address costs a Firestore write and a POST to Postmark, an unknown one costs
+ * a failed Auth lookup and nothing else — hundreds of milliseconds against tens, readable
+ * from a single request. `atLeast` holds both to a floor well above the slow branch, so
+ * the fast one cannot be told from it. That is a floor, not a constant: a Postmark call
+ * slower than `SEND_LINK_FLOOR_MS` still overruns it, and the residue is bounded by
+ * Postmark's own variance rather than by the difference between doing the work and not.
+ * Answering before the send instead would be exact, but Cloud Run throttles CPU after the
+ * response, so the email would go out whenever the next request happened to arrive.
+ */
+app.post("/auth/activation/resend", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const email = normalizeEmail(body.email);
+    if (!email) return c.json(error("VALIDATION", "A valid email is required"), 400);
+    const throttled = throttleAuth(c, "resend", email);
+    if (throttled) return throttled;
+
+    await atLeast(SEND_LINK_FLOOR_MS, async () => {
+        const uid = await findAuthUidByEmail(email);
+        if (!uid) return;
+        const user = await getUser(uid);
+        if (user && !isActivated(user)) await sendActivationLink(uid, user.email);
+    });
+    return c.json({ sent: true });
+});
+
+app.post("/auth/password/forgot", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const email = normalizeEmail(body.email);
+    if (!email) return c.json(error("VALIDATION", "A valid email is required"), 400);
+    const throttled = throttleAuth(c, "forgot", email);
+    if (throttled) return throttled;
+
+    await atLeast(SEND_LINK_FLOOR_MS, async () => {
+        const uid = await findAuthUidByEmail(email);
+        if (!uid) return;
+        // Activated or not: a reset proves control of the address as surely as the
+        // activation link does, and the reset route stamps the account accordingly.
+        const user = await getUser(uid);
+        if (user) await sendResetLink(uid, user.email);
+    });
+    return c.json({ sent: true });
+});
+
+/**
+ * Spends a reset token, sets the password, and **mints a session**: the user has just
+ * proven control of the address and chosen a password, which is more than a sign-in asks
+ * for, and sending them back to the sign-in screen to type it again would be ceremony.
+ * The password rule is checked *before* the token is spent, so a weak password costs the
+ * user a retry, not the link.
+ */
+app.post("/auth/password/reset", async (c) => {
+    const throttled = throttleToken(c, "reset");
+    if (throttled) return throttled;
+    const body = await c.req.json().catch(() => ({}));
+    if (body.token === undefined || body.token === null || body.token === "") {
+        return c.json(error("VALIDATION", "A token is required"), 400);
+    }
+    const token = parseToken(body.token);
+    if (!token) return tokenFailure(c, "invalid");
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!isValidPassword(password)) {
+        return c.json(error("WEAK_PASSWORD", passwordFailure(password)), 400);
+    }
+
+    const result = await consumeToken(token, "reset");
+    if (!result.ok) return tokenFailure(c, result.reason);
+    // Gone or going: the credentials must not be reset on an account mid-delete, and the
+    // link is as dead as the account.
+    const user = await getUser(result.uid);
+    if (!user) return tokenFailure(c, "invalid");
+
+    await setPassword(result.uid, password);
+    // Proof of control of the address, whichever link it came by.
+    await markActivated(result.uid);
+    return c.json({
+        token: await mintToken(result.uid, user.email),
+        user: { ...user, activated: true },
+    });
+});
+
 app.get("/me", requireAuth, requireAccount, (c) => c.json({ user: c.get("account") }));
 
 /**
@@ -375,7 +663,8 @@ app.get("/me", requireAuth, requireAccount, (c) => c.json({ user: c.get("account
  *      inert: every gated route 401s and sign-in refuses to revive it;
  *   2. delete the Firebase Auth user — the credentials stop opening anything and the
  *      address is free to sign up again;
- *   3. delete every event, soft-deleted ones included;
+ *   3. delete every event, soft-deleted ones included, and every activation or reset
+ *      token (#6) — a token document carries the account's address;
  *   4. delete the user document, which is the tombstone step 1 wrote.
  *
  * Data goes before the tombstone and the tombstone goes last on purpose. The invariant
@@ -396,6 +685,7 @@ app.delete("/me", requireAuth, async (c) => {
     await markUserDeleted(sub);
     await deleteAuthAccount(sub);
     await deleteAllUserEvents(sub);
+    await deleteTokensForUid(sub);
     await deleteUserDocument(sub);
     // No count, no email, no id — a delete is exactly where a log line is tempting
     // (GUARDRAILS 12). Anything that throws above lands in `app.onError` as a 500 with a

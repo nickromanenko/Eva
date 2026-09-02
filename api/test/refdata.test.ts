@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, firestore } from "../src/firebase";
+import { signUpActivated } from "./support/session";
 import {
     CATALOGUE_IDS,
     buildSymptomRules,
@@ -116,15 +117,11 @@ const bodySignals = (body: Record<string, unknown>) =>
 let live: RefDataBody;
 
 beforeAll(async () => {
-    const res = await api("/auth/signup", {
-        method: "POST",
-        token: null,
-        body: JSON.stringify({ email, password }),
-    });
-    expect(res.status).toBe(201);
-    const body = await json<{ token: string; user: { id: string } }>(res);
-    token = body.token;
-    uid = body.user.id;
+    // Sign-up no longer hands out a session (#6): the account has to be activated first.
+    // `signUpActivated` does the three steps — sign up, spend an activation token, sign in.
+    const session = await signUpActivated(BASE, email, password);
+    token = session.token;
+    uid = session.uid;
 
     // Bootstrap only — writes nothing where a catalogue already exists.
     for (const id of CATALOGUE_IDS) await seedIfMissing(id, DEFAULT_CATALOGUES[id]);

@@ -52,9 +52,92 @@ class EvaUITestCase: XCTestCase {
         return app
     }
 
+    /// The UI-test mailbox `scripts/verify-mobile.sh` starts beside the API. Same
+    /// forwarding as `apiBaseURL`; the DEBUG default is for a run started by hand.
+    static let mailboxURL = ProcessInfo.processInfo.environment["EVA_MAILBOX_URL"]
+        ?? "http://localhost:3103"
+
     func fillSignUpForm(_ app: XCUIApplication, email: String) {
         type(email, into: app.textFields["signup.email"], in: app)
         revealAndTypePassword(Self.password, prefix: "signup", in: app)
+    }
+
+    /// Sign up, pass the activation gate, and land on the questionnaire.
+    ///
+    /// The gate is #6\'s: sign-up creates the account and sends a link, and the app
+    /// cannot sign in until the link is opened. A simulator has no mailbox, so the
+    /// activation is done out of band by `api/scripts/uitest-mailbox.ts` — which spends a
+    /// real token on the real `GET /auth/activate` — and the app then finds out the way
+    /// it does in life: it retries sign-in when it comes back to the foreground. Nothing
+    /// tells it directly, which is the point.
+    ///
+    /// Every suite that needs an account goes through here, so the four of them keep
+    /// meaning the same thing by "signed up".
+    func signUpAndActivate(
+        _ app: XCUIApplication,
+        email: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        fillSignUpForm(app, email: email)
+
+        let submit = app.buttons["primary.Create account"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 5), file: file, line: line)
+        XCTAssertTrue(
+            submit.isEnabled,
+            "Sign-up CTA stayed disabled — form input did not land",
+            file: file, line: line
+        )
+        tap(submit, in: app)
+
+        XCTAssertTrue(
+            app.staticTexts["Check your inbox"].waitForExistence(timeout: 15),
+            "Sign-up did not reach the activation gate",
+            file: file, line: line
+        )
+
+        activate(email: email, file: file, line: line)
+
+        // Backgrounding and returning is the app\'s own trigger for retrying sign-in —
+        // the same thing that happens when someone taps the link in Mail and comes back.
+        XCUIDevice.shared.press(.home)
+        app.activate()
+
+        XCTAssertTrue(
+            app.staticTexts["A little about you"].waitForExistence(timeout: 20),
+            "The activation gate did not let the account through after it was activated",
+            file: file, line: line
+        )
+    }
+
+    /// Asks the mailbox to open the activation link for `email`. Synchronous: the test
+    /// has nothing to do until the account is through.
+    func activate(email: String, file: StaticString = #filePath, line: UInt = #line) {
+        var request = URLRequest(url: URL(string: "\(Self.mailboxURL)/activate")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["email": email])
+
+        let finished = expectation(description: "mailbox activates \(email)")
+        var status = 0
+        var failure: String?
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            failure = error?.localizedDescription
+                ?? data.flatMap { String(data: $0, encoding: .utf8) }
+            finished.fulfill()
+        }.resume()
+        wait(for: [finished], timeout: 30)
+
+        XCTAssertEqual(
+            status, 200,
+            """
+            The UI-test mailbox did not activate \(email): \(failure ?? "no response").
+            It is started by scripts/verify-mobile.sh — running xcodebuild directly needs
+            it up, or EVA_MAILBOX_URL pointed at one.
+            """,
+            file: file, line: line
+        )
     }
 
     /// Drives one failed log in from the sign-up screen and returns the message shown.

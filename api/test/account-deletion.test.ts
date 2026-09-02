@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { adminAuth, firestore } from "../src/firebase";
 import { markUserDeleted } from "../src/users";
+import { activateAccount, createLegacyAccount, signUpActivated } from "./support/session";
 
 /**
  * `DELETE /me` — immediate and complete (#8), and the resurrection path it has to close.
@@ -84,15 +85,11 @@ const authUserExists = async (uid: string): Promise<boolean> => {
  *  fourth that has been soft-deleted and so is sitting inside its 30-day window. */
 const seedAccount = async (): Promise<{ email: string; token: string; uid: string }> => {
     const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
-    const signup = await api("/auth/signup", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-    });
-    expect(signup.status).toBe(201);
-    const { token, user } = await json<AuthResponse>(signup);
-    createdUids.push(user.id);
+    // Sign up, activate, sign in (#6) — a session no longer falls out of sign-up.
+    const { token, uid } = await signUpActivated(BASE, email, password);
+    createdUids.push(uid);
     await seedEvents(token);
-    return { email, token, uid: user.id };
+    return { email, token, uid };
 };
 
 const seedEvents = async (token: string) => {
@@ -303,8 +300,21 @@ describe("DELETE /me removes the account and everything keyed to it", () => {
                 body: JSON.stringify({ email, password }),
             });
             expect(res.status).toBe(201);
-            const fresh = await json<AuthResponse>(res);
-            createdUids.push(fresh.user.id);
+            // The address is free again, and the new account has to prove it again: the
+            // delete took every token with it (#6), so nothing survives to skip the gate.
+            expect(await json<{ pending: boolean; email: string }>(res)).toEqual({
+                pending: true,
+                email,
+            });
+            const { uid: freshUid } = await adminAuth.getUserByEmail(email);
+            createdUids.push(freshUid);
+            await activateAccount(BASE, freshUid, email);
+            const signin = await api("/auth/signin", {
+                method: "POST",
+                body: JSON.stringify({ email, password }),
+            });
+            expect(signin.status).toBe(200);
+            const fresh = await json<AuthResponse>(signin);
 
             expect(fresh.user.id).not.toBe(uid);
             expect(fresh.user.email).toBe(email);
@@ -336,12 +346,14 @@ describe("a delete interrupted after the first step", () => {
      *
      * The account is created through the Admin SDK and then signed in to, rather than
      * signed up: the credentials are real either way, and it keeps the suite off the
-     * per-IP sign-up budget, which the whole `test/` directory shares (#5).
+     * per-IP sign-up budget, which the whole `test/` directory shares (#5). It is written
+     * in the pre-#6 shape — no `activatedAt` at all — because an Auth user with no
+     * document is *not* activated by design, and this suite is about deletion, not the
+     * activation gate.
      */
     beforeAll(async () => {
         email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
-        const created = await adminAuth.createUser({ email, password });
-        uid = created.uid;
+        uid = await createLegacyAccount(email, password);
         createdUids.push(uid);
 
         const signin = await api("/auth/signin", {

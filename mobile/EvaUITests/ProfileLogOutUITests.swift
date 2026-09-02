@@ -22,12 +22,7 @@ final class ProfileLogOutUITests: EvaUITestCase {
 
         // MARK: A signed-in session to end
 
-        fillSignUpForm(app, email: email)
-        tap(app.buttons["primary.Create account"], in: app)
-        XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 15),
-            "Could not create the account this test logs out of"
-        )
+        signUpAndActivate(app, email: email)
         completeQuestionnaire(app)
         XCTAssertTrue(
             app.staticTexts["You're all set"].waitForExistence(timeout: 15),

@@ -100,7 +100,16 @@ export const createRateLimiter = (
   }
 }
 
-export type AuthRoute = 'signin' | 'signup'
+export type AuthRoute = 'signin' | 'signup' | 'resend' | 'forgot'
+
+/**
+ * The two routes an emailed link lands on (#6). They are counted separately from
+ * `AuthRoute` because they have only one dimension: a link carries a token, not an
+ * address, so there is nothing per-account to count. Guessing a 256-bit token is
+ * infeasible — this exists so an unauthenticated route that runs a Firestore transaction
+ * per call cannot be used as a free amplifier.
+ */
+export type TokenRoute = 'activate' | 'reset'
 
 /**
  * Two dimensions per route, in separate maps so an address can never collide with an IP.
@@ -108,7 +117,17 @@ export type AuthRoute = 'signin' | 'signup'
  * The per-IP limits are the loose backstop and the per-address limits the sharp one: iOS
  * traffic arrives through carrier NAT, where one address fronts a great many unrelated
  * users, so a tight per-IP limit would lock out bystanders.
+ *
+ * `resend` and `forgot` (#6) are the two routes that send an email. Their per-address
+ * counter is one attempt per `resendPerEmailSeconds` — the canvas' once-per-minute Resend
+ * — and their per-IP counter runs over the ordinary window. Same knobs, separate counters:
+ * asking for a reset must not spend the activation Resend, and the reverse.
  */
+const sendLinkLimiters = () => ({
+  byIp: createRateLimiter(config.rateLimit.resendPerIp, config.rateLimit.windowSeconds),
+  byEmail: createRateLimiter(1, config.rateLimit.resendPerEmailSeconds),
+})
+
 const limiters: Record<AuthRoute, { byIp: RateLimiter; byEmail: RateLimiter }> = {
   signin: {
     byIp: createRateLimiter(config.rateLimit.signinPerIp, config.rateLimit.windowSeconds),
@@ -118,7 +137,20 @@ const limiters: Record<AuthRoute, { byIp: RateLimiter; byEmail: RateLimiter }> =
     byIp: createRateLimiter(config.rateLimit.signupPerIp, config.rateLimit.windowSeconds),
     byEmail: createRateLimiter(config.rateLimit.signupPerEmail, config.rateLimit.windowSeconds),
   },
+  resend: sendLinkLimiters(),
+  forgot: sendLinkLimiters(),
 }
+
+const tokenLimiters: Record<TokenRoute, RateLimiter> = {
+  activate: createRateLimiter(config.rateLimit.tokenPerIp, config.rateLimit.windowSeconds),
+  reset: createRateLimiter(config.rateLimit.tokenPerIp, config.rateLimit.windowSeconds),
+}
+
+/** Counts one attempt on a link route. Per IP only — see `TokenRoute`. An unknown address
+ *  (no `x-forwarded-for`) is served: the alternative is refusing every caller behind a
+ *  proxy that strips it. */
+export const consumeTokenAttempt = (route: TokenRoute, ip: string | null): boolean =>
+  ip === null || tokenLimiters[route].consume(ip)
 
 /**
  * Counts one attempt on `route` and says whether to serve it. `ip` is `null` when the
@@ -150,13 +182,25 @@ export const consumeAuthAttempt = (
  * milliseconds apart the caller's own requests happened to land, which would make the
  * "two branches answer with the same bytes" property depend on clock rounding instead of
  * on design. The constant over-states the wait and never under-states it.
+ *
+ * Per route, not per caller: the send-a-link routes answer with their per-address window,
+ * which is what the canvas' toast counts down. (When it is their per-IP backstop that
+ * fired, this under-states — the caller retries in a minute and is refused again. That is
+ * the one exception to "never under-states", and it costs a refused request, not a leak:
+ * the value still does not vary with the address.) A per-address window of `0` disables
+ * that dimension, so the ordinary window is quoted instead of a zero.
  */
-export const authRetryAfterSeconds = config.rateLimit.windowSeconds
+export const authRetryAfterSeconds = (route: AuthRoute): number =>
+  route === 'resend' || route === 'forgot'
+    ? config.rateLimit.resendPerEmailSeconds || config.rateLimit.windowSeconds
+    : config.rateLimit.windowSeconds
 
-/** Drops every auth counter. Test support — nothing in `src/` calls it. */
+/** Drops every auth counter, link routes included. Test support — nothing in `src/`
+ *  calls it. */
 export const resetAuthRateLimits = (): void => {
   for (const route of Object.values(limiters)) {
     route.byIp.reset()
     route.byEmail.reset()
   }
+  for (const limiter of Object.values(tokenLimiters)) limiter.reset()
 }
