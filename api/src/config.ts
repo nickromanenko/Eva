@@ -47,7 +47,51 @@ if (emailTransport === 'log' && process.env.NODE_ENV === 'production') {
 
 const publicWebUrl = requiredUrl('PUBLIC_WEB_URL')
 
+/**
+ * The Firebase emulators, used by CI (#67) and by nothing in production.
+ *
+ * Both variables are Firebase's own, set by `firebase emulators:exec` — we read them
+ * rather than invent our own so one command configures the Admin SDK and our REST calls
+ * together, and so a stray value cannot point half the process at the emulator and half
+ * at Google. `FIRESTORE_EMULATOR_HOST` is the switch because the Admin SDK is what a
+ * missing credential breaks first (`firebase.ts`).
+ *
+ * The Auth emulator serves the Identity Toolkit REST API under the real API's path, so
+ * only the origin changes. It ignores the API key entirely, which is why CI can pass a
+ * placeholder and hold no secret at all.
+ */
+const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST
+const usingEmulators = Boolean(process.env.FIRESTORE_EMULATOR_HOST)
+
+// Both or neither, in *every* environment. Setting only the auth host is the dangerous
+// asymmetry: `usingEmulators` would stay false, so Firestore keeps reading and writing the
+// real project while every signup and signin password — and the web API key, which rides
+// in the query string (GUARDRAILS 1) — goes over plain http to whatever host that variable
+// names. `identity-toolkit.ts` drops the failing fetch's error rather than logging its URL,
+// so a redirect to something that mimics Google's error shape produces no signal at all.
+if (usingEmulators !== Boolean(authEmulatorHost)) {
+  throw new Error(
+    'FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST must be set together or not at all',
+  )
+}
+
+// And neither, ever, in production. `K_SERVICE` is set by Cloud Run itself and is not
+// ours to pass, which is the point: `NODE_ENV` arrives through `--set-env-vars` in
+// `deploy-api.yml`, the same channel an attacker would use to set an emulator host, so a
+// guard resting on `NODE_ENV` alone can be turned off by whoever it is guarding against.
+const inProduction = Boolean(process.env.K_SERVICE) || process.env.NODE_ENV === 'production'
+for (const name of ['FIRESTORE_EMULATOR_HOST', 'FIREBASE_AUTH_EMULATOR_HOST']) {
+  if (process.env[name] && inProduction) {
+    throw new Error(`${name} is set; refusing to run against emulators in production`)
+  }
+}
+
 export const config = {
+  usingEmulators,
+  /** Where `identity-toolkit.ts` sends credential calls. Google, unless CI redirected it. */
+  identityToolkitBaseUrl: authEmulatorHost
+    ? `http://${authEmulatorHost}/identitytoolkit.googleapis.com`
+    : 'https://identitytoolkit.googleapis.com',
   firebaseProjectId: required('FIREBASE_PROJECT_ID'),
   firebaseWebApiKey: required('FIREBASE_WEB_API_KEY'),
   jwtSecret: required('JWT_SECRET'),

@@ -88,7 +88,7 @@ const call = async (endpoint: string, body: Record<string, unknown>): Promise<To
   let response: Response
   try {
     response = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:${endpoint}?key=${config.firebaseWebApiKey}`,
+      `${config.identityToolkitBaseUrl}/v1/accounts:${endpoint}?key=${config.firebaseWebApiKey}`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

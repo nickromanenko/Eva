@@ -14,7 +14,14 @@ permissions:
   id-token: write
 
 jobs:
+  # The gate (#67). `Test Website` also runs on the pull request under its own trigger;
+  # this run is on `main` after the merge, and catches what a per-PR run cannot — two
+  # branches that each built alone and do not build together.
+  test:
+    uses: ./.github/workflows/test-website.yml
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

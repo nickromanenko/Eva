@@ -1,0 +1,41 @@
+# Builds the website (#67). Astro fails the build on a type error or a broken import, so
+# `astro build` is the whole check — there is no website test suite to run.
+#
+# `deploy-website.yml` calls this workflow and will not deploy unless it passes.
+#
+# Needs no credentials and no GCP token. PUBLIC_API_BASE_URL is a build-time inline, so a
+# placeholder is enough to prove the build; the real value is a repo variable and the
+# deploy workflow refuses to run without it.
+#
+# Pull requests only. On `main` this same workflow is called by deploy-website.yml as the
+# gate on its deploy job, so a `push:` trigger here would run the whole suite twice per
+# merge for nothing.
+name: Test Website
+
+on:
+  pull_request:
+    paths:
+      - "website/**"
+      - "scripts/verify-website.sh"
+      - ".github/workflows/test-website.yml"
+      - ".github/workflows/deploy-website.yml"
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build the site
+        env:
+          PUBLIC_API_BASE_URL: https://api.example.test
+        run: scripts/verify-website.sh

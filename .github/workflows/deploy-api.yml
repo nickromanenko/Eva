@@ -13,7 +13,17 @@ permissions:
   id-token: write
 
 jobs:
+  # The gate (#67). Until this existed, a merge to main deployed straight to production
+  # Cloud Run with nothing run against it — no typecheck, no test. A red suite now stops
+  # the deploy rather than being noticed afterwards.
+  #
+  # It runs against the Firebase emulators and is granted no GCP credential of its own;
+  # `permissions` in the called workflow, not inherited from here.
+  test:
+    uses: ./.github/workflows/test-api.yml
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,0 +1,69 @@
+# Runs the API suite — typecheck plus every test in api/test/ — against the Firebase
+# emulators (#67).
+#
+# Before this existed, `deploy-api.yml` pushed straight to production Cloud Run on every
+# merge touching api/**, with no test between the merge button and the revision. That is
+# the hole this closes: `deploy-api.yml` now calls this workflow and will not deploy
+# unless it passes.
+#
+# Emulators only: no Workload Identity Federation, no GCP token, no contact with the real
+# project, and deliberately not granted the `id-token` permission that would let it try.
+# The same posture as test-rules.yml, and for the same reason — a workflow that runs on
+# `pull_request` runs code from the branch, so it must not be able to reach anything.
+#
+# Pull requests only. On `main` this same workflow is called by deploy-api.yml as the
+# gate on its deploy job, so a `push:` trigger here would run the whole suite twice per
+# merge for nothing.
+name: Test API
+
+on:
+  pull_request:
+    paths:
+      - "api/**"
+      - "scripts/ci-api.sh"
+      - "scripts/verify-api.sh"
+      - "scripts/lib/api-server.sh"
+      - "firebase.json"
+      - ".github/workflows/test-api.yml"
+      # The deploy workflow sets the API's production environment. A PR touching only
+      # that file otherwise matched no test path at all and showed an empty, green
+      # check set — while being exactly where an emulator host could be injected.
+      - ".github/workflows/deploy-api.yml"
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # ~25s of tests against the emulators, against ~210s for the same suite pointed at
+    # the real project. The ceiling is for a hang — a JVM emulator that never comes up —
+    # not for a slow run. #31 tracks the flakiness that now costs a deploy, not a re-run.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # The Firestore and Auth emulators are JVM processes.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache emulator binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          # Distinct from test-rules.yml's key: cache entries are immutable per key
+          # and the two workflows need different jars (auth+firestore vs firestore+storage),
+          # so a shared key means whichever wrote first wins and the other never saves.
+          key: firebase-emulators-api-${{ runner.os }}-v1
+
+      - name: Run API suite
+        env:
+          FIREBASE_CLI: bunx firebase-tools@15
+        run: scripts/ci-api.sh
