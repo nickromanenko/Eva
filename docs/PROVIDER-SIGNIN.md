@@ -63,7 +63,16 @@ Configure it against the primary App ID `com.evaapp.ios`, with:
 - **Return URL:** `https://eva-ai-made-for-women.firebaseapp.com/__/auth/handler`
 
 Eva's iOS app does not use this redirect — it sends Apple's `identityToken` straight to
-our API. The Services ID is required anyway, for the next step.
+our API. The Services ID is needed only so the Firebase console will accept the Apple
+provider in step 5.
+
+**It is not the client id our code uses, and an earlier version of this document said it
+was.** Apple issues an authorization code to whichever client asked for it, and a native
+`ASAuthorization` request asks as the **App ID** — the bundle identifier `com.evaapp.ios`.
+The Services ID identifies the *web* flow. Exchanging a native code under the Services ID
+is refused, and since revocation is deliberately non-fatal it would be refused **silently**,
+leaving the App Review requirement in §3 quietly unmet. Hence `APPLE_CLIENT_ID` in §6,
+which is the bundle identifier.
 
 ## 3. Apple: the signing key — and why it is not optional
 
@@ -130,7 +139,8 @@ errand rather than two.
 
 ```sh
 gh variable set GOOGLE_IOS_CLIENT_ID --body "<client id from step 4>"
-gh variable set APPLE_SERVICES_ID    --body "com.evaapp.ios.signin"
+# The App ID / bundle identifier, NOT the Services ID from step 2 — see the note there.
+gh variable set APPLE_CLIENT_ID      --body "com.evaapp.ios"
 gh variable set APPLE_TEAM_ID        --body "<10-char team id>"
 gh variable set APPLE_KEY_ID         --body "<key id from step 3>"
 ```

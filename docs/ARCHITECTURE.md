@@ -307,7 +307,7 @@ provider whose credentials this deploy was never given — is answered as `503` 
 the capability genuinely is unavailable, and is logged as
 `{"event":"provider_endpoint_unavailable","route","kind","upstreamStatus"}`, which
 distinguishes "Google is down" from "page somebody, we never set `GOOGLE_IOS_CLIENT_ID`".
-Every provider credential (`GOOGLE_IOS_CLIENT_ID`, `APPLE_SERVICES_ID`, `APPLE_TEAM_ID`,
+Every provider credential (`GOOGLE_IOS_CLIENT_ID`, `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`,
 `APPLE_KEY_ID`, `APPLE_SIGNIN_KEY`) is **optional** in `config.ts` for the same reason
 `POSTMARK_API_KEY` is: none is provisioned yet, and an API that will not boot without Apple's
 signing key is an API that cannot serve email/password sign-in either.

@@ -176,7 +176,8 @@ export const config = {
      * place that transformation happens.
      */
     apple: {
-      servicesId: optionalString('APPLE_SERVICES_ID'),
+      // The App ID (bundle identifier), NOT the Services ID — see providers.ts.
+      clientId: optionalString('APPLE_CLIENT_ID'),
       teamId: optionalString('APPLE_TEAM_ID'),
       keyId: optionalString('APPLE_KEY_ID'),
       signingKey: optionalString('APPLE_SIGNIN_KEY')?.replace(/\\n/g, '\n') ?? null,

@@ -184,7 +184,7 @@ const pemToDer = (pem: string): ArrayBuffer => {
 }
 
 interface AppleCredentials {
-  servicesId: string
+  clientId: string
   teamId: string
   keyId: string
   signingKey: string
@@ -193,14 +193,21 @@ interface AppleCredentials {
 /** All four or none: a client secret signed with three of them is a secret Apple rejects,
  *  which would look like an outage instead of like the missing configuration it is. */
 const appleCredentials = (): AppleCredentials | null => {
-  const { servicesId, teamId, keyId, signingKey } = config.providers.apple
-  if (!servicesId || !teamId || !keyId || !signingKey) return null
-  return { servicesId, teamId, keyId, signingKey }
+  const { clientId, teamId, keyId, signingKey } = config.providers.apple
+  if (!clientId || !teamId || !keyId || !signingKey) return null
+  return { clientId, teamId, keyId, signingKey }
 }
 
 /**
  * Apple's client secret: an ES256 JWT signed with the `.p8` key, `kid` in the header and
- * the Services ID as `sub` (`docs/PROVIDER-SIGNIN.md` §2–§3).
+ * the client id as `sub` (`docs/PROVIDER-SIGNIN.md` §2–§3).
+ *
+ * That client id is the **App ID** — the bundle identifier — not the Services ID. Apple
+ * issues an authorization code to whichever client asked for it, and a native
+ * `ASAuthorization` request asks as the App ID; the Services ID identifies the *web* flow,
+ * which Eva does not use. Exchanging a native code under the Services ID is refused, and
+ * because revocation is deliberately non-fatal it would be refused **silently** — leaving
+ * the App Review requirement this whole path exists to satisfy quietly unmet.
  *
  * Signed with WebCrypto rather than a JWT library — `hono/jwt` can sign ES256 but gives no
  * way to put `kid` in the header, which Apple requires, and a library for one 20-line
@@ -229,7 +236,7 @@ const appleClientSecret = async (credentials: AppleCredentials): Promise<string>
       iat: now,
       exp: now + APPLE_SECRET_TTL_SECONDS,
       aud: APPLE_AUDIENCE,
-      sub: credentials.servicesId,
+      sub: credentials.clientId,
     }),
   )
   const signature = await crypto.subtle.sign(
@@ -284,7 +291,7 @@ export const revokeAppleToken = async (
     const json = (await form(APPLE_TOKEN_URL, {
       grant_type: 'authorization_code',
       code: authorizationCode,
-      client_id: credentials.servicesId,
+      client_id: credentials.clientId,
       client_secret: clientSecret,
     })) as { refresh_token?: string; access_token?: string } | null
     // Revoking the refresh token revokes everything derived from it. The access token is
@@ -301,7 +308,7 @@ export const revokeAppleToken = async (
     await form(APPLE_REVOKE_URL, {
       token: refreshToken,
       token_type_hint: 'refresh_token',
-      client_id: credentials.servicesId,
+      client_id: credentials.clientId,
       client_secret: clientSecret,
     })
   } catch (err) {
