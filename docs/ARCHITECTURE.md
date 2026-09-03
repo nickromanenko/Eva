@@ -671,7 +671,7 @@ CI authenticates by Workload Identity Federation — **no key files in CI, ever*
 
 | Suite | Workflow | Runs on | Gates |
 |---|---|---|---|
-| `cd api && bun run verify` | `Test API` | PR touching `api/**`, then again on `main` | the API deploy |
+| `scripts/ci-api.sh` | `Test API` | PR touching `api/**`, then again on `main` | the API deploy |
 | `scripts/verify-website.sh` | `Test Website` | PR touching `website/**`, then again on `main` | the website deploy |
 | `scripts/verify-rules.sh` | `Test Rules` | PR + push touching the rules | — (rules deploy is manual) |
 | `scripts/verify-mobile.sh` | — | **nothing. A human, when they remember** | — |

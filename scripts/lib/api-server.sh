@@ -25,7 +25,14 @@ api_stop() {
 api_port_free() { ! lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
 
 api_ensure_up() {
-  if [ -n "$API_URL" ] && api_health "$API_URL"; then
+  # EVA_API_NO_REUSE: start our own server and never adopt one that happens to answer.
+  # `api_health` can tell that something is an Eva API; it cannot tell which project that
+  # API is pointed at. For scripts/ci-api.sh that difference is the whole point — adopting
+  # a stray dev server would run "the emulated suite" against the real project and report
+  # it green.
+  if [ "${EVA_API_NO_REUSE:-0}" = "1" ]; then
+    API_URL=""
+  elif [ -n "$API_URL" ] && api_health "$API_URL"; then
     echo "▶ using API already running at $API_URL"
     export EVA_API_URL="$API_URL"
     return 0
@@ -33,7 +40,7 @@ api_ensure_up() {
 
   local start=${EVA_API_PORT:-3003} port=""
   for candidate in $(seq "$start" $((start + 10))); do
-    if api_health "http://localhost:$candidate"; then
+    if [ "${EVA_API_NO_REUSE:-0}" != "1" ] && api_health "http://localhost:$candidate"; then
       API_URL="http://localhost:$candidate"
       echo "▶ using API already running at $API_URL"
       export EVA_API_URL="$API_URL"
@@ -48,7 +55,15 @@ api_ensure_up() {
   fi
 
   API_URL="http://localhost:$port"
-  API_LOG=$(mktemp -t eva-api-verify)
+  # A full template path, not `mktemp -t eva-api-verify`: BSD mktemp (macOS) reads `-t`'s
+  # argument as a prefix, GNU coreutils (every Linux CI runner) requires the X's and
+  # errors out — so the old form set API_LOG to the empty string and the redirect below
+  # killed the server before it started. It had been broken on Linux since it was written
+  # and could not be noticed, because nothing ran it on Linux until #67. Failing loudly
+  # here rather than starting a server whose output goes nowhere.
+  API_LOG=$(mktemp "${TMPDIR:-/tmp}/eva-api-verify.XXXXXX") || {
+    echo "✗ could not create a log file for the API"; return 1;
+  }
   echo "▶ starting API at $API_URL (logs: $API_LOG)"
   (cd "$ROOT/api" && PORT="$port" exec bun run src/index.ts) >"$API_LOG" 2>&1 &
   API_PID=$!

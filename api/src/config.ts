@@ -63,14 +63,25 @@ const publicWebUrl = requiredUrl('PUBLIC_WEB_URL')
 const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST
 const usingEmulators = Boolean(process.env.FIRESTORE_EMULATOR_HOST)
 
-// Refused under production for the same reason as `EMAIL_TRANSPORT=log` above, and more
-// sharply: `FIREBASE_AUTH_EMULATOR_HOST` decides where every credential call goes, and
-// that URL carries the web API key in its query string (GUARDRAILS 1). A deploy variable
-// set by mistake — or by anyone who can set one — would send both to a host of their
-// choosing, and nothing about the running service would look wrong. Checked
-// independently of `usingEmulators`, so setting either alone still fails the boot.
+// Both or neither, in *every* environment. Setting only the auth host is the dangerous
+// asymmetry: `usingEmulators` would stay false, so Firestore keeps reading and writing the
+// real project while every signup and signin password — and the web API key, which rides
+// in the query string (GUARDRAILS 1) — goes over plain http to whatever host that variable
+// names. `identity-toolkit.ts` drops the failing fetch's error rather than logging its URL,
+// so a redirect to something that mimics Google's error shape produces no signal at all.
+if (usingEmulators !== Boolean(authEmulatorHost)) {
+  throw new Error(
+    'FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST must be set together or not at all',
+  )
+}
+
+// And neither, ever, in production. `K_SERVICE` is set by Cloud Run itself and is not
+// ours to pass, which is the point: `NODE_ENV` arrives through `--set-env-vars` in
+// `deploy-api.yml`, the same channel an attacker would use to set an emulator host, so a
+// guard resting on `NODE_ENV` alone can be turned off by whoever it is guarding against.
+const inProduction = Boolean(process.env.K_SERVICE) || process.env.NODE_ENV === 'production'
 for (const name of ['FIRESTORE_EMULATOR_HOST', 'FIREBASE_AUTH_EMULATOR_HOST']) {
-  if (process.env[name] && process.env.NODE_ENV === 'production') {
+  if (process.env[name] && inProduction) {
     throw new Error(`${name} is set; refusing to run against emulators in production`)
   }
 }

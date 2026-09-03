@@ -25,6 +25,10 @@ on:
       - "scripts/lib/api-server.sh"
       - "firebase.json"
       - ".github/workflows/test-api.yml"
+      # The deploy workflow sets the API's production environment. A PR touching only
+      # that file otherwise matched no test path at all and showed an empty, green
+      # check set — while being exactly where an emulator host could be injected.
+      - ".github/workflows/deploy-api.yml"
   workflow_call:
 
 permissions:
@@ -54,7 +58,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/firebase/emulators
-          key: firebase-emulators-${{ runner.os }}-v1
+          # Distinct from test-rules.yml's key: cache entries are immutable per key
+          # and the two workflows need different jars (auth+firestore vs firestore+storage),
+          # so a shared key means whichever wrote first wins and the other never saves.
+          key: firebase-emulators-api-${{ runner.os }}-v1
 
       - name: Run API suite
         env:

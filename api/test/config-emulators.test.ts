@@ -50,37 +50,77 @@ const boot = async (env: Record<string, string>) => {
     return { code, stderr };
 };
 
-describe("emulator hosts under NODE_ENV=production", () => {
+/** Both hosts, the pair CI actually runs with. */
+const BOTH = {
+    FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080",
+    FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",
+};
+
+describe("the two hosts must be set together", () => {
     test(
-        "either variable alone refuses the boot, and names itself",
+        "either one alone refuses the boot, in any environment",
         async () => {
-            // Independently, deliberately. An earlier version keyed the refusal on
-            // FIRESTORE_EMULATOR_HOST alone, which left the auth one — the one that
-            // redirects the API key — able to be set in production on its own.
-            for (const name of ["FIRESTORE_EMULATOR_HOST", "FIREBASE_AUTH_EMULATOR_HOST"]) {
-                const { code, stderr } = await boot({ ...PROD_ENV, [name]: "127.0.0.1:9099" });
+            // The asymmetric case is the dangerous one and it is NOT about production:
+            // with only the auth host set, `usingEmulators` stays false, so Firestore
+            // keeps reading and writing the real project while every signup and signin
+            // password — and the web API key, which rides in the query string — goes over
+            // plain http to whatever host that variable names. `identity-toolkit.ts` drops
+            // the failing fetch's error rather than logging its URL, so a redirect to
+            // something that mimics Google's error shape produces no signal at all.
+            for (const [name, value] of Object.entries(BOTH)) {
+                const { code, stderr } = await boot({ NODE_ENV: "test", [name]: value });
                 expect(code).not.toBe(0);
-                expect(stderr).toContain(name);
+                expect(stderr).toContain("must be set together");
             }
         },
         30_000,
     );
 
     test(
-        "the same variables boot fine outside production, which is what CI depends on",
+        "both together boot fine outside production, which is what CI depends on",
         async () => {
-            const { code } = await boot({
-                NODE_ENV: "test",
-                FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080",
-                FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",
-            });
+            const { code } = await boot({ NODE_ENV: "test", ...BOTH });
             expect(code).toBe(0);
+        },
+        30_000,
+    );
+});
+
+describe("emulator hosts in production", () => {
+    test(
+        "the pair is refused under NODE_ENV=production",
+        async () => {
+            // BOTH, not one: the symmetry check above runs first, so setting a single host
+            // here would pass this test without ever reaching the guard it is named for.
+            const { code, stderr } = await boot({ ...PROD_ENV, ...BOTH });
+            expect(code).not.toBe(0);
+            expect(stderr).toContain("refusing to run against emulators in production");
         },
         30_000,
     );
 
     test(
-        "production with neither set boots, so the test above is about the refusal",
+        "and under K_SERVICE, which Cloud Run sets and a deployer does not",
+        async () => {
+            // NODE_ENV arrives through `--set-env-vars` in deploy-api.yml — the same
+            // channel someone would use to inject an emulator host. A guard resting on it
+            // alone can be switched off by exactly whoever it is guarding against, so the
+            // refusal also keys on a variable the platform owns.
+            const { code, stderr } = await boot({
+                NODE_ENV: "development",
+                K_SERVICE: "eva-api",
+                EMAIL_TRANSPORT: "postmark",
+                POSTMARK_API_KEY: "not-a-real-postmark-token",
+                ...BOTH,
+            });
+            expect(code).not.toBe(0);
+            expect(stderr).toContain("refusing to run against emulators in production");
+        },
+        30_000,
+    );
+
+    test(
+        "production with neither set boots, so the tests above are about the refusal",
         async () => {
             const { code } = await boot(PROD_ENV);
             expect(code).toBe(0);
@@ -110,7 +150,7 @@ describe("where credential calls are sent", () => {
                 return stdout.trim();
             };
 
-            expect(await read({ FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099" })).toBe(
+            expect(await read({ NODE_ENV: "test", ...BOTH })).toBe(
                 "http://127.0.0.1:9099/identitytoolkit.googleapis.com",
             );
             expect(await read({})).toBe("https://identitytoolkit.googleapis.com");

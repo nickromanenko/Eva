@@ -18,6 +18,7 @@ on:
       - "website/**"
       - "scripts/verify-website.sh"
       - ".github/workflows/test-website.yml"
+      - ".github/workflows/deploy-website.yml"
   workflow_call:
 
 permissions:

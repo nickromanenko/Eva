@@ -29,9 +29,12 @@ if [ -z "$FIREBASE_BIN" ]; then
   fi
 fi
 
-# A `demo-` prefix is what makes firebase-tools refuse to contact Google at all, whatever
-# else is configured — the same guard scripts/verify-rules.sh relies on. It is the reason
-# this script cannot reach production even if someone hands it real credentials.
+# A `demo-` prefix stops firebase-tools importing from or exporting to a real project and
+# removes the login requirement — the same convention scripts/verify-rules.sh relies on.
+# It does NOT constrain `api/src/identity-toolkit.ts`, which builds its own URL and calls
+# `fetch`; what keeps that local is FIREBASE_AUTH_EMULATOR_HOST. config.ts refuses to boot
+# unless both emulator hosts are set together, which is what actually closes that gap —
+# without it the auth path fails *open*, silently falling back to real Google.
 PROJECT=demo-eva-api
 
 # The API's own config (api/src/config.ts) is fail-fast and all-or-nothing, so every
@@ -48,11 +51,14 @@ export PUBLIC_WEB_URL="http://localhost:4321"
 # rather than depending on what the runner happens to set.
 export NODE_ENV=test
 
-# api_ensure_up REUSES any healthy Eva API it finds, starting at 3003 — which is where a
-# dev server pointed at the real project usually is. Reusing that here would run "the
-# emulated suite" against production and report it green. Take a port of our own.
+# api_ensure_up REUSES any healthy Eva API it finds, and `api_health` can tell that
+# something is an Eva API but not which project it points at. Reusing a stray dev server
+# here would run "the emulated suite" against production and report it green. Refuse
+# adoption outright rather than hoping a different port is enough — the port scan spans
+# EVA_API_PORT..+10, so moving off 3003 narrows the window without closing it.
 unset EVA_API_URL
 export EVA_API_PORT=3103
+export EVA_API_NO_REUSE=1
 
 echo "▶ api tests (Auth + Firestore emulators, project $PROJECT)"
 (cd "$ROOT/api" && bun install --frozen-lockfile >/dev/null) || {
