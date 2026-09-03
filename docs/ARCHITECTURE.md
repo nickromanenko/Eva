@@ -659,13 +659,73 @@ adding it to the delete is the way health-adjacent identifiers outlive their own
 |---|---|
 | `Networking/` | `APIClient` (generic async JSON), `APIError`, `APIModels` (wire types) |
 | `Session/` | `AppSession` — the single source of app state; `KeychainTokenStore` — the only place the JWT is persisted |
+| `Session/Providers/` | Sign in with Apple and Google: the two controllers, the PKCE/nonce derivations, and the buttons that run them (#7) |
 | `Onboarding/` | `OnboardingModel` (flow state machine) + `Steps/` + `Components/` |
-| `Profile/` | `ProfileView` and `DeleteAccountModal` — the account-deletion entry point |
+| `Profile/` | `ProfileView` (identity, connected accounts, log out, danger zone) and `DeleteAccountModal` |
 | `Theme/` | Colors, gradients, `PrimaryButton`, progress style — see [DESIGN.md](DESIGN.md) |
 
 `AppSession.State` (`loading → signedOut | needsQuestionnaire | ready | unreachable`)
 drives the root view. **The server is the source of truth for `questionnaireCompleted`** — never
 reintroduce a local `@AppStorage` flag for it.
+
+### Apple and Google, without an SDK and without a Firebase token (#7)
+
+The app obtains a **provider credential** natively and posts it to the API, which does
+everything else (§2). It never holds a Firebase ID token, a Google access token or an
+Apple refresh token — one credential type, still, and one protocol.
+
+`Session/Providers/` is four files and one idea each:
+
+| File | Owns |
+|---|---|
+| `AuthCrypto` | The raw nonce, its SHA-256, the PKCE verifier and its S256 challenge. Pure, and unit-tested against published vectors — every value here fails *silently* when it is wrong |
+| `AppleSignInController` | One `ASAuthorizationAppleIDProvider` request, as an `async` call. Also the fresh authorization code account deletion needs |
+| `GoogleOAuthConfiguration` | The client id, the redirect it implies, the authorization URL, and what the callback means. All pure |
+| `GoogleSignInController` | The `ASWebAuthenticationSession` that presents it |
+| `ProviderSignInButtons` | The two buttons plus the flow behind them, shared by sign-up, log in and Profile |
+
+Four things about it are load-bearing:
+
+**The nonce goes to Apple hashed and to us raw.** `request.nonce` is
+`sha256(rawNonce)`; the API is sent the **raw** value beside the `identityToken`. Apple
+copies the hash into the token's `nonce` claim, so the API can prove the token was minted
+for the request this app just made. Send the hash to the API instead and the check becomes
+"this hash equals this hash", which a replayed token also passes.
+
+**Google is PKCE in an `ASWebAuthenticationSession`, with no SDK.** An iOS OAuth client is
+a public client with no secret, so the app can run the authorization-code flow itself and
+the `code` is protected by the verifier rather than by a shared secret. Adding a
+dependency is an always-human gate (AUTONOMY) and this one was decided against; the app
+still has zero Swift Package dependencies. A real `WKWebView` is not an alternative —
+Google answers `disallowed_useragent` — so the sheet is what "a web view, not a browser
+redirect" means in practice. The app never spends the code; the API does.
+
+**Which calls go through `authorized(_:)`, and why it is not both.** `signInWithProvider`
+posts `/auth/idp` **outside** the wrapper, like `signUp` and `signIn`: it carries no token,
+so its 401 means the provider credential was refused, not that this device's session is
+over. `attachProvider` posts `/me/auth/providers` **inside** it, because that one does
+carry the token. Getting this backwards would log a signed-in user out for a failed
+attempt to link a second provider.
+
+**Deleting an account offers Apple a revocation.** Apple requires an app that offers both
+Sign in with Apple and in-app account deletion to revoke on delete, and Eva deliberately
+stores no Apple refresh token — so `DeleteAccountModal` runs a fresh authorization and
+sends the resulting `authorizationCode` in the `DELETE /me` body. **Cancelling that step
+does not stop the deletion.** A provider handshake is never allowed to be what stands
+between someone and the destruction of their own data; the cost is a token that stays
+unrevoked, which is Eva's problem with Apple rather than the user's with Eva.
+
+There is **no new `OnboardingStep`**. Provider sign-in draws no screen: it starts from a
+button on a step that exists and lands where every other authentication lands. The enum is
+a list of screens, and a case with nothing behind it would leave a raw value
+`EVA_ONBOARDING_STEP` could still jump to.
+
+**None of it can be driven by a UI test.** Sign in with Apple needs a device signed in to
+an Apple ID — the simulator answers `ASAuthorizationError.unknown` — and Google needs a
+provisioned OAuth client and a real account. `EvaTests` covers the derivations, the wire
+shapes and the callback parsing, which is the part that fails silently; the flows
+themselves are exercised by hand on a device. This is the same honest gap
+`docs/PROVIDER-SIGNIN.md` names, and it is stated rather than papered over.
 
 ### A dead credential signs the user out, wherever it lands (#55)
 
