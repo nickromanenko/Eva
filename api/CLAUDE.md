@@ -114,11 +114,17 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   *"Link accounts that use the same email"* setting, and it is set to link. A relay address
   from Hide My Email matches nothing and so still creates a new account; joining that one
   to an existing account is `POST /me/auth/providers`, deliberate and authenticated.
-- **`/auth/idp` invalidates an unproven password before it mints a session (#7).** Because
-  sign-up creates the Auth user before the address is confirmed, an account that is linked
-  while still unactivated carries a password chosen by someone who never proved they own
-  the address. `invalidateUnprovenPassword` overwrites it, and the route fails closed if
-  that call fails. Removing this re-opens an account takeover.
+- **`/auth/idp` claims an unproven account before it mints a session (#7).** Sign-up
+  creates the Auth user before the address is confirmed, and the Firebase web API key is
+  public, so anyone can pre-register an address and attach their own provider identity to
+  it directly at Identity Toolkit. `claimUnprovenAccount` overwrites the password, unlinks
+  every *federated* provider except the one that just signed in, and revokes refresh
+  tokens. `password` is overwritten rather than unlinked — an account with no password
+  provider has nothing for forgot-password to reset, and the two cannot be asked for in
+  one `updateUser` anyway. It asks
+  `adminAuth.getUser`, never `users/{uid}`, because the mirror cannot see an Auth user
+  whose document was never written. Gated on `activatedAt` being null alone. Removing any
+  part of this re-opens an account takeover; ARCHITECTURE §3 walks it through.
 - A provider session comes back already activated, stores no display name, and adds no
   field to `users/{uid}`.
 - CORS is on exactly the two routes the website's link pages call (`/auth/activate`,

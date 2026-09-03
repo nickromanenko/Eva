@@ -264,7 +264,7 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
     );
 
     test(
-        "linking onto an unactivated password account kills the password that was never proven",
+        "linking onto an unactivated account strips every credential but the one that signed in",
         async () => {
             // The takeover this closes: Firebase merges a provider sign-in into an existing
             // account when the addresses match, and `POST /auth/signup` (#6) creates that
@@ -289,12 +289,56 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
 
             // The attacker's password is gone.
             expect(await passwordStillWorks(email, PASSWORD)).toBe(false);
+
+            // The password *provider* survives, deliberately — only the password does not.
+            // An account with no password provider has nothing for forgot-password to
+            // reset, which would lock the real owner out of recovering it.
+            //
+            // Apple is absent here only because `signInWithIdp` is mocked, so no Apple
+            // identity was ever really attached to the Auth account. The test below is the
+            // one that proves a *federated* identity does not survive.
+            const authRecord = await adminAuth.getUser(uid);
+            expect(authRecord.providerData.map((p) => p.providerId)).toEqual(["password"]);
         },
         SLOW,
     );
 
     test(
-        "an already-activated account keeps its password when a provider is linked to it",
+        "a provider identity attached before the account was proven does not survive the claim",
+        async () => {
+            // The attacker's foothold, built the way they would build it: a second provider
+            // on an account whose address nobody confirmed. `google.com` here stands in for
+            // the identity they attached; the victim then signs in with Apple.
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+            await adminAuth.updateUser(uid, {
+                providerToLink: {
+                    providerId: PROVIDER_IDS.google,
+                    uid: `attacker-google-sub-${crypto.randomUUID()}`,
+                    email,
+                },
+            });
+            expect(
+                (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort(),
+            ).toEqual([PROVIDER_IDS.google, "password"].sort());
+
+            idp = () => ({ localId: uid, email });
+            expect((await post("/auth/idp", appleBody())).status).toBe(200);
+
+            // The attacker's Google identity is gone. `password` remains as a provider so
+            // the real owner can reset it, but the password itself no longer opens the
+            // account. (Apple is not listed because the boundary is mocked and never
+            // attached it for real.)
+            expect((await adminAuth.getUser(uid)).providerData.map((p) => p.providerId)).toEqual([
+                "password",
+            ]);
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(false);
+        },
+        SLOW,
+    );
+
+    test(
+        "an already-activated account keeps its password and its other providers",
         async () => {
             // The other half, and the reason the check is on `activatedAt` rather than on
             // "has a password": someone who confirmed their address has proven the password

@@ -474,6 +474,21 @@ enum EvaAuthProvider: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// What Firebase — and therefore `user.authProviders` — calls this provider.
+    ///
+    /// Deliberately NOT `rawValue`. The raw value is the word `POST /auth/idp` wants in its
+    /// request body (`"apple"`), and the server stores Firebase's own id (`"apple.com"`).
+    /// One property cannot be both, and when it tried, `isConnected` was false for every
+    /// account: Profile never showed a connected provider, and `DELETE /me` never sent an
+    /// Apple authorization code — so revocation, the whole reason `providers.ts` holds a
+    /// signing key, silently never ran.
+    var firebaseProviderID: String {
+        switch self {
+        case .apple: "apple.com"
+        case .google: "google.com"
+        }
+    }
+
     var title: String {
         switch self {
         // Apple's Human Interface Guidelines allow a custom button only with one of its

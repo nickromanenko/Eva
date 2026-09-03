@@ -21,7 +21,7 @@ import {
     deleteAuthAccount,
     findAuthUidByEmail,
     idTokenForUid,
-    invalidateUnprovenPassword,
+    claimUnprovenAccount,
     setPassword,
     signInWithIdp,
     signInWithPassword,
@@ -676,19 +676,24 @@ app.post("/auth/password/reset", async (c) => {
 // `identity-toolkit.ts` — the same seam the password path already goes through, and still
 // the only place the web API key lives.
 //
-// **Identity is the provider's `sub`, and only `sub`.** Firebase returns the uid it keyed
-// to that `sub`, so a `sub` it has seen resolves to the same `users/{uid}` document and one
-// it has not gets a new account — even when the address matches an account that already
-// exists. There is no email lookup anywhere below and there must never be one: an address
-// is self-asserted at some other provider, and joining accounts on one is an
-// account-takeover shape. Someone who wants their existing account keeps it by *linking*,
-// deliberately, from Profile — which is what `POST /me/auth/providers` is.
+// **This code never matches on email. Firebase does, and that is the whole design.**
+// `signInWithIdp` returns the uid Firebase keyed to the provider's `sub`; `ensureUser`
+// lands on that document. Whether an address that already has a password account resolves
+// to the *same* uid is the console setting `Authentication → Settings → User account
+// linking`, set to "Link accounts that use the same email" (decided 2026-09-03). So a
+// Google sign-in on an existing address logs into that account, which is what the PRD's
+// edge case always asked for. Do not add a lookup here: the rule lives in one place, and a
+// second copy is how the two come to disagree invisibly.
 //
-// One half of that guarantee is not ours to enforce. On Firebase's default account-linking
-// setting the console merges a provider sign-in into a password account with the same
-// address, underneath this code and whatever it says. Step 0 of `docs/PROVIDER-SIGNIN.md`
-// is the setting that turns it off, and it is a human's errand, not something a route can
-// assert.
+// Hide My Email is the case the setting cannot help — a relay address matches nothing, so
+// those users get a new account regardless, and `POST /me/auth/providers` is their only
+// route into an existing one.
+//
+// **`claimUnprovenAccount` below is what makes the linking safe, and is not optional.**
+// Sign-up creates the Auth user before the address is confirmed, and the web API key is
+// public, so anyone can pre-register an address and attach their own provider identity to
+// it directly at Identity Toolkit. Deleting that call re-opens an account takeover; the
+// full walk-through is on the function.
 //
 // Nothing here stores a display name, and nothing widens `users/{uid}`. Apple offers a name
 // on first authorization and Eva shows a name nowhere, so collecting it would be personal
@@ -885,16 +890,22 @@ app.post("/auth/idp", async (c) => {
         // that is exactly why this must not mint a token, or a provider sign-in would walk
         // an account back out of its own deletion.
         if (!user) return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
-        // Firebase merges this sign-in into an existing password account when the addresses
-        // match, and #6 creates that account before the address is ever confirmed — so the
-        // password on an unactivated account was chosen by someone who never proved they
-        // own the address. It is overwritten before the session is minted, or whoever set
-        // it inherits the account the moment the line below marks it activated.
+        // An unactivated account is one nobody has proven they own, and #6 creates it
+        // before the address is confirmed — so every credential already on it was attached
+        // by someone unverified. `claimUnprovenAccount` takes them all away, keeping only
+        // the provider that just signed in, before the line below marks the account
+        // activated on that person's behalf.
         //
-        // Fails **closed**: a 503 asks the caller to retry, where continuing would hand out
-        // a session for an account still carrying a credential we meant to kill.
-        if (!user.activated && user.authProviders.includes("password")) {
-            await invalidateUnprovenPassword(localId);
+        // The condition is `!user.activated` **alone**. An earlier version also required
+        // `authProviders` to contain "password", which reads Eva's Firestore mirror rather
+        // than Firebase's record of the account — and those diverge in exactly the case
+        // that matters, because sign-up writes the Auth user before the document.
+        //
+        // Fails **closed**: the throw is not a provider failure, so it falls through to
+        // `app.onError` as a 500 and no token is minted. Continuing would hand out a
+        // session for an account still carrying credentials we meant to take away.
+        if (!user.activated) {
+            await claimUnprovenAccount(localId, PROVIDER_IDS[parsed.value.provider]);
         }
         await markActivated(localId);
         return c.json({

@@ -262,18 +262,37 @@ nothing, so those users get a new account regardless. `POST /me/auth/providers` 
 authenticated, from Profile — is their only route into an existing one, which is why it is
 not optional.
 
-**Auto-linking is only safe because `/auth/idp` invalidates an unproven password.** Sign-up
-(#6) creates the Firebase Auth user *before* the address is confirmed, so an account that is
-still unactivated carries a password chosen by someone who never proved they own the address.
-Without the invalidation, an attacker could register a victim's address, wait for the victim
-to sign in with Google, and inherit an account that this route then marks activated for them.
-`invalidateUnprovenPassword` overwrites the credential with random bytes before a session is
-minted, and the route **fails closed** — a 503 asks the caller to retry, where continuing
-would hand out a session for an account still carrying a credential we meant to kill. It
-fires only when `activatedAt` is null: a confirmed address has already proven the password
-belongs to its owner. The cost is that a real user who never clicked their activation link
-and then used Google must reset a password they did own — nothing can distinguish them from
-the attacker, and forgot-password is the flow they needed anyway.
+**Auto-linking is only safe because `/auth/idp` claims an unproven account.** Sign-up (#6)
+creates the Firebase Auth user *before* the address is confirmed, and **the web API key is
+public** — Firebase Hosting serves it at `/__/firebase/init.json`, and Identity Toolkit
+accepts it. So anyone who pre-registers an address is a first-class client for that account
+and can, without touching Eva: sign in at Identity Toolkit with the password they chose,
+attach *their own* Apple identity to the account with the ID token that returns, and wait.
+When the real owner signs in with Google, Firebase merges onto the same uid and Eva marks
+it activated on their behalf — and the attacker signs in with Apple from then on.
+
+Overwriting the password does not stop that; the attacker never uses it again. So
+`claimUnprovenAccount` (`identity-toolkit.ts`) takes **everything**: it overwrites the
+password, unlinks every *federated* identity except the one that just signed in, and
+revokes outstanding refresh tokens. The password is overwritten rather than unlinked, both
+because an account with no password provider has nothing for forgot-password to reset and
+because Firebase will not accept "set this password" and "remove the password provider" in
+one call. It asks `adminAuth.getUser` rather than `users/{uid}` — Eva's
+`authProviders` is a mirror, and sign-up writes the Auth user before the document, so a
+failure between the two leaves an account the mirror cannot see.
+
+It fires on `activatedAt` being null and nothing else. No legitimate flow puts a second
+provider on an unactivated account: Eva's link route is behind `requireAuth`, and an
+unactivated account cannot sign in to obtain a token. A confirmed address has already
+proven its credentials belong to its owner, so nothing is taken there — invalidating an
+activated account would lock a real user out for adding Apple to it.
+
+The route **fails closed**: the throw is not a provider failure, so it reaches
+`app.onError` as `500 INTERNAL` and no token is minted. Continuing would hand out a session
+for an account still carrying credentials we meant to take away. The cost is that a real
+user who never clicked their activation link and then used Google must reset a password
+they did own — nothing can distinguish them from the attacker, and forgot-password is the
+flow they needed anyway.
 
 **A provider session comes back activated.** Google's address is verified and Apple's relay
 is Apple's own, so a provider sign-in proves the address at least as well as the link #6

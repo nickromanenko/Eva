@@ -66,10 +66,14 @@ struct ProviderCredentialTests {
         try JSONDecoder().decode(APIUser.self, from: Data(json.utf8))
     }
 
+    /// The JSON here is what the server actually sends: `apple.com`, Firebase's provider
+    /// id. An earlier version of this test wrote `apple` — the request-body word — which
+    /// made it agree with an `isConnected` that compared against `rawValue`, so the pair
+    /// passed while the app showed no connected providers at all.
     @Test("authProviders decodes to the providers the server lists")
     func authProvidersDecode() throws {
         let user = try Self.user(
-            #"{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true,"authProviders":["password","apple"]}"#
+            #"{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true,"authProviders":["password","apple.com"]}"#
         )
         #expect(user.hasPassword)
         #expect(user.isConnected(.apple))
@@ -90,13 +94,33 @@ struct ProviderCredentialTests {
         #expect(!user.isConnected(.apple))
     }
 
-    /// `EvaAuthProvider`'s raw values are the wire strings. If they ever stop being, every
-    /// `isConnected` check silently answers `false` and the connected-accounts card goes
-    /// blank for accounts that do have a provider.
-    @Test("The button enum's raw values are the API's provider strings")
-    func providerRawValuesMatchTheWire() {
+    /// The enum carries **two** strings, and conflating them is not hypothetical: an
+    /// earlier version had only `rawValue` and used it for both, so `isConnected` answered
+    /// `false` for every account — the connected-accounts card stayed blank and, worse,
+    /// `DELETE /me` never sent an Apple authorization code, so revocation never ran.
+    @Test("The enum's two provider strings are the two the API uses, and are not the same")
+    func providerStringsMatchTheWire() {
+        // The word `POST /auth/idp` and `POST /me/auth/providers` want in the body.
         #expect(EvaAuthProvider.apple.rawValue == "apple")
         #expect(EvaAuthProvider.google.rawValue == "google")
+        // What the server stores in `authProviders`, which is Firebase's own id.
+        #expect(EvaAuthProvider.apple.firebaseProviderID == "apple.com")
+        #expect(EvaAuthProvider.google.firebaseProviderID == "google.com")
+        for provider in EvaAuthProvider.allCases {
+            #expect(provider.rawValue != provider.firebaseProviderID)
+        }
         #expect(APIUser.passwordProvider == "password")
+    }
+
+    /// The bug the property above exists to prevent, asserted from the outside: a user the
+    /// server says has Apple must read as connected, or revocation silently never runs.
+    @Test("The request-body word alone does not read as connected")
+    func theWireWordIsNotTheFirebaseID() throws {
+        // The exact shape of the bug: a server that sent `apple` would not light Profile up,
+        // and — the expensive half — would leave `DELETE /me` sending no revocation code.
+        let user = try Self.user(
+            #"{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true,"authProviders":["apple"]}"#
+        )
+        #expect(!user.isConnected(.apple))
     }
 }

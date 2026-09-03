@@ -36,11 +36,11 @@ struct APIUser: Codable {
 
     /// Whether an identity provider is attached to this account.
     ///
-    /// `EvaAuthProvider`'s raw values are the API's provider strings, so there is one
-    /// spelling of "apple" in the app rather than a presentation one and a wire one that
-    /// can drift apart.
+    /// `authProviders` holds Firebase's provider ids (`apple.com`), not the word the
+    /// request body uses (`apple`) — so this compares against `firebaseProviderID`. Using
+    /// `rawValue` here made this return `false` for every account ever.
     func isConnected(_ provider: EvaAuthProvider) -> Bool {
-        authProviders.contains(provider.rawValue)
+        authProviders.contains(provider.firebaseProviderID)
     }
 
     /// The provider string for an email-and-password sign-in. Not an `EvaAuthProvider`:

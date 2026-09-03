@@ -198,7 +198,7 @@ const REQUEST_URI = `https://${config.firebaseProjectId}.firebaseapp.com`
  * is how the two come to disagree. What this file guarantees is narrower and still true:
  * it performs no email lookup of its own, and must never grow one.
  *
- * The linking setting is what makes `invalidateUnprovenPassword` below necessary; see there.
+ * The linking setting is what makes `claimUnprovenAccount` below necessary; see there.
  *
  * `linkToIdToken` is the linking mode (`POST /me/auth/providers`): given a Firebase ID
  * token for an existing account, Identity Toolkit attaches the provider identity to *that*
@@ -308,25 +308,61 @@ export const setPassword = async (uid: string, password: string): Promise<void> 
 }
 
 /**
- * Replaces the account's password with 32 random bytes nobody keeps, making the existing
- * one unusable (#7). The credential is **overwritten, not removed**: deleting the only
- * credential on an account is a different and worse failure, and leaving `password` in
- * `authProviders` is honest — the account still has one, it is simply not known.
+ * Takes an unactivated account away from whoever set it up, keeping only the provider that
+ * just signed in (#7). Overwrites the password, unlinks every other provider identity, and
+ * revokes outstanding refresh tokens.
  *
- * *Why this exists.* Firebase links a provider sign-in into an existing account when the
- * addresses match, and `POST /auth/signup` (#6) creates the Firebase Auth user **before**
- * the address is confirmed. Together those let someone sign up as `victim@example.com`
- * with a password of their choosing, wait for the real owner to tap Sign in with Google,
- * and inherit an account that Eva then marks activated on the owner's behalf. Overwriting
- * an unproven password at the moment of linking is what closes it.
+ * *Why all three, and not just the password.* Firebase merges a provider sign-in into an
+ * existing account when the addresses match, and `POST /auth/signup` (#6) creates the
+ * Firebase Auth user **before** the address is confirmed. The web API key is public —
+ * Firebase Hosting serves it at `/__/firebase/init.json` — so someone who pre-registers a
+ * victim's address is a first-class Identity Toolkit client for that account and can,
+ * without touching Eva:
  *
- * Only ever called for an account whose address was never confirmed. A confirmed one has
- * already proven the password belongs to its owner.
+ *   1. `accounts:signInWithPassword` with their own password → a Firebase ID token;
+ *   2. `accounts:signInWithIdp` with that token and *their own* Apple credential → their
+ *      `sub` is now attached to the account, while `google.com` is left free;
+ *   3. wait for the victim to sign in with Google, which merges onto the same uid;
+ *   4. sign in at `/auth/idp` with their own Apple ID, forever.
+ *
+ * Overwriting the password alone defeats none of that — the attacker never uses it again.
+ * Unlinking the other identities is what actually closes it, and revoking refresh tokens
+ * retracts the session step 1 already handed them.
+ *
+ * Safe for real users because **no legitimate flow puts a second provider on an
+ * unactivated account**: Eva's own link route is behind `requireAuth`, and an unactivated
+ * account cannot sign in to get a token. Anything else found here was attached out of band.
+ *
+ * Only ever called for an account whose address was never confirmed — a confirmed one has
+ * already proven its credentials belong to its owner.
  *
  * The cost, stated: someone who genuinely signed up with a password, never clicked the
- * link, and then used Google has their own password invalidated too. Nothing here can tell
- * those two people apart, and the recovery — forgot-password — is the flow they would have
- * needed anyway.
+ * link, and then used Google has their own password invalidated. Nothing here can tell
+ * those two people apart, and forgot-password is the flow they needed anyway.
  */
-export const invalidateUnprovenPassword = (uid: string): Promise<void> =>
-  setPassword(uid, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'))
+export const claimUnprovenAccount = async (uid: string, keepProviderId: string): Promise<void> => {
+  // Asked of Firebase, never of `users/{uid}`. Eva's `authProviders` is a mirror this
+  // module does not write, and the two diverge in exactly the case that matters: sign-up
+  // creates the Auth user before the document, so a failure between the two leaves an
+  // account with the attacker's password and no document at all. A check against the
+  // mirror reads that as a fresh account and does nothing.
+  const account = await adminAuth.getUser(uid)
+  // `password` is overwritten below, never unlinked — the two cannot be asked for in one
+  // `updateUser`, and unlinking is the wrong half anyway: an account left with no password
+  // provider has nothing for forgot-password to reset, so the real owner would be locked
+  // out of recovering it. Only *federated* identities are stripped.
+  const strip = account.providerData
+    .map((p) => p.providerId)
+    .filter((id) => id !== keepProviderId && id !== 'password')
+
+  await adminAuth.updateUser(uid, {
+    password: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),
+    ...(strip.length > 0 ? { providersToUnlink: strip } : {}),
+  })
+
+  // The attacker may already be holding a session: the web API key is public (Firebase
+  // Hosting serves it at `/__/firebase/init.json`), so they can sign in at Identity
+  // Toolkit directly and keep a refresh token alive indefinitely. Overwriting the password
+  // does not retract one.
+  await adminAuth.revokeRefreshTokens(uid)
+}

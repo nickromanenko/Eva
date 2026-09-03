@@ -173,11 +173,11 @@ final class AppSession {
 
     /// Attaches another provider to the account already signed in (#7).
     ///
-    /// This is the **only** way two sign-in methods end up on one account: identity is the
-    /// provider's `sub` and never an email address, so a provider Eva has not seen before
-    /// makes a new account rather than joining an existing one. Joining is therefore
-    /// something the user does deliberately, from Profile, while signed in to the account
-    /// they want to keep — auto-linking on a self-asserted address is an account-takeover
+    /// Not the only way two sign-in methods end up on one account — Firebase links them
+    /// itself when the addresses match — but the only way for an address that does *not*
+    /// match, which is every Apple Hide My Email relay. Those users get a new account no
+    /// matter what, so joining is something they do deliberately, from Profile, while
+    /// signed in to the account they want to keep — which is also the only safe shape for
     /// shape, and it would not work for Hide My Email relays anyway (#7's decision).
     ///
     /// Inside `authorized(_:)`, unlike `signInWithProvider`: this one carries the token,

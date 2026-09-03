@@ -36,10 +36,11 @@ Two things follow, and both are load-bearing:
 - **No code in this repo may match on email.** The rule lives in the console. A second
   copy in `identity-toolkit.ts` is how the two come to disagree, and the disagreement
   would be invisible.
-- **Auto-linking is only safe because `POST /auth/idp` invalidates an unproven password.**
-  Sign-up (#6) creates the Firebase Auth user *before* the address is confirmed, so
-  without that step someone could register a victim's address, wait for them to sign in
-  with Google, and inherit the account. See #7's Decisions section.
+- **Auto-linking is only safe because `POST /auth/idp` claims an unproven account.**
+  Sign-up (#6) creates the Firebase Auth user *before* the address is confirmed, and the
+  web API key is public, so someone can pre-register a victim's address and attach their
+  own Apple identity to it at Identity Toolkit directly. `claimUnprovenAccount` takes the
+  password, the other providers and the refresh tokens. See ARCHITECTURE §3.
 
 Hide My Email is unaffected either way: Apple's relay address matches nothing, so those
 users get a new account regardless, and the deliberate link from Profile

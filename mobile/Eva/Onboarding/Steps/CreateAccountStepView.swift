@@ -13,10 +13,10 @@ import SwiftUI
 /// The canvas' "Sign up · validation" artboard shows an information banner for an address
 /// that already signs in with Apple. It is built to the artboard here and nothing sets it.
 ///
-/// #7 was expected to be what made it reachable. It is not, and the reason is the decision
-/// at the centre of that issue: **identity is the provider's `sub`, and never an email
-/// address.** The API therefore never asks "does this address already use Apple?" — doing
-/// so is the account-takeover shape the decision rejects, and it would answer wrongly for
+/// #7 was expected to be what made it reachable. It is not: the API never asks "does this
+/// address already use Apple?", because answering that question to an unauthenticated
+/// caller tells anyone holding an address which providers back it. Firebase links matching
+/// addresses on its own, silently and after the fact, and it would answer wrongly for
 /// every Hide My Email relay anyway. Nothing in the `/auth/idp` contract carries that
 /// signal, so there is nothing to wire the banner to.
 ///
