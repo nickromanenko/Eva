@@ -476,8 +476,19 @@ enum EvaAuthProvider: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        // Apple's Human Interface Guidelines allow a custom button only with one of its
+        // own titles; "Continue with Apple" is one of them. Do not reword it.
         case .apple: "Continue with Apple"
         case .google: "Continue with Google"
+        }
+    }
+
+    /// The provider's name on its own, for a place that names it rather than offers it —
+    /// Profile's connected-accounts list (#7).
+    var displayName: String {
+        switch self {
+        case .apple: "Apple"
+        case .google: "Google"
         }
     }
 }
