@@ -167,10 +167,17 @@ const accountsForEmail = async (email: string): Promise<string[]> =>
  *
  * Not touching the module at all is the only version that answers about the credential
  * rather than about the test run.
+ *
+ * The origin comes from `config`, never a literal: `config.identityToolkitBaseUrl` (#67)
+ * points at the Auth emulator when CI sets `FIREBASE_AUTH_EMULATOR_HOST` and at Google
+ * otherwise. A hardcoded Google URL passed against the real project and failed every one
+ * of these under `scripts/ci-api.sh`, because the account exists only in the emulator —
+ * and Google is right to say that password opens nothing. `config` is not mocked, so this
+ * keeps the immunity above while still following the emulator.
  */
 const passwordStillWorks = async (email: string, password: string): Promise<boolean> => {
     const res = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+        `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
         {
             method: "POST",
             headers: { "content-type": "application/json" },
