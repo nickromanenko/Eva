@@ -21,6 +21,7 @@ import {
     deleteAuthAccount,
     findAuthUidByEmail,
     idTokenForUid,
+    invalidateUnprovenPassword,
     setPassword,
     signInWithIdp,
     signInWithPassword,
@@ -884,6 +885,17 @@ app.post("/auth/idp", async (c) => {
         // that is exactly why this must not mint a token, or a provider sign-in would walk
         // an account back out of its own deletion.
         if (!user) return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+        // Firebase merges this sign-in into an existing password account when the addresses
+        // match, and #6 creates that account before the address is ever confirmed — so the
+        // password on an unactivated account was chosen by someone who never proved they
+        // own the address. It is overwritten before the session is minted, or whoever set
+        // it inherits the account the moment the line below marks it activated.
+        //
+        // Fails **closed**: a 503 asks the caller to retry, where continuing would hand out
+        // a session for an account still carrying a credential we meant to kill.
+        if (!user.activated && user.authProviders.includes("password")) {
+            await invalidateUnprovenPassword(localId);
+        }
         await markActivated(localId);
         return c.json({
             token: await mintToken(localId, email),

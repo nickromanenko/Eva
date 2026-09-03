@@ -247,22 +247,33 @@ at `https://oauth2.googleapis.com/token` with the code verifier and **no client 
 exchange server-side is what keeps the GoogleSignIn SDK and its transitive packages out of
 the app (GUARDRAILS 25).
 
-**Identity is the provider's `sub`, and only `sub`.** Firebase hands back the uid it keyed to
-that `sub`, so `ensureUser` lands on the same `users/{uid}` document for a `sub` it has seen
-and creates a new account for one it has not — *even when the address matches an account that
-already exists*. There is no email lookup on this path and there must never be one: an
-address is self-asserted at some other provider, joining accounts on one is an
-account-takeover shape, and it could not work for Hide My Email users anyway, whose address
-is a relay. The cost, stated plainly because users will meet it: someone with an
-email/password account who taps Sign in with Apple gets a **second** account. Joining them is
-`POST /me/auth/providers`, done deliberately while signed in to the account they want to
-keep.
+**The account is whichever uid Firebase returns, and this code never looks up an address.**
+`signInWithIdp` hands back the uid Firebase keyed to the provider's `sub`; `ensureUser` lands
+on that `users/{uid}` document and `arrayUnion`s the provider. Whether a shared address
+resolves to one account or two is a **console setting** — `Authentication → Settings → User
+account linking`, set to *"Link accounts that use the same email"* (decided 2026-09-03) — and
+it is decided before this code sees anything. So a Google sign-in on an address that already
+has a password account logs into that account, which is what the PRD's edge case always
+asked for. The rule lives in one place; a second copy here is how two copies come to
+disagree, invisibly.
 
-Half of that guarantee is not the code's to make. On Firebase's **default** account-linking
-setting the console merges a provider sign-in into a password account with the same address,
-underneath this code and whatever it says. Step 0 of
-[PROVIDER-SIGNIN.md](PROVIDER-SIGNIN.md) is the setting that turns that off; it is a human's
-errand and nothing here can assert it.
+**Hide My Email is the case that setting cannot help.** Apple's relay address matches
+nothing, so those users get a new account regardless. `POST /me/auth/providers` — deliberate,
+authenticated, from Profile — is their only route into an existing one, which is why it is
+not optional.
+
+**Auto-linking is only safe because `/auth/idp` invalidates an unproven password.** Sign-up
+(#6) creates the Firebase Auth user *before* the address is confirmed, so an account that is
+still unactivated carries a password chosen by someone who never proved they own the address.
+Without the invalidation, an attacker could register a victim's address, wait for the victim
+to sign in with Google, and inherit an account that this route then marks activated for them.
+`invalidateUnprovenPassword` overwrites the credential with random bytes before a session is
+minted, and the route **fails closed** — a 503 asks the caller to retry, where continuing
+would hand out a session for an account still carrying a credential we meant to kill. It
+fires only when `activatedAt` is null: a confirmed address has already proven the password
+belongs to its owner. The cost is that a real user who never clicked their activation link
+and then used Google must reset a password they did own — nothing can distinguish them from
+the attacker, and forgot-password is the flow they needed anyway.
 
 **A provider session comes back activated.** Google's address is verified and Apple's relay
 is Apple's own, so a provider sign-in proves the address at least as well as the link #6

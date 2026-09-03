@@ -191,11 +191,14 @@ const REQUEST_URI = `https://${config.firebaseProjectId}.firebaseapp.com`
  * and an unseen one gets a new uid and therefore a new account. This code has no email
  * lookup and must never grow one.
  *
- * That guarantee has a half we cannot enforce from here: with Firebase's **default**
- * account-linking setting, Firebase merges a provider sign-in into an existing password
- * account whenever the addresses match, underneath this code and whatever it says. Step 0
- * of `docs/PROVIDER-SIGNIN.md` is the console change that turns that off, and it is a
- * human's errand.
+ * Whether an address that already has a password account resolves to that same uid is
+ * **Firebase's** decision, not ours: `Authentication → Settings → User account linking` is
+ * set to *"Link accounts that use the same email"* (decided 2026-09-03), so it does. That
+ * rule lives in the console and must not be copied into this code — two copies of a policy
+ * is how the two come to disagree. What this file guarantees is narrower and still true:
+ * it performs no email lookup of its own, and must never grow one.
+ *
+ * The linking setting is what makes `invalidateUnprovenPassword` below necessary; see there.
  *
  * `linkToIdToken` is the linking mode (`POST /me/auth/providers`): given a Firebase ID
  * token for an existing account, Identity Toolkit attaches the provider identity to *that*
@@ -303,3 +306,27 @@ export const findAuthUidByEmail = async (email: string): Promise<string | null> 
 export const setPassword = async (uid: string, password: string): Promise<void> => {
   await adminAuth.updateUser(uid, { password })
 }
+
+/**
+ * Replaces the account's password with 32 random bytes nobody keeps, making the existing
+ * one unusable (#7). The credential is **overwritten, not removed**: deleting the only
+ * credential on an account is a different and worse failure, and leaving `password` in
+ * `authProviders` is honest — the account still has one, it is simply not known.
+ *
+ * *Why this exists.* Firebase links a provider sign-in into an existing account when the
+ * addresses match, and `POST /auth/signup` (#6) creates the Firebase Auth user **before**
+ * the address is confirmed. Together those let someone sign up as `victim@example.com`
+ * with a password of their choosing, wait for the real owner to tap Sign in with Google,
+ * and inherit an account that Eva then marks activated on the owner's behalf. Overwriting
+ * an unproven password at the moment of linking is what closes it.
+ *
+ * Only ever called for an account whose address was never confirmed. A confirmed one has
+ * already proven the password belongs to its owner.
+ *
+ * The cost, stated: someone who genuinely signed up with a password, never clicked the
+ * link, and then used Google has their own password invalidated too. Nothing here can tell
+ * those two people apart, and the recovery — forgot-password — is the flow they would have
+ * needed anyway.
+ */
+export const invalidateUnprovenPassword = (uid: string): Promise<void> =>
+  setPassword(uid, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'))

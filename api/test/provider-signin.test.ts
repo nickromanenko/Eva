@@ -150,6 +150,36 @@ const accountsForEmail = async (email: string): Promise<string[]> =>
         .map((doc) => doc.id)
         .sort();
 
+/**
+ * Does this password still open this account? The question the takeover fix turns on.
+ *
+ * Asked of Google **directly**, with `fetch`, deliberately touching neither `POST
+ * /auth/signin` nor `identity-toolkit.ts`. Both are unusable for it:
+ *
+ * - The route would answer `403 NOT_ACTIVATED` for exactly the accounts this cares about,
+ *   hiding a live credential behind a gate.
+ * - The module is replaced by `mock.module` in this file *and* in
+ *   `signin-non-enumeration.test.ts`. Those mocks are process-global, permanent, and
+ *   installed by whichever file Bun loads first — so even the snapshot taken at the top of
+ *   this file can already be another suite's fake. An earlier version of this helper used
+ *   that snapshot, passed when the file ran alone, and reported "the password was already
+ *   dead" for every account in a full run.
+ *
+ * Not touching the module at all is the only version that answers about the credential
+ * rather than about the test run.
+ */
+const passwordStillWorks = async (email: string, password: string): Promise<boolean> => {
+    const res = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+        {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email, password, returnSecureToken: true }),
+        },
+    );
+    return res.ok;
+};
+
 const activatedAt = async (uid: string): Promise<unknown> =>
     (await firestore.collection("users").doc(uid).get()).get("activatedAt");
 
@@ -171,7 +201,7 @@ afterAll(async () => {
     }
     // Hand the module back as it was found — Bun's mocks are permanent and process-global.
     mock.module("../src/identity-toolkit", () => identityToolkit);
-});
+}, 120_000);
 
 describe("POST /auth/idp — identity is the provider's sub, and only sub", () => {
     test(
@@ -199,14 +229,20 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
     );
 
     test(
-        "an unseen sub creates a separate account even when the address matches an existing one",
+        "the account is whichever uid the boundary returns — this route never looks up an email",
         async () => {
+            // Whether a shared address resolves to one account or two is **Firebase's**
+            // decision (`Settings → User account linking`, set to "Link accounts that use
+            // the same email" on 2026-09-03), and it is made before this route sees
+            // anything. What is ours, and all this can prove, is that the route adds no
+            // second opinion: it acts on the uid it was handed and performs no lookup of
+            // its own. A regression that grew one would show up here as the pre-existing
+            // account being touched.
+            //
+            // This is also the real Hide My Email case: a relay address matches nothing,
+            // so Firebase hands back a new uid and the user gets a new account.
             const email = newEmail();
             const passwordUid = await trackedUnactivatedAccount(email);
-            // Firebase would key the unseen Apple `sub` to a brand-new Auth account. It is
-            // stood up here under its own address only because the Admin SDK refuses two
-            // Auth users with one address; what the route is given — and all it acts on —
-            // is the uid and the address the boundary returns, which is the shared one.
             const appleUid = await createAuthUser(newEmail());
             idp = () => ({ localId: appleUid, email });
 
@@ -215,14 +251,63 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             expect(res.status).toBe(200);
             expect(res.body.user.id).toBe(appleUid);
             expect(res.body.user.id).not.toBe(passwordUid);
-            // Two accounts, one address. That is the decided cost of never matching on
-            // email, stated as a test so nobody "fixes" it into an auto-merge later.
             expect(await accountsForEmail(email)).toEqual([appleUid, passwordUid].sort());
 
-            // And the pre-existing account is untouched: not linked, not activated.
+            // The account the route was NOT pointed at is untouched — no link, no
+            // activation, and its password still its own.
             const original = (await getUser(passwordUid))!;
             expect(original.authProviders).toEqual(["password"]);
             expect(original.activated).toBe(false);
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
+        },
+        SLOW,
+    );
+
+    test(
+        "linking onto an unactivated password account kills the password that was never proven",
+        async () => {
+            // The takeover this closes: Firebase merges a provider sign-in into an existing
+            // account when the addresses match, and `POST /auth/signup` (#6) creates that
+            // account before anyone proves the address. So an attacker signs up as the
+            // victim, waits for the victim to tap Sign in with Google, and inherits an
+            // account this route then marks activated for them.
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+            idp = () => ({ localId: uid, email });
+
+            // Asserted before as well as after, so the "false" below can only mean the
+            // password changed — not that it was never right, or that some gate refused it.
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
+
+            const res = await post("/auth/idp", appleBody());
+            expect(res.status).toBe(200);
+            expect(res.body.user.id).toBe(uid);
+            expect(await accountsForEmail(email)).toEqual([uid]);
+            expect(res.body.user.authProviders.sort()).toEqual(
+                ["password", PROVIDER_IDS.apple].sort(),
+            );
+
+            // The attacker's password is gone.
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(false);
+        },
+        SLOW,
+    );
+
+    test(
+        "an already-activated account keeps its password when a provider is linked to it",
+        async () => {
+            // The other half, and the reason the check is on `activatedAt` rather than on
+            // "has a password": someone who confirmed their address has proven the password
+            // is theirs. Invalidating it here would log a real user out of their own
+            // account for adding Apple to it.
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+            await markActivated(uid);
+            idp = () => ({ localId: uid, email });
+
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
+            expect((await post("/auth/idp", appleBody())).status).toBe(200);
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
         },
         SLOW,
     );

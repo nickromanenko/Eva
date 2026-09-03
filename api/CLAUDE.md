@@ -108,11 +108,19 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   earlier would tell any caller which addresses have Eva accounts. `/auth/activation/resend`
   and `/auth/password/forgot` answer `200 { sent: true }` for every well-formed address,
   registered or not, for the same reason.
-- **A provider sign-in never matches on email (#7).** `POST /auth/idp` resolves an account
-  from the provider's `sub` alone — an unseen `sub` is a new account even when the address
-  matches an existing one — and comes back already activated. Attaching a provider to an
-  existing account is `POST /me/auth/providers`, deliberate and authenticated. Neither
-  stores a display name, and `users/{uid}` gains no field.
+- **This code never matches on email; Firebase does (#7).** `POST /auth/idp` acts on the
+  uid `signInWithIdp` returns and performs no lookup of its own — never add one. Whether a
+  shared address resolves to one account or two is the console's
+  *"Link accounts that use the same email"* setting, and it is set to link. A relay address
+  from Hide My Email matches nothing and so still creates a new account; joining that one
+  to an existing account is `POST /me/auth/providers`, deliberate and authenticated.
+- **`/auth/idp` invalidates an unproven password before it mints a session (#7).** Because
+  sign-up creates the Auth user before the address is confirmed, an account that is linked
+  while still unactivated carries a password chosen by someone who never proved they own
+  the address. `invalidateUnprovenPassword` overwrites it, and the route fails closed if
+  that call fails. Removing this re-opens an account takeover.
+- A provider session comes back already activated, stores no display name, and adds no
+  field to `users/{uid}`.
 - CORS is on exactly the two routes the website's link pages call (`/auth/activate`,
   `/auth/password/reset`), for exactly `config.publicWebOrigin`. Never `*`, never a third
   route: an allowed origin is a page that can spend a token it was handed.

@@ -19,26 +19,31 @@ Values this repo already fixes:
 
 ---
 
-## 0. The setting to change before anyone signs in
+## 0. The setting to leave alone
 
-Firebase console → Authentication → Settings → **User account linking**.
+Firebase console → Authentication → Settings → **User account linking**, set to
+**"Link accounts that use the same email"**. Decided 2026-09-03. Do not change it.
 
-The default is *"Link accounts that use the same email address"*. Change it to
-**"Create multiple accounts for each identity provider"**.
+Firebase therefore merges a provider sign-in into an existing password account whenever
+the addresses match, and returns that account's uid. `ensureUser` lands on the same
+`users/{uid}` document and adds the provider. **That is deliberate**: it is what this
+issue's PRD edge case always asked for — a Google sign-up for an existing email/password
+account logs into it — and the alternative silently hands people a second, empty account
+and the impression their cycle history is gone.
 
-This is the most consequential step on the page and the easiest to skip, because nothing
-visibly breaks either way. On the default, Firebase itself merges an Apple sign-in into an
-existing password account whenever the addresses match — underneath our code, whatever our
-code says. #7's decision rejects exactly that: identity is Apple's `sub` and only `sub`,
-because an address is self-asserted at some other provider and auto-linking on one is an
-account-takeover shape.
+Two things follow, and both are load-bearing:
 
-Change it **before** the first production Apple or Google sign-in. Afterwards it does not
-retroactively split accounts that were already merged.
+- **No code in this repo may match on email.** The rule lives in the console. A second
+  copy in `identity-toolkit.ts` is how the two come to disagree, and the disagreement
+  would be invisible.
+- **Auto-linking is only safe because `POST /auth/idp` invalidates an unproven password.**
+  Sign-up (#6) creates the Firebase Auth user *before* the address is confirmed, so
+  without that step someone could register a victim's address, wait for them to sign in
+  with Google, and inherit the account. See #7's Decisions section.
 
-> Confirm the two option labels against your console — they are worded slightly
-> differently across Firebase and Identity Platform, and I have not seen this project's
-> console. The setting is the one under Authentication → Settings.
+Hide My Email is unaffected either way: Apple's relay address matches nothing, so those
+users get a new account regardless, and the deliberate link from Profile
+(`POST /me/auth/providers`) is their only route to an existing one.
 
 ---
 
