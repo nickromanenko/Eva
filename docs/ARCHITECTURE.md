@@ -281,6 +281,26 @@ one call. It asks `adminAuth.getUser` rather than `users/{uid}` — Eva's
 `authProviders` is a mirror, and sign-up writes the Auth user before the document, so a
 failure between the two leaves an account the mirror cannot see.
 
+**Unlinking closes only one of the two orderings, so the address is checked as well.** The
+paragraph above assumes the *victim* reaches `/auth/idp` first. Nothing makes them: the
+attacker knows when they pre-registered, and can simply sign in here themselves as soon as
+their identity is attached. Then nothing is stripped — `password` and their own `apple.com`
+are both kept — and the account is marked activated, which disarms the claim permanently, so
+the victim's later Google sign-in merges onto an account the attacker holds.
+
+What separates the two orderings is the address. Firebase merged the victim's provider into
+the account *because* the provider's own address equals the account's; an identity attached
+out of band has no such equality and cannot manufacture one without controlling the address,
+at which point they are the owner. So on an account Firebase's `providerData` shows a
+password on — one somebody reserved without proving — the provider signing in must carry
+that account's address. Otherwise `claimUnprovenAccount` returns `refused`, the route answers
+`401 INVALID_CREDENTIALS`, and crucially **does not activate**: the stamp is what would make
+the takeover permanent. It fails closed on a missing provider address, and only in that
+branch, so Apple's Hide My Email relay — which creates a fresh account with no password — is
+never affected. The function also re-reads the account after writing it, so the loser of a
+race between two concurrent claims is refused rather than handed a session for an account
+that no longer carries its identity.
+
 It fires on `activatedAt` being null and nothing else. No legitimate flow puts a second
 provider on an unactivated account: Eva's link route is behind `requireAuth`, and an
 unactivated account cannot sign in to obtain a token. A confirmed address has already

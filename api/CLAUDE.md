@@ -123,8 +123,16 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   provider has nothing for forgot-password to reset, and the two cannot be asked for in
   one `updateUser` anyway. It asks
   `adminAuth.getUser`, never `users/{uid}`, because the mirror cannot see an Auth user
-  whose document was never written. Gated on `activatedAt` being null alone. Removing any
-  part of this re-opens an account takeover; ARCHITECTURE §3 walks it through.
+  whose document was never written. Gated on `activatedAt` being null alone.
+- **Unlinking is half of it; the address test is the other half.** Stripping defends only
+  the ordering where the victim signs in first, and the attacker can always choose to go
+  first — nothing is stripped when `password` and their own provider are the only two, and
+  activation then disarms the claim forever. So on an account that already carries a
+  password, the provider signing in must carry that account's own address (the fact that
+  made Firebase merge it). Otherwise `claimUnprovenAccount` returns `refused` and the route
+  answers 401 **without activating**. Fails closed on a missing provider address; a fresh
+  provider account has no password and never reaches that branch, so Hide My Email is safe.
+  Removing any part of this re-opens an account takeover; ARCHITECTURE §3 walks it through.
 - A provider session comes back already activated, stores no display name, and adds no
   field to `users/{uid}`.
 - CORS is on exactly the two routes the website's link pages call (`/auth/activate`,

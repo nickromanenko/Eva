@@ -155,6 +155,49 @@ gh variable set APPLE_KEY_ID         --body "<key id from step 3>"
 shape as `eva-jwt-secret` and `eva-postmark-key`. All five are declared in
 `api/src/config.ts` and `api/.env.example` when the code lands (GUARDRAILS 4).
 
+### 6a. The Cloud Run service account must be able to sign for itself
+
+`POST /me/auth/providers` mints a Firebase custom token for the signed-in uid
+(`idTokenForUid`), and `createCustomToken` signs it with the runtime service account — which
+requires that account to hold `serviceAccountTokenCreator` **on itself**. Nothing else in
+Eva needs it, so it is easy to miss, and it fails only in production: every test mocks
+`idTokenForUid`, so no verify command can catch it.
+
+```sh
+gcloud iam service-accounts add-iam-policy-binding \
+  976826401031-compute@developer.gserviceaccount.com \
+  --member "serviceAccount:976826401031-compute@developer.gserviceaccount.com" \
+  --role roles/iam.serviceAccountTokenCreator \
+  --project eva-ai-made-for-women
+```
+
+Without it, linking a provider from Profile is the one route that answers `500 INTERNAL` in
+production while every other route works.
+
+### 6b. The deploy workflow has to pass them on — an infra change, so it is yours
+
+Setting the repo variables is not enough: `.github/workflows/deploy-api.yml` names every
+env var it forwards, and `--set-env-vars` **replaces** the whole set rather than adding to
+it, so the line has to be edited rather than appended to. Until it is, Google sign-in
+answers `503` in production and Apple revocation returns `unconfigured` — which
+`revokeApple` logs and swallows, so the app would ship Sign in with Apple *and* in-app
+deletion with revocation silently disabled. That is the §3 rejection risk, arriving quietly.
+
+Add to the existing `--set-env-vars` list:
+
+```
+GOOGLE_IOS_CLIENT_ID=${{ vars.GOOGLE_IOS_CLIENT_ID }},APPLE_CLIENT_ID=${{ vars.APPLE_CLIENT_ID }},APPLE_TEAM_ID=${{ vars.APPLE_TEAM_ID }},APPLE_KEY_ID=${{ vars.APPLE_KEY_ID }}
+```
+
+and to `--set-secrets`:
+
+```
+APPLE_SIGNIN_KEY=eva-apple-signin-key:latest
+```
+
+Left undone in the #7 PR on purpose: `docs/AUTONOMY.md` puts infra implementation, and
+anything touching Secret Manager, on the human side of the table.
+
 ---
 
 ## What this does not cover
@@ -165,6 +208,10 @@ shape as `eva-jwt-secret` and `eva-postmark-key`. All five are declared in
 - **App Store policy.** Offering Google sign-in obliges the app to offer Sign in with
   Apple too. Both ship together in #7, so this is satisfied by construction — but it is
   the reason neither can ship alone.
-- **Existing accounts.** Nobody's account changes. A user with an email/password account
-  who taps Sign in with Apple gets a **second, separate account**, by decision, and joins
-  them deliberately from Profile while signed in to the one they want to keep.
+- **Existing accounts.** A user with an email/password account who taps Sign in with Apple
+  at the *same address* is merged onto their existing account by Firebase, per §0 — the
+  setting decides this before Eva sees anything. This paragraph used to say they got a
+  second, separate account, which was true of the earlier design and is now the opposite of
+  what happens; it is left corrected rather than deleted because it is the sentence a reader
+  reaches for when reasoning about `claimUnprovenAccount`. Linking from Profile is still how
+  a *different* address is attached deliberately.

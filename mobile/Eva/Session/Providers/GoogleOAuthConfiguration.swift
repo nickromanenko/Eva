@@ -135,14 +135,19 @@ struct GoogleOAuthConfiguration: Equatable, Sendable {
         let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let value = { (name: String) in items.first { $0.name == name }?.value }
 
+        // Checked before anything else in the callback is read — including `error` — so a
+        // callback that is not ours is never partially trusted. It used to come second, and
+        // a forged callback carrying `error=access_denied` was reported to the user as their
+        // own cancellation without any state check having happened. No credential was ever
+        // accepted on that path, but the comment claimed a property the order did not have.
+        // OAuth requires `state` to come back on the error response too, so this costs the
+        // real cancellation nothing.
+        guard value("state") == expectedState else {
+            throw ProviderSignInError.callbackNotForThisRequest
+        }
         if let error = value("error") {
             guard error == "access_denied" else { throw ProviderSignInError.providerFailed }
             return nil
-        }
-        // Checked before the code is read, so a callback that is not ours is never
-        // partially trusted.
-        guard value("state") == expectedState else {
-            throw ProviderSignInError.callbackNotForThisRequest
         }
         guard let code = value("code"), !code.isEmpty else {
             throw ProviderSignInError.malformedProviderResponse

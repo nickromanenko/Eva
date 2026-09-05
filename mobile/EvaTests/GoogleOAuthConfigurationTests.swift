@@ -151,6 +151,18 @@ struct GoogleOAuthConfigurationTests {
         }
     }
 
+    @Test("State is checked before the error, so a forged cancellation is still refused")
+    func stateIsCheckedBeforeError() {
+        // The order used to be the other way round: a callback carrying
+        // `error=access_denied` returned `nil` — reported to the user as their own
+        // cancellation — without the state ever being compared. No credential was accepted
+        // either way, but the comment on the function claimed a check that had not run.
+        let url = URL(string: "\(Self.scheme):/oauth2redirect?error=access_denied&state=OTHER")!
+        #expect(throws: ProviderSignInError.callbackNotForThisRequest) {
+            try GoogleOAuthConfiguration.authorizationCode(from: url, expectedState: "STATE")
+        }
+    }
+
     @Test("A callback with no code is malformed")
     func missingCodeThrows() {
         for query in ["state=STATE", "state=STATE&code="] {

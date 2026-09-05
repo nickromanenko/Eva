@@ -676,21 +676,56 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
         expect(lastIdp).toBeNull();
     });
 
-    test.skipIf(config.providers.googleIosClientId !== null)(
-        "Google is unavailable, not broken, while its client id is unprovisioned",
-        async () => {
-            const res = await post("/auth/idp", {
+    /**
+     * Both halves, chosen by config rather than skipped on it.
+     *
+     * This was `test.skipIf(config.providers.googleIosClientId !== null)`, which meant the
+     * last remaining Google assertion in the file disappeared silently the moment anyone
+     * followed `docs/PROVIDER-SIGNIN.md` §4 and set `GOOGLE_IOS_CLIENT_ID` in `api/.env`.
+     * A test that deletes itself when the feature is turned on is worse than no test: it
+     * reads as coverage.
+     *
+     * `fetch` is stubbed either way, so neither branch can reach Google's token endpoint
+     * from `bun test` — the unprovisioned branch asserts it never tries.
+     */
+    test("Google's exchange answers for its configured state, and never leaves the process", async () => {
+        const calls: string[] = [];
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (async (input: any, init?: any) => {
+            calls.push(String(input?.url ?? input));
+            return new Response(JSON.stringify({ error: "invalid_grant" }), {
+                status: 400,
+                headers: { "content-type": "application/json" },
+            });
+        }) as typeof fetch;
+
+        let res: Answer;
+        try {
+            res = await post("/auth/idp", {
                 provider: "google",
                 code: "auth-code",
                 codeVerifier: "code-verifier",
                 redirectUri: "com.googleusercontent.apps.1234:/oauth2redirect",
             });
+        } finally {
+            globalThis.fetch = realFetch;
+        }
 
+        if (config.providers.googleIosClientId === null) {
+            // Unprovisioned: a page for an operator, not a verdict about the credential —
+            // and nothing was sent anywhere.
             expect(res.status).toBe(503);
             expect(res.body.error.code).toBe("SERVICE_UNAVAILABLE");
-            expect(lastIdp).toBeNull();
-        },
-    );
+            expect(calls).toEqual([]);
+        } else {
+            // Provisioned: Google refused the code, which is about the caller.
+            expect(res.status).toBe(401);
+            expect(res.body.error.code).toBe("INVALID_CREDENTIALS");
+            expect(calls.some((url) => url.includes("oauth2.googleapis.com"))).toBe(true);
+        }
+        // Either way the boundary is never reached: there is no ID token to hand it.
+        expect(lastIdp).toBeNull();
+    });
 });
 
 describe("POST /me/auth/providers — linking is deliberate, and never a merge", () => {
@@ -767,27 +802,46 @@ describe("DELETE /me — Apple revocation never fails the delete", () => {
                 logged.push(args.map(String).join(" "));
             });
 
+            // Stubbed so this cannot become a live request to `appleid.apple.com` from
+            // `bun test`. It is not hypothetical: with `APPLE_*` set in `api/.env` — which
+            // `docs/PROVIDER-SIGNIN.md` §6 asks for — the unconfigured early return is gone
+            // and the next line is an outbound call carrying a real signed client secret.
+            const calls: string[] = [];
+            const realFetch = globalThis.fetch;
+            globalThis.fetch = (async (input: any) => {
+                calls.push(String(input?.url ?? input));
+                return new Response(JSON.stringify({ error: "invalid_grant" }), {
+                    status: 400,
+                    headers: { "content-type": "application/json" },
+                });
+            }) as typeof fetch;
+
             let res: Answer;
             try {
                 res = await send("DELETE", "/me", { appleAuthorizationCode: APPLE_CODE }, bearer(token));
             } finally {
+                globalThis.fetch = realFetch;
                 spy.mockRestore();
             }
 
-            // Apple is unprovisioned in every environment this suite runs in, so the
-            // revocation cannot succeed — which is the case under test: the delete goes
-            // through anyway. A configured environment takes the same branch on any Apple
-            // failure, and that half is unproven here.
+            // The revocation cannot succeed here, by either route: unprovisioned, or
+            // provisioned and refused by the stub. Which one is config's business — what is
+            // under test is that the delete goes through regardless, because Apple's
+            // entitlement is not worth stranding a user who asked to be gone.
             expect(res.status).toBe(200);
             expect(res.body).toEqual({ deleted: true });
             expect(await getUser(uid)).toBeNull();
             expect((await firestore.collection("users").doc(uid).get()).exists).toBe(false);
             await expect(adminAuth.getUser(uid)).rejects.toThrow();
 
-            // One line, and nothing in it that a credential could be recovered from.
+            // One line, and nothing in it that a credential could be recovered from. The
+            // stage is asserted against config rather than pinned to "unconfigured", which
+            // was a value this test could only ever see before the feature was turned on.
             const line = logged.join(" ");
             expect(line).toContain("apple_revocation_failed");
-            expect(line).toContain("unconfigured");
+            expect(line).toContain(
+                config.providers.apple.clientId === null ? "unconfigured" : "token",
+            );
             expect(line).not.toContain(APPLE_CODE);
             expect(line).not.toContain(email);
             expect(line).not.toContain(uid);

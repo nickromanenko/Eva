@@ -253,13 +253,14 @@ const appleClientSecret = async (credentials: AppleCredentials): Promise<string>
  * user's data still going is more important than Apple's token going (#7).
  *
  * `stage` says how far it got, with no credential and nothing about the user in it:
- * `unconfigured` (Apple's keys are not provisioned), `token` (the code would not exchange —
- * usually one already spent, or older than its five minutes), `revoke` (Apple refused the
- * revocation itself).
+ * `unconfigured` (Apple's keys are not provisioned), `client-secret` (the `.p8` we hold
+ * would not sign — a configuration fault of ours, and the one stage no retry and no client
+ * change can fix), `token` (the code would not exchange — usually one already spent, or
+ * older than its five minutes), `revoke` (Apple refused the revocation itself).
  */
 export interface RevocationOutcome {
   ok: boolean
-  stage: 'revoked' | 'unconfigured' | 'token' | 'revoke'
+  stage: 'revoked' | 'unconfigured' | 'client-secret' | 'token' | 'revoke'
   upstreamStatus: number | null
 }
 
@@ -284,10 +285,22 @@ export const revokeAppleToken = async (
   const credentials = appleCredentials()
   if (!credentials) return { ok: false, stage: 'unconfigured', upstreamStatus: null }
 
+  // Outside the `try` below, deliberately. Building the client secret is our own work, not
+  // an exchange with Apple: it fails when the `.p8` in Secret Manager is malformed — PKCS#1
+  // where PKCS#8 was expected, or a newline that did not survive the env var. Inside, that
+  // would be reported as `token`, which reads as "the code was already spent" and points
+  // the operator at the client instead of at the configuration.
   let clientSecret: string
-  let refreshToken: string
   try {
     clientSecret = await appleClientSecret(credentials)
+  } catch {
+    // The `DOMException` is dropped rather than attached: WebCrypto puts nothing useful in
+    // it, and the key material is what it was handed (GUARDRAILS 1).
+    return { ok: false, stage: 'client-secret', upstreamStatus: null }
+  }
+
+  let refreshToken: string
+  try {
     const json = (await form(APPLE_TOKEN_URL, {
       grant_type: 'authorization_code',
       code: authorizationCode,

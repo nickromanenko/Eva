@@ -12,8 +12,15 @@ struct APIUser: Codable {
     /// field can only describe an activated account. Being tolerant here is what lets a
     /// build of this app validate a session against an API that predates the field.
     let activated: Bool
-    /// The ways this account can be signed in to — `"password"`, `"apple"`, `"google"`
-    /// (#7). The server's `users/{uid}.authProviders`, verbatim.
+    /// The ways this account can be signed in to — `"password"`, `"apple.com"`,
+    /// `"google.com"` (#7). The server's `users/{uid}.authProviders`, verbatim, which means
+    /// **Firebase's** provider ids and not the words the app sends in a request body.
+    ///
+    /// This comment said `"apple"` and `"google"` until the review of #7. It was wrong, and
+    /// it was the source of the defect: `EvaAuthProvider.rawValue` was compared against
+    /// these strings, so Profile showed Apple as unconnected for every Apple user and the
+    /// delete flow skipped Apple revocation — an App Review requirement — in silence. Use
+    /// `EvaAuthProvider.firebaseProviderID`, never `rawValue`.
     ///
     /// Defaults to **empty**, not to `["password"]`, when the API does not send it. Empty
     /// is the honest reading of an absent field: it says *this build cannot tell you*,
