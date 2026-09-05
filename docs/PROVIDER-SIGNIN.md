@@ -174,6 +174,29 @@ gcloud iam service-accounts add-iam-policy-binding \
 Without it, linking a provider from Profile is the one route that answers `500 INTERNAL` in
 production while every other route works.
 
+### 6c. Backfill `emailVerified` before enabling the providers in the console
+
+Run **once**, after the API carrying #7 is deployed and **before** step 5 turns the
+providers on:
+
+```sh
+cd api && bun run backfill:email-verified --dry-run   # count first
+cd api && bun run backfill:email-verified
+```
+
+Eva's activation is a Firestore field; Firebase's `emailVerified` is a different thing and
+nothing ever set it. `proveAddress` connects them from now on, but only for accounts that
+activate after it ships — every existing activated account stays unverified for ever.
+
+That matters because Identity Toolkit clears `passwordHash` and unlinks every provider when
+it merges a verified provider address onto an account whose own address is unverified. So
+the first existing user to tap the new "Sign in with Google" loses their Eva password, while
+Profile goes on showing that they have one. Forgot-password recovers them; nothing explains
+it to them.
+
+Ordering is the whole point: after the deploy, so `proveAddress` is live and the set stops
+growing; before the console switch, so no user can reach the merge path first.
+
 ### 6b. The deploy workflow has to pass them on — an infra change, so it is yours
 
 Setting the repo variables is not enough: `.github/workflows/deploy-api.yml` names every

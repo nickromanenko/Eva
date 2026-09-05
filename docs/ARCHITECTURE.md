@@ -354,12 +354,19 @@ stamp `activatedAt`, and for four review rounds they stamped it and nothing else
 takeover survived by waiting: reserve the address, attach a provider identity out of band,
 be refused at `/auth/idp`, and then sign in the moment the real owner activates or recovers.
 `proveAddress` (`identity-toolkit.ts`) runs on that transition — and only on the transition,
-so a provider linked deliberately from Profile survives a later password reset. It unlinks
+so a provider linked deliberately from Profile survives a later password reset. It runs
+**before** `activatedAt` is stamped, not after: the stamp is what disarms the claim gate, so
+retracting afterwards leaves a window in which `/auth/idp` skips the claim and mints a
+30-day session nothing can revoke, and leaves a failed retraction permanently unrepeatable
+because the transition has already been spent. Retract first and every failure leaves the
+account unactivated with the gate still armed. It unlinks
 every federated identity, revokes outstanding refresh tokens, and sets Firebase's
 `emailVerified`, which until then was never connected to Eva's `activatedAt` at all. That
 last part matters on its own: Identity Toolkit deletes the password *and every provider*
 when it merges a verified provider address onto an unverified account, so an activated user
-adding Google was silently losing the password their `authProviders` still advertised.
+adding Google was silently losing the password their `authProviders` still advertised. Accounts activated *before* this
+existed are not reached by it, so `bun run backfill:email-verified` corrects them once, and
+`docs/PROVIDER-SIGNIN.md` §6c puts that between the deploy and the console switch.
 
 It fires on `activatedAt` being null and nothing else. No legitimate flow puts a second
 provider on an unactivated account: Eva's link route is behind `requireAuth`, and an

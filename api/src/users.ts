@@ -152,35 +152,28 @@ export const getUser = async (uid: string): Promise<User | null> => {
 export const isActivated = (user: User): boolean => user.activated
 
 /**
- * What `markActivated` did, which is not the same question as whether the account is
- * activated (#7).
+ * Stamps `activatedAt`, once: a document already activated — by a timestamp, or by
+ * predating the field — is left exactly as it is, so the first confirmation stays the
+ * record of when the address was proven. `false` means there was nothing to activate: no
+ * document, or a tombstone. The caller treats that as a dead link, not an error.
  *
- * - `stamped` — this call is the moment the address became proven. The **transition**, and
- *   the only chance to retract credentials attached while it was not.
- * - `already` — it was proven before. Nothing changed.
- * - `gone` — no document, or a tombstone. A dead link, not an error.
- *
- * It returned a boolean until the fifth review of #7, which is how the takeover below went
- * unnoticed: `stamped` and `already` were the same answer, so no caller could act on the
- * transition, and `/auth/activate` and `/auth/password/reset` both stamped an account
- * without retracting anything an attacker had attached to it beforehand.
+ * It briefly reported *which* of those three it did, so a caller could act on the
+ * transition. That is no longer how the retraction is decided (#7): the routes read the
+ * account before writing anything and retract while it is still unactivated, because
+ * anything keyed on this call's result necessarily happens **after** the stamp — and the
+ * stamp is what disarms `/auth/idp`'s claim gate. See `proveAddress`.
  */
-export type ActivationOutcome = 'stamped' | 'already' | 'gone'
-
-/** Stamps `activatedAt`, once: a document already activated — by a timestamp, or by
- *  predating the field — is left exactly as it is, so the first confirmation stays the
- *  record of when the address was proven. */
-export const markActivated = async (uid: string): Promise<ActivationOutcome> => {
+export const markActivated = async (uid: string): Promise<boolean> => {
   const ref = users().doc(uid)
   return firestore.runTransaction(async (tx) => {
     const snapshot = await tx.get(ref)
-    if (!snapshot.exists || isTombstone(snapshot)) return 'gone'
-    if (isActivatedData(snapshot.data()!)) return 'already'
+    if (!snapshot.exists || isTombstone(snapshot)) return false
+    if (isActivatedData(snapshot.data()!)) return true
     tx.update(ref, {
       activatedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     })
-    return 'stamped'
+    return true
   })
 }
 

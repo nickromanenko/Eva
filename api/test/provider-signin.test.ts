@@ -3,6 +3,7 @@ import { mintToken } from "../src/auth";
 import { config } from "../src/config";
 import { adminAuth, firestore } from "../src/firebase";
 import { resetAuthRateLimits } from "../src/rate-limit";
+import { issueToken } from "../src/email-tokens";
 import { getUser, markActivated, markUserDeleted } from "../src/users";
 import { createUnactivatedAccount } from "./support/session";
 import type { IdpCredential } from "../src/identity-toolkit";
@@ -954,8 +955,10 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             const uid = await createAuthUser(email);
 
             const realFetch = globalThis.fetch;
-            // URL-aware: only Identity Toolkit's sign-in is faked. The Admin SDK lookup the
-            // fallback makes has to reach the emulator, which is the whole point.
+            // URL-aware so the intent is legible, though the fall-through is belt and
+            // braces: `firebase-admin` does not route through `globalThis.fetch`, so the
+            // fallback's `getUser` reaches the emulator regardless of this stub. Written
+            // this way so the test does not quietly depend on that staying true.
             globalThis.fetch = (async (input: any, init?: any) => {
                 const url = String(input?.url ?? input);
                 if (url.includes("accounts:signInWithIdp")) {
@@ -1338,7 +1341,20 @@ describe("the declared maximums are the maximums", () => {
         expect(overLimit.body.error.code).toBe("VALIDATION");
     }, SLOW);
 
-    test("an over-long redirect URI is refused", async () => {
+    test("a redirect URI at the ceiling is accepted and one past it is not", async () => {
+        // Pinned from below as well: silently lowering the ceiling would 400 a legitimate
+        // reversed-client-id redirect with nothing objecting.
+        const scheme = "com.googleusercontent.apps.1234:/";
+        const atLimit = await post("/auth/idp", {
+            provider: "google",
+            code: "a-code",
+            codeVerifier: "a-verifier",
+            redirectUri: scheme + times(512 - scheme.length),
+        });
+        // Not a validation failure: it gets as far as the exchange, which is unconfigured
+        // here and answers 503. What matters is that the edge did not refuse it.
+        expect(atLimit.body.error?.code).not.toBe("VALIDATION");
+
         const res = await post("/auth/idp", {
             provider: "google",
             code: "a-code",
@@ -1360,18 +1376,82 @@ describe("the declared maximums are the maximums", () => {
         const uid = await trackedUnactivatedAccount(email);
         const token = await mintToken(uid, email);
 
+        // At the ceiling first: a real Apple code must not be refused by a limit someone
+        // tightened without noticing.
+        const atLimit = await send(
+            "DELETE",
+            "/me",
+            { appleAuthorizationCode: times(2048) },
+            bearer(token),
+        );
+        expect(atLimit.body.error?.code).not.toBe("VALIDATION");
+
+        const secondEmail = newEmail();
+        const secondUid = await trackedUnactivatedAccount(secondEmail);
+        const secondToken = await mintToken(secondUid, secondEmail);
         const res = await send(
             "DELETE",
             "/me",
             { appleAuthorizationCode: times(2049) },
-            bearer(token),
+            bearer(secondToken),
         );
 
         expect(res.status).toBe(400);
         expect(res.body.error.code).toBe("VALIDATION");
         // And the account is still there, because the request was refused rather than
         // half-performed.
-        expect(await getUser(uid)).not.toBeNull();
+        expect(await getUser(secondUid)).not.toBeNull();
+    }, SLOW);
+});
+
+describe("activation retracts before it stamps", () => {
+    /**
+     * The ordering, pinned by its failure case — because the race it also closes is not
+     * deterministic and this is.
+     *
+     * `/auth/activate` used to stamp `activatedAt` and *then* retract. That left a window,
+     * three Admin SDK round trips wide, in which the document said activated while an
+     * attacker's provider was still linked; `/auth/idp` reads exactly that flag to decide
+     * whether to run its claim, so a request landing inside it skipped the claim and was
+     * minted a 30-day Eva JWT that nothing can revoke.
+     *
+     * And it left something worse than a window: the transition is spent once. If the
+     * retraction failed for any transient reason *after* the stamp had committed, no later
+     * activation or reset would ever run it again — the account stayed activated with the
+     * attacker's identity attached, permanently.
+     *
+     * So: if the retraction cannot complete, the account must not be activated. A user
+     * clicking their link again is the acceptable outcome; a half-done activation is not.
+     */
+    test("a retraction that fails leaves the account unactivated", async () => {
+        const email = newEmail();
+        const uid = await trackedUnactivatedAccount(email);
+        await attachProvider(uid, PROVIDER_IDS.google, newEmail());
+
+        // `proveAddress` is `getUser` then `updateUser`; failing the write is the realistic
+        // transient — a throttle, a blip, an instance losing its credentials mid-request.
+        const spy = spyOn(adminAuth, "updateUser").mockImplementation(() => {
+            throw new Error("transient");
+        });
+
+        let res: Answer;
+        try {
+            res = await post("/auth/activate", {
+                token: await issueToken(uid, email, "activation"),
+            });
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(res.status).toBe(500);
+        // The account is untouched: not activated, and the claim gate in `/auth/idp` is
+        // still armed for it. Stamping first would leave this a timestamp.
+        expect(await activatedAt(uid)).toBeNull();
+        // And the attacker's identity is still there to be retracted on the retry, rather
+        // than stranded on an account nothing will ever clean again.
+        expect(
+            (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort(),
+        ).toEqual([PROVIDER_IDS.google, "password"].sort());
     }, SLOW);
 });
 
@@ -1640,11 +1720,13 @@ describe("DELETE /me — Apple revocation never fails the delete", () => {
             const uid = await trackedUnactivatedAccount(email);
             const token = await mintToken(uid, email);
 
-            // Stubbed to *catch* a call rather than to serve one: making the revocation
-            // unconditional with an empty code left this test green, and once Apple is
-            // provisioned that regression is an outbound request to `appleid.apple.com` and
-            // an `apple_revocation_failed` line on **every** deletion — which would bury the
-            // real ones.
+            // Two observations, because one of them does not work where this runs. The
+            // `fetch` stub catches an outbound call — but only in an environment where
+            // Apple is provisioned, and neither `ci-api.sh` nor `api/.env` sets `APPLE_*`,
+            // so `revokeAppleToken` returns `unconfigured` before any request and the stub
+            // stays empty. The log line is the config-independent half: an unconditional
+            // revocation writes `apple_revocation_failed` on **every** deletion whether or
+            // not Apple is configured, which is the "bury the real ones" outcome.
             const calls: string[] = [];
             const realFetch = globalThis.fetch;
             globalThis.fetch = (async (input: any) => {
@@ -1654,18 +1736,26 @@ describe("DELETE /me — Apple revocation never fails the delete", () => {
                     headers: { "content-type": "application/json" },
                 });
             }) as typeof fetch;
+            const logged: string[] = [];
+            const spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+                logged.push(args.map(String).join(" "));
+            });
 
             let res: Answer;
             try {
                 res = await send("DELETE", "/me", {}, bearer(token));
             } finally {
                 globalThis.fetch = realFetch;
+                spy.mockRestore();
             }
 
             expect(res.status).toBe(200);
             expect(res.body).toEqual({ deleted: true });
             expect(await getUser(uid)).toBeNull();
             expect(calls.filter((url) => url.includes("appleid.apple.com"))).toEqual([]);
+            // Nothing was attempted, so nothing failed. This is the assertion that bites
+            // on both verify paths.
+            expect(logged.join(" ")).not.toContain("apple_revocation_failed");
         },
         SLOW,
     );

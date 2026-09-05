@@ -568,13 +568,23 @@ const activate = async (c: Context, raw: unknown) => {
     // The token was real but the account behind it is gone or going — a delete landed
     // between the email and the click. Nothing to activate, and a dead link is what the
     // holder of a deleted account's link should see.
-    const outcome = await markActivated(result.uid);
-    if (outcome === "gone") return tokenFailure(c, "invalid");
-    // The address is proven as of now, so anything attached to the account while it was not
-    // proven goes. `/auth/idp`'s claim never sees this account again — it is activated from
-    // here on — so this is the last chance to retract a provider identity someone attached
-    // to an address they had merely reserved.
-    if (outcome === "stamped") await proveAddress(result.uid);
+    const before = await readUser(result.uid);
+    if (before.deleted || !before.user) return tokenFailure(c, "invalid");
+    // **Retract first, stamp second, and the order is the whole point.** An earlier version
+    // stamped `activatedAt` and then retracted, which left a window — three Admin SDK round
+    // trips wide — in which the document said activated while the attacker's provider was
+    // still linked. `/auth/idp` reads exactly that flag to decide whether to run its claim,
+    // so a request landing inside the window skipped the claim and was minted a 30-day Eva
+    // JWT, which nothing can revoke. And a transient failure of the retraction left the
+    // account activated with the identity still attached, permanently, because the
+    // transition had already been spent.
+    //
+    // This way round, every failure leaves the account unactivated with the claim gate
+    // still armed, and the worst case is a user clicking their link again. `proveAddress`
+    // is idempotent, so two concurrent activations both running it is harmless.
+    if (!before.user.activated) await proveAddress(result.uid);
+    // Last, and still checked: a delete may have landed since the read above.
+    if (!(await markActivated(result.uid))) return tokenFailure(c, "invalid");
     return c.json({ activated: true });
 };
 
@@ -670,14 +680,17 @@ app.post("/auth/password/reset", async (c) => {
     if (!user) return tokenFailure(c, "invalid");
 
     await setPassword(result.uid, password);
-    // Proof of control of the address, whichever link it came by.
-    const outcome = await markActivated(result.uid);
     // Same retraction as the activation route, and reachable by the same person: this is
     // the recovery an owner is sent to when someone else has reserved their address, so it
     // has to take that person's credentials away rather than merely reset the password.
-    // Only on the transition — a long-activated user resetting a forgotten password keeps
-    // the Apple or Google identity they linked deliberately from Profile.
-    if (outcome === "stamped") await proveAddress(result.uid);
+    //
+    // Keyed on the state read *above*, before anything was written, and run before the
+    // stamp — see the activation route for why that order matters. Only when the account
+    // was not already activated: someone who linked Apple deliberately from Profile and
+    // then forgot their password must still have Apple afterwards.
+    if (!user.activated) await proveAddress(result.uid);
+    // Proof of control of the address, whichever link it came by.
+    await markActivated(result.uid);
     return c.json({
         token: await mintToken(result.uid, user.email),
         user: { ...user, activated: true },
