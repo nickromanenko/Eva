@@ -936,6 +936,56 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
     );
 
     test(
+        "a second sign-in resolves the account even when the provider sends no address",
+        async () => {
+            // The acceptance criterion for Apple's first-authorization behaviour, and the
+            // half that was missing: the two-call route test returns an address on *both*
+            // calls, so "resolves the account without them" was never built.
+            //
+            // Identity Toolkit fills `email` from the **incoming token** and never from the
+            // account it resolved to — `operations.js` takes only `emailVerified` from the
+            // stored user. So a token without the claim yields a response with a good
+            // `localId` and no address, and refusing it would answer 503 to every returning
+            // Apple user, on the ordinary path, with no client recovery.
+            //
+            // Driven through the real client rather than the route, because the fallback
+            // lives inside `signInWithIdp` and the route sees this file's mock of it.
+            const email = newEmail();
+            const uid = await createAuthUser(email);
+
+            const realFetch = globalThis.fetch;
+            // URL-aware: only Identity Toolkit's sign-in is faked. The Admin SDK lookup the
+            // fallback makes has to reach the emulator, which is the whole point.
+            globalThis.fetch = (async (input: any, init?: any) => {
+                const url = String(input?.url ?? input);
+                if (url.includes("accounts:signInWithIdp")) {
+                    return new Response(
+                        JSON.stringify({ localId: uid, idToken: "a-firebase-id-token" }),
+                        { status: 200, headers: { "content-type": "application/json" } },
+                    );
+                }
+                return realFetch(input, init);
+            }) as typeof fetch;
+
+            let result: { localId: string; email: string } | undefined;
+            try {
+                result = await realSignInWithIdp({
+                    provider: "apple",
+                    idToken: IDENTITY_TOKEN,
+                    rawNonce: RAW_NONCE,
+                });
+            } finally {
+                globalThis.fetch = realFetch;
+            }
+
+            expect(result?.localId).toBe(uid);
+            // Answered from the account, not invented and not blank.
+            expect(result?.email).toBe(email);
+        },
+        SLOW,
+    );
+
+    test(
         "a sign-in with no address is an outage, not a verdict about the caller",
         async () => {
             // There is nothing to write on a new document and inventing an address is worse
@@ -944,6 +994,10 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             // tell the user their Apple ID is bad, which it is not, and give them nothing
             // to do about it. Deleting the check ships a `500 INTERNAL` instead, because
             // Firestore rejects `email: undefined`.
+            //
+            // `some-uid` is deliberately an account that does not exist, so this also covers
+            // the branch where the fallback lookup finds nothing: no address on the wire and
+            // none to be had from Firebase either is the one case that is still refused.
             const realFetch = globalThis.fetch;
             globalThis.fetch = (async (_input: any) =>
                 new Response(

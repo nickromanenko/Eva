@@ -294,11 +294,37 @@ export const signInWithIdp = async (
   // tell one from another (GUARDRAILS 12b).
   requireSignedIn(json)
   if (!json.localId) throw new IdentityToolkitError('MISSING_LOCAL_ID', null, 'unavailable')
-  // No address means there is nothing to write on a new `users/{uid}` document, and
-  // inventing one is worse than refusing. Classified as an outage rather than a rejection
-  // because it is a surprise about our project's configuration, not about the caller —
-  // so it pages an operator instead of telling a user their Apple ID is bad.
-  if (!json.email) throw new IdentityToolkitError('MISSING_EMAIL', null, 'unavailable')
+  // *A response with no address is not always an error — and this is the returning Apple
+  // user.* Identity Toolkit fills `email` from the **incoming token**, never from the
+  // account it resolved to (`operations.js`: `response.email` is the parsed claim, and only
+  // `emailVerified` is ever taken from the stored user). Apple is documented to send the
+  // address on the *first* authorization; if a later one omits it, this response carries a
+  // `localId` for a perfectly good account and no address at all.
+  //
+  // Refusing that would 503 every returning Apple user, which is what the issue's "a test
+  // proves a second sign-in still resolves the account without them" is about. So ask the
+  // account: it already exists, `ensureUser` is about to write its address onto the
+  // document, and the authoritative copy is Firebase's.
+  //
+  // Whether Apple's *JWT claim* actually drops out — as distinct from the
+  // `ASAuthorizationAppleIDCredential.email` property, which certainly does — cannot be
+  // settled from here or by any test in this repo. `docs/PROVIDER-SIGNIN.md` lists it as a
+  // device-testing item. This makes us independent of the answer either way.
+  if (!json.email) {
+    // A lookup that fails is the same answer as one that finds no address: there is nothing
+    // to write on the document either way. Caught rather than propagated so the route
+    // answers 503 rather than falling through to `app.onError` as a 500 — the caller's
+    // recovery is identical, and an operator wants the `identity_toolkit_unavailable` line.
+    const email = await adminAuth
+      .getUser(json.localId)
+      .then((account) => account.email)
+      .catch(() => undefined)
+    // Genuinely no address anywhere: inventing one is worse than refusing. `unavailable`
+    // rather than `rejected` because it is a surprise about our project, not about the
+    // caller — an operator is paged instead of a user being told their Apple ID is bad.
+    if (!email) throw new IdentityToolkitError('MISSING_EMAIL', null, 'unavailable')
+    return { localId: json.localId, email }
+  }
   return { localId: json.localId, email: json.email }
 }
 

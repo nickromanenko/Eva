@@ -202,6 +202,16 @@ anything touching Secret Manager, on the human side of the table.
 
 ## What this does not cover
 
+- **Whether Apple's ID token keeps its `email` claim.** Apple documents that the address
+  and name are returned on the *first* authorization only, and
+  `ASAuthorizationAppleIDCredential.email` is certainly nil afterwards. Whether the **JWT
+  claim** also drops out is a different question and cannot be answered from this repo or by
+  any test in it. It matters because Identity Toolkit fills its response `email` from the
+  incoming token and never from the account it resolved to, so a token without the claim
+  yields a `localId` and no address. `identity-toolkit.ts` handles that by asking Firebase
+  for the account's own address, which makes Eva independent of the answer — but confirm on
+  a device that a *second* Apple sign-in still returns 200, because this is the ordinary
+  returning-user path.
 - **Testing.** Sign in with Apple needs a real device and a real Apple ID; the simulator
   cannot complete it. So the UI-test suite cannot drive the Apple path, the way #6 could
   not drive a mailbox. #7 will say what stands in for it rather than pretend otherwise.
