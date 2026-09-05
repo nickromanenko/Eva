@@ -326,8 +326,16 @@ export const setPassword = async (uid: string, password: string): Promise<void> 
  *   4. sign in at `/auth/idp` with their own Apple ID, forever.
  *
  * Overwriting the password alone defeats none of that — the attacker never uses it again.
- * Unlinking the other identities is what actually closes it, and revoking refresh tokens
- * retracts the session step 1 already handed them.
+ * Unlinking the other identities closes step 3, and revoking refresh tokens retracts the
+ * session step 1 already handed them.
+ *
+ * But unlinking closes only the ordering above, in which the *victim* reaches `/auth/idp`
+ * first. The attacker need not wait for step 3: they can sign in here themselves the moment
+ * step 2 is done, and then nothing is stripped — `password` and their own `apple.com` are
+ * both kept — while the call site marks the account activated, which disarms this function
+ * for every later call including the victim's. Hence the address test in the body: on an
+ * account someone pre-registered, the provider signing in must carry that account's own
+ * address, which is the fact that made Firebase merge them in the first place.
  *
  * Safe for real users because **no legitimate flow puts a second provider on an
  * unactivated account**: Eva's own link route is behind `requireAuth`, and an unactivated
@@ -339,14 +347,69 @@ export const setPassword = async (uid: string, password: string): Promise<void> 
  * The cost, stated: someone who genuinely signed up with a password, never clicked the
  * link, and then used Google has their own password invalidated. Nothing here can tell
  * those two people apart, and forgot-password is the flow they needed anyway.
+ *
+ * Returns `refused` rather than throwing, because it is a verdict about the credential and
+ * not a failure: the caller answers 401, and must not activate the account.
  */
-export const claimUnprovenAccount = async (uid: string, keepProviderId: string): Promise<void> => {
+/**
+ * What `claimUnprovenAccount` decided.
+ *
+ * - `claimed` — the account is now the caller's alone; the route may activate and mint.
+ * - `refused` — the account's address belongs to someone who has not proven it, and the
+ *   provider signing in is not them. Nothing was changed. The route must answer as it does
+ *   for any bad credential and must **not** mark the account activated.
+ */
+export type ClaimOutcome = 'claimed' | 'refused'
+
+/** Same address, ignoring case and absence-vs-presence. Two missing addresses are equal;
+ *  a missing one is never equal to a present one. */
+const sameAddress = (a: string | undefined, b: string | undefined): boolean =>
+  (a ?? '').toLowerCase() === (b ?? '').toLowerCase()
+
+export const claimUnprovenAccount = async (
+  uid: string,
+  keepProviderId: string,
+): Promise<ClaimOutcome> => {
   // Asked of Firebase, never of `users/{uid}`. Eva's `authProviders` is a mirror this
   // module does not write, and the two diverge in exactly the case that matters: sign-up
   // creates the Auth user before the document, so a failure between the two leaves an
   // account with the attacker's password and no document at all. A check against the
   // mirror reads that as a fresh account and does nothing.
   const account = await adminAuth.getUser(uid)
+
+  // Whoever holds a password on an unactivated account set it without proving the address,
+  // and `POST /auth/signup` (#6) let them reserve it. So a password here is the signal that
+  // this account may be a trap rather than a fresh one, and it is the only case that needs
+  // the address test below. A federated-only account has no such prior claim: it did not
+  // exist until this sign-in created it.
+  const preRegistered = account.providerData.some((p) => p.providerId === 'password')
+
+  // *Why the address has to match, and why checking the provider list is not enough.*
+  //
+  // Stripping the other identities defends the ordering where the victim reaches this
+  // route first. It does nothing about the attacker reaching it first, which they can
+  // always choose to do — they know when they signed up, and the victim does not know
+  // anything happened. Pre-registering `victim@gmail.com`, attaching their *own* Apple
+  // `sub` out of band, and then signing in here would otherwise strip nothing (both
+  // `password` and `apple.com` are kept), mint them a session, and — one line later at the
+  // call site — mark the account activated **permanently**, so the victim's real Google
+  // sign-in merges onto it with the claim disarmed and never runs this code again.
+  //
+  // What separates the two orderings is the address. Firebase merged the victim's provider
+  // into this account *because* the provider's own address equals the account's; an
+  // attacker's identity attached out of band has no such equality and cannot manufacture
+  // one without controlling the address, at which point they are the owner. So: a
+  // pre-registered account may only be claimed by a provider that carries its address.
+  //
+  // Fails **closed** on an absent provider address, deliberately and only here — an
+  // account with a password and no confirmed owner is the suspicious case already, and the
+  // real owner still has activation and forgot-password. A fresh provider account never
+  // reaches this branch, so Apple's Hide My Email relay cannot be locked out by it.
+  if (preRegistered) {
+    const signingIn = account.providerData.find((p) => p.providerId === keepProviderId)
+    if (!signingIn || !sameAddress(signingIn.email, account.email)) return 'refused'
+  }
+
   // `password` is overwritten below, never unlinked — the two cannot be asked for in one
   // `updateUser`, and unlinking is the wrong half anyway: an account left with no password
   // provider has nothing for forgot-password to reset, so the real owner would be locked
@@ -365,4 +428,13 @@ export const claimUnprovenAccount = async (uid: string, keepProviderId: string):
   // Toolkit directly and keep a refresh token alive indefinitely. Overwriting the password
   // does not retract one.
   await adminAuth.revokeRefreshTokens(uid)
+
+  // Read back rather than trust the write. Two `/auth/idp` calls racing on the same
+  // unactivated account each strip what the other kept, and both would otherwise be handed
+  // a session for an account that no longer carries their identity. Cheap, and the only
+  // thing between here and a token.
+  const settled = await adminAuth.getUser(uid)
+  if (!settled.providerData.some((p) => p.providerId === keepProviderId)) return 'refused'
+
+  return 'claimed'
 }

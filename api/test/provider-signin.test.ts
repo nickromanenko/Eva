@@ -3,7 +3,7 @@ import { mintToken } from "../src/auth";
 import { config } from "../src/config";
 import { adminAuth, firestore } from "../src/firebase";
 import { resetAuthRateLimits } from "../src/rate-limit";
-import { getUser, markActivated } from "../src/users";
+import { getUser, markActivated, markUserDeleted } from "../src/users";
 import { createUnactivatedAccount } from "./support/session";
 import type { IdpCredential } from "../src/identity-toolkit";
 
@@ -42,7 +42,7 @@ import type { IdpCredential } from "../src/identity-toolkit";
 // A copy, not the namespace object: `mock.module` replaces the bindings inside the live
 // namespace, so a reference taken from it later would be this file's own mock.
 const identityToolkit = { ...(await import("../src/identity-toolkit")) };
-const { IdentityToolkitError, PROVIDER_IDS } = identityToolkit;
+const { IdentityToolkitError, PROVIDER_IDS, claimUnprovenAccount } = identityToolkit;
 
 /** Captured before the mock replaces it, so the last describe can drive the real client
  *  against a stubbed `fetch` while every other test sees the fake. */
@@ -50,7 +50,9 @@ const realSignInWithIdp = identityToolkit.signInWithIdp;
 
 /** What the next `signInWithIdp` does. `null` is a bug in the test: a default that quietly
  *  succeeded would write a document for a fabricated uid into the live project. */
-let idp: ((credential: IdpCredential, linkTo?: string) => { localId: string; email: string })
+type IdpResult = { localId: string; email: string };
+let idp:
+    | ((credential: IdpCredential, linkTo?: string) => IdpResult | Promise<IdpResult>)
     | null = null;
 
 /** The last credential the route handed the boundary — how the nonce is checked without
@@ -187,6 +189,50 @@ const passwordStillWorks = async (email: string, password: string): Promise<bool
     return res.ok;
 };
 
+/**
+ * Attaches a provider identity to the Auth record, the way Firebase does as part of a real
+ * `signInWithIdp`. Never `catch`-swallowed: a link that fails silently is how the mock
+ * drifted from production in the first place.
+ */
+const attachProvider = async (
+    uid: string,
+    providerId: string,
+    providerEmail: string,
+): Promise<void> => {
+    await adminAuth.updateUser(uid, {
+        providerToLink: {
+            providerId,
+            uid: `${providerId}-sub-${crypto.randomUUID()}`,
+            email: providerEmail,
+        },
+    });
+};
+
+/**
+ * The fake boundary resolving to an existing account — and **linking the identity while it
+ * does**, because that is what Firebase does and `claimUnprovenAccount` reads the result.
+ *
+ * A mock that returned a uid without touching `providerData` described a world the route
+ * never meets in production: the provider that just signed in was absent from the record,
+ * so the `id !== keepProviderId` branch of the strip filter had nothing to keep and was
+ * never executed by any test. Deleting that branch outright left the suite fully green
+ * while every provider user's identity was unlinked a moment after they signed in.
+ *
+ * `providerEmail` defaults to the account's own address, which is the case Firebase's
+ * "link accounts that use the same email" setting produces. Pass a different one to build
+ * the identity an attacker attaches out of band.
+ */
+const resolveTo = (uid: string, email: string, providerEmail: string = email) =>
+    async (credential: IdpCredential): Promise<IdpResult> => {
+        const providerId = PROVIDER_IDS[credential.provider];
+        // Already linked is the second-sign-in case, and Firebase does not duplicate it.
+        // Tested for rather than caught, so a link that fails for any *other* reason throws.
+        const linked = (await adminAuth.getUser(uid)).providerData
+            .some((p) => p.providerId === providerId);
+        if (!linked) await attachProvider(uid, providerId, providerEmail);
+        return { localId: uid, email };
+    };
+
 const activatedAt = async (uid: string): Promise<unknown> =>
     (await firestore.collection("users").doc(uid).get()).get("activatedAt");
 
@@ -210,13 +256,72 @@ afterAll(async () => {
     mock.module("../src/identity-toolkit", () => identityToolkit);
 }, 120_000);
 
+describe("the provider ids are Firebase's strings, not ours", () => {
+    /**
+     * Pinned as literals, on purpose, and the only assertions in this file that do not go
+     * through `PROVIDER_IDS`.
+     *
+     * Every other test dereferences the constant, so all of them agree with it whatever it
+     * says — changing the source to `{ apple: "apple", google: "google" }` left the entire
+     * suite green. That is not a hypothetical: the identical defect shipped in the iOS half
+     * of this PR, where `EvaAuthProvider.rawValue` ("apple") was compared against Firebase's
+     * `"apple.com"`, and two tests asserted the wrong value was right.
+     *
+     * What it would cost here: `signInWithIdp` sends `providerId` on the wire, so Firebase
+     * would reject every provider sign-in in production, and `users/{uid}.authProviders`
+     * would hold a string the app's `firebaseProviderID` never matches — which silently
+     * disables Apple token revocation, an App Review requirement (`docs/PROVIDER-SIGNIN.md`).
+     */
+    test("apple is apple.com and google is google.com", () => {
+        expect(PROVIDER_IDS.apple).toBe("apple.com");
+        expect(PROVIDER_IDS.google).toBe("google.com");
+        // The request-body word is deliberately not the Firebase id. Asserting they differ
+        // keeps a "simplification" that collapses the two from passing.
+        expect(PROVIDER_IDS.apple).not.toBe("apple");
+        expect(PROVIDER_IDS.google).not.toBe("google");
+    });
+});
+
+describe("claimUnprovenAccount reads back what it wrote", () => {
+    test(
+        "an account that does not carry the kept provider afterwards is refused, not claimed",
+        async () => {
+            // The concurrency case, reachable without concurrency. Two `/auth/idp` calls
+            // racing on the same unactivated account each read `providerData` before either
+            // write lands, so each strips what the other kept — and both would otherwise be
+            // handed a session for an account that no longer carries their identity.
+            //
+            // Driven directly rather than through the route because a real race is not
+            // deterministic; what is under test is that the function refuses to report
+            // success for a state it can see is wrong. Here the provider was simply never
+            // attached, which is the same end state the loser of the race observes.
+            const uid = await createAuthUser(newEmail());
+
+            expect(await claimUnprovenAccount(uid, PROVIDER_IDS.apple)).toBe("refused");
+        },
+        SLOW,
+    );
+
+    test(
+        "the ordinary case still claims",
+        async () => {
+            const email = newEmail();
+            const uid = await createAuthUser(email);
+            await attachProvider(uid, PROVIDER_IDS.apple, email);
+
+            expect(await claimUnprovenAccount(uid, PROVIDER_IDS.apple)).toBe("claimed");
+        },
+        SLOW,
+    );
+});
+
 describe("POST /auth/idp — identity is the provider's sub, and only sub", () => {
     test(
         "a sub Firebase has seen lands on the same users/{uid}, with no second document",
         async () => {
             const email = newEmail();
             const uid = await createAuthUser(email);
-            idp = () => ({ localId: uid, email });
+            idp = resolveTo(uid, email);
 
             const first = await post("/auth/idp", appleBody());
             const second = await post("/auth/idp", appleBody());
@@ -251,7 +356,7 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             const email = newEmail();
             const passwordUid = await trackedUnactivatedAccount(email);
             const appleUid = await createAuthUser(newEmail());
-            idp = () => ({ localId: appleUid, email });
+            idp = resolveTo(appleUid, email);
 
             const res = await post("/auth/idp", appleBody());
 
@@ -280,7 +385,7 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             // account this route then marks activated for them.
             const email = newEmail();
             const uid = await trackedUnactivatedAccount(email);
-            idp = () => ({ localId: uid, email });
+            idp = resolveTo(uid, email);
 
             // Asserted before as well as after, so the "false" below can only mean the
             // password changed — not that it was never right, or that some gate refused it.
@@ -301,11 +406,14 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             // An account with no password provider has nothing for forgot-password to
             // reset, which would lock the real owner out of recovering it.
             //
-            // Apple is absent here only because `signInWithIdp` is mocked, so no Apple
-            // identity was ever really attached to the Auth account. The test below is the
-            // one that proves a *federated* identity does not survive.
+            // Apple survives too, and must: it is the identity that just signed in, and
+            // the filter keeps it by name. An earlier version of this assertion read
+            // `["password"]` — true only because the fake boundary never linked anything,
+            // which is what let the keep-branch go unexercised.
             const authRecord = await adminAuth.getUser(uid);
-            expect(authRecord.providerData.map((p) => p.providerId)).toEqual(["password"]);
+            expect(authRecord.providerData.map((p) => p.providerId).sort()).toEqual(
+                ["password", PROVIDER_IDS.apple].sort(),
+            );
         },
         SLOW,
     );
@@ -329,17 +437,138 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
                 (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort(),
             ).toEqual([PROVIDER_IDS.google, "password"].sort());
 
-            idp = () => ({ localId: uid, email });
+            idp = resolveTo(uid, email);
             expect((await post("/auth/idp", appleBody())).status).toBe(200);
 
-            // The attacker's Google identity is gone. `password` remains as a provider so
-            // the real owner can reset it, but the password itself no longer opens the
-            // account. (Apple is not listed because the boundary is mocked and never
-            // attached it for real.)
-            expect((await adminAuth.getUser(uid)).providerData.map((p) => p.providerId)).toEqual([
-                "password",
-            ]);
+            // The attacker's Google identity is gone, and Apple — the one that signed in —
+            // is still there. Both halves matter: stripping too little leaves the takeover
+            // open, stripping too much unlinks the user who just arrived and hands them a
+            // new uid on their next sign-in. `password` remains as a provider so the real
+            // owner can reset it, but the password itself no longer opens the account.
+            expect(
+                (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort(),
+            ).toEqual(["password", PROVIDER_IDS.apple].sort());
             expect(await passwordStillWorks(email, PASSWORD)).toBe(false);
+        },
+        SLOW,
+    );
+
+    test(
+        "the attacker cannot claim the account by reaching this route before the victim",
+        async () => {
+            // The ordering the strip alone does *not* close, and the reason the address
+            // test exists. Everything above assumes the victim signs in first. Nothing
+            // makes them: the attacker knows when they pre-registered, and the victim knows
+            // nothing has happened at all.
+            //
+            //   1. attacker signs up as victim@…, which reserves the address (#6);
+            //   2. attacker signs in at Identity Toolkit directly — the web API key is
+            //      public — and links their *own* Apple sub to that account out of band;
+            //   3. attacker signs in here. Nothing is stripped: `password` and `apple.com`
+            //      are both kept. Without the address test they are handed a session and
+            //      the account is marked activated, which disarms the claim forever, so the
+            //      victim's real Google sign-in later merges onto an account the attacker
+            //      holds.
+            const victimEmail = newEmail();
+            const attackerAppleEmail = newEmail();
+            const uid = await trackedUnactivatedAccount(victimEmail);
+            await attachProvider(uid, PROVIDER_IDS.apple, attackerAppleEmail);
+
+            // The attacker's own Apple identity, whose address is not the account's.
+            idp = () => ({ localId: uid, email: victimEmail });
+
+            const res = await post("/auth/idp", appleBody());
+
+            expect(res.status).toBe(401);
+            expect(res.body.error.code).toBe("INVALID_CREDENTIALS");
+            expect(res.body.token).toBeUndefined();
+
+            // Not activated — the half that would otherwise be permanent. If this stamp
+            // lands, the victim's later sign-in skips the claim and inherits the attacker.
+            expect(await activatedAt(uid)).toBeNull();
+
+            // Refused means refused: nothing was changed on the way out, so a retry sees
+            // the same account rather than a half-claimed one.
+            expect(
+                (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort(),
+            ).toEqual([PROVIDER_IDS.apple, "password"].sort());
+        },
+        SLOW,
+    );
+
+    test(
+        "the same refusal says nothing about whether the address is registered",
+        async () => {
+            // GUARDRAILS 12b. The 401 above must be indistinguishable from the 401 for a
+            // credential the provider itself rejected, or it becomes an oracle for "this
+            // address has an unactivated account", which is exactly what #6 emails about.
+            const uid = await trackedUnactivatedAccount(newEmail());
+            await attachProvider(uid, PROVIDER_IDS.apple, newEmail());
+            idp = () => ({ localId: uid, email: newEmail() });
+            const refused = await post("/auth/idp", appleBody());
+
+            idp = () => {
+                throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
+            };
+            const rejected = await post("/auth/idp", appleBody());
+
+            expect(refused.status).toBe(rejected.status);
+            expect(refused.text).toBe(rejected.text);
+        },
+        SLOW,
+    );
+
+    test(
+        "a claim runs on an account Firebase has a password for but Firestore has no document for",
+        async () => {
+            // The divergence the `!user.activated` condition exists to survive, and which
+            // no other test builds: `POST /auth/signup` writes the Auth user before the
+            // `users/{uid}` document, so a failure between the two leaves a password
+            // account with no document at all. `ensureUser` then creates a *fresh* document
+            // whose `authProviders` is `["apple.com"]` — no "password" anywhere in it.
+            //
+            // A condition that consulted Eva's mirror (`user.authProviders.includes(
+            // "password")`) would read that as a brand-new provider account and skip the
+            // claim, leaving whoever set the password able to sign in with it. Firebase's
+            // `providerData` is the authoritative record, and it says password.
+            const email = newEmail();
+            const uid = await createAuthUser(email);
+            await adminAuth.updateUser(uid, { password: PASSWORD });
+            await firestore.collection("users").doc(uid).delete().catch(() => {});
+            expect((await firestore.collection("users").doc(uid).get()).exists).toBe(false);
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
+
+            idp = resolveTo(uid, email);
+            const res = await post("/auth/idp", appleBody());
+
+            expect(res.status).toBe(200);
+            // The mirror on the fresh document never mentions the password, which is the
+            // whole point — and the claim still ran.
+            expect(res.body.user.authProviders).toEqual([PROVIDER_IDS.apple]);
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(false);
+        },
+        SLOW,
+    );
+
+    test(
+        "a provider sign-in cannot walk an account back out of its own deletion",
+        async () => {
+            // `account-deletion.test.ts` proves this for `POST /auth/signin`. The provider
+            // route is a second door into the same account and needs its own lock: the
+            // credential is real, and that is precisely why it must not mint.
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+            await markUserDeleted(uid);
+
+            idp = resolveTo(uid, email);
+            const res = await post("/auth/idp", appleBody());
+
+            expect(res.status).toBe(401);
+            expect(res.body.error.code).toBe("INVALID_CREDENTIALS");
+            expect(res.body.token).toBeUndefined();
+            // Still a tombstone: not revived, not re-activated.
+            expect((await firestore.collection("users").doc(uid).get()).get("deletedAt"))
+                .not.toBeNull();
         },
         SLOW,
     );
@@ -354,7 +583,7 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             const email = newEmail();
             const uid = await trackedUnactivatedAccount(email);
             await markActivated(uid);
-            idp = () => ({ localId: uid, email });
+            idp = resolveTo(uid, email);
 
             expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
             expect((await post("/auth/idp", appleBody())).status).toBe(200);
@@ -368,7 +597,7 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
         async () => {
             const email = newEmail();
             const uid = await createAuthUser(email);
-            idp = () => ({ localId: uid, email });
+            idp = resolveTo(uid, email);
 
             const res = await post("/auth/idp", appleBody());
 
@@ -384,7 +613,7 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
     test("the raw nonce reaches the boundary", async () => {
         const email = newEmail();
         const uid = await createAuthUser(email);
-        idp = () => ({ localId: uid, email });
+        idp = resolveTo(uid, email);
 
         await post("/auth/idp", appleBody());
 
@@ -477,7 +706,7 @@ describe("POST /me/auth/providers — linking is deliberate, and never a merge",
         "a provider attaches to the account the bearer token names",
         async () => {
             const { uid, email, token } = await signedIn();
-            idp = () => ({ localId: uid, email });
+            idp = resolveTo(uid, email);
 
             const res = await post("/me/auth/providers", appleBody(), bearer(token));
 

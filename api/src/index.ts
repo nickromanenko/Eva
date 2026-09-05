@@ -900,12 +900,26 @@ app.post("/auth/idp", async (c) => {
         // `authProviders` to contain "password", which reads Eva's Firestore mirror rather
         // than Firebase's record of the account — and those diverge in exactly the case
         // that matters, because sign-up writes the Auth user before the document.
+        // `claimUnprovenAccount` does test for a password, but against Firebase's
+        // `providerData`, which is the authoritative record the mirror only copies.
         //
         // Fails **closed**: the throw is not a provider failure, so it falls through to
         // `app.onError` as a 500 and no token is minted. Continuing would hand out a
         // session for an account still carrying credentials we meant to take away.
         if (!user.activated) {
-            await claimUnprovenAccount(localId, PROVIDER_IDS[parsed.value.provider]);
+            const outcome = await claimUnprovenAccount(
+                localId,
+                PROVIDER_IDS[parsed.value.provider],
+            );
+            // `refused` means the address on this account was reserved by someone who never
+            // proved it, and this provider is not them. Answering as for any bad credential
+            // is deliberate: it says nothing about whether the address is registered
+            // (GUARDRAILS 12b), and returning here is what keeps `markActivated` below from
+            // stamping the account on the attacker's behalf — which is the step that would
+            // disarm the claim for the real owner's later sign-in.
+            if (outcome === "refused") {
+                return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+            }
         }
         await markActivated(localId);
         return c.json({
