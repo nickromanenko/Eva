@@ -1136,6 +1136,10 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             // credential is real, and that is precisely why it must not mint.
             const email = newEmail();
             const uid = await trackedUnactivatedAccount(email);
+            // A provider on the account first, so the refusal is observable in more than
+            // the status: without the tombstone check the claim runs on an account that is
+            // mid-delete and destroys its password on the way to the same 401.
+            await attachProvider(uid, PROVIDER_IDS.apple, email);
             await markUserDeleted(uid);
 
             idp = resolveTo(uid, email);
@@ -1147,6 +1151,9 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             // Still a tombstone: not revived, not re-activated.
             expect((await firestore.collection("users").doc(uid).get()).get("deletedAt"))
                 .not.toBeNull();
+            // And nothing was written on the way to the refusal. A delete that is retried
+            // must find the account as it left it.
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
         },
         SLOW,
     );
@@ -1423,35 +1430,76 @@ describe("activation retracts before it stamps", () => {
      * So: if the retraction cannot complete, the account must not be activated. A user
      * clicking their link again is the acceptable outcome; a half-done activation is not.
      */
-    test("a retraction that fails leaves the account unactivated", async () => {
+    // **Both doors, and that is the point of the loop.** The two routes were restructured
+    // together for the same reason, and only the activation one had a test — while
+    // `/auth/password/reset` is the *more* reachable of the two, because it is the recovery
+    // `claimUnprovenAccount`'s own comment sends the victim to.
+    for (const door of ["activate", "reset"] as const) {
+        test(`a retraction that fails leaves the account unactivated — /auth/${door === "activate" ? "activate" : "password/reset"}`, async () => {
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+            await attachProvider(uid, PROVIDER_IDS.google, newEmail());
+
+            // Failing **only the retraction's** write. Blanket-failing `updateUser` looks
+            // equivalent and is not: on the reset door `setPassword` calls it first, so the
+            // route would throw before it ever reached the retraction and this test would
+            // pass without exercising the thing it is named for. Targeting
+            // `providersToUnlink` is what makes the two doors actually comparable.
+            const realUpdateUser = adminAuth.updateUser.bind(adminAuth);
+            const spy = spyOn(adminAuth, "updateUser").mockImplementation(
+                async (target: string, props: Record<string, unknown>) => {
+                    if (props?.providersToUnlink) throw new Error("transient");
+                    return realUpdateUser(target, props);
+                },
+            );
+
+            let res: Answer;
+            try {
+                res =
+                    door === "activate"
+                        ? await post("/auth/activate", {
+                              token: await issueToken(uid, email, "activation"),
+                          })
+                        : await post("/auth/password/reset", {
+                              token: await issueToken(uid, email, "reset"),
+                              password: "a-password-they-chose-9",
+                          });
+            } finally {
+                spy.mockRestore();
+            }
+
+            expect(res.status).toBe(500);
+            // The account is untouched: not activated, and the claim gate in `/auth/idp` is
+            // still armed for it. Stamping first would leave this a timestamp, and the
+            // transition is spent once — no later link would ever retract again.
+            expect(await activatedAt(uid)).toBeNull();
+            // And the attacker's identity is still there to be retracted on the retry,
+            // rather than stranded on an account nothing will ever clean again.
+            expect(
+                (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort(),
+            ).toEqual([PROVIDER_IDS.google, "password"].sort());
+        }, SLOW);
+    }
+
+    test("an activation link used on an already-activated account retracts nothing", async () => {
+        // The guard that keeps activation from being a second, unauthenticated unlink
+        // button. The link stays valid for 24h, so this is an ordinary sequence: activate
+        // by reset, connect Apple from Profile, then click the original mail still sitting
+        // in the inbox. `/auth/activate` documents a valid link on an activated account as
+        // a supported 200 — it must be an inert one.
         const email = newEmail();
         const uid = await trackedUnactivatedAccount(email);
-        await attachProvider(uid, PROVIDER_IDS.google, newEmail());
+        await markActivated(uid);
+        await attachProvider(uid, PROVIDER_IDS.apple, email);
 
-        // `proveAddress` is `getUser` then `updateUser`; failing the write is the realistic
-        // transient — a throttle, a blip, an instance losing its credentials mid-request.
-        const spy = spyOn(adminAuth, "updateUser").mockImplementation(() => {
-            throw new Error("transient");
+        const res = await post("/auth/activate", {
+            token: await issueToken(uid, email, "activation"),
         });
 
-        let res: Answer;
-        try {
-            res = await post("/auth/activate", {
-                token: await issueToken(uid, email, "activation"),
-            });
-        } finally {
-            spy.mockRestore();
-        }
-
-        expect(res.status).toBe(500);
-        // The account is untouched: not activated, and the claim gate in `/auth/idp` is
-        // still armed for it. Stamping first would leave this a timestamp.
-        expect(await activatedAt(uid)).toBeNull();
-        // And the attacker's identity is still there to be retracted on the retry, rather
-        // than stranded on an account nothing will ever clean again.
+        expect(res.status).toBe(200);
         expect(
             (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort(),
-        ).toEqual([PROVIDER_IDS.google, "password"].sort());
+        ).toEqual([PROVIDER_IDS.apple, "password"].sort());
     }, SLOW);
 });
 

@@ -22,7 +22,8 @@ import {
     findAuthUidByEmail,
     idTokenForUid,
     claimUnprovenAccount,
-    proveAddress,
+    markCredentialsProven,
+    retractUnprovenIdentities,
     setPassword,
     signInWithIdp,
     signInWithPassword,
@@ -582,7 +583,7 @@ const activate = async (c: Context, raw: unknown) => {
     // This way round, every failure leaves the account unactivated with the claim gate
     // still armed, and the worst case is a user clicking their link again. `proveAddress`
     // is idempotent, so two concurrent activations both running it is harmless.
-    if (!before.user.activated) await proveAddress(result.uid);
+    if (!before.user.activated) await retractUnprovenIdentities(result.uid);
     // Last, and still checked: a delete may have landed since the read above.
     if (!(await markActivated(result.uid))) return tokenFailure(c, "invalid");
     return c.json({ activated: true });
@@ -688,9 +689,20 @@ app.post("/auth/password/reset", async (c) => {
     // stamp — see the activation route for why that order matters. Only when the account
     // was not already activated: someone who linked Apple deliberately from Profile and
     // then forgot their password must still have Apple afterwards.
-    if (!user.activated) await proveAddress(result.uid);
-    // Proof of control of the address, whichever link it came by.
-    await markActivated(result.uid);
+    if (!user.activated) await retractUnprovenIdentities(result.uid);
+    // Only here, and never from the activation route: a reset proves address control *and*
+    // sets the password in the same request, so the credentials are the caller's. At
+    // activation the password may be a stranger's, and Firebase's merge-wipe is what takes
+    // it away — see `markCredentialsProven`.
+    //
+    // Unconditional rather than transition-only: a long-activated user who resets has just
+    // proven the password whoever they are, and a wipe on their next provider sign-in would
+    // be pure loss.
+    await markCredentialsProven(result.uid);
+    // Proof of control of the address, whichever link it came by. Last, for the same
+    // reason as the activation route. A delete landing since the read above answers a dead
+    // link rather than a session for a tombstone.
+    if (!(await markActivated(result.uid))) return tokenFailure(c, "invalid");
     return c.json({
         token: await mintToken(result.uid, user.email),
         user: { ...user, activated: true },

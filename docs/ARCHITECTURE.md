@@ -359,14 +359,32 @@ so a provider linked deliberately from Profile survives a later password reset. 
 retracting afterwards leaves a window in which `/auth/idp` skips the claim and mints a
 30-day session nothing can revoke, and leaves a failed retraction permanently unrepeatable
 because the transition has already been spent. Retract first and every failure leaves the
-account unactivated with the gate still armed. It unlinks
-every federated identity, revokes outstanding refresh tokens, and sets Firebase's
-`emailVerified`, which until then was never connected to Eva's `activatedAt` at all. That
-last part matters on its own: Identity Toolkit deletes the password *and every provider*
-when it merges a verified provider address onto an unverified account, so an activated user
-adding Google was silently losing the password their `authProviders` still advertised. Accounts activated *before* this
-existed are not reached by it, so `bun run backfill:email-verified` corrects them once, and
-`docs/PROVIDER-SIGNIN.md` §6c puts that between the deploy and the console switch.
+account unactivated with the gate still armed. `retractUnprovenIdentities` unlinks every
+federated identity and revokes outstanding refresh tokens.
+
+**What it deliberately does not do is set Firebase's `emailVerified`, and that is the
+subtlest decision in this section.** Identity Toolkit clears `passwordHash` and unlinks
+every provider when a verified provider address merges onto an account whose own address is
+unverified. Read as a bug, that wipe silently destroys a real user's password while
+`users/{uid}.authProviders` goes on advertising it. Read as a defence, it is the *only*
+thing that evicts a pre-registering attacker's password once the real owner arrives with a
+provider — Eva's own claim is already disarmed by then, because the account is activated.
+
+An earlier version of this section set `emailVerified` at activation and stated only the
+first reading. That turned a self-healing case into a permanent one: attacker reserves
+`victim@x` with a password of their choosing, the victim clicks the confirmation mail they
+never asked for, and the attacker's password then survives the victim's Google sign-in
+forever. So `markCredentialsProven` is called from the **reset** route only, where the
+caller proved address control *and* chose the password in the same request. Activation
+proves the address and nothing about the password, so there the wipe stays armed; a
+legitimate user who loses a password to it recovers through the same reset, which marks them
+proven for good.
+
+The cost, stated plainly: a user who signed up with a password, activated by link, never
+reset, and then signs in with a provider on the same address loses that password with no
+message. `users/{uid}.authProviders` will still list `password` — that mirror is #117.
+Eliminating the cost means Eva tracking whether each password was ever proven, which is a
+`users/{uid}` field and a larger decision than #7.
 
 It fires on `activatedAt` being null and nothing else. No legitimate flow puts a second
 provider on an unactivated account: Eva's link route is behind `requireAuth`, and an

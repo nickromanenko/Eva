@@ -448,8 +448,8 @@ export const setPassword = async (uid: string, password: string): Promise<void> 
  * not a failure: the caller answers 401, and must not activate the account.
  */
 /**
- * Records that the address on this account has now been proven, and takes back what was
- * attached while it had not been (#7).
+ * Takes back the federated identities attached to an account before anyone proved its
+ * address, and retracts the sessions that go with them (#7).
  *
  * *Why this exists, stated as the attack it closes.* `claimUnprovenAccount` defends
  * `/auth/idp`, and only `/auth/idp`. The gate in front of it is Eva's `activatedAt` — and
@@ -469,33 +469,68 @@ export const setPassword = async (uid: string, password: string): Promise<void> 
  * the address *is* proven is the moment to take the rest away — the same argument
  * `claimUnprovenAccount` makes, applied at the other door.
  *
- * `emailVerified` is set here for a second reason as well. Eva's `activatedAt` and
- * Firebase's `emailVerified` were never connected, so every account activated by an emailed
- * link stayed unverified at Firebase forever — and Identity Toolkit *deletes the password
- * and every provider* when it merges a verified provider address onto an unverified account.
- * A real user adding Google would silently lose their password while
- * `users/{uid}.authProviders` went on claiming they had one.
+ * **The password is deliberately not touched here, and that is a cost, not an oversight.**
+ * An earlier version of this comment said the password is safe because it is "the one they
+ * chose at sign-up". On the reset route that is true — the caller chose it in that same
+ * request. On the activation route it is exactly the assumption the attack above refutes:
+ * the person who clicks the link and the person who chose the password are the same only in
+ * the honest case. Rotating it would lock every legitimate signer-up out of the account they
+ * had just confirmed, so what retracts an unproven password is `markCredentialsProven` being
+ * withheld — see there.
  *
- * Only called on the transition (`ActivationOutcome` is `stamped`), never on a repeat: a
- * user who linked Apple deliberately from Profile and later resets their password must keep
- * it.
+ * Called only on the transition to activated, never on a repeat: a user who linked Apple
+ * deliberately from Profile and later resets their password must keep it. The routes decide
+ * that from a read taken **before** they write anything, because anything keyed on the
+ * stamp necessarily happens after it, and the stamp is what disarms the claim gate.
+ *
+ * A missing Auth user is not an error: a `DELETE /me` landing mid-activation leaves nothing
+ * to retract, and `markActivated` answers the dead link a moment later.
  */
-export const proveAddress = async (uid: string): Promise<void> => {
-  const account = await adminAuth.getUser(uid)
-  // Federated only. The password is left alone — this is reached from the reset route,
-  // which has just set the one the owner asked for, and from activation, where the password
-  // is the one they chose at sign-up.
+export const retractUnprovenIdentities = async (uid: string): Promise<void> => {
+  const account = await adminAuth.getUser(uid).catch(() => null)
+  if (!account) return
+
+  // Federated only.
   const strip = account.providerData
     .map((p) => p.providerId)
     .filter((id) => id !== 'password')
 
-  await adminAuth.updateUser(uid, {
-    emailVerified: true,
-    ...(strip.length > 0 ? { providersToUnlink: strip } : {}),
-  })
+  if (strip.length > 0) await adminAuth.updateUser(uid, { providersToUnlink: strip })
   // Anyone holding a session on this account got it before the address was proven, and the
   // web API key is public, so a refresh token can outlive the password that made it.
   await adminAuth.revokeRefreshTokens(uid)
+}
+
+/**
+ * Tells Firebase the credentials on this account are proven — which it records as
+ * `emailVerified`, though *that* is not the condition under which it is safe to call.
+ *
+ * **Read this before moving the call site.** Identity Toolkit uses `emailVerified` for one
+ * thing beyond the obvious: when a verified provider address merges onto an account whose
+ * own address is unverified, it clears `passwordHash` and unlinks every provider on it
+ * (`handleIdpSigninEmailRequired`). That wipe is a nuisance — it is why a real user adding
+ * Google could silently lose the password `users/{uid}.authProviders` still advertised —
+ * and it is also the last thing standing between a pre-registering attacker and a victim's
+ * account:
+ *
+ *   attacker signs up as `victim@x` with a password of their choosing; the victim clicks
+ *   the confirmation mail they never asked for; the victim later signs in with Google. The
+ *   wipe is what takes the attacker's password away at that moment. Nothing else does —
+ *   Eva's own claim is already disarmed, because the account is activated.
+ *
+ * So this is called from the **reset** route and not from activation. A reset proves
+ * address control *and* sets the password in the same request, so the credentials really
+ * are the caller's and the wipe has nothing left to protect anyone from. Activation proves
+ * only the address; there the wipe stays armed, and a legitimate user who loses a password
+ * to it recovers through the same reset flow, which then marks them proven for good.
+ *
+ * Withholding a fact that is true — the address *is* proven at activation — for the sake of
+ * a side effect is unusual enough to be worth the paragraph. The alternative is Eva doing
+ * the retraction itself, which means tracking whether each password was ever proven; that
+ * is a `users/{uid}` field and a bigger decision than #7.
+ */
+export const markCredentialsProven = async (uid: string): Promise<void> => {
+  await adminAuth.updateUser(uid, { emailVerified: true })
 }
 
 /**
@@ -503,8 +538,17 @@ export const proveAddress = async (uid: string): Promise<void> => {
  *
  * - `claimed` — the account is now the caller's alone; the route may activate and mint.
  * - `refused` — the account's address belongs to someone who has not proven it, and the
- *   provider signing in is not them. Nothing was changed. The route must answer as it does
- *   for any bad credential and must **not** mark the account activated.
+ *   provider signing in is not them. The route must answer as it does for any bad
+ *   credential and must **not** mark the account activated.
+ *
+ *   *Refused does not always mean untouched*, and the difference is worth knowing before
+ *   relying on it. The address test refuses before any write, so that path leaves the
+ *   account exactly as it found it — which is what the test beside it asserts. The
+ *   **read-back** refusal happens after the password has been randomised and refresh tokens
+ *   revoked, because it exists to catch a concurrent claim that stripped the provider this
+ *   one kept. Reaching it means somebody's password was destroyed by a request that was then
+ *   refused, with nothing sent to explain it. That is the safe direction — no session is
+ *   minted either way — and forgot-password recovers it, but it is not "nothing changed".
  */
 export type ClaimOutcome = 'claimed' | 'refused'
 

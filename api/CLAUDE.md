@@ -145,10 +145,17 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   needed — `emailRecycled` *does* carry a token — and it runs in **both** transports,
   `call` and `signInWithIdp`. Never read `localId` before it.
 - **Proving an address retracts what was attached while it was not (#7).** `/auth/activate`
-  and `/auth/password/reset` call `proveAddress` on the transition to activated — only the
-  transition, so a deliberately linked provider survives a later reset. Without it the
-  `/auth/idp` claim is simply outwaited: an attacker attaches a provider to a reserved
-  address and signs in the moment the real owner activates.
+  and `/auth/password/reset` call `retractUnprovenIdentities` on the transition to activated
+  — only the transition, so a deliberately linked provider survives a later reset — and
+  **before** stamping `activatedAt`, because the stamp is what disarms the claim gate.
+  Without it the `/auth/idp` claim is simply outwaited: an attacker attaches a provider to a
+  reserved address and signs in the moment the real owner activates.
+- **`markCredentialsProven` is called from the reset route only, never from activation
+  (#7).** It sets Firebase's `emailVerified`, which Identity Toolkit also uses to decide
+  whether to wipe `passwordHash` and every provider on a merge. That wipe is the only thing
+  that evicts a pre-registering attacker's password once the owner arrives with a provider,
+  so it stays armed for accounts whose password nobody has proven. A reset proves the
+  password; activation does not. ARCHITECTURE §3 has the attack.
 - **`/auth/idp` reads before it writes (#7).** `ensureUser` unions the provider into
   `authProviders`, so calling it before the claim gate left a refused credential's provider
   on a stranger's document — which is what the app reads to decide whether to offer

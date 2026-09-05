@@ -566,16 +566,42 @@ describe("proving the address takes back what was attached while it was not", ()
         expect(await providers(uid)).toEqual(["password"]);
     });
 
-    test("activation makes Firebase agree that the address is proven", async () => {
-        // They were never connected: every account activated by an emailed link stayed
-        // `emailVerified: false` at Firebase forever. That is not cosmetic — Identity
-        // Toolkit deletes the password *and every provider* when it merges a verified
-        // provider address onto an unverified account, so a real user adding Google would
-        // silently lose the password that `users/{uid}.authProviders` still advertised.
+    test("activation does NOT tell Firebase the credentials are proven", async () => {
+        // The most counter-intuitive assertion in this suite, so: Identity Toolkit uses
+        // `emailVerified` to decide whether to wipe `passwordHash` and every provider when a
+        // verified provider address merges onto an account. That wipe is a nuisance — it is
+        // how a real user adding Google loses the password `authProviders` still advertises
+        // — and it is also the only thing that evicts a **pre-registering attacker's**
+        // password once the real owner arrives with a provider, because Eva's own claim is
+        // disarmed by then.
+        //
+        // Activation proves the address. It proves nothing about who chose the password: the
+        // person who clicks the link and the person who set it are the same only in the
+        // honest case. So the wipe stays armed here. A version of this test asserted the
+        // opposite, and the code it was written against turned a self-healing takeover into
+        // a permanent one.
         const { email, uid } = await unactivated();
         expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
 
         await activate(await issueToken(uid, email, "activation"));
+
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
+    });
+
+    test("a password reset does, because it sets the password it is proving", async () => {
+        // The other side. A reset proves address control *and* chooses the password in the
+        // same request, so the credentials really are the caller's and the wipe has nothing
+        // left to protect anyone from. It is also the recovery a user reaches for after the
+        // wipe has taken a password from them, which is what makes the loss one-time.
+        const { email, uid } = await unactivated();
+        await activate(await issueToken(uid, email, "activation"));
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
+
+        const res = await post("/auth/password/reset", {
+            token: await issueToken(uid, email, "reset"),
+            password: "a-password-they-chose-9",
+        });
+        expect(res.status).toBe(200);
 
         expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
     });
@@ -594,7 +620,6 @@ describe("proving the address takes back what was attached while it was not", ()
         expect(res.status).toBe(200);
 
         expect(await providers(uid)).toEqual(["password"]);
-        expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
     });
 
     test("a provider linked deliberately survives a later password reset", async () => {
