@@ -141,8 +141,14 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   `emailRecycled` (the provider reassigned the address to a different `sub`), and an MFA
   challenge all answer 200 with the *other* account's `localId` and **no `idToken`**. Two
   were found in consecutive review rounds, so `requireSignedIn` names those and then
-  requires `idToken` on any sign-in response, which is what they all lack. Never read
-  `localId` before it.
+  requires `idToken` on any sign-in response for the shapes not met yet. Both halves are
+  needed — `emailRecycled` *does* carry a token — and it runs in **both** transports,
+  `call` and `signInWithIdp`. Never read `localId` before it.
+- **Proving an address retracts what was attached while it was not (#7).** `/auth/activate`
+  and `/auth/password/reset` call `proveAddress` on the transition to activated — only the
+  transition, so a deliberately linked provider survives a later reset. Without it the
+  `/auth/idp` claim is simply outwaited: an attacker attaches a provider to a reserved
+  address and signs in the moment the real owner activates.
 - **`/auth/idp` reads before it writes (#7).** `ensureUser` unions the provider into
   `authProviders`, so calling it before the claim gate left a refused credential's provider
   on a stranger's document — which is what the app reads to decide whether to offer

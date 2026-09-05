@@ -151,21 +151,36 @@ export const getUser = async (uid: string): Promise<User | null> => {
  *  routes that ask it — sign-in, resend — say what they are asking. */
 export const isActivated = (user: User): boolean => user.activated
 
+/**
+ * What `markActivated` did, which is not the same question as whether the account is
+ * activated (#7).
+ *
+ * - `stamped` — this call is the moment the address became proven. The **transition**, and
+ *   the only chance to retract credentials attached while it was not.
+ * - `already` — it was proven before. Nothing changed.
+ * - `gone` — no document, or a tombstone. A dead link, not an error.
+ *
+ * It returned a boolean until the fifth review of #7, which is how the takeover below went
+ * unnoticed: `stamped` and `already` were the same answer, so no caller could act on the
+ * transition, and `/auth/activate` and `/auth/password/reset` both stamped an account
+ * without retracting anything an attacker had attached to it beforehand.
+ */
+export type ActivationOutcome = 'stamped' | 'already' | 'gone'
+
 /** Stamps `activatedAt`, once: a document already activated — by a timestamp, or by
  *  predating the field — is left exactly as it is, so the first confirmation stays the
- *  record of when the address was proven. `false` means there was nothing to activate: no
- *  document, or a tombstone. The caller treats that as a dead link, not an error. */
-export const markActivated = async (uid: string): Promise<boolean> => {
+ *  record of when the address was proven. */
+export const markActivated = async (uid: string): Promise<ActivationOutcome> => {
   const ref = users().doc(uid)
   return firestore.runTransaction(async (tx) => {
     const snapshot = await tx.get(ref)
-    if (!snapshot.exists || isTombstone(snapshot)) return false
-    if (isActivatedData(snapshot.data()!)) return true
+    if (!snapshot.exists || isTombstone(snapshot)) return 'gone'
+    if (isActivatedData(snapshot.data()!)) return 'already'
     tx.update(ref, {
       activatedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     })
-    return true
+    return 'stamped'
   })
 }
 

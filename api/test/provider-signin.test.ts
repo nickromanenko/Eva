@@ -1249,6 +1249,102 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
     });
 });
 
+describe("the declared maximums are the maximums", () => {
+    /**
+     * Three ceilings were declared by #7 — 4096 for a provider token, 512 for a redirect
+     * URI, 2048 for an Apple authorization code — and none had a test at its edge. Deleting
+     * `value.length <= max` from `isBounded` left every one of the 252 tests green, and that
+     * function guards every route in the file, not only these.
+     *
+     * They exist because the fields are opaque credentials Eva forwards: nothing about their
+     * *content* can be checked here, so the length is the only thing standing between a
+     * caller and a body we carry to Apple or Google for free.
+     */
+    const times = (n: number) => "x".repeat(n);
+
+    test("a provider token at the ceiling is accepted and one past it is not", async () => {
+        const email = newEmail();
+        const uid = await createAuthUser(email);
+        idp = resolveTo(uid, email);
+
+        // 4096 exactly: refusing this would refuse a legitimate credential.
+        const atLimit = await post("/auth/idp", {
+            provider: "apple",
+            identityToken: times(4096),
+            rawNonce: RAW_NONCE,
+        });
+        expect(atLimit.status).toBe(200);
+
+        const overLimit = await post("/auth/idp", {
+            provider: "apple",
+            identityToken: times(4097),
+            rawNonce: RAW_NONCE,
+        });
+        expect(overLimit.status).toBe(400);
+        expect(overLimit.body.error.code).toBe("VALIDATION");
+    }, SLOW);
+
+    test("an over-long redirect URI is refused", async () => {
+        const res = await post("/auth/idp", {
+            provider: "google",
+            code: "a-code",
+            codeVerifier: "a-verifier",
+            redirectUri: `com.googleusercontent.apps.1234:/${times(512)}`,
+        });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe("VALIDATION");
+        // Refused at the edge: nothing reached the boundary or a provider.
+        expect(lastIdp).toBeNull();
+    }, SLOW);
+
+    test("an over-long Apple authorization code fails the delete rather than being dropped", async () => {
+        // It used to be *silently* discarded: the account was deleted with no revocation,
+        // no error and no log line, which is the one outcome Apple's entitlement forbids
+        // and the caller could not detect.
+        const email = newEmail();
+        const uid = await trackedUnactivatedAccount(email);
+        const token = await mintToken(uid, email);
+
+        const res = await send(
+            "DELETE",
+            "/me",
+            { appleAuthorizationCode: times(2049) },
+            bearer(token),
+        );
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe("VALIDATION");
+        // And the account is still there, because the request was refused rather than
+        // half-performed.
+        expect(await getUser(uid)).not.toBeNull();
+    }, SLOW);
+});
+
+describe("the fake boundary models what Identity Toolkit actually does", () => {
+    /**
+     * `resolveTo` verifies the address as part of linking, because Identity Toolkit does:
+     * a provider sign-in that creates an account takes `emailVerified` from the provider,
+     * and a merge sets it. Without that, every route-driven account in this file was
+     * unverified — which made `addressUnproven` true everywhere and the whole address guard
+     * unreachable in the one direction that matters.
+     *
+     * The default is pinned here because nothing else pins it: flipping `verifies` to false
+     * left all 252 tests green, so the fix made in answer to that finding could have been
+     * silently undone.
+     */
+    test("resolving to an account verifies its address, as a real sign-in would", async () => {
+        const email = newEmail();
+        const uid = await createAuthUser(email);
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
+
+        idp = resolveTo(uid, email);
+        expect((await post("/auth/idp", appleBody())).status).toBe(200);
+
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
+    }, SLOW);
+});
+
 describe("the provider routes are throttled, and separately", () => {
     /**
      * The 429 branch had no coverage at all: deleting the throttle from either route left
@@ -1490,11 +1586,32 @@ describe("DELETE /me — Apple revocation never fails the delete", () => {
             const uid = await trackedUnactivatedAccount(email);
             const token = await mintToken(uid, email);
 
-            const res = await send("DELETE", "/me", {}, bearer(token));
+            // Stubbed to *catch* a call rather than to serve one: making the revocation
+            // unconditional with an empty code left this test green, and once Apple is
+            // provisioned that regression is an outbound request to `appleid.apple.com` and
+            // an `apple_revocation_failed` line on **every** deletion — which would bury the
+            // real ones.
+            const calls: string[] = [];
+            const realFetch = globalThis.fetch;
+            globalThis.fetch = (async (input: any) => {
+                calls.push(String(input?.url ?? input));
+                return new Response("{}", {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                });
+            }) as typeof fetch;
+
+            let res: Answer;
+            try {
+                res = await send("DELETE", "/me", {}, bearer(token));
+            } finally {
+                globalThis.fetch = realFetch;
+            }
 
             expect(res.status).toBe(200);
             expect(res.body).toEqual({ deleted: true });
             expect(await getUser(uid)).toBeNull();
+            expect(calls.filter((url) => url.includes("appleid.apple.com"))).toEqual([]);
         },
         SLOW,
     );

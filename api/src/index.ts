@@ -22,6 +22,7 @@ import {
     findAuthUidByEmail,
     idTokenForUid,
     claimUnprovenAccount,
+    proveAddress,
     setPassword,
     signInWithIdp,
     signInWithPassword,
@@ -567,7 +568,13 @@ const activate = async (c: Context, raw: unknown) => {
     // The token was real but the account behind it is gone or going — a delete landed
     // between the email and the click. Nothing to activate, and a dead link is what the
     // holder of a deleted account's link should see.
-    if (!(await markActivated(result.uid))) return tokenFailure(c, "invalid");
+    const outcome = await markActivated(result.uid);
+    if (outcome === "gone") return tokenFailure(c, "invalid");
+    // The address is proven as of now, so anything attached to the account while it was not
+    // proven goes. `/auth/idp`'s claim never sees this account again — it is activated from
+    // here on — so this is the last chance to retract a provider identity someone attached
+    // to an address they had merely reserved.
+    if (outcome === "stamped") await proveAddress(result.uid);
     return c.json({ activated: true });
 };
 
@@ -664,7 +671,13 @@ app.post("/auth/password/reset", async (c) => {
 
     await setPassword(result.uid, password);
     // Proof of control of the address, whichever link it came by.
-    await markActivated(result.uid);
+    const outcome = await markActivated(result.uid);
+    // Same retraction as the activation route, and reachable by the same person: this is
+    // the recovery an owner is sent to when someone else has reserved their address, so it
+    // has to take that person's credentials away rather than merely reset the password.
+    // Only on the transition — a long-activated user resetting a forgotten password keeps
+    // the Apple or Google identity they linked deliberately from Profile.
+    if (outcome === "stamped") await proveAddress(result.uid);
     return c.json({
         token: await mintToken(result.uid, user.email),
         user: { ...user, activated: true },
@@ -935,6 +948,9 @@ app.post("/auth/idp", async (c) => {
         // write: a `DELETE /me` landing in between must still win.
         const user = await ensureUser(localId, email, PROVIDER_IDS[parsed.value.provider]);
         if (!user) return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+        // The claim above has already taken the account, so there is nothing left to
+        // retract — and `proveAddress` must not run here: a provider sign-in would unlink
+        // the very identity that just signed in.
         await markActivated(localId);
         return c.json({
             token: await mintToken(localId, email),
@@ -1058,12 +1074,21 @@ app.delete("/me", requireAuth, async (c) => {
     // would put a long-lived third-party credential in a health app's user document and
     // would widen `users/{uid}`, which #7 does not do. See `providers.ts` for the cost.
     const body = await c.req.json().catch(() => ({}));
-    const appleAuthorizationCode = isBounded(
-        body.appleAuthorizationCode,
-        APPLE_AUTH_CODE_MAX_LENGTH,
-    )
-        ? body.appleAuthorizationCode
-        : null;
+    // Absent and malformed are **not** the same answer, though one expression used to give
+    // them one. Absent is the documented case above and deletes without revoking. Present
+    // but over-long or not a string is a client bug, and folding it into "absent" meant the
+    // account was deleted with Apple's entitlement quietly unmet — no error, no log line,
+    // and nothing the caller could see. Every other field on this API is refused at the
+    // edge; this one now is too.
+    const rawAppleCode = (body as Record<string, unknown>).appleAuthorizationCode;
+    const supplied = rawAppleCode !== undefined && rawAppleCode !== null;
+    if (supplied && !isBounded(rawAppleCode, APPLE_AUTH_CODE_MAX_LENGTH)) {
+        return c.json(
+            error("VALIDATION", "appleAuthorizationCode must be a short, non-empty string"),
+            400,
+        );
+    }
+    const appleAuthorizationCode = supplied ? (rawAppleCode as string) : null;
 
     await markUserDeleted(sub);
     // After the tombstone, so the account is already inert whatever Apple answers, and

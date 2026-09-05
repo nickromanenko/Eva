@@ -134,6 +134,11 @@ interface AccountsResponse {
  *
  * MFA is not enabled on the project today. It is one console switch away, and flipping it
  * would otherwise turn every second factor into a full session silently.
+ *
+ * Called from **both** transports — `call` (sign-up and password sign-in) and
+ * `signInWithIdp`. The two named flags can only arise on the provider endpoint; the missing
+ * `idToken` can arise on any of them, which is exactly why the backstop is not written into
+ * one caller.
  */
 const requireSignedIn = (json: AccountsResponse): void => {
   if (json.needConfirmation) {
@@ -195,6 +200,13 @@ const post = async (
 
 const call = async (endpoint: string, body: Record<string, unknown>): Promise<TokenResponse> => {
   const json = await post(endpoint, body)
+  // Here as well as in `signInWithIdp`, and this is the point of it being a helper. It was
+  // added for the provider route and called only from there, while ARCHITECTURE claimed it
+  // guarded "any sign-in response" — so the password path, which has more users, was the
+  // one left open. `signInWithPassword` answers `{ localId, email, mfaPendingCredential }`
+  // and no `idToken` when MFA is enrolled, and reading `localId` out of that mints a full
+  // Eva session for a second factor nobody supplied.
+  requireSignedIn(json)
   return { localId: json.localId!, email: json.email! }
 }
 
@@ -409,6 +421,57 @@ export const setPassword = async (uid: string, password: string): Promise<void> 
  * Returns `refused` rather than throwing, because it is a verdict about the credential and
  * not a failure: the caller answers 401, and must not activate the account.
  */
+/**
+ * Records that the address on this account has now been proven, and takes back what was
+ * attached while it had not been (#7).
+ *
+ * *Why this exists, stated as the attack it closes.* `claimUnprovenAccount` defends
+ * `/auth/idp`, and only `/auth/idp`. The gate in front of it is Eva's `activatedAt` — and
+ * two other routes stamp that: the activation link and a password reset. Neither retracted
+ * anything. So the takeover the claim was written for survived by simply waiting:
+ *
+ *   1. attacker signs up as the victim, which reserves the address (#6);
+ *   2. attacker attaches their own Apple `sub` out of band at Identity Toolkit;
+ *   3. attacker calls `/auth/idp` — refused, because the addresses differ. So far so good;
+ *   4. the victim clicks the activation link they were sent, or recovers with
+ *      forgot-password, which is the flow `claimUnprovenAccount` itself recommends to them;
+ *   5. attacker calls `/auth/idp` again. The account is activated, so the claim is skipped
+ *      **entirely**, and they are minted a 30-day session on the victim's account.
+ *
+ * The premise that was wrong: proving the address does not retroactively legitimise a
+ * federated identity attached before it was proven. It proves the address. So the moment
+ * the address *is* proven is the moment to take the rest away — the same argument
+ * `claimUnprovenAccount` makes, applied at the other door.
+ *
+ * `emailVerified` is set here for a second reason as well. Eva's `activatedAt` and
+ * Firebase's `emailVerified` were never connected, so every account activated by an emailed
+ * link stayed unverified at Firebase forever — and Identity Toolkit *deletes the password
+ * and every provider* when it merges a verified provider address onto an unverified account.
+ * A real user adding Google would silently lose their password while
+ * `users/{uid}.authProviders` went on claiming they had one.
+ *
+ * Only called on the transition (`ActivationOutcome` is `stamped`), never on a repeat: a
+ * user who linked Apple deliberately from Profile and later resets their password must keep
+ * it.
+ */
+export const proveAddress = async (uid: string): Promise<void> => {
+  const account = await adminAuth.getUser(uid)
+  // Federated only. The password is left alone — this is reached from the reset route,
+  // which has just set the one the owner asked for, and from activation, where the password
+  // is the one they chose at sign-up.
+  const strip = account.providerData
+    .map((p) => p.providerId)
+    .filter((id) => id !== 'password')
+
+  await adminAuth.updateUser(uid, {
+    emailVerified: true,
+    ...(strip.length > 0 ? { providersToUnlink: strip } : {}),
+  })
+  // Anyone holding a session on this account got it before the address was proven, and the
+  // web API key is public, so a refresh token can outlive the password that made it.
+  await adminAuth.revokeRefreshTokens(uid)
+}
+
 /**
  * What `claimUnprovenAccount` decided.
  *

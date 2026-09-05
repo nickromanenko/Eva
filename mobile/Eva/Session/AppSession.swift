@@ -177,11 +177,15 @@ final class AppSession {
     /// itself when the addresses match — but the only way for an address that does *not*
     /// match, which is every Apple Hide My Email relay. Those users get a new account no
     /// matter what, so joining is something they do deliberately, from Profile, while
-    /// signed in to the account they want to keep — which is also the only safe shape for
-    /// shape, and it would not work for Hide My Email relays anyway (#7's decision).
+    /// signed in to the account they want to keep. Matching on email instead would not work
+    /// for Hide My Email relays anyway (#7's decision).
     ///
-    /// Inside `authorized(_:)`, unlike `signInWithProvider`: this one carries the token,
-    /// so its 401 really does mean the session is finished.
+    /// Inside `authorized(_:)`, unlike `signInWithProvider`, because this one carries the
+    /// token. That is safe only because `APIClient` now ends the session on a 401 solely
+    /// when the server says `UNAUTHORIZED`: this route answers 401 INVALID_CREDENTIALS when
+    /// *Apple's* credential is refused, and a comment here once claimed its 401 "really does
+    /// mean the session is finished". It does not, and connecting a provider with a stale
+    /// credential logged the user out.
     func attachProvider(_ credential: ProviderCredential) async throws {
         let generation = sessionGeneration
         let response: UserResponse = try await authorized {

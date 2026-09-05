@@ -34,6 +34,12 @@ struct SessionExpiryTests {
         static let wrongPassword =
             #"{"error":{"code":"INVALID_CREDENTIALS","message":"Wrong email or password"}}"#
 
+        /// What `POST /me/auth/providers` sends when Apple or Google refuses the credential
+        /// (#7). A bearer token was presented and accepted; it is the *provider's* one that
+        /// failed, so the session is fine.
+        static let rejectedProvider =
+            #"{"error":{"code":"INVALID_CREDENTIALS","message":"That sign-in couldn't be completed. Please try again."}}"#
+
         static let user = #"{"user":{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true}}"#
 
         static func client(token: String?) -> APIClient {
@@ -55,6 +61,32 @@ struct SessionExpiryTests {
             // request really did present a credential.
             #expect(EvaStubURLProtocol.lastAuthorization == "Bearer a-live-looking-token")
             #expect(EvaStubURLProtocol.requestCount == 1, "A dead credential was retried")
+        }
+
+        /// The #7 half of the same rule, and the case that made the token alone
+        /// insufficient. `POST /me/auth/providers` carries a bearer token *and* answers 401
+        /// INVALID_CREDENTIALS when Apple's or Google's credential is what was refused — an
+        /// expired `identityToken`, a spent authorization code, a mismatched nonce. Reading
+        /// that as a dead session signed the user out of Eva, and cleared their Keychain,
+        /// for tapping "Connect Google" a minute too late.
+        @Test("401 INVALID_CREDENTIALS on a token-carrying request is not a dead session")
+        func rejectedProviderCredentialIsNotSessionExpiry() async {
+            EvaStubURLProtocol.stub(status: 401, body: Self.rejectedProvider)
+            let client = Self.client(token: "a-live-looking-token")
+
+            let error = await thrownAPIError {
+                let _: UserResponse = try await client.post(
+                    "/me/auth/providers",
+                    body: ["provider": "apple"],
+                    authorized: true
+                )
+            }
+
+            #expect(error?.isSessionExpired == false, "a refused provider credential mapped to \(String(describing: error))")
+            #expect(error?.serverCode == "INVALID_CREDENTIALS")
+            // The premise, checked rather than assumed: this request really did carry a
+            // token, so it is the *code* and not the absence of a credential doing the work.
+            #expect(EvaStubURLProtocol.lastAuthorization == "Bearer a-live-looking-token")
         }
 
         /// The regression #55 exists to prevent. Sign-in sends no token, so its 401 is an
@@ -330,6 +362,13 @@ private extension APIError {
         switch self {
         case .decoding: true
         default: false
+        }
+    }
+
+    var serverCode: String? {
+        switch self {
+        case .server(let code, _, _): code
+        default: nil
         }
     }
 

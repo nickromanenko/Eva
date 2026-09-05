@@ -137,6 +137,24 @@ describe("the Apple client secret is a JWT Apple could verify", () => {
         expect(verified).toBe(true);
     });
 
+    test("the token request is an authorization-code exchange carrying the code", async () => {
+        // The Google half of this was asserted in google-exchange.test.ts; the Apple half
+        // was not. `grant_type: "refresh_token"` with `code` deleted entirely left the whole
+        // suite green — this file verifies `client_secret` to the byte and never looked at
+        // the rest of the body it travels in.
+        //
+        // Which is the same silence the file's header is about: revocation is non-fatal, so
+        // `DELETE /me` still answers 200 and the App Review entitlement is quietly unmet.
+        await provision();
+
+        const { bodies } = await capture(() => ok({ refresh_token: "rt" }));
+
+        const body = bodies[0]!;
+        expect(body.get("grant_type")).toBe("authorization_code");
+        expect(body.get("code")).toBe("an-authorization-code");
+        expect(body.get("client_id")).toBe(CLIENT_ID);
+    });
+
     test("the same secret is presented to both endpoints, and the refresh token is what gets revoked", async () => {
         await provision();
 
@@ -176,7 +194,11 @@ describe("the Apple client secret is a JWT Apple could verify", () => {
 });
 
 describe("an outage at Apple is an outage, not a spent code", () => {
-    test("a 500 from the token endpoint is `unavailable`, not `rejected`", async () => {
+    // Deliberately not named for `classify`: `revokeAppleToken` maps every token-endpoint
+    // failure to `stage: "token"` and discards `kind`, so nothing here can tell `rejected`
+    // from `unavailable`. Collapsing `classify` leaves this test green. Where that
+    // distinction is actually load-bearing is the Google route, and it is asserted there.
+    test("a 500 from the token endpoint is reported as a token-stage failure with its status", async () => {
         // `classify` in providers.ts had no test: collapsing it to always-`rejected` was
         // green. It decides whether the caller is told their credential is bad or an
         // operator is told the provider is down — and on the Google path the wrong answer

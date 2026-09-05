@@ -264,23 +264,31 @@ not optional.
 
 **A 200 from `signInWithIdp` is not always a sign-in, and there is more than one of them.**
 Identity Toolkit has several outcomes that are refusals wearing a success status, each
-carrying **somebody else's `localId`** and no `idToken`:
+carrying **somebody else's `localId`**:
 
 - `needConfirmation` — the `sub` is linked to nothing, an account already holds the address
   the credential asserts, and the credential's own `email_verified` is falsy. What the
   Firebase JS SDK surfaces as `account-exists-with-different-credential`.
 - `emailRecycled` — the address matches an account that already holds an entry for *this
   same provider under a different `sub`*. The provider reassigned the address; a workplace
-  mailbox given to a new employee is the ordinary way it happens. Firebase merges anyway and
-  hands back the previous owner's uid.
+  mailbox given to a new employee is the ordinary way it happens. Firebase merges anyway,
+  hands back the previous owner's uid, **and issues a token** — this one is a full sign-in
+  as far as the wire is concerned, which is why it needs a named check rather than the
+  backstop below.
 - an MFA challenge — `mfaPendingCredential` and no token. Not reachable today because MFA is
   off on the project, and one console switch from being reachable silently.
 
 These were found one at a time, in consecutive reviews of #7, which is the argument against
 enumerating them: the list belongs to Google. So `identity-toolkit.ts` names the two it
-knows and then requires `idToken` to be present on *any* sign-in response — every request
-sets `returnSecureToken: true`, so its absence is what all of these have in common. Reading
-past any of them hands the caller a 30-day session on an account they have never
+knows and then requires `idToken` to be present on any sign-in response — every request sets
+`returnSecureToken: true`, so its absence catches the shapes that have not been met yet, the
+MFA challenge being the one that is known to exist. The backstop is *not* sufficient on its
+own: `emailRecycled` carries a token. Both mechanisms are needed, and they run in **both**
+transports — `call`, which serves sign-up and password sign-in, and `signInWithIdp`. An
+earlier version guarded only the provider route while this section claimed it guarded every
+sign-in, which left the password path — the one with more users — open.
+
+Reading past any of them hands the caller a 30-day session on an account they have never
 authenticated to, and — because an activated account skips the claim entirely — with nothing
 downstream to catch it.
 
@@ -339,6 +347,19 @@ where the app can see it — Profile reads `authProviders` to decide whether to 
 Apple", so a false entry takes away the real owner's only way to link the identity that is
 actually theirs. The write happens once the claim has returned `claimed`, and `ensureUser`'s
 own tombstone check closes the window between the read and it.
+
+**Proving the address retracts what was attached while it was not.** The claim above guards
+`/auth/idp` and is gated on `activatedAt` — but the activation link and a password reset also
+stamp `activatedAt`, and for four review rounds they stamped it and nothing else. So the
+takeover survived by waiting: reserve the address, attach a provider identity out of band,
+be refused at `/auth/idp`, and then sign in the moment the real owner activates or recovers.
+`proveAddress` (`identity-toolkit.ts`) runs on that transition — and only on the transition,
+so a provider linked deliberately from Profile survives a later password reset. It unlinks
+every federated identity, revokes outstanding refresh tokens, and sets Firebase's
+`emailVerified`, which until then was never connected to Eva's `activatedAt` at all. That
+last part matters on its own: Identity Toolkit deletes the password *and every provider*
+when it merges a verified provider address onto an unverified account, so an activated user
+adding Google was silently losing the password their `authProviders` still advertised.
 
 It fires on `activatedAt` being null and nothing else. No legitimate flow puts a second
 provider on an unactivated account: Eva's link route is behind `requireAuth`, and an
