@@ -300,6 +300,7 @@ export const revokeAppleToken = async (
   }
 
   let refreshToken: string
+  let tokenTypeHint: 'refresh_token' | 'access_token'
   try {
     const json = (await form(APPLE_TOKEN_URL, {
       grant_type: 'authorization_code',
@@ -308,10 +309,14 @@ export const revokeAppleToken = async (
       client_secret: clientSecret,
     })) as { refresh_token?: string; access_token?: string } | null
     // Revoking the refresh token revokes everything derived from it. The access token is
-    // the fallback for a response that carries no refresh token at all.
+    // the fallback for a response that carries no refresh token at all — and the hint has
+    // to travel with it: Apple takes `token_type_hint` at its word, so calling an access
+    // token a refresh token gets the revocation refused. Silently, because revocation is
+    // deliberately non-fatal, which is the whole failure mode this path is careful about.
     const token = json?.refresh_token ?? json?.access_token
     if (!token) return { ok: false, stage: 'token', upstreamStatus: null }
     refreshToken = token
+    tokenTypeHint = json?.refresh_token ? 'refresh_token' : 'access_token'
   } catch (err) {
     const status = err instanceof ProviderError ? err.upstreamStatus : null
     return { ok: false, stage: 'token', upstreamStatus: status }
@@ -320,7 +325,7 @@ export const revokeAppleToken = async (
   try {
     await form(APPLE_REVOKE_URL, {
       token: refreshToken,
-      token_type_hint: 'refresh_token',
+      token_type_hint: tokenTypeHint,
       client_id: credentials.clientId,
       client_secret: clientSecret,
     })

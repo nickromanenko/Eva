@@ -57,6 +57,7 @@ import {
     isActivated,
     markActivated,
     markUserDeleted,
+    readUser,
     saveQuestionnaire,
     type Profile,
     type User,
@@ -885,11 +886,19 @@ app.post("/auth/idp", async (c) => {
 
     try {
         const { localId, email } = await signInWithIdp(await providerIdToken(parsed.value));
-        const user = await ensureUser(localId, email, PROVIDER_IDS[parsed.value.provider]);
+        // A **read**, deliberately, and before anything else. `ensureUser` writes — it
+        // unions the provider into `authProviders` — and running it first meant a credential
+        // this route was about to refuse still left its provider mirrored on the account it
+        // collided with. Permanently, and where the app can see it: Profile reads
+        // `authProviders` to decide whether to offer "Connect Apple", so a false entry takes
+        // away the real owner's only way to link the identity that is actually theirs.
+        const existing = await readUser(localId);
         // Mid-deletion, the same case `/auth/signin` refuses: the credential is real and
         // that is exactly why this must not mint a token, or a provider sign-in would walk
         // an account back out of its own deletion.
-        if (!user) return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+        if (existing.deleted) {
+            return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+        }
         // An unactivated account is one nobody has proven they own, and #6 creates it
         // before the address is confirmed — so every credential already on it was attached
         // by someone unverified. `claimUnprovenAccount` takes them all away, keeping only
@@ -906,7 +915,7 @@ app.post("/auth/idp", async (c) => {
         // Fails **closed**: the throw is not a provider failure, so it falls through to
         // `app.onError` as a 500 and no token is minted. Continuing would hand out a
         // session for an account still carrying credentials we meant to take away.
-        if (!user.activated) {
+        if (!existing.user?.activated) {
             const outcome = await claimUnprovenAccount(
                 localId,
                 PROVIDER_IDS[parsed.value.provider],
@@ -921,6 +930,11 @@ app.post("/auth/idp", async (c) => {
                 return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
             }
         }
+        // Only now, once the credential has earned the account. The second tombstone check
+        // is `ensureUser`'s own, and closes the window between the read above and this
+        // write: a `DELETE /me` landing in between must still win.
+        const user = await ensureUser(localId, email, PROVIDER_IDS[parsed.value.provider]);
+        if (!user) return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
         await markActivated(localId);
         return c.json({
             token: await mintToken(localId, email),

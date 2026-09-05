@@ -74,7 +74,7 @@ describe("the Google token request is the one PKCE requires", () => {
     test("every parameter Google checks is present and is the value it was given", async () => {
         provision();
 
-        const { urls, bodies } = await capture(() => ok({ id_token: "an-id-token" }));
+        const { urls, bodies, headers } = await capture(() => ok({ id_token: "an-id-token" }));
 
         expect(urls).toEqual(["https://oauth2.googleapis.com/token"]);
         const body = bodies[0]!;
@@ -89,6 +89,10 @@ describe("the Google token request is the one PKCE requires", () => {
         // An iOS OAuth client has no secret, and sending an empty one is not the same as
         // sending none: Google rejects the request rather than ignoring the parameter.
         expect(body.has("client_secret")).toBe(false);
+        // Form-encoded, and said so. The body and the header are set in different places,
+        // so they can drift apart — and if they do, both provider token endpoints reject
+        // every request, which on this path is a silent 401 for every Google user.
+        expect(headers[0]!["content-type"]).toBe("application/x-www-form-urlencoded");
     });
 
     test("only the id_token is kept out of the response", async () => {
@@ -129,6 +133,37 @@ describe("the Google token request is the one PKCE requires", () => {
         } finally {
             globalThis.fetch = realFetch;
         }
+    });
+
+    test("an error page in front of Google is an outage, not a bad code", async () => {
+        // A proxy or load balancer answering HTML is a verdict about nothing. It has its
+        // own branch in `form`, ahead of `classify`, and needs its own test: a 502 with a
+        // non-JSON body was for a while the only "outage" case covered anywhere, which meant
+        // `classify` itself could be collapsed to always-`rejected` with the suite green.
+        //
+        // Told apart because the consequences differ: `rejected` is a 401 with no log line,
+        // so a Google outage would present as every user's credential being bad.
+        provision();
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (async (_input: any) =>
+            new Response("<html>502 Bad Gateway</html>", { status: 502 })) as typeof fetch;
+
+        let thrown: unknown;
+        try {
+            await exchangeGoogleAuthCode({
+                code: CODE,
+                codeVerifier: VERIFIER,
+                redirectUri: REDIRECT,
+            }).catch((err) => {
+                thrown = err;
+            });
+        } finally {
+            globalThis.fetch = realFetch;
+        }
+
+        expect(thrown).toBeInstanceOf(ProviderError);
+        expect((thrown as InstanceType<typeof ProviderError>).kind).toBe("unavailable");
+        expect((thrown as InstanceType<typeof ProviderError>).upstreamStatus).toBe(502);
     });
 
     test("an unprovisioned client id sends nothing at all", async () => {

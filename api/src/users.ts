@@ -119,6 +119,29 @@ export const ensureUser = async (
   }
 }
 
+/**
+ * What `/auth/idp` needs to know *before* it writes anything (#7).
+ *
+ * `getUser` answers `null` for both "no document" and "tombstone", which are the same
+ * answer to a route that only wants to read. They are not the same answer to one that has
+ * to decide whether to refuse: a provider sign-in must not revive a deleted account, and
+ * must run the claim on an account that has none yet.
+ *
+ * It exists because `ensureUser` *writes* — it unions the provider into `authProviders` —
+ * and calling it before the claim gate left a refused credential's provider permanently
+ * mirrored on a stranger's document. That is not cosmetic: the app reads `authProviders`
+ * to decide whether to offer "Connect Apple", so a false entry removes the real owner's
+ * only way to link the identity they actually own.
+ */
+export const readUser = async (
+  uid: string,
+): Promise<{ deleted: boolean; user: User | null }> => {
+  const snapshot = await users().doc(uid).get()
+  if (!snapshot.exists) return { deleted: false, user: null }
+  if (isTombstone(snapshot)) return { deleted: true, user: null }
+  return { deleted: false, user: toUser(uid, snapshot.data()!) }
+}
+
 export const getUser = async (uid: string): Promise<User | null> => {
   const snapshot = await users().doc(uid).get()
   return snapshot.exists && !isTombstone(snapshot) ? toUser(uid, snapshot.data()!) : null

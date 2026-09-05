@@ -262,14 +262,27 @@ nothing, so those users get a new account regardless. `POST /me/auth/providers` 
 authenticated, from Profile — is their only route into an existing one, which is why it is
 not optional.
 
-**A 200 from `signInWithIdp` is not always a sign-in.** When the credential's `sub` is
-linked to nothing, an account already holds the address the credential asserts, and the
-credential's own `email_verified` is falsy, Identity Toolkit answers `200` with
-`needConfirmation: true`, **that other account's `localId`**, and no `idToken` — what the
-Firebase JS SDK surfaces as `account-exists-with-different-credential`. It is a refusal, and
-the only thing distinguishing it from success is the flag, so `identity-toolkit.ts` checks it
-before reading `localId` at all. Reading past it hands the caller a 30-day session on an
-account they have never authenticated to.
+**A 200 from `signInWithIdp` is not always a sign-in, and there is more than one of them.**
+Identity Toolkit has several outcomes that are refusals wearing a success status, each
+carrying **somebody else's `localId`** and no `idToken`:
+
+- `needConfirmation` — the `sub` is linked to nothing, an account already holds the address
+  the credential asserts, and the credential's own `email_verified` is falsy. What the
+  Firebase JS SDK surfaces as `account-exists-with-different-credential`.
+- `emailRecycled` — the address matches an account that already holds an entry for *this
+  same provider under a different `sub`*. The provider reassigned the address; a workplace
+  mailbox given to a new employee is the ordinary way it happens. Firebase merges anyway and
+  hands back the previous owner's uid.
+- an MFA challenge — `mfaPendingCredential` and no token. Not reachable today because MFA is
+  off on the project, and one console switch from being reachable silently.
+
+These were found one at a time, in consecutive reviews of #7, which is the argument against
+enumerating them: the list belongs to Google. So `identity-toolkit.ts` names the two it
+knows and then requires `idToken` to be present on *any* sign-in response — every request
+sets `returnSecureToken: true`, so its absence is what all of these have in common. Reading
+past any of them hands the caller a 30-day session on an account they have never
+authenticated to, and — because an activated account skips the claim entirely — with nothing
+downstream to catch it.
 
 **Auto-linking is only safe because `/auth/idp` claims an unproven account.** Sign-up (#6)
 creates the Firebase Auth user *before* the address is confirmed, and **the web API key is
@@ -317,6 +330,15 @@ branch, so Apple's Hide My Email relay — which creates a fresh account with no
 never affected. The function also re-reads the account after writing it, so the loser of a
 race between two concurrent claims is refused rather than handed a session for an account
 that no longer carries its identity.
+
+**The claim runs before anything is written.** `/auth/idp` reads the account document
+rather than calling `ensureUser` first, because `ensureUser` writes: it unions the provider
+into `authProviders`. Calling it ahead of the gate meant a credential the route was about to
+refuse still left its provider mirrored on the account it collided with, permanently, and
+where the app can see it — Profile reads `authProviders` to decide whether to offer "Connect
+Apple", so a false entry takes away the real owner's only way to link the identity that is
+actually theirs. The write happens once the claim has returned `claimed`, and `ensureUser`'s
+own tombstone check closes the window between the read and it.
 
 It fires on `activatedAt` being null and nothing else. No legitimate flow puts a second
 provider on an unactivated account: Eva's link route is behind `requireAuth`, and an

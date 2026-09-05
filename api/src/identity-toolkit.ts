@@ -110,7 +110,48 @@ interface AccountsResponse {
    * successful sign-in is a `localId` for an account the caller has never authenticated to.
    */
   needConfirmation?: boolean
+  /**
+   * `signInWithIdp` only, and the second refusal wearing a 200: the credential's address
+   * matches an account that already holds an entry for **this same provider under a
+   * different `sub`**. The provider has handed the address to somebody else — a workplace
+   * mailbox reissued to a new employee is the ordinary way it happens. Firebase merges
+   * anyway and returns the *old* account's `localId`.
+   */
+  emailRecycled?: boolean
   error?: { message?: string }
+}
+
+/**
+ * Every sign-in response carries an ID token, because every request sets
+ * `returnSecureToken: true`. Its absence is the one thing common to all of Identity
+ * Toolkit's "200 that is not a sign-in" shapes — `needConfirmation`, `emailRecycled`'s
+ * cousins, and an MFA challenge, which answers `mfaPendingCredential` and no token.
+ *
+ * So this is the backstop rather than the diagnosis: the named checks below say *why* and
+ * classify accordingly, and this catches the shape we have not met yet. Written after the
+ * fourth review of #7 found the second such shape immediately after the first was fixed —
+ * enumerating them one at a time is losing to a list only Google can see.
+ *
+ * MFA is not enabled on the project today. It is one console switch away, and flipping it
+ * would otherwise turn every second factor into a full session silently.
+ */
+const requireSignedIn = (json: AccountsResponse): void => {
+  if (json.needConfirmation) {
+    // "An account already holds this address and this credential has not proved it owns
+    // it." Reading past it hands the caller a session on the account they collided with.
+    throw new IdentityToolkitError('NEED_CONFIRMATION', null, 'rejected')
+  }
+  if (json.emailRecycled) {
+    // The provider reassigned the address. The account behind it belongs to whoever had it
+    // before, and their cycle and symptom history is the thing that would be handed over.
+    throw new IdentityToolkitError('EMAIL_RECYCLED', null, 'rejected')
+  }
+  if (!json.idToken) {
+    // Unrecognised, so not classified as the caller's fault: something answered 200 with a
+    // shape this file does not know. `unavailable` pages an operator instead of telling a
+    // user their Apple ID is bad.
+    throw new IdentityToolkitError('NO_ID_TOKEN', null, 'unavailable')
+  }
 }
 
 const post = async (
@@ -234,18 +275,12 @@ export const signInWithIdp = async (
     requestUri: REQUEST_URI,
     ...(linkToIdToken ? { idToken: linkToIdToken } : {}),
   })
-  // Checked **before** `localId` is read, because on this response `localId` names somebody
-  // else. Identity Toolkit is saying "an account already holds this address and this
-  // credential has not proved it owns it" — a 200 whose meaning is refusal. Reading past it
-  // hands the caller a session for the account they collided with, which for Eva is 30 days
-  // of read and write on a stranger's cycle and symptom history.
-  //
-  // `rejected` rather than `unavailable`: nothing is wrong with our project and no retry
-  // helps. It maps to the same `401 INVALID_CREDENTIALS` as every other refusal on this
-  // route, so it adds no way to tell one from another (GUARDRAILS 12b).
-  if (json.needConfirmation) {
-    throw new IdentityToolkitError('NEED_CONFIRMATION', null, 'rejected')
-  }
+  // Checked **before** `localId` is read, because on these responses `localId` names
+  // somebody else. See `requireSignedIn`: a 200 from this endpoint is not always a sign-in,
+  // and the refusals are classified `rejected`, which maps to the same
+  // `401 INVALID_CREDENTIALS` as every other refusal on this route — so they add no way to
+  // tell one from another (GUARDRAILS 12b).
+  requireSignedIn(json)
   if (!json.localId) throw new IdentityToolkitError('MISSING_LOCAL_ID', null, 'unavailable')
   // No address means there is nothing to write on a new `users/{uid}` document, and
   // inventing one is worse than refusing. Classified as an outage rather than a rejection

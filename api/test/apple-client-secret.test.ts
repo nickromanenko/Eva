@@ -158,7 +158,7 @@ describe("the Apple client secret is a JWT Apple could verify", () => {
         expect(bodies[1]!.get("client_id")).toBe(CLIENT_ID);
     });
 
-    test("a response with only an access token still revokes", async () => {
+    test("a response with only an access token still revokes, and says so", async () => {
         await provision();
 
         const { urls, bodies } = await capture((url) =>
@@ -167,6 +167,48 @@ describe("the Apple client secret is a JWT Apple could verify", () => {
 
         expect(urls.length).toBe(2);
         expect(bodies[1]!.get("token")).toBe("only-an-access-token");
+        // The hint has to follow the token. Apple takes `token_type_hint` at its word, so
+        // an access token labelled `refresh_token` is refused — and refused *silently*,
+        // because revocation is non-fatal by design and the delete succeeds anyway. That
+        // is the App Review entitlement quietly unmet, which is what this file exists for.
+        expect(bodies[1]!.get("token_type_hint")).toBe("access_token");
+    });
+});
+
+describe("an outage at Apple is an outage, not a spent code", () => {
+    test("a 500 from the token endpoint is `unavailable`, not `rejected`", async () => {
+        // `classify` in providers.ts had no test: collapsing it to always-`rejected` was
+        // green. It decides whether the caller is told their credential is bad or an
+        // operator is told the provider is down — and on the Google path the wrong answer
+        // is silent, because `rejected` becomes a 401 with no log line at all.
+        await provision();
+
+        // JSON, so this goes through `classify` rather than the malformed-response branch
+        // in front of it — the two are different paths and only one is under test here.
+        const { outcome } = await capture(
+            () => new Response(JSON.stringify({ error: "backend_error" }), {
+                status: 500,
+                headers: { "content-type": "application/json" },
+            }),
+        );
+
+        expect(outcome.ok).toBe(false);
+        expect(outcome.stage).toBe("token");
+        // The status is what the operator is paged with; it must survive the mapping.
+        expect(outcome.upstreamStatus).toBe(500);
+    });
+
+    test("a 429 is the same — retry, do not tell the user their code is bad", async () => {
+        await provision();
+
+        const { outcome } = await capture(
+            () => new Response(JSON.stringify({ error: "rate_limited" }), {
+                status: 429,
+                headers: { "content-type": "application/json" },
+            }),
+        );
+
+        expect(outcome.upstreamStatus).toBe(429);
     });
 });
 

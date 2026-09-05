@@ -136,11 +136,18 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   answers 401 **without activating**. Fails closed on a missing provider address; a fresh
   provider account has no password and never reaches that branch, so Hide My Email is safe.
   Removing any part of this re-opens an account takeover; ARCHITECTURE §3 walks it through.
-- **`needConfirmation` is a refusal that arrives as a 200 (#7).** `signInWithIdp` sets it
-  when an account already holds the address a credential asserts and that credential has not
-  proved it owns it; the body then carries the *other* account's `localId` and no `idToken`.
-  Check it before reading `localId` — otherwise the caller gets a 30-day session on a
-  stranger's account.
+- **Some refusals from Identity Toolkit arrive as a 200 (#7).** `needConfirmation` (an
+  account already holds this address and the credential has not proved it owns it),
+  `emailRecycled` (the provider reassigned the address to a different `sub`), and an MFA
+  challenge all answer 200 with the *other* account's `localId` and **no `idToken`**. Two
+  were found in consecutive review rounds, so `requireSignedIn` names those and then
+  requires `idToken` on any sign-in response, which is what they all lack. Never read
+  `localId` before it.
+- **`/auth/idp` reads before it writes (#7).** `ensureUser` unions the provider into
+  `authProviders`, so calling it before the claim gate left a refused credential's provider
+  on a stranger's document — which is what the app reads to decide whether to offer
+  "Connect Apple". Use `readUser` to decide, `ensureUser` only once the claim says
+  `claimed`.
 - A provider session comes back already activated, stores no display name, and adds no
   field to `users/{uid}`.
 - CORS is on exactly the two routes the website's link pages call (`/auth/activate`,

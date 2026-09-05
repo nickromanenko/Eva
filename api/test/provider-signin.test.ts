@@ -222,7 +222,11 @@ const attachProvider = async (
  * "link accounts that use the same email" setting produces. Pass a different one to build
  * the identity an attacker attaches out of band.
  */
-const resolveTo = (uid: string, email: string, providerEmail: string = email) =>
+const resolveTo = (
+    uid: string,
+    email: string,
+    { providerEmail = email, verifies = true }: { providerEmail?: string; verifies?: boolean } = {},
+) =>
     async (credential: IdpCredential): Promise<IdpResult> => {
         const providerId = PROVIDER_IDS[credential.provider];
         // Already linked is the second-sign-in case, and Firebase does not duplicate it.
@@ -230,6 +234,14 @@ const resolveTo = (uid: string, email: string, providerEmail: string = email) =>
         const linked = (await adminAuth.getUser(uid)).providerData
             .some((p) => p.providerId === providerId);
         if (!linked) await attachProvider(uid, providerId, providerEmail);
+        // Apple and Google both assert `email_verified`, and Identity Toolkit copies it onto
+        // the account — on a fresh sign-up from `handleIdpSignUp`, and on a merge, where it
+        // sets `emailVerified: true` as part of the same write that strips the old
+        // credentials. A fake that skipped this modelled a world in which no provider
+        // sign-in ever verifies an address, which is exactly half of what
+        // `claimUnprovenAccount`'s trigger reads. `verifies: false` builds the other half
+        // deliberately.
+        if (verifies) await adminAuth.updateUser(uid, { emailVerified: true });
         return { localId: uid, email };
     };
 
@@ -556,20 +568,34 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
                     { status: 200, headers: { "content-type": "application/json" } },
                 )) as typeof fetch;
 
+            let thrown: unknown;
             try {
-                await expect(
-                    realSignInWithIdp({
-                        provider: "apple",
-                        idToken: IDENTITY_TOKEN,
-                        rawNonce: RAW_NONCE,
-                    }),
-                ).rejects.toThrow();
+                await realSignInWithIdp({
+                    provider: "apple",
+                    idToken: IDENTITY_TOKEN,
+                    rawNonce: RAW_NONCE,
+                }).catch((err) => {
+                    thrown = err;
+                });
             } finally {
                 globalThis.fetch = realFetch;
             }
 
-            // No session, and the victim's account untouched by the attempt.
-            expect(await activatedAt(victimUid)).toBeUndefined();
+            // The classification, not merely that it threw. `rejected` is what maps this
+            // to the same `401 INVALID_CREDENTIALS` as every other refusal on the route;
+            // `unavailable` would answer `503` with a `Retry-After`, which tells the client
+            // to retry something no retry can fix, pages an operator for a permanent
+            // refusal, and — the reason it matters most — makes "an account already holds
+            // this address" distinguishable from a plain bad credential (GUARDRAILS 12b).
+            expect(thrown).toBeInstanceOf(IdentityToolkitError);
+            expect((thrown as InstanceType<typeof IdentityToolkitError>).kind).toBe("rejected");
+            // An earlier version of this test asserted `activatedAt(victimUid)` was
+            // undefined. `createAuthUser` writes no Firestore document and this test never
+            // drives the route, so that was true before the act as well: an assertion that
+            // could not fail, standing in for "the victim's account is untouched".
+            expect(
+                (await firestore.collection("users").doc(victimUid).get()).exists,
+            ).toBe(false);
         },
         SLOW,
     );
@@ -606,7 +632,42 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
 
             expect(res.status).toBe(401);
             expect(res.body.token).toBeUndefined();
-            expect(await activatedAt(uid)).toBeNull();
+            // No document at all — not merely an unactivated one. `ensureUser` writes, and
+            // running it before the claim gate left a refused credential's provider unioned
+            // permanently into `authProviders` on the account it collided with. `toBeNull`
+            // here used to pass, and `null` rather than `undefined` was the evidence that
+            // the write had already happened.
+            expect(
+                (await firestore.collection("users").doc(uid).get()).exists,
+            ).toBe(false);
+        },
+        SLOW,
+    );
+
+    test(
+        "a refused credential leaves no trace on the account it collided with",
+        async () => {
+            // The victim's own account, already real and already activated — the state a
+            // refusal must not touch. The damage is not the 401; it is that
+            // `users/{uid}.authProviders` is what the app reads to decide whether to offer
+            // "Connect Apple", so a provider mirrored there by a request that was refused
+            // takes away the real owner's only way to link the identity that is theirs.
+            const victimEmail = newEmail();
+            const uid = await trackedUnactivatedAccount(victimEmail);
+            await markActivated(uid);
+            const before = (await getUser(uid))!.authProviders;
+            expect(before).toEqual(["password"]);
+
+            // An unverified account whose only provider carries a stranger's address.
+            await adminAuth.updateUser(uid, { emailVerified: false });
+            await attachProvider(uid, PROVIDER_IDS.apple, newEmail());
+            // Unactivate it so the claim gate is reached at all.
+            await firestore.collection("users").doc(uid).update({ activatedAt: null });
+
+            idp = () => ({ localId: uid, email: victimEmail });
+            expect((await post("/auth/idp", appleBody())).status).toBe(401);
+
+            expect((await getUser(uid))!.authProviders).toEqual(before);
         },
         SLOW,
     );
@@ -743,6 +804,215 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             expect(
                 (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId),
             ).toEqual(["password"]);
+        },
+        SLOW,
+    );
+
+    test(
+        "a verified account is not refused when the provider stops sending an address",
+        async () => {
+            // The direction the address test must NOT be applied in, and the lockout the
+            // `emailVerified` trigger exists to remove.
+            //
+            // Identity Toolkit rewrites a provider entry's `email` from the token on every
+            // sign-in, and Apple sends the address only on the *first* authorization. So a
+            // returning Apple user's entry can legitimately have no email at all. If the
+            // address test ran on them, `sameAddress` would fail closed and they would get
+            // `401` on every sign-in, for ever, with no recovery — activation needs an email
+            // they may never see, and forgot-password on a relay address goes nowhere.
+            //
+            // What makes them safe is that their address is *verified*: Apple asserted it,
+            // Identity Toolkit copied it onto the account, and nobody can set that field
+            // without being Apple or being an admin.
+            const email = newEmail();
+            const uid = await createAuthUser(email);
+            await adminAuth.updateUser(uid, {
+                emailVerified: true,
+                providerToLink: {
+                    providerId: PROVIDER_IDS.apple,
+                    uid: `apple-sub-${crypto.randomUUID()}`,
+                    // No email, exactly as a re-authorization leaves it.
+                },
+            });
+
+            idp = resolveTo(uid, email);
+
+            expect((await post("/auth/idp", appleBody())).status).toBe(200);
+        },
+        SLOW,
+    );
+
+    test(
+        "an outage at Google is 503, not every user being told their credential is bad",
+        async () => {
+            // Where `classify` in providers.ts actually decides something. Collapsing it to
+            // always-`rejected` was green, because the Apple path discards `kind` — it maps
+            // every token-endpoint failure to `stage: "token"` regardless. Only the Google
+            // route consumes it, and the wrong answer there is silent: `rejected` becomes a
+            // 401 with **no log line**, so a Google outage presents as every user's
+            // credential being bad and nothing points at the cause.
+            //
+            // Needs the client id set, since the unprovisioned path returns before the call.
+            const clientId = config.providers.googleIosClientId;
+            (config.providers as { googleIosClientId: string | null }).googleIosClientId =
+                "1234-abcd.apps.googleusercontent.com";
+            const realFetch = globalThis.fetch;
+            // A **JSON** body, deliberately. A non-JSON one is thrown as `unavailable` by
+            // the malformed-response branch before `classify` is ever consulted — so the
+            // first version of this test passed with `classify` collapsed to always-
+            // `rejected`, proving the wrong thing. Google answers errors in JSON.
+            globalThis.fetch = (async (_input: any) =>
+                new Response(JSON.stringify({ error: "backend_error" }), {
+                    status: 503,
+                    headers: { "content-type": "application/json" },
+                })) as typeof fetch;
+
+            let res: Answer;
+            try {
+                res = await post("/auth/idp", {
+                    provider: "google",
+                    code: "auth-code",
+                    codeVerifier: "code-verifier",
+                    redirectUri: "com.googleusercontent.apps.1234:/oauth2redirect",
+                });
+            } finally {
+                globalThis.fetch = realFetch;
+                (config.providers as { googleIosClientId: string | null }).googleIosClientId =
+                    clientId;
+            }
+
+            expect(res.status).toBe(503);
+            expect(res.body.error.code).toBe("SERVICE_UNAVAILABLE");
+            // And it says how long to wait, rather than leaving the client to guess.
+            expect(JSON.parse(res.headers).some(
+                ([name]: [string, string]) => name === "retry-after",
+            )).toBe(true);
+        },
+        SLOW,
+    );
+
+    test(
+        "a recycled provider address does not hand one user another user's account",
+        async () => {
+            // Identity Toolkit's *second* refusal wearing a 200, and the one that arrives
+            // without anybody doing anything wrong. `emailRecycled` is set when the
+            // credential's address matches an account that already holds an entry for this
+            // same provider under a **different** `sub` — the provider gave the address to
+            // somebody else. A workplace mailbox reissued to a new employee is the ordinary
+            // way it happens, and Firebase merges anyway, returning the *old* account's uid.
+            //
+            // The old account is activated, so the claim never runs. Without this check the
+            // new employee is handed a 30-day session on their predecessor's cycle, flow and
+            // symptom history.
+            const realFetch = globalThis.fetch;
+            globalThis.fetch = (async (_input: any) =>
+                new Response(
+                    JSON.stringify({
+                        emailRecycled: true,
+                        localId: "the-previous-owners-uid",
+                        email: "e2e+recycled@e2e.evaapp.dev",
+                        idToken: "a-firebase-id-token",
+                    }),
+                    { status: 200, headers: { "content-type": "application/json" } },
+                )) as typeof fetch;
+
+            let thrown: unknown;
+            try {
+                await realSignInWithIdp({
+                    provider: "google",
+                    idToken: IDENTITY_TOKEN,
+                }).catch((err) => {
+                    thrown = err;
+                });
+            } finally {
+                globalThis.fetch = realFetch;
+            }
+
+            expect(thrown).toBeInstanceOf(IdentityToolkitError);
+            // Same classification as every other refusal, so it is one 401 among many.
+            expect((thrown as InstanceType<typeof IdentityToolkitError>).kind).toBe("rejected");
+        },
+        SLOW,
+    );
+
+    test(
+        "a sign-in with no address is an outage, not a verdict about the caller",
+        async () => {
+            // There is nothing to write on a new document and inventing an address is worse
+            // than refusing — but the classification is the point. `unavailable` pages an
+            // operator about a surprise in our project's configuration; `rejected` would
+            // tell the user their Apple ID is bad, which it is not, and give them nothing
+            // to do about it. Deleting the check ships a `500 INTERNAL` instead, because
+            // Firestore rejects `email: undefined`.
+            const realFetch = globalThis.fetch;
+            globalThis.fetch = (async (_input: any) =>
+                new Response(
+                    JSON.stringify({ localId: "some-uid", idToken: "a-firebase-id-token" }),
+                    { status: 200, headers: { "content-type": "application/json" } },
+                )) as typeof fetch;
+
+            let thrown: unknown;
+            try {
+                await realSignInWithIdp({
+                    provider: "google",
+                    idToken: IDENTITY_TOKEN,
+                }).catch((err) => {
+                    thrown = err;
+                });
+            } finally {
+                globalThis.fetch = realFetch;
+            }
+
+            expect(thrown).toBeInstanceOf(IdentityToolkitError);
+            expect((thrown as InstanceType<typeof IdentityToolkitError>).kind).toBe(
+                "unavailable",
+            );
+        },
+        SLOW,
+    );
+
+    test(
+        "a 200 with no ID token is not a sign-in, whatever else it says",
+        async () => {
+            // The backstop, and the reason it is not another named check: `needConfirmation`
+            // and `emailRecycled` were found one at a time, in consecutive review rounds,
+            // and the list is Google's rather than ours. An MFA challenge is the next one —
+            // it answers `mfaPendingCredential` and no token, so reading `localId` past it
+            // would turn every second factor into a full session. MFA is one console switch
+            // away from being on.
+            //
+            // Every request sets `returnSecureToken: true`, so a real sign-in always carries
+            // an ID token. Absence is the shape all three have in common.
+            const realFetch = globalThis.fetch;
+            globalThis.fetch = (async (_input: any) =>
+                new Response(
+                    JSON.stringify({
+                        localId: "some-uid",
+                        email: "e2e+mfa@e2e.evaapp.dev",
+                        mfaPendingCredential: "a-pending-credential",
+                    }),
+                    { status: 200, headers: { "content-type": "application/json" } },
+                )) as typeof fetch;
+
+            let thrown: unknown;
+            try {
+                await realSignInWithIdp({
+                    provider: "google",
+                    idToken: IDENTITY_TOKEN,
+                }).catch((err) => {
+                    thrown = err;
+                });
+            } finally {
+                globalThis.fetch = realFetch;
+            }
+
+            expect(thrown).toBeInstanceOf(IdentityToolkitError);
+            // `unavailable`, not `rejected`: an unrecognised shape is a surprise about our
+            // project, not a verdict about the caller, so it pages rather than telling
+            // someone their Apple ID is bad.
+            expect((thrown as InstanceType<typeof IdentityToolkitError>).kind).toBe(
+                "unavailable",
+            );
         },
         SLOW,
     );
@@ -979,6 +1249,96 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
     });
 });
 
+describe("the provider routes are throttled, and separately", () => {
+    /**
+     * The 429 branch had no coverage at all: deleting the throttle from either route left
+     * the whole suite green, and so did collapsing the two counters into one — which
+     * `ProviderRoute`'s own docstring says must not happen.
+     *
+     * Nothing sent `x-forwarded-for`, so `consumeProviderAttempt` short-circuited on a null
+     * IP in every test in the repo and the limiter was never once asked a real question.
+     * That is what these send.
+     */
+    const IP = "203.0.113.7";
+    const from = (ip: string) => ({ "x-forwarded-for": ip });
+
+    /** One more than the budget, so the last one must be refused. */
+    const overBudget = config.rateLimit.idpPerIp + 1;
+
+    test(
+        "an address that keeps trying is refused, and told how long to wait",
+        async () => {
+            // The credential is nonsense on purpose: the throttle is counted after
+            // validation and *before* either upstream call, so a refused request costs
+            // nothing and can depend on nothing.
+            idp = () => {
+                throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
+            };
+
+            let last: Answer | null = null;
+            for (let i = 0; i < overBudget; i++) {
+                last = await post("/auth/idp", appleBody(), from(IP));
+            }
+
+            expect(last!.status).toBe(429);
+            expect(last!.body.error.code).toBe("RATE_LIMITED");
+            expect(Number(JSON.parse(last!.headers).find(
+                ([name]: [string, string]) => name === "retry-after",
+            )?.[1])).toBeGreaterThan(0);
+            // Nothing about the address, and nothing of the provider's own reason.
+            expect(last!.text).not.toContain("INVALID_IDP_RESPONSE");
+        },
+        SLOW,
+    );
+
+    test(
+        "a different address is unaffected by it",
+        async () => {
+            // Carrier NAT is why the per-IP budget is loose rather than sharp; it is also
+            // why exhausting one address must not touch another.
+            idp = () => {
+                throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
+            };
+            for (let i = 0; i < overBudget; i++) {
+                await post("/auth/idp", appleBody(), from("203.0.113.8"));
+            }
+
+            expect((await post("/auth/idp", appleBody(), from("203.0.113.9"))).status).toBe(401);
+        },
+        SLOW,
+    );
+
+    test(
+        "exhausting sign-in does not spend linking, or the reverse",
+        async () => {
+            // Separate maps, deliberately. One budget shared between the two would let an
+            // unauthenticated caller lock every signed-in user out of connecting a provider.
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+            await markActivated(uid);
+            const token = await mintToken(uid, email);
+
+            idp = () => {
+                throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
+            };
+            for (let i = 0; i < overBudget; i++) {
+                await post("/auth/idp", appleBody(), from(IP));
+            }
+            expect((await post("/auth/idp", appleBody(), from(IP))).status).toBe(429);
+
+            // The link route, from the same address, still has its own budget.
+            idp = resolveTo(uid, email);
+            expect(
+                (await post("/me/auth/providers", appleBody(), {
+                    ...bearer(token),
+                    ...from(IP),
+                })).status,
+            ).toBe(200);
+        },
+        SLOW,
+    );
+});
+
 describe("POST /me/auth/providers — linking is deliberate, and never a merge", () => {
     /** An activated password account and a session for it. */
     const signedIn = async (): Promise<{ uid: string; email: string; token: string }> => {
@@ -1028,6 +1388,29 @@ describe("POST /me/auth/providers — linking is deliberate, and never a merge",
             expect(res.body.error.code).toBe("PROVIDER_ALREADY_LINKED");
             // The account is exactly as it was: no provider added, no silent merge.
             expect((await getUser(uid))!.authProviders).toEqual(["password"]);
+        },
+        SLOW,
+    );
+
+    test(
+        "a link that landed on a different account is a bug, not a mirror update",
+        async () => {
+            // `signInWithIdp` in link mode attaches to the account the ID token names, so a
+            // different uid coming back means Firebase merged instead of linking — the
+            // thing this route exists to avoid. Deleting the guard was green: the mock
+            // returns the caller's uid by construction and no test ever made it lie.
+            //
+            // Ships as `authProviders` claiming a provider the account does not hold, which
+            // is what Profile reads to decide the Connect button and what the delete flow
+            // reads to decide whether to revoke with Apple.
+            const { token } = await signedIn();
+            idp = () => ({ localId: "a-different-uid", email: newEmail() });
+
+            const res = await post("/me/auth/providers", appleBody(), bearer(token));
+
+            expect(res.status).toBe(500);
+            // Nothing of the other account reaches the caller.
+            expect(res.text).not.toContain("a-different-uid");
         },
         SLOW,
     );
@@ -1136,7 +1519,14 @@ describe("identity-toolkit puts the nonce on the wire", () => {
         ) => {
             sentBody = JSON.parse(init.body!);
             return new Response(
-                JSON.stringify({ localId: "wire-test-uid", email: "e2e+wire@e2e.evaapp.dev" }),
+                // `idToken` is present because a real sign-in response always carries one —
+                // every request sets `returnSecureToken: true`. Its absence is what
+                // `requireSignedIn` treats as "a 200 that is not a sign-in".
+                JSON.stringify({
+                    localId: "wire-test-uid",
+                    email: "e2e+wire@e2e.evaapp.dev",
+                    idToken: "a-firebase-id-token",
+                }),
                 { status: 200, headers: { "content-type": "application/json" } },
             );
         }) as never);
@@ -1170,7 +1560,14 @@ describe("identity-toolkit puts the nonce on the wire", () => {
         ) => {
             sentBody = JSON.parse(init.body!);
             return new Response(
-                JSON.stringify({ localId: "wire-test-uid", email: "e2e+wire@e2e.evaapp.dev" }),
+                // `idToken` is present because a real sign-in response always carries one —
+                // every request sets `returnSecureToken: true`. Its absence is what
+                // `requireSignedIn` treats as "a 200 that is not a sign-in".
+                JSON.stringify({
+                    localId: "wire-test-uid",
+                    email: "e2e+wire@e2e.evaapp.dev",
+                    idToken: "a-firebase-id-token",
+                }),
                 { status: 200, headers: { "content-type": "application/json" } },
             );
         }) as never);
