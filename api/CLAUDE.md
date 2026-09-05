@@ -127,12 +127,20 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
 - **Unlinking is half of it; the address test is the other half.** Stripping defends only
   the ordering where the victim signs in first, and the attacker can always choose to go
   first — nothing is stripped when `password` and their own provider are the only two, and
-  activation then disarms the claim forever. So on an account that already carries a
-  password, the provider signing in must carry that account's own address (the fact that
-  made Firebase merge it). Otherwise `claimUnprovenAccount` returns `refused` and the route
+  activation then disarms the claim forever. So on an account whose address nobody has
+  proved (`emailVerified` false), the provider signing in must carry that account's own
+  address (the fact that made Firebase merge it). The trigger is `emailVerified` and never
+  "has a password": a password entry is derived, client-mutable, and set by this function's
+  own write, and an attacker can point a federated-only account at a victim's address
+  without ever attaching one. Otherwise `claimUnprovenAccount` returns `refused` and the route
   answers 401 **without activating**. Fails closed on a missing provider address; a fresh
   provider account has no password and never reaches that branch, so Hide My Email is safe.
   Removing any part of this re-opens an account takeover; ARCHITECTURE §3 walks it through.
+- **`needConfirmation` is a refusal that arrives as a 200 (#7).** `signInWithIdp` sets it
+  when an account already holds the address a credential asserts and that credential has not
+  proved it owns it; the body then carries the *other* account's `localId` and no `idToken`.
+  Check it before reading `localId` — otherwise the caller gets a 30-day session on a
+  stranger's account.
 - A provider session comes back already activated, stores no display name, and adds no
   field to `users/{uid}`.
 - CORS is on exactly the two routes the website's link pages call (`/auth/activate`,

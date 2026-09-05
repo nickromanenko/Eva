@@ -233,6 +233,22 @@ const resolveTo = (uid: string, email: string, providerEmail: string = email) =>
         return { localId: uid, email };
     };
 
+/** A real Firebase ID token for a password account, from Identity Toolkit directly — the
+ *  session an attacker holds without ever touching Eva. Same reasoning as
+ *  `passwordStillWorks` above for why it goes nowhere near the mocked module. */
+const idTokenFromPassword = async (email: string, password: string): Promise<string | null> => {
+    const res = await fetch(
+        `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+        {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email, password, returnSecureToken: true }),
+        },
+    );
+    if (!res.ok) return null;
+    return ((await res.json()) as { idToken?: string }).idToken ?? null;
+};
+
 const activatedAt = async (uid: string): Promise<unknown> =>
     (await firestore.collection("users").doc(uid).get()).get("activatedAt");
 
@@ -295,7 +311,13 @@ describe("claimUnprovenAccount reads back what it wrote", () => {
             // deterministic; what is under test is that the function refuses to report
             // success for a state it can see is wrong. Here the provider was simply never
             // attached, which is the same end state the loser of the race observes.
+            //
+            // `emailVerified` is set so the address test above is skipped: otherwise this
+            // is refused before any write and the read-back — the thing under test — never
+            // runs. Deleting the read-back must fail this test, not be masked by the gate
+            // in front of it.
             const uid = await createAuthUser(newEmail());
+            await adminAuth.updateUser(uid, { emailVerified: true });
 
             expect(await claimUnprovenAccount(uid, PROVIDER_IDS.apple)).toBe("refused");
         },
@@ -351,19 +373,29 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             // its own. A regression that grew one would show up here as the pre-existing
             // account being touched.
             //
-            // This is also the real Hide My Email case: a relay address matches nothing,
-            // so Firebase hands back a new uid and the user gets a new account.
+            // This is the real Hide My Email case: the relay address matches nothing, so
+            // Firebase hands back a new uid and the user gets a new account while their
+            // password account at the other address sits untouched beside it.
+            //
+            // An earlier version of this test had the boundary return the *password*
+            // account's address against the Apple account's uid, to make the point sharply.
+            // Firebase cannot produce that state — two Auth accounts cannot share an
+            // address — and it is now refused by `claimUnprovenAccount`, correctly: an
+            // unverified account whose provider's address is not its own is the shape of
+            // the takeover in the test below. The property under test is unchanged.
             const email = newEmail();
+            const relay = newEmail();
             const passwordUid = await trackedUnactivatedAccount(email);
-            const appleUid = await createAuthUser(newEmail());
-            idp = resolveTo(appleUid, email);
+            const appleUid = await createAuthUser(relay);
+            idp = resolveTo(appleUid, relay);
 
             const res = await post("/auth/idp", appleBody());
 
             expect(res.status).toBe(200);
             expect(res.body.user.id).toBe(appleUid);
             expect(res.body.user.id).not.toBe(passwordUid);
-            expect(await accountsForEmail(email)).toEqual([appleUid, passwordUid].sort());
+            expect(await accountsForEmail(relay)).toEqual([appleUid]);
+            expect(await accountsForEmail(email)).toEqual([passwordUid]);
 
             // The account the route was NOT pointed at is untouched — no link, no
             // activation, and its password still its own.
@@ -492,6 +524,225 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
             expect(
                 (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort(),
             ).toEqual([PROVIDER_IDS.apple, "password"].sort());
+        },
+        SLOW,
+    );
+
+    test(
+        "a needConfirmation answer is a refusal, however much it looks like a success",
+        async () => {
+            // Identity Toolkit's third outcome, and the one that is not an error: when the
+            // credential's `sub` is linked to nothing, an account already holds the address
+            // the credential asserts, and the credential's own `email_verified` is falsy,
+            // it answers **200** with `needConfirmation: true`, that other account's
+            // `localId`, and no `idToken` — "this credential must not sign in". The
+            // Firebase JS SDK raises `account-exists-with-different-credential` from it.
+            //
+            // Read past it and the caller is handed a 30-day session on an account they
+            // have never authenticated to. This drives the *real* client against a stubbed
+            // `fetch`, because the point is what the module does with that response shape.
+            const victimEmail = newEmail();
+            const victimUid = await createAuthUser(victimEmail);
+
+            const realFetch = globalThis.fetch;
+            globalThis.fetch = (async (_input: any) =>
+                new Response(
+                    JSON.stringify({
+                        needConfirmation: true,
+                        localId: victimUid,
+                        email: victimEmail,
+                        verifiedProvider: ["google.com"],
+                    }),
+                    { status: 200, headers: { "content-type": "application/json" } },
+                )) as typeof fetch;
+
+            try {
+                await expect(
+                    realSignInWithIdp({
+                        provider: "apple",
+                        idToken: IDENTITY_TOKEN,
+                        rawNonce: RAW_NONCE,
+                    }),
+                ).rejects.toThrow();
+            } finally {
+                globalThis.fetch = realFetch;
+            }
+
+            // No session, and the victim's account untouched by the attempt.
+            expect(await activatedAt(victimUid)).toBeUndefined();
+        },
+        SLOW,
+    );
+
+    test(
+        "an account pointed at a stranger's address is refused even with no password on it",
+        async () => {
+            // The takeover the password-shaped trigger missed entirely, and the reason the
+            // trigger is `emailVerified`:
+            //
+            //   1. attacker signs in at Identity Toolkit directly with their own Apple
+            //      credential — new account, their address, no Eva document;
+            //   2. attacker calls `accounts:update` with that account's own idToken to
+            //      point its address at a victim who has not signed up yet. Changing an
+            //      address forces `emailVerified` to false, and no password is ever
+            //      attached;
+            //   3. attacker signs in here. A trigger that asks "does it have a password"
+            //      finds none, skips the address test, and claims, activates and tokenises
+            //      an account carrying the victim's address.
+            const victimEmail = newEmail();
+            const attackerAppleEmail = newEmail();
+            const uid = await createAuthUser(attackerAppleEmail);
+            await attachProvider(uid, PROVIDER_IDS.apple, attackerAppleEmail);
+            // Step 2, with the same end state: the account's address is the victim's, its
+            // only provider carries the attacker's, and nobody has proved either.
+            await adminAuth.updateUser(uid, { email: victimEmail, emailVerified: false });
+            expect(
+                (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId),
+            ).toEqual([PROVIDER_IDS.apple]);
+
+            idp = () => ({ localId: uid, email: victimEmail });
+
+            const res = await post("/auth/idp", appleBody());
+
+            expect(res.status).toBe(401);
+            expect(res.body.token).toBeUndefined();
+            expect(await activatedAt(uid)).toBeNull();
+        },
+        SLOW,
+    );
+
+    test(
+        "a provider that carries no address at all cannot claim an unproven account",
+        async () => {
+            // Identity Toolkit rewrites a provider entry's `email` from the token on every
+            // sign-in, and Apple sends the address only on the *first* authorization — so
+            // an absent one is ordinary, not corrupt. Treating absent as a match would make
+            // the address test optional for any attacker willing to re-authorize once.
+            const victimEmail = newEmail();
+            const uid = await trackedUnactivatedAccount(victimEmail);
+            await adminAuth.updateUser(uid, {
+                providerToLink: {
+                    providerId: PROVIDER_IDS.apple,
+                    uid: `attacker-apple-sub-${crypto.randomUUID()}`,
+                    // No email — the case `sameAddress` must not read as agreement.
+                },
+            });
+
+            idp = () => ({ localId: uid, email: victimEmail });
+
+            const res = await post("/auth/idp", appleBody());
+
+            expect(res.status).toBe(401);
+            expect(res.body.token).toBeUndefined();
+            expect(await activatedAt(uid)).toBeNull();
+        },
+        SLOW,
+    );
+
+    test(
+        "an address that differs only in case is the same address",
+        async () => {
+            // The other direction, and the reason the comparison folds case: Firebase
+            // canonicalises the account's address, a provider may not, and refusing on that
+            // difference would give a real user a permanent 401 with no way to find out why.
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+            await attachProvider(uid, PROVIDER_IDS.apple, email.toUpperCase());
+
+            idp = () => ({ localId: uid, email });
+
+            expect((await post("/auth/idp", appleBody())).status).toBe(200);
+        },
+        SLOW,
+    );
+
+    test(
+        "the claim revokes sessions the attacker already holds",
+        async () => {
+            // The third leg named in `claimUnprovenAccount`'s own docstring, and the one
+            // with nothing else standing in for it. Overwriting the password does not
+            // retract a refresh token: the web API key is public, so whoever set the
+            // password can hold a live Identity Toolkit session indefinitely and keep
+            // minting Firebase ID tokens for the account after the claim has run.
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+
+            // The attacker's live session, obtained the way they would obtain it: straight
+            // at Identity Toolkit with the public web API key, never through Eva.
+            const attackerToken = await idTokenFromPassword(email, PASSWORD);
+            expect(attackerToken).toBeString();
+            // It works right now. Asserted before the act so the rejection below cannot be
+            // "the token was never valid".
+            expect(await adminAuth.verifyIdToken(attackerToken!, true)).toBeTruthy();
+
+            // `tokensValidAfterTime` has one-second resolution, so a claim in the same
+            // second as the sign-in is indistinguishable from no revocation at all — by
+            // Firebase's own comparison, not just by this assertion. Crossing the boundary
+            // is what makes the check deterministic rather than a coin flip.
+            await Bun.sleep(1_100);
+
+            idp = resolveTo(uid, email);
+            expect((await post("/auth/idp", appleBody())).status).toBe(200);
+
+            // The property, not a proxy for it: Firebase now refuses the token when asked
+            // to check revocation.
+            await expect(adminAuth.verifyIdToken(attackerToken!, true)).rejects.toThrow();
+        },
+        SLOW,
+    );
+
+    test(
+        "the revocation is asked for, not inherited from the password write",
+        async () => {
+            // Asserting the *call*, which is normally the wrong thing to assert — so the
+            // reason, because it is not obvious.
+            //
+            // The test above proves the outcome: the attacker's Firebase ID token stops
+            // verifying. But it cannot attribute that outcome. Identity Toolkit bumps
+            // `validSince` on any update carrying a password, so overwriting the password
+            // revokes tokens as a side effect, and deleting `revokeRefreshTokens` outright
+            // leaves that test green. Verified by mutation, against the emulator, which is
+            // also the only implementation of Firebase the CI suite has.
+            //
+            // Whether Google's production Identity Toolkit makes the same side effect is
+            // not something this suite can find out, and the claim's docstring names
+            // revocation as one of its three legs. So the call is pinned: not because
+            // calling it is the requirement, but because nothing else here can tell the
+            // difference between "revoked" and "revoked by accident".
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+            const spy = spyOn(adminAuth, "revokeRefreshTokens");
+
+            try {
+                idp = resolveTo(uid, email);
+                expect((await post("/auth/idp", appleBody())).status).toBe(200);
+                expect(spy).toHaveBeenCalledWith(uid);
+            } finally {
+                spy.mockRestore();
+            }
+        },
+        SLOW,
+    );
+
+    test(
+        "a refusal for a provider that is not on the account changes nothing either",
+        async () => {
+            // The `!signingIn` half of the guard, which the read-back would otherwise mask:
+            // weaken it to `signingIn && !sameAddress(...)` and the outcome is still
+            // `refused`, but only after the account has been overwritten — password gone,
+            // federated identities stripped, sessions revoked — for a request that was
+            // never entitled to touch it. Asked of the credential, which is the part a real
+            // owner would notice.
+            const email = newEmail();
+            const uid = await trackedUnactivatedAccount(email);
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
+
+            expect(await claimUnprovenAccount(uid, PROVIDER_IDS.apple)).toBe("refused");
+
+            expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
+            expect(
+                (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId),
+            ).toEqual(["password"]);
         },
         SLOW,
     );

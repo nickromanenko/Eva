@@ -99,6 +99,17 @@ interface AccountsResponse {
   email?: string
   /** A Firebase ID token for the account. Only `signInWithCustomToken` asks for it. */
   idToken?: string
+  /**
+   * `signInWithIdp` only, and it is a **refusal wearing a 200**: Identity Toolkit sets it
+   * when the credential's `sub` is not linked to anything, an account already holds the
+   * address the credential asserts, and the credential's own `email_verified` is falsy.
+   * The body then carries that *other* account's `localId` and no `idToken` at all — the
+   * Firebase JS SDK turns it into `auth/account-exists-with-different-credential`.
+   *
+   * It has to be a field here because the only other thing that distinguishes it from a
+   * successful sign-in is a `localId` for an account the caller has never authenticated to.
+   */
+  needConfirmation?: boolean
   error?: { message?: string }
 }
 
@@ -223,6 +234,18 @@ export const signInWithIdp = async (
     requestUri: REQUEST_URI,
     ...(linkToIdToken ? { idToken: linkToIdToken } : {}),
   })
+  // Checked **before** `localId` is read, because on this response `localId` names somebody
+  // else. Identity Toolkit is saying "an account already holds this address and this
+  // credential has not proved it owns it" — a 200 whose meaning is refusal. Reading past it
+  // hands the caller a session for the account they collided with, which for Eva is 30 days
+  // of read and write on a stranger's cycle and symptom history.
+  //
+  // `rejected` rather than `unavailable`: nothing is wrong with our project and no retry
+  // helps. It maps to the same `401 INVALID_CREDENTIALS` as every other refusal on this
+  // route, so it adds no way to tell one from another (GUARDRAILS 12b).
+  if (json.needConfirmation) {
+    throw new IdentityToolkitError('NEED_CONFIRMATION', null, 'rejected')
+  }
   if (!json.localId) throw new IdentityToolkitError('MISSING_LOCAL_ID', null, 'unavailable')
   // No address means there is nothing to write on a new `users/{uid}` document, and
   // inventing one is worse than refusing. Classified as an outage rather than a rejection
@@ -377,12 +400,34 @@ export const claimUnprovenAccount = async (
   // mirror reads that as a fresh account and does nothing.
   const account = await adminAuth.getUser(uid)
 
-  // Whoever holds a password on an unactivated account set it without proving the address,
-  // and `POST /auth/signup` (#6) let them reserve it. So a password here is the signal that
-  // this account may be a trap rather than a fresh one, and it is the only case that needs
-  // the address test below. A federated-only account has no such prior claim: it did not
-  // exist until this sign-in created it.
-  const preRegistered = account.providerData.some((p) => p.providerId === 'password')
+  // *Why `emailVerified`, and not "does it have a password".*
+  //
+  // The trigger has to be a fact the attacker cannot move. A password entry is not one:
+  // Identity Toolkit derives it from `email && passwordHash`, an idToken holder can add or
+  // drop credentials on their own account, and — decisively — **this function's own write
+  // below sets a password**, so any account it has already claimed would take the branch on
+  // a retry.
+  //
+  // It also missed a takeover outright. An attacker can create a federated-only account
+  // with their own Apple `sub`, then call `accounts:update` with that account's idToken to
+  // point its address at a victim who has not signed up yet. No password is ever attached,
+  // so a password-shaped trigger skips the test, and the claim proceeds on an account whose
+  // address its only provider does not own.
+  //
+  // `emailVerified` cannot be forged: `accounts:update` accepts it only from a privileged
+  // caller, and changing an address forces it to false. It is exactly the question worth
+  // asking — *has anyone proved this address belongs to this account* — and it answers
+  // correctly in every case the password trigger got right, plus the two it got wrong:
+  //
+  //   fresh Apple/Google account (relay included) → true, from the provider; test skipped
+  //   pre-registered password account             → false; test applies
+  //   Firebase merge of a verified provider email → true, set as part of the merge
+  //   federated-only account pointed at a victim  → false, forced by the address change
+  //
+  // The last row is the takeover above. The third matters for a different reason: a
+  // returning user whose provider address changed is `true`, so they are never refused for
+  // a mismatch that is legitimately theirs.
+  const addressUnproven = !account.emailVerified
 
   // *Why the address has to match, and why checking the provider list is not enough.*
   //
@@ -398,14 +443,16 @@ export const claimUnprovenAccount = async (
   // What separates the two orderings is the address. Firebase merged the victim's provider
   // into this account *because* the provider's own address equals the account's; an
   // attacker's identity attached out of band has no such equality and cannot manufacture
-  // one without controlling the address, at which point they are the owner. So: a
-  // pre-registered account may only be claimed by a provider that carries its address.
+  // one without controlling the address, at which point they are the owner. So: an account
+  // whose address nobody has proved may only be claimed by a provider that carries it.
   //
-  // Fails **closed** on an absent provider address, deliberately and only here — an
-  // account with a password and no confirmed owner is the suspicious case already, and the
-  // real owner still has activation and forgot-password. A fresh provider account never
-  // reaches this branch, so Apple's Hide My Email relay cannot be locked out by it.
-  if (preRegistered) {
+  // Fails **closed** on an absent provider address, deliberately. Identity Toolkit re-writes
+  // a provider entry's `email` from the token on every sign-in, and Apple sends the address
+  // only on the first authorization — so an absent one is ordinary, not corrupt, and
+  // treating it as a match would make the whole test optional for any attacker willing to
+  // re-authorize. A fresh provider account has `emailVerified` from the provider and never
+  // reaches this branch, so Apple's Hide My Email relay is not locked out by it.
+  if (addressUnproven) {
     const signingIn = account.providerData.find((p) => p.providerId === keepProviderId)
     if (!signingIn || !sameAddress(signingIn.email, account.email)) return 'refused'
   }

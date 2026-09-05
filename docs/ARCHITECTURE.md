@@ -262,6 +262,15 @@ nothing, so those users get a new account regardless. `POST /me/auth/providers` 
 authenticated, from Profile — is their only route into an existing one, which is why it is
 not optional.
 
+**A 200 from `signInWithIdp` is not always a sign-in.** When the credential's `sub` is
+linked to nothing, an account already holds the address the credential asserts, and the
+credential's own `email_verified` is falsy, Identity Toolkit answers `200` with
+`needConfirmation: true`, **that other account's `localId`**, and no `idToken` — what the
+Firebase JS SDK surfaces as `account-exists-with-different-credential`. It is a refusal, and
+the only thing distinguishing it from success is the flag, so `identity-toolkit.ts` checks it
+before reading `localId` at all. Reading past it hands the caller a 30-day session on an
+account they have never authenticated to.
+
 **Auto-linking is only safe because `/auth/idp` claims an unproven account.** Sign-up (#6)
 creates the Firebase Auth user *before* the address is confirmed, and **the web API key is
 public** — Firebase Hosting serves it at `/__/firebase/init.json`, and Identity Toolkit
@@ -291,9 +300,17 @@ the victim's later Google sign-in merges onto an account the attacker holds.
 What separates the two orderings is the address. Firebase merged the victim's provider into
 the account *because* the provider's own address equals the account's; an identity attached
 out of band has no such equality and cannot manufacture one without controlling the address,
-at which point they are the owner. So on an account Firebase's `providerData` shows a
-password on — one somebody reserved without proving — the provider signing in must carry
-that account's address. Otherwise `claimUnprovenAccount` returns `refused`, the route answers
+at which point they are the owner. So on an account **nobody has proved the address of** —
+`emailVerified` false — the provider signing in must carry that account's address.
+
+The trigger is `emailVerified`, not "does it have a password", because it has to be a fact
+the attacker cannot move. A password entry is not one: Identity Toolkit derives it from
+`email && passwordHash`, an idToken holder adds and drops credentials on their own account,
+and the claim's own write sets a password. It also missed a takeover outright — an attacker
+can create a federated-only account with their own Apple `sub`, then point its address at a
+victim who has not signed up yet, so no password is ever attached and a password-shaped
+trigger skips the test entirely. `emailVerified` is admin-only on `accounts:update`, and
+changing an address forces it false. Otherwise `claimUnprovenAccount` returns `refused`, the route answers
 `401 INVALID_CREDENTIALS`, and crucially **does not activate**: the stamp is what would make
 the takeover permanent. It fails closed on a missing provider address, and only in that
 branch, so Apple's Hide My Email relay — which creates a fresh account with no password — is

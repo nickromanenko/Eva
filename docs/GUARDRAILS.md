@@ -18,7 +18,13 @@ Each rule is stated so a reviewer can check it mechanically.
    `api/src/identity-toolkit.ts`; `POSTMARK_API_KEY` only in `api/src/email.ts`;
    `APPLE_SIGNIN_KEY` (and the rest of `config.providers`) only in `api/src/providers.ts`.
    Don't spread them. `APPLE_SIGNIN_KEY` signs for Apple and `JWT_SECRET` signs for us —
-   neither file ever touches the other's key.
+   neither file ever touches the other's key. This rule is about `api/src/`; `api/test/` is
+   outside it, and has to be. A test that asked the owning module whether a credential still
+   works would be asking a module `mock.module` has replaced — process-globally,
+   permanently, by whichever suite loaded first. So `provider-signin.test.ts` reads the web
+   API key to ask Identity Toolkit directly, and `apple-client-secret.test.ts` sets
+   `config.providers.apple` to a key it generates. Neither is a real credential; rule 1
+   still binds.
 
 ## Security rules (Firestore / Storage)
 
