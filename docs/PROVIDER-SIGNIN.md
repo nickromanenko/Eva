@@ -130,7 +130,7 @@ Neither the registration nor the relay behaviour is visible to the App Store Con
 unlike §1 this cannot be verified from a terminal. The proof is a real send to a relay
 address, which belongs with the device testing at the end of this document.
 
-## 3. Apple: the signing key — and why it is not optional
+## 3. Apple: the signing key — done 2026-09-09, and why it is not optional
 
 Keys → **+** → enable **Sign in with Apple**, configure it against `com.evaapp.ios`,
 then Continue and Register.
@@ -155,12 +155,37 @@ gcloud secrets create eva-apple-signin-key --data-file=AuthKey_XXXXXXXXXX.p8 \
   --project eva-ai-made-for-women
 
 gcloud secrets add-iam-policy-binding eva-apple-signin-key \
-  --member "serviceAccount:<cloud-run-runtime-sa>" \
+  --member "serviceAccount:976826401031-compute@developer.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor \
   --project eva-ai-made-for-women
 ```
 
 Then delete the downloaded file. It is a signing key for your Apple team.
+
+### Done 2026-09-09 — and verified, because this one fails quietly
+
+Key ID `V6JDCDQQG7`, stored as `eva-apple-signin-key` version 1, `secretAccessor` granted
+to the Cloud Run runtime service account. `APPLE_KEY_ID` is set, which completes the four
+Apple repo variables.
+
+A wrong key here does not fail loudly. Revocation is deliberately non-fatal, so
+`DELETE /me` still answers `200 { deleted: true }` and the only trace is one log line —
+which is exactly how the App Review requirement above would end up quietly unmet. So the
+stored key was checked rather than assumed, without any of it reaching a terminal:
+
+```sh
+gcloud secrets versions list eva-apple-signin-key --project eva-ai-made-for-women
+gcloud secrets get-iam-policy eva-apple-signin-key --project eva-ai-made-for-women
+```
+
+and, on the value itself: PKCS#8 header (`-----BEGIN PRIVATE KEY-----`, which is what
+`crypto.subtle.importKey('pkcs8', …)` in `providers.ts` requires), real newlines rather than
+the escaped `\n` that `config.ts` exists to restore, `openssl pkey` parses it, the curve is
+`prime256v1` — P-256, as ES256 requires — and a WebCrypto import through the same call
+`appleClientSecret` makes produces a 64-byte signature, the raw `r‖s` pair JWS defines.
+
+What none of that proves is that **Apple** accepts it. That needs a real deletion on a
+device, and is listed with the other device-testing items at the end.
 
 ## 4. Google: an OAuth client for iOS
 
