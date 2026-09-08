@@ -1,7 +1,7 @@
 # Eva — Sign in with Apple and Google: what a human must provision
 
 Issue #7. Everything here is an **always-human gate** under
-[AUTONOMY.md](AUTONOMY.md) — an Apple entitlement, a Services ID, a signing key and a
+[AUTONOMY.md](AUTONOMY.md) — an Apple entitlement, a signing key, a sending domain and a
 Firebase console setting are not things an agent can or should create. This document
 exists so the blocker is visible now rather than discovered halfway through a PR.
 
@@ -56,8 +56,7 @@ with **Sign In with Apple** enabled.
 The App ID did not exist when this document was written, so the step was "create it", not
 "tick a box on it": Eva had never been signed for a device. Registered as an explicit App ID
 under team **`266X9686VN`**, which is also `APPLE_TEAM_ID` in §6 and the Team ID Firebase
-asks for in §5. Everything else here — the Services ID, the signing key — must be created in
-that same team.
+asks for in §5. The signing key in §3 must be created in that same team.
 
 Verify rather than assume, because a missing capability does not fail the build; it fails at
 runtime on a device, with an authorization error that reads like a code bug:
@@ -82,27 +81,54 @@ leaves a cached profile without it, and the re-sign that follows is confusing. `
 now carries `DEVELOPMENT_TEAM: 266X9686VN`; without it a generated project cannot sign for a
 device at all, which is what the device testing under "What this does not cover" needs.
 
-## 2. Apple: the Services ID
+## 2. Apple: the Services ID — not needed, and the thing that is
 
-Identifiers → **+** → Services IDs. Description "Eva", identifier
-`com.evaapp.ios.signin` (any unused reverse-DNS string; it must differ from the bundle ID).
+**Skip the Services ID.** An earlier version of this document said to create one, on the
+grounds that the Firebase console would not accept the Apple provider without it. That is
+wrong for Eva. Firebase's own documentation is explicit: for an app on Apple platforms only,
+the Service ID, Team ID, Key ID and private key fields may all be left empty — they exist to
+support sign-in on **web and Android**, and Eva has neither. The Services ID identifies the
+*web* OAuth flow; the app sends Apple's `identityToken` straight to our API and never
+redirects anywhere.
 
-Configure it against the primary App ID `com.evaapp.ios`, with:
+Create one only if Eva ever adds Apple sign-in on the website or an Android app.
 
-- **Domain:** `eva-ai-made-for-women.firebaseapp.com`
-- **Return URL:** `https://eva-ai-made-for-women.firebaseapp.com/__/auth/handler`
+This does **not** make §3 optional. Eva revokes Apple tokens itself, in `providers.ts`,
+with no involvement from Firebase — that is what satisfies App Review, and it needs the key.
 
-Eva's iOS app does not use this redirect — it sends Apple's `identityToken` straight to
-our API. The Services ID is needed only so the Firebase console will accept the Apple
-provider in step 5.
+### 2a. Sign in with Apple for Email Communication — done 2026-09-09
 
-**It is not the client id our code uses, and an earlier version of this document said it
-was.** Apple issues an authorization code to whichever client asked for it, and a native
-`ASAuthorization` request asks as the **App ID** — the bundle identifier `com.evaapp.ios`.
-The Services ID identifies the *web* flow. Exchanging a native code under the Services ID
-is refused, and since revocation is deliberately non-fatal it would be refused **silently**,
-leaving the App Review requirement in §3 quietly unmet. Hence `APPLE_CLIENT_ID` in §6,
-which is the bundle identifier.
+The step this document was missing, and the one that decides whether Hide My Email works.
+
+Apple's private relay **bounces** mail to `@privaterelay.appleid.com` unless the sending
+domain is registered here, and registered domains must publish SPF or DKIM. Eva sends its
+own mail through Postmark (#6), so nothing about this is Firebase's to handle.
+
+Where it bites today: a Hide My Email user who asks for a password reset gets
+`200 { sent: true }` — non-enumeration, by design (GUARDRAILS 12b) — and the mail silently
+disappears. There is no way for them to learn why, and no way for us to see it from the
+route.
+
+Apple Developer → Certificates, Identifiers & Profiles → **Services** → *Sign in with Apple
+for Email Communication*. Registered:
+
+| Source | Type |
+|---|---|
+| `evatracker.com` | Domain |
+| `pm-bounces.evatracker.com` | Domain — Postmark's Return-Path; a separate bounce domain has to be registered too |
+| `hello@evatracker.com` | Email address — this is `POSTMARK_FROM` |
+
+`evatracker.com` had **no SPF record at all** before this; Postmark had set up DKIM and the
+Return-Path but nothing else. Both domains now publish one:
+
+```sh
+dig +short TXT evatracker.com | grep spf
+# v=spf1 include:spf.mtasv.net ~all
+```
+
+Neither the registration nor the relay behaviour is visible to the App Store Connect API, so
+unlike §1 this cannot be verified from a terminal. The proof is a real send to a relay
+address, which belongs with the device testing at the end of this document.
 
 ## 3. Apple: the signing key — and why it is not optional
 
@@ -163,9 +189,17 @@ ID, reuse it rather than making a second one.
 
 Firebase console → Authentication → Sign-in method.
 
-- **Apple** — enable. Fill Services ID, Apple Team ID, Key ID and the `.p8` contents from
-  steps 2 and 3. The OAuth code flow fields read as optional for an iOS-only app; fill
-  them regardless, because revocation uses them.
+- **Apple** — enable, and **leave the OAuth code flow fields empty**: Services ID, Apple
+  Team ID, Key ID, private key. Firebase's documentation says they may be blank for an app
+  on Apple platforms only, and Eva is one.
+
+  An earlier version of this document said to fill them anyway "because revocation uses
+  them". That was wrong twice over. Revocation is **Eva's**, not Firebase's — `providers.ts`
+  signs its own client secret from `config.providers.apple` and never asks Firebase to
+  revoke anything. And the client id it signs with is the **App ID**, not a Services ID, so
+  filling Firebase's form would not have supplied it either. What Firebase actually needs
+  for a native iOS sign-in is the provider enabled and the bundle id registered; it verifies
+  the `identityToken`'s `aud` against that.
 - **Google** — enable, and set the project support email.
 
 ## 6. Repo variables the code will need
@@ -181,7 +215,8 @@ gh variable set APPLE_KEY_ID         --body "<key id from step 3>"       # pendi
 Already set, 2026-09-08, from §1:
 
 ```sh
-# The App ID / bundle identifier, NOT the Services ID from step 2 — see the note there.
+# The App ID / bundle identifier. Never a Services ID — §2 says why Eva has none, and
+# what would break silently if one were used here.
 gh variable set APPLE_CLIENT_ID --body "com.evaapp.ios"
 gh variable set APPLE_TEAM_ID   --body "266X9686VN"
 ```
