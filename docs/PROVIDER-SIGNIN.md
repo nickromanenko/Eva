@@ -48,15 +48,39 @@ users get a new account regardless, and the deliberate link from Profile
 
 ---
 
-## 1. Apple: the App ID capability
+## 1. Apple: the App ID capability — done 2026-09-08
 
-Apple Developer → Certificates, Identifiers & Profiles → Identifiers → `com.evaapp.ios`.
+Apple Developer → Certificates, Identifiers & Profiles → Identifiers → `com.evaapp.ios`,
+with **Sign In with Apple** enabled.
 
-Enable **Sign In with Apple**, save, and regenerate any provisioning profile that
-covers this App ID — an existing profile does not pick the capability up on its own.
+The App ID did not exist when this document was written, so the step was "create it", not
+"tick a box on it": Eva had never been signed for a device. Registered as an explicit App ID
+under team **`266X9686VN`**, which is also `APPLE_TEAM_ID` in §6 and the Team ID Firebase
+asks for in §5. Everything else here — the Services ID, the signing key — must be created in
+that same team.
 
-The matching entitlement lands in `mobile/project.yml` when implementation starts. Do not
-add it by hand; `Eva.xcodeproj` is generated.
+Verify rather than assume, because a missing capability does not fail the build; it fails at
+runtime on a device, with an authorization error that reads like a code bug:
+
+```sh
+asc bundle-ids list --limit 200          # com.evaapp.ios → L9R4SZP2FW
+asc bundle-ids capabilities list --bundle L9R4SZP2FW
+```
+
+`APPLE_ID_AUTH` must be listed. (`IN_APP_PURCHASE` appears beside it; Apple adds that to new
+App IDs by default and it is unrelated.)
+
+The matching entitlement is already in the repo — `com.apple.developer.applesignin:
+[Default]` in `mobile/project.yml`, written out to `mobile/Eva/Eva.entitlements`. Do not add
+it by hand; `Eva.xcodeproj` is generated.
+
+**Provisioning profiles.** The instruction to regenerate any profile covering this App ID
+does not apply to Eva: there were none, because the App ID is new. `CODE_SIGN_STYLE` is
+`Automatic`, so Xcode creates the profile on the first device build and it picks the
+capability up — *provided the capability exists first*. Enabling it after a device build
+leaves a cached profile without it, and the re-sign that follows is confusing. `project.yml`
+now carries `DEVELOPMENT_TEAM: 266X9686VN`; without it a generated project cannot sign for a
+device at all, which is what the device testing under "What this does not cover" needs.
 
 ## 2. Apple: the Services ID
 
@@ -150,12 +174,21 @@ Not needed until #7's code lands; listed here so provisioning and configuration 
 errand rather than two.
 
 ```sh
-gh variable set GOOGLE_IOS_CLIENT_ID --body "<client id from step 4>"
-# The App ID / bundle identifier, NOT the Services ID from step 2 — see the note there.
-gh variable set APPLE_CLIENT_ID      --body "com.evaapp.ios"
-gh variable set APPLE_TEAM_ID        --body "<10-char team id>"
-gh variable set APPLE_KEY_ID         --body "<key id from step 3>"
+gh variable set GOOGLE_IOS_CLIENT_ID --body "<client id from step 4>"    # pending §4
+gh variable set APPLE_KEY_ID         --body "<key id from step 3>"       # pending §3
 ```
+
+Already set, 2026-09-08, from §1:
+
+```sh
+# The App ID / bundle identifier, NOT the Services ID from step 2 — see the note there.
+gh variable set APPLE_CLIENT_ID --body "com.evaapp.ios"
+gh variable set APPLE_TEAM_ID   --body "266X9686VN"
+```
+
+Setting them piecemeal is safe: `config.providers.apple` is all-four-or-nothing, so a
+partial group reads as unconfigured and Apple revocation stays off rather than signing a
+client secret Apple would reject.
 
 `APPLE_SIGNIN_KEY` arrives from Secret Manager as `eva-apple-signin-key:latest`, the same
 shape as `eva-jwt-secret` and `eva-postmark-key`. All five are declared in

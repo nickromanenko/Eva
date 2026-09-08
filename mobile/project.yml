@@ -8,7 +8,14 @@ settings:
     SWIFT_VERSION: "6.0"
     TARGETED_DEVICE_FAMILY: "1"
     CODE_SIGN_STYLE: Automatic
-    # DEVELOPMENT_TEAM: XXXXXXXXXX   # set when signing for a real device
+    # The Apple Developer team that owns the `com.evaapp.ios` App ID. Needed to sign for a
+    # real device, which #7 makes unavoidable: Sign in with Apple cannot be completed in the
+    # simulator, so the only way to verify that path is on hardware.
+    #
+    # Not a secret — a Team ID is visible in every `.ipa` anyone downloads. It is here
+    # rather than in an untracked local file so that what a build signs as is reviewable,
+    # the same argument the entitlement block below makes for itself.
+    DEVELOPMENT_TEAM: 266X9686VN
 # Firebase iOS SDK (later phase):
 # packages:
 #   firebase-ios-sdk:
