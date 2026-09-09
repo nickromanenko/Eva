@@ -33,3 +33,11 @@ mobile/build/
 
 # Local service-account keys
 .secrets/
+
+# Apple signing keys. Never in the repo (GUARDRAILS 1) — and this rule exists because one
+# was: `AuthKey_V6JDCDQQG7.p8` reached `main` in #7, swept in by a blanket `git add -A`
+# after PROVIDER-SIGNIN §3 told the operator to run `gcloud secrets create --data-file=`
+# with no path, which meant the repo root. The key was revoked; this is so the next one
+# cannot repeat it.
+*.p8
+AuthKey_*.p8

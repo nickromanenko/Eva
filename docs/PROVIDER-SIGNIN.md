@@ -150,8 +150,14 @@ here because the credential it needs is provisioned in this document, not in tha
 
 Store the key:
 
+**Download it outside the repository**, and keep it outside. This instruction used to read
+`--data-file=AuthKey_XXXXXXXXXX.p8`, which means the current directory; run from a checkout,
+that is the repo root, and the first key provisioned this way was committed to `main` by a
+blanket `git add -A` and had to be revoked. `*.p8` is now in `.gitignore`, but the habit is
+the actual fix.
+
 ```sh
-gcloud secrets create eva-apple-signin-key --data-file=AuthKey_XXXXXXXXXX.p8 \
+gcloud secrets create eva-apple-signin-key --data-file=~/Downloads/AuthKey_XXXXXXXXXX.p8 \
   --project eva-ai-made-for-women
 
 gcloud secrets add-iam-policy-binding eva-apple-signin-key \
