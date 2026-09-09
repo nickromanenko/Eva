@@ -243,18 +243,24 @@ targets:
         # Google sign-in (#7), in both configurations because there is one Google client
         # for the bundle id and it does not vary by environment.
         #
-        # **Empty until a human provisions it** (`docs/PROVIDER-SIGNIN.md` §4), and empty
-        # rather than absent on purpose: an undefined setting leaves the literal
-        # `$(GOOGLE_IOS_CLIENT_ID)` in the built Info.plist, which reads as a configured
-        # value to anything that only checks for presence. Empty is unambiguous, and it is
-        # what `GoogleOAuthConfiguration` reports as "not configured in this build".
+        # Provisioned 2026-09-09 (`docs/PROVIDER-SIGNIN.md` §4). Neither value is a secret:
+        # an iOS OAuth client has no client secret, which is what lets the app run PKCE
+        # itself instead of pulling in the GoogleSignIn SDK (GUARDRAILS 25).
         #
-        # Fill both together. The scheme is the client id reversed with the
-        # `.apps.googleusercontent.com` suffix dropped:
+        # These are **two settings that must agree**, and nothing at build time checks that
+        # they do. `GoogleOAuthConfiguration.redirectScheme(forClientID:)` derives the scheme
+        # from the client id and refuses at runtime if the bundle does not register the one
+        # it derived — the flow would otherwise open, complete at Google, and hand the
+        # callback to nobody. The scheme is the client id with `.apps.googleusercontent.com`
+        # dropped and `com.googleusercontent.apps.` prefixed:
         #   client id  1234567890-abc.apps.googleusercontent.com
         #   scheme     com.googleusercontent.apps.1234567890-abc
-        GOOGLE_IOS_CLIENT_ID: ""
-        GOOGLE_IOS_REDIRECT_SCHEME: ""
+        #
+        # If either is ever blanked, leave it as `""` rather than deleting the line: an
+        # undefined setting leaves the literal `$(GOOGLE_IOS_CLIENT_ID)` in the built
+        # Info.plist, which reads as configured to anything that only checks for presence.
+        GOOGLE_IOS_CLIENT_ID: 976826401031-jnmhrgu3gldhrph0b11rq66ndlbrt17f.apps.googleusercontent.com
+        GOOGLE_IOS_REDIRECT_SCHEME: com.googleusercontent.apps.976826401031-jnmhrgu3gldhrph0b11rq66ndlbrt17f
       configs:
         # Deliberately *not* named EVA_API_BASE_URL. That name belongs to the runtime
         # launch-environment override; giving the build setting the same name would put

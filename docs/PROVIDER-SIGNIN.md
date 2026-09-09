@@ -187,7 +187,7 @@ the escaped `\n` that `config.ts` exists to restore, `openssl pkey` parses it, t
 What none of that proves is that **Apple** accepts it. That needs a real deletion on a
 device, and is listed with the other device-testing items at the end.
 
-## 4. Google: an OAuth client for iOS
+## 4. Google: an OAuth client for iOS — done 2026-09-09
 
 Google Cloud console → APIs & Services → Credentials → Create credentials → **OAuth
 client ID** → Application type **iOS** → bundle ID `com.evaapp.ios`.
@@ -203,6 +203,25 @@ Copy the **client ID**. Its reversed form is the redirect scheme the app must re
 
 If Firebase's Google provider (step 5) has already created an iOS client for this bundle
 ID, reuse it rather than making a second one.
+
+### Done 2026-09-09
+
+Client id `976826401031-jnmhrgu3gldhrph0b11rq66ndlbrt17f.apps.googleusercontent.com` — the
+numeric prefix is the GCP project number, the same one in the Cloud Run runtime service
+account, so it is demonstrably the right project.
+
+`GOOGLE_IOS_CLIENT_ID` is set as a repo variable, completing all four. In
+`mobile/project.yml` **both** settings are filled: the client id and the reversed redirect
+scheme. Nothing at build time checks that those two agree —
+`GoogleOAuthConfiguration.redirectScheme(forClientID:)` derives the scheme from the client
+id and refuses at runtime when the bundle does not register the one it derived, because the
+alternative is a flow that opens, completes at Google, and hands the callback to nobody.
+They were checked against that derivation before being committed:
+
+```
+derived by the app: com.googleusercontent.apps.976826401031-jnmhrgu3gldhrph0b11rq66ndlbrt17f
+in project.yml:     com.googleusercontent.apps.976826401031-jnmhrgu3gldhrph0b11rq66ndlbrt17f
+```
 
 ## 5. Firebase: enable both providers
 
@@ -232,23 +251,23 @@ Firebase console → Authentication → Sign-in method.
 Not needed until #7's code lands; listed here so provisioning and configuration are one
 errand rather than two.
 
-```sh
-gh variable set GOOGLE_IOS_CLIENT_ID --body "<client id from step 4>"    # pending §4
-gh variable set APPLE_KEY_ID         --body "<key id from step 3>"       # pending §3
-```
-
-Already set, 2026-09-08, from §1:
+All four are set, as of 2026-09-09:
 
 ```sh
 # The App ID / bundle identifier. Never a Services ID — §2 says why Eva has none, and
 # what would break silently if one were used here.
-gh variable set APPLE_CLIENT_ID --body "com.evaapp.ios"
-gh variable set APPLE_TEAM_ID   --body "266X9686VN"
+gh variable set APPLE_CLIENT_ID      --body "com.evaapp.ios"
+gh variable set APPLE_TEAM_ID        --body "266X9686VN"
+gh variable set APPLE_KEY_ID         --body "V6JDCDQQG7"
+gh variable set GOOGLE_IOS_CLIENT_ID --body "976826401031-jnmhrgu3gldhrph0b11rq66ndlbrt17f.apps.googleusercontent.com"
 ```
 
-Setting them piecemeal is safe: `config.providers.apple` is all-four-or-nothing, so a
+Setting them piecemeal was safe: `config.providers.apple` is all-four-or-nothing, so a
 partial group reads as unconfigured and Apple revocation stays off rather than signing a
 client secret Apple would reject.
+
+They reach the running service only through §6b, which is still to do — until that line is
+edited, the deploy forwards none of them and the API behaves exactly as it does today.
 
 `APPLE_SIGNIN_KEY` arrives from Secret Manager as `eva-apple-signin-key:latest`, the same
 shape as `eva-jwt-secret` and `eva-postmark-key`. All five are declared in
@@ -273,7 +292,7 @@ gcloud iam service-accounts add-iam-policy-binding \
 Without it, linking a provider from Profile is the one route that answers `500 INTERNAL` in
 production while every other route works.
 
-### 6b. The deploy workflow has to pass them on — an infra change, so it is yours
+### 6b. The deploy workflow has to pass them on — done 2026-09-09
 
 Setting the repo variables is not enough: `.github/workflows/deploy-api.yml` names every
 env var it forwards, and `--set-env-vars` **replaces** the whole set rather than adding to
@@ -294,8 +313,22 @@ and to `--set-secrets`:
 APPLE_SIGNIN_KEY=eva-apple-signin-key:latest
 ```
 
-Left undone in the #7 PR on purpose: `docs/AUTONOMY.md` puts infra implementation, and
-anything touching Secret Manager, on the human side of the table.
+Done on Nick's explicit instruction, 2026-09-09. `docs/AUTONOMY.md` puts infra
+implementation on the human side of the table; that instruction covered this file, and is
+not a standing grant.
+
+The four variables went into the step's `env:` block rather than inline, but **without** the
+`test -n` guards `PUBLIC_WEB_URL` and `POSTMARK_FROM` carry: `config.ts` reads all of them
+with `optionalString`, and an unprovisioned deploy is a supported state in which the
+provider routes answer 503 instead of the API refusing to boot.
+
+What it did gain is a check that the three Apple variables are **all set or all empty**.
+`appleCredentials()` treats a partial group as unconfigured, which is right at runtime — a
+half-signed client secret is one Apple rejects — but it means clearing a single variable
+turns token revocation off *silently*, and revocation is non-fatal by design, so `DELETE /me`
+would go on answering `200 { deleted: true }` with Apple's App Review requirement unmet and
+nothing to see. A partial group is always a mistake, so the deploy says so where somebody is
+watching. `APPLE_SIGNIN_KEY` is in Secret Manager and cannot be checked from that side.
 
 ---
 
