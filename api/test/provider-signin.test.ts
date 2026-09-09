@@ -1481,6 +1481,42 @@ describe("activation retracts before it stamps", () => {
         }, SLOW);
     }
 
+    test("a delete landing mid-activation is a dead link, not a 500", async () => {
+        // `retractUnprovenIdentities` reads the Auth account before it writes. A `DELETE /me`
+        // landing between the route's `readUser` and that read leaves nothing to retract —
+        // and an uncaught `auth/user-not-found` would surface as `500 INTERNAL` with an
+        // unhandled-error `ref`, where every other "the account went away" path in this
+        // route answers a dead link. The guard is a `.catch` that returns; without it this
+        // is a 500.
+        const email = newEmail();
+        const uid = await trackedUnactivatedAccount(email);
+        const token = await issueToken(uid, email, "activation");
+
+        const realGetUser = adminAuth.getUser.bind(adminAuth);
+        let first = true;
+        const spy = spyOn(adminAuth, "getUser").mockImplementation(async (target: string) => {
+            // Only the retraction's own read fails, so this cannot pass by breaking
+            // something earlier in the route.
+            if (first && target === uid) {
+                first = false;
+                const err = new Error("no user record") as Error & { code: string };
+                err.code = "auth/user-not-found";
+                throw err;
+            }
+            return realGetUser(target);
+        });
+
+        let res: Answer;
+        try {
+            res = await post("/auth/activate", { token });
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(res.status).not.toBe(500);
+        expect(res.body.error?.code).not.toBe("INTERNAL");
+    }, SLOW);
+
     test("an activation link used on an already-activated account retracts nothing", async () => {
         // The guard that keeps activation from being a second, unauthenticated unlink
         // button. The link stays valid for 24h, so this is an ordinary sequence: activate

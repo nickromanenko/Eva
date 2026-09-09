@@ -51,6 +51,35 @@ export PUBLIC_WEB_URL="http://localhost:4321"
 # rather than depending on what the runner happens to set.
 export NODE_ENV=test
 
+# **Provisioned, because unprovisioned is not the configuration that ships.**
+#
+# Without these, every provider path takes its `unconfigured` early return — the Google
+# exchange and Apple's revocation both return before they build a request. That made the
+# gate between `main` and production green for defects that only exist once the credentials
+# are set: collapsing `classify` in `providers.ts` to always-`rejected` passed CI and would
+# have turned a Google outage into every user being told their credential is bad, with no
+# log line. The suites branch on `config` and assert the configured side too; they were
+# simply never handed it.
+#
+# Nothing here is real and nothing leaves the process: `provider-signin.test.ts` and the two
+# provider suites drive the routes in-process and stub `globalThis.fetch`, so no request
+# reaches Google or Apple. The signing key is generated below, for this run only.
+export GOOGLE_IOS_CLIENT_ID="ci-not-a-real-client.apps.googleusercontent.com"
+export APPLE_CLIENT_ID="com.evaapp.ios"
+export APPLE_TEAM_ID="CIONLYTEAM"
+export APPLE_KEY_ID="CIONLYKEY1"
+
+# A throwaway P-256 key, made here and never written to the repo — `appleClientSecret`
+# needs one that actually imports, and the point is to exercise that path rather than skip
+# it. Generated per run so there is nothing to leak and nothing to rotate.
+APPLE_SIGNIN_KEY_PEM=$(openssl ecparam -genkey -name prime256v1 -noout 2>/dev/null \
+  | openssl pkcs8 -topk8 -nocrypt 2>/dev/null)
+if [ -z "$APPLE_SIGNIN_KEY_PEM" ]; then
+  echo "✗ api CI verify FAILED: could not generate a throwaway P-256 key (needs openssl)"
+  exit 1
+fi
+export APPLE_SIGNIN_KEY="$APPLE_SIGNIN_KEY_PEM"
+
 # api_ensure_up REUSES any healthy Eva API it finds, and `api_health` can tell that
 # something is an Eva API but not which project it points at. Reusing a stray dev server
 # here would run "the emulated suite" against production and report it green. Refuse
