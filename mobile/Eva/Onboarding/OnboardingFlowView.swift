@@ -66,12 +66,14 @@ struct OnboardingFlowView: View {
                     _ = try await session.signUp(email: email, password: password)
                     model.showActivation(after: .signUp)
                 },
+                onProviderCredential: signIn(with:),
                 onGoToLogIn: model.chooseLogIn
             )
         case .logIn:
             LoginStepView(
                 model: model,
                 onSubmit: { _, _ in try await signIn() },
+                onProviderCredential: signIn(with:),
                 onGoToSignUp: model.chooseCreateAccount,
                 onForgotPassword: model.chooseForgotPassword
             )
@@ -129,6 +131,26 @@ struct OnboardingFlowView: View {
         } catch APIError.notActivated {
             model.showActivation(after: .logIn)
         }
+    }
+
+    /// The Apple and Google half of the same routing (#7), shared by both auth screens.
+    ///
+    /// **No new `OnboardingStep`.** Provider sign-in draws no screen of its own: it starts
+    /// from a button on a step that already exists, and it lands where every other
+    /// authentication lands — the questionnaire, or the dashboard. The enum is a list of
+    /// *screens*, and adding a case with no screen behind it would leave an unreachable
+    /// raw value that `EVA_ONBOARDING_STEP` could still jump to.
+    ///
+    /// There is no activation branch either, and that is not an omission. #6's emailed
+    /// link exists to prove an address the user typed; Apple and Google have already
+    /// proved theirs, so `/auth/idp` returns a session outright and `NOT_ACTIVATED` cannot
+    /// come back from it.
+    private func signIn(with credential: ProviderCredential) async throws {
+        try await session.signInWithProvider(credential)
+        if session.state == .needsQuestionnaire {
+            model.startQuestionnaire()
+        }
+        // .ready is handled by EvaRootView switching to the dashboard.
     }
 
     /// Back + progress bar + step caption — questionnaire screens.

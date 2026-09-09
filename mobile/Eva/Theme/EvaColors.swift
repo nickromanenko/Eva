@@ -160,6 +160,13 @@ extension Color {
 
     /// `#1C1A1B` — Continue with Apple (§5).
     static let evaAuthApple = Color(hex: 0x1C1A1B)
+    /// `#3A3436` — Continue with Apple while a sign-in is in flight.
+    ///
+    /// Read off the design system's Authentication column, which is the only place the
+    /// canvas draws a loading state for any button: `background:#3A3436;
+    /// color:rgba(255,255,255,.6)`. It became reachable with #7 — before Apple sign-in
+    /// existed there was nothing for the button to be waiting on.
+    static let evaAuthAppleLoading = Color(hex: 0x3A3436)
     /// `rgba(255,255,255,.85)` — Continue with Google, glass (§5).
     static let evaAuthGoogleFill = Color.white.opacity(0.85)
     /// The four stops of the **placeholder** Google mark, read off the sign-up artboard

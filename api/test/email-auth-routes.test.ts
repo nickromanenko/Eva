@@ -472,6 +472,197 @@ describe("POST /auth/password/reset", () => {
     });
 });
 
+describe("a second factor is not a session", () => {
+    /**
+     * `requireSignedIn` was added for `/auth/idp` in the fourth review of #7 and called only
+     * from there, while ARCHITECTURE claimed it guarded "any sign-in response". The password
+     * path — which has more users — was the one left open.
+     *
+     * Identity Toolkit answers a password sign-in for an MFA-enrolled user with **200**,
+     * `localId`, `email`, an `mfaPendingCredential`, and **no `idToken`**: the first factor
+     * checked out, the second has not been supplied. Reading `localId` out of that mints a
+     * full 30-day Eva session for someone who completed half of a sign-in.
+     *
+     * Driven against the live server, with no module mocks anywhere near it — the Auth
+     * emulator has `mfaConfig.state === "ENABLED"` at project level, so enrolling a factor
+     * through the Admin SDK is enough to produce the real response shape. MFA is off on the
+     * production project today; it is one console switch from being on, and that switch
+     * would otherwise be silent.
+     */
+    test("a password sign-in that only cleared the first factor mints nothing", async () => {
+        const { email, uid } = await unactivated();
+        // **Activated first, and that is load-bearing.** An unactivated account is refused
+        // by #6's gate with a 403, which satisfies "not a session" all on its own — the
+        // first version of this test passed with the guard deleted, for that reason and not
+        // for the one in its name. Activation also sets `emailVerified`, which Firebase
+        // requires before a second factor can be enrolled.
+        await activate(await issueToken(uid, email, "activation"));
+        expect((await post("/auth/signin", { email, password: PASSWORD })).status).toBe(200);
+
+        await adminAuth.updateUser(uid, {
+            multiFactor: {
+                enrolledFactors: [
+                    {
+                        uid: `mfa-${crypto.randomUUID()}`,
+                        phoneNumber: "+15555550100",
+                        displayName: "phone",
+                        factorId: "phone",
+                    },
+                ],
+            },
+        });
+
+        // The same request that succeeded a moment ago, now with a second factor enrolled.
+        const res = await post("/auth/signin", { email, password: PASSWORD });
+
+        // Whatever it answers, it must not be a session.
+        expect(res.status).not.toBe(200);
+        expect(res.body.token).toBeUndefined();
+        // And nothing of Identity Toolkit's own vocabulary reaches the caller.
+        expect(res.text.toLowerCase()).not.toContain("mfa");
+    });
+});
+
+describe("proving the address takes back what was attached while it was not", () => {
+    /**
+     * The takeover that survived two rounds of fixing `/auth/idp`, by waiting.
+     *
+     * `claimUnprovenAccount` guards the provider route and is gated on `activatedAt`. But
+     * activation and password reset also stamp `activatedAt`, and they used to stamp it and
+     * nothing else — so an attacker who had reserved the victim's address and attached their
+     * own provider identity to it only had to sit still. The moment the victim proved the
+     * address, by either door, the claim was skipped forever and the attacker's identity
+     * signed in to the victim's account.
+     *
+     * The premise that was wrong is worth stating because it reads as obviously true:
+     * proving the address does *not* retroactively legitimise a credential attached before
+     * it was proven. It proves the address.
+     */
+
+    /** The attacker's foothold: their own provider `sub` on an address they merely reserved. */
+    const attach = async (uid: string, providerId: string): Promise<void> => {
+        await adminAuth.updateUser(uid, {
+            providerToLink: {
+                providerId,
+                uid: `attacker-sub-${crypto.randomUUID()}`,
+                email: address(),
+            },
+        });
+    };
+
+    const providers = async (uid: string): Promise<string[]> =>
+        (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort();
+
+    test("the activation link unlinks a provider attached before it was clicked", async () => {
+        const { email, uid } = await unactivated();
+        await attach(uid, "google.com");
+        expect(await providers(uid)).toEqual(["google.com", "password"]);
+
+        const res = await activate(await issueToken(uid, email, "activation"));
+        expect(res.status).toBe(200);
+
+        // Gone. `/auth/idp` will never look at this account again — it is activated from
+        // here on — so this was the last chance to take it back.
+        expect(await providers(uid)).toEqual(["password"]);
+    });
+
+    test("activation does NOT tell Firebase the credentials are proven", async () => {
+        // The most counter-intuitive assertion in this suite, so: Identity Toolkit uses
+        // `emailVerified` to decide whether to wipe `passwordHash` and every provider when a
+        // verified provider address merges onto an account. That wipe is a nuisance — it is
+        // how a real user adding Google loses the password `authProviders` still advertises
+        // — and it is also the only thing that evicts a **pre-registering attacker's**
+        // password once the real owner arrives with a provider, because Eva's own claim is
+        // disarmed by then.
+        //
+        // Activation proves the address. It proves nothing about who chose the password: the
+        // person who clicks the link and the person who set it are the same only in the
+        // honest case. So the wipe stays armed here. A version of this test asserted the
+        // opposite, and the code it was written against turned a self-healing takeover into
+        // a permanent one.
+        const { email, uid } = await unactivated();
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
+
+        await activate(await issueToken(uid, email, "activation"));
+
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
+    });
+
+    test("a password reset does, because it sets the password it is proving", async () => {
+        // The other side. A reset proves address control *and* chooses the password in the
+        // same request, so the credentials really are the caller's and the wipe has nothing
+        // left to protect anyone from. It is also the recovery a user reaches for after the
+        // wipe has taken a password from them, which is what makes the loss one-time.
+        const { email, uid } = await unactivated();
+        await activate(await issueToken(uid, email, "activation"));
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
+
+        const res = await post("/auth/password/reset", {
+            token: await issueToken(uid, email, "reset"),
+            password: "a-password-they-chose-9",
+        });
+        expect(res.status).toBe(200);
+
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
+    });
+
+    test("a password reset retracts it too, because that is the recovery an owner is sent to", async () => {
+        // The route matters as much as the activation link: an owner who finds their address
+        // already taken is told to use forgot-password, so this door has to close the same
+        // hole. It is the one `claimUnprovenAccount`'s own comment recommends.
+        const { email, uid } = await unactivated();
+        await attach(uid, "apple.com");
+
+        const res = await post("/auth/password/reset", {
+            token: await issueToken(uid, email, "reset"),
+            password: "a-brand-new-password-9",
+        });
+        expect(res.status).toBe(200);
+
+        expect(await providers(uid)).toEqual(["password"]);
+    });
+
+    test("a provider linked deliberately survives a later password reset", async () => {
+        // The other half, and the reason this is keyed on the *transition* rather than on
+        // every stamp. Someone who connected Apple from Profile and then forgot their
+        // password must still have Apple afterwards.
+        const { email, uid } = await unactivated();
+        await activate(await issueToken(uid, email, "activation"));
+        await attach(uid, "apple.com");
+        expect(await providers(uid)).toEqual(["apple.com", "password"]);
+
+        const res = await post("/auth/password/reset", {
+            token: await issueToken(uid, email, "reset"),
+            password: "another-new-password-9",
+        });
+        expect(res.status).toBe(200);
+
+        expect(await providers(uid)).toEqual(["apple.com", "password"]);
+    });
+
+    test("activation revokes a session taken before the address was proven", async () => {
+        // The attacker signs in at Identity Toolkit directly — the web API key is public —
+        // and a refresh token outlives the password that made it.
+        const { email, uid } = await unactivated();
+        const signInUrl = `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`;
+        const before = await fetch(signInUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email, password: PASSWORD, returnSecureToken: true }),
+        });
+        const { idToken } = (await before.json()) as { idToken: string };
+        expect(await adminAuth.verifyIdToken(idToken, true)).toBeTruthy();
+
+        // One-second resolution on `tokensValidAfterTime`: without crossing the boundary,
+        // "revoked in the same second" is indistinguishable from "not revoked" to Firebase
+        // itself, not just to this assertion.
+        await Bun.sleep(1_100);
+        await activate(await issueToken(uid, email, "activation"));
+
+        await expect(adminAuth.verifyIdToken(idToken, true)).rejects.toThrow();
+    });
+});
+
 describe("CORS on the two routes the website calls", () => {
     const preflight = (path: string, origin: string) =>
         fetch(`${BASE}${path}`, {

@@ -113,10 +113,28 @@ struct EvaSpecimenButtonSection: View {
                 text: "§5 gives the auth buttons one fill each. Pressed, focused and "
                     + "disabled borrow the rule the canvas already states for the nearest "
                     + "variant it does specify — Apple darkens like the primary, Google "
-                    + "takes the secondary glass' fills. The canvas' loading state "
-                    + "(#3A3436, 60% white label) is not built: nothing can reach it until "
-                    + "Apple and Google sign-in exist."
+                    + "takes the secondary glass' fills."
             )
+
+            VStack(alignment: .leading, spacing: EvaSpacing.sm) {
+                EvaSpecimenGroupLabel(title: "Auth · loading")
+                EvaSpecimenNote(
+                    text: "The one loading state the canvas draws for any button, reachable "
+                        + "since #7: Apple takes #3A3436 with a 60% white label, as drawn. "
+                        + "Google is not drawn loading and keeps its own glass — a light "
+                        + "button turning dark mid-tap reads as a different control."
+                )
+                EvaAuthButton(
+                    provider: .apple,
+                    identifier: "specimen.auth.apple.loading",
+                    isLoading: true
+                ) {}
+                EvaAuthButton(
+                    provider: .google,
+                    identifier: "specimen.auth.google.loading",
+                    isLoading: true
+                ) {}
+            }
 
             VStack(alignment: .leading, spacing: EvaSpacing.sm) {
                 EvaSpecimenGroupLabel(title: "Auth · compact")

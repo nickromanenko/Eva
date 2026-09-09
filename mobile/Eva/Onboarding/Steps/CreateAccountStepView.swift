@@ -8,27 +8,32 @@ import SwiftUI
 /// note and a cross-link to log in. It replaces the five screens the app used to walk
 /// through (welcome → two info screens → method picker → email form); see #3.
 ///
-/// ## What is not wired
+/// ## The account-linking state is still unreachable, and #7 did not change that
 ///
-/// **Apple and Google raise "Coming soon".** Neither provider exists yet (#7); the
-/// buttons are drawn at the weight the canvas gives them because that is the hierarchy
-/// it designs, and they say so when tapped rather than failing silently.
+/// The canvas' "Sign up · validation" artboard shows an information banner for an address
+/// that already signs in with Apple. It is built to the artboard here and nothing sets it.
 ///
-/// **The account-linking state is unreachable.** The canvas' "Sign up · validation"
-/// artboard shows an information banner for an address that already signs in with Apple.
-/// It is built to the artboard here, and nothing sets it: the API cannot return that case
-/// until Apple sign-in exists, and faking a trigger would mean shipping a screen state
-/// that lies about what happened. `previewShowsAccountLinking` renders it for review, and
-/// #7 replaces that with the real condition.
+/// #7 was expected to be what made it reachable. It is not: the API never asks "does this
+/// address already use Apple?", because answering that question to an unauthenticated
+/// caller tells anyone holding an address which providers back it. Firebase links matching
+/// addresses on its own, silently and after the fact, and it would answer wrongly for
+/// every Hide My Email relay anyway. Nothing in the `/auth/idp` contract carries that
+/// signal, so there is nothing to wire the banner to.
+///
+/// `previewShowsAccountLinking` still renders it for review. Reaching it for real would
+/// need a design answer to a different question — what to offer someone whose address is
+/// taken — not a wire-up.
 struct CreateAccountStepView: View {
 
     @Bindable var model: OnboardingModel
     let onSubmit: (_ email: String, _ password: String) async throws -> Void
+    /// Signs in (or creates an account) with an Apple or Google credential (#7).
+    let onProviderCredential: (ProviderCredential) async throws -> Void
     let onGoToLogIn: () -> Void
 
-    /// Forces the canvas' account-linking state, which nothing can reach until #7.
-    /// **Never set this in app code** — the same contract the button styles'
-    /// `previewState` has.
+    /// Forces the canvas' account-linking state, which nothing in app code can reach —
+    /// see the type comment. **Never set this outside a preview**, the same contract the
+    /// button styles' `previewState` has.
     var previewShowsAccountLinking = false
 
     @State private var emailError: String?
@@ -39,7 +44,6 @@ struct CreateAccountStepView: View {
     @State private var submissionError: String?
     @State private var isRevealingPassword = false
     @State private var isLoading = false
-    @State private var showsProviderComingSoon = false
 
     private enum Field: Hashable { case email, password }
     @FocusState private var focusedField: Field?
@@ -94,20 +98,12 @@ struct CreateAccountStepView: View {
         .onChange(of: focusedField) { previous, _ in
             validate(previous)
         }
-        .alert("Coming soon", isPresented: $showsProviderComingSoon) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Apple and Google sign-in are on the way. For now, continue with email.")
-        }
     }
 
     // MARK: - Sections
 
     private var providerButtons: some View {
-        VStack(spacing: EvaSpacing.sm) {
-            EvaAuthButton(provider: .apple) { showsProviderComingSoon = true }
-            EvaAuthButton(provider: .google) { showsProviderComingSoon = true }
-        }
+        ProviderSignInButtons(identifierPrefix: "auth", onCredential: onProviderCredential)
     }
 
     /// The canvas' "Sign up · validation" banner. Information blue, not error red — its
@@ -118,13 +114,14 @@ struct CreateAccountStepView: View {
             message: "We won't create a second profile. Continue with Apple and "
                 + "everything you've logged stays in one place."
         ) {
+            // Deliberately inert. The banner it sits in is preview-only, and giving this
+            // button a real Apple sign-in would make the preview start a flow — while
+            // still leaving the banner itself unreachable, which is the actual gap.
             EvaAuthButton(
                 provider: .apple,
                 size: .compact,
                 identifier: "signup.linkApple"
-            ) {
-                showsProviderComingSoon = true
-            }
+            ) {}
         }
         .accessibilityIdentifier("signup.linkBanner")
     }
@@ -241,7 +238,12 @@ struct CreateAccountStepView: View {
 #Preview("Sign up") {
     ZStack {
         EvaScreenBackground().ignoresSafeArea()
-        CreateAccountStepView(model: OnboardingModel(), onSubmit: { _, _ in }, onGoToLogIn: {})
+        CreateAccountStepView(
+            model: OnboardingModel(),
+            onSubmit: { _, _ in },
+            onProviderCredential: { _ in },
+            onGoToLogIn: {}
+        )
     }
 }
 
@@ -251,6 +253,7 @@ struct CreateAccountStepView: View {
         CreateAccountStepView(
             model: OnboardingModel(),
             onSubmit: { _, _ in },
+            onProviderCredential: { _ in },
             onGoToLogIn: {},
             previewShowsAccountLinking: true
         )

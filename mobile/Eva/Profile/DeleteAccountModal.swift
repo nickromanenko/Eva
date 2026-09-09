@@ -28,6 +28,25 @@ import SwiftUI
 /// `EvaSpacing.lg` (24), not 22. Neither 26 nor 22 is a named token, and adding one for
 /// a single modal is a design decision rather than a transcription.
 ///
+/// ## Apple revocation, added on #7
+///
+/// An app that offers **both** Sign in with Apple and in-app account deletion has to
+/// revoke Apple's token when the account goes, and App Review checks it. Eva deliberately
+/// stores no Apple refresh token, so there is nothing on the server to revoke with — the
+/// code has to be obtained at the moment of deletion, from a fresh authorization.
+///
+/// So when the account has Apple attached, confirming runs
+/// `AppleSignInController.reauthorizationCode()` first and sends what it returns in the
+/// `DELETE /me` body. The modal says this will happen, above the button, because a system
+/// sheet appearing unannounced in the middle of deleting an account reads as the app
+/// asking you to sign in to something.
+///
+/// **Cancelling that step does not stop the deletion.** If Apple's sheet is dismissed, or
+/// the authorization fails, the account is deleted without a code. The user asked for
+/// their data to be destroyed and typed a word to prove it; a provider handshake is not
+/// allowed to be what stands between them and that. The cost is a token that stays
+/// unrevoked, which is Eva's problem with Apple, not the user's with Eva.
+///
 /// ## The gap this does not close
 ///
 /// If `deleteAccount()` fails with `APIError.sessionExpired`, `AppSession` signs out
@@ -110,6 +129,10 @@ struct DeleteAccountModal: View {
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("delete.body")
 
+            if revokesApple {
+                appleRevocationNote
+            }
+
             confirmationField
                 .padding(.top, EvaSpacing.xxs)
 
@@ -136,6 +159,30 @@ struct DeleteAccountModal: View {
             x: 0,
             y: DeleteAccountModalSurface.shadowOffsetY
         )
+    }
+
+    /// Whether confirming will ask Apple for a fresh authorization first.
+    ///
+    /// Read from the session's user rather than remembered: an account whose
+    /// `authProviders` this build could not read has an empty list, so this is `false` and
+    /// deletion simply proceeds without a code — the safe direction, and the one that
+    /// keeps an older API from putting a sheet in front of the user for no reason.
+    private var revokesApple: Bool {
+        session.user?.isConnected(.apple) == true
+    }
+
+    /// Says the sheet is coming, and that it is optional.
+    ///
+    /// The artboard has nothing here — the whole revocation step postdates it. This takes
+    /// the §2 Information treatment, which is the tone for "here is how this works": no
+    /// warning, nothing went wrong, and nothing about it changes what the button does.
+    private var appleRevocationNote: some View {
+        EvaInfoBanner(
+            title: "Apple will ask you to confirm",
+            message: "So Eva can remove its access to your Apple ID. You can dismiss it — "
+                + "your profile is deleted either way."
+        )
+        .accessibilityIdentifier("delete.appleNote")
     }
 
     /// The gate.
@@ -224,7 +271,15 @@ struct DeleteAccountModal: View {
         errorMessage = nil
         Task {
             do {
-                try await session.deleteAccount()
+                // Ahead of the delete, and never allowed to stop it. `try?` folds a
+                // cancellation (`nil`) and a failed authorization (a throw) into the same
+                // answer — no code — because from here they mean the same thing: delete
+                // the account, and tell Apple later or not at all.
+                var appleCode: String?
+                if revokesApple {
+                    appleCode = try? await AppleSignInController.shared.reauthorizationCode()
+                }
+                try await session.deleteAccount(appleAuthorizationCode: appleCode)
                 // Nothing to do and nothing to say. `AppSession` has already cleared the
                 // Keychain and moved to `.signedOut`, so `EvaRootView` swaps to
                 // onboarding and this modal goes with the screen that presented it.

@@ -474,10 +474,36 @@ enum EvaAuthProvider: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// What Firebase — and therefore `user.authProviders` — calls this provider.
+    ///
+    /// Deliberately NOT `rawValue`. The raw value is the word `POST /auth/idp` wants in its
+    /// request body (`"apple"`), and the server stores Firebase's own id (`"apple.com"`).
+    /// One property cannot be both, and when it tried, `isConnected` was false for every
+    /// account: Profile never showed a connected provider, and `DELETE /me` never sent an
+    /// Apple authorization code — so revocation, the whole reason `providers.ts` holds a
+    /// signing key, silently never ran.
+    var firebaseProviderID: String {
+        switch self {
+        case .apple: "apple.com"
+        case .google: "google.com"
+        }
+    }
+
     var title: String {
         switch self {
+        // Apple's Human Interface Guidelines allow a custom button only with one of its
+        // own titles; "Continue with Apple" is one of them. Do not reword it.
         case .apple: "Continue with Apple"
         case .google: "Continue with Google"
+        }
+    }
+
+    /// The provider's name on its own, for a place that names it rather than offers it —
+    /// Profile's connected-accounts list (#7).
+    var displayName: String {
+        switch self {
+        case .apple: "Apple"
+        case .google: "Google"
         }
     }
 }
@@ -546,12 +572,28 @@ enum EvaAuthButtonSize: Hashable {
 /// secondary glass' pressed fill and borders, and both fade their label when disabled.
 /// The 0.97 press scale and the focus ring are shared by every Eva button.
 ///
-/// The canvas also draws a loading state (`#3A3436` with a 60% white label). It is not
-/// built here: nothing can reach it until Apple and Google sign-in actually exist (#7),
-/// and it is the one state whose call site would decide its behaviour.
+/// ## Loading
+///
+/// The canvas draws one, and only for this variant: `#3A3436` with a 60% white label. #7
+/// made it reachable — a provider sign-in has a gap between the sheet closing and
+/// `/auth/idp` answering, with nothing on screen to say the app is doing something.
+///
+/// It is applied **to Apple as drawn**. Google keeps its own resting glass and only swaps
+/// its label for a spinner: `#3A3436` is a dark fill, and turning the light button dark
+/// mid-tap would read as a different button rather than as the same one waiting. That
+/// half is a decision, not a transcription, and it follows the rule the rest of this style
+/// already uses — borrow from the nearest variant the canvas does specify, which for a
+/// loading fill is `PrimaryButton`'s "keep the resting fill, replace the label".
 struct EvaAuthButtonStyle: ButtonStyle {
     let provider: EvaAuthProvider
     var size: EvaAuthButtonSize = .standard
+
+    /// Keeps the button drawn as enabled while it is `.disabled` for a request in flight,
+    /// and takes the canvas' loading fill on Apple. Same contract as
+    /// `EvaPrimaryButtonStyle.isLoading`: the caller disables the button so it cannot be
+    /// tapped twice, and the disabled *appearance* would say "nothing is happening" when
+    /// something is.
+    var isLoading = false
 
     /// Forces a state a preview cannot reach by touch. Never set this in app code.
     var previewState: EvaButtonState?
@@ -562,14 +604,15 @@ struct EvaAuthButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let state = previewState ?? EvaButtonState.resolved(
             isPressed: configuration.isPressed,
-            isEnabled: isEnabled,
+            isEnabled: isEnabled || isLoading,
             isFocused: isFocused
         )
 
         return HStack(spacing: EvaSpacing.xs) {
             // The artboard's compact linking button is text-only; only the full-width
-            // buttons carry a provider mark.
-            if size != .compact {
+            // buttons carry a provider mark. The loading row drops the mark too — it
+            // draws no gap and no glyph, just the fill.
+            if size != .compact, !isLoading {
                 EvaAuthProviderMark(provider: provider, size: size.markSize)
             }
             configuration.label
@@ -607,7 +650,11 @@ struct EvaAuthButtonStyle: ButtonStyle {
     }
 
     private func fill(for state: EvaButtonState) -> Color {
-        switch provider {
+        // The canvas' loading fill, ahead of every other state: a button that is waiting
+        // is not pressed, focused or disabled, whatever the environment says. Apple only —
+        // Google is not drawn loading and keeps its resting glass (see the type comment).
+        if isLoading, provider == .apple { return .evaAuthAppleLoading }
+        return switch provider {
         case .apple:
             switch state {
             // Not a canvas value: §5 gives Apple one fill. The press darkens it the way
@@ -642,7 +689,9 @@ struct EvaAuthButtonStyle: ButtonStyle {
     private func label(for state: EvaButtonState) -> Color {
         guard state != .disabled else { return .evaDisabledText }
         switch provider {
-        case .apple: return .evaTextOnDark
+        // `rgba(255,255,255,.6)` on `#3A3436` is the canvas' own loading pair. It measures
+        // 5.29:1, so unlike the disabled labels §9a had to move, this one is kept as drawn.
+        case .apple: return isLoading ? Color.evaTextOnDark.opacity(0.6) : .evaTextOnDark
         case .google: return .evaPrimaryText
         }
     }
@@ -734,12 +783,31 @@ struct EvaAuthButton: View {
     let provider: EvaAuthProvider
     var size: EvaAuthButtonSize = .standard
     var identifier: String?
+    /// Draws the canvas' loading state and makes the button inert, so a provider sheet
+    /// cannot be asked for twice while the first answer is still in flight.
+    var isLoading = false
     let action: () -> Void
 
     var body: some View {
-        Button(provider.title, action: action)
-            .buttonStyle(EvaAuthButtonStyle(provider: provider, size: size))
-            .accessibilityIdentifier(identifier ?? "auth.\(provider.rawValue)")
+        Button(action: action) {
+            if isLoading {
+                ProgressView()
+                    // The spinner takes the label's ink, so it reads as the same control
+                    // waiting rather than as a new element: 60% white on Apple's loading
+                    // fill, Primary Text on Google's glass.
+                    .tint(provider == .apple ? Color.evaTextOnDark.opacity(0.6) : Color.evaPrimaryText)
+            } else {
+                Text(provider.title)
+            }
+        }
+        .buttonStyle(EvaAuthButtonStyle(provider: provider, size: size, isLoading: isLoading))
+        .disabled(isLoading)
+        // The label is a spinner while loading, so the title has to be spoken from here —
+        // the same arrangement `PrimaryButton` uses. Apple's Human Interface Guidelines
+        // require the button to say "Continue with Apple", and VoiceOver is where that
+        // string has to survive the spinner.
+        .accessibilityLabel(Text(provider.title))
+        .accessibilityIdentifier(identifier ?? "auth.\(provider.rawValue)")
     }
 }
 
@@ -845,6 +913,8 @@ private struct EvaButtonStateRow<Style: ButtonStyle>: View {
                 EvaAuthButton(provider: .apple) {}
                 EvaAuthButton(provider: .google) {}
                 EvaAuthButton(provider: .apple, size: .compact) {}
+                EvaAuthButton(provider: .apple, identifier: "preview.apple.loading", isLoading: true) {}
+                EvaAuthButton(provider: .google, identifier: "preview.google.loading", isLoading: true) {}
                 SecondaryButton(title: "Not now") {}
                 TextButton(title: "Skip for now") {}
                 DestructiveButton(title: "Delete my account") {}

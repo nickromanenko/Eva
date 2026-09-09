@@ -9,18 +9,28 @@ import { TOKEN_LENGTH, consumeToken, deleteTokensForUid, issueToken } from "./em
 import {
     authRetryAfterSeconds,
     consumeAuthAttempt,
+    consumeProviderAttempt,
     consumeTokenAttempt,
+    type ProviderRoute,
     type TokenRoute,
     type AuthRoute,
 } from "./rate-limit";
 import {
     IdentityToolkitError,
+    PROVIDER_IDS,
     deleteAuthAccount,
     findAuthUidByEmail,
+    idTokenForUid,
+    claimUnprovenAccount,
+    markCredentialsProven,
+    retractUnprovenIdentities,
     setPassword,
+    signInWithIdp,
     signInWithPassword,
     signUpWithPassword,
+    type IdpCredential,
 } from "./identity-toolkit";
+import { ProviderError, exchangeGoogleAuthCode, revokeAppleToken } from "./providers";
 import {
     RETENTION_DAYS,
     createEvent,
@@ -49,6 +59,7 @@ import {
     isActivated,
     markActivated,
     markUserDeleted,
+    readUser,
     saveQuestionnaire,
     type Profile,
     type User,
@@ -135,6 +146,12 @@ app.onError((err, c) => {
  * #6 added four more maps keyed the same way.
  */
 const EMAIL_MAX_LENGTH = 254;
+
+/** A non-empty string no longer than `max`. The ceiling matters for every provider field
+ *  (#7): they are opaque credentials we forward, so nothing about their *content* can be
+ *  checked here, and an unbounded one is a body we would carry to a provider for free. */
+const isBounded = (value: unknown, max: number): value is string =>
+    typeof value === "string" && value.length > 0 && value.length <= max;
 
 const normalizeEmail = (email: unknown): string | null => {
     if (typeof email !== "string") return null;
@@ -243,15 +260,8 @@ const UPSTREAM_RETRY_AFTER_SECONDS = 30;
  * the upstream HTTP status (`null` when the request never landed) and deliberately not
  * `err.reason`, not the address, not the password (GUARDRAILS 12).
  */
-const upstreamUnavailable = (c: Context, route: AuthRoute, err: IdentityToolkitError) => {
-    console.error(
-        JSON.stringify({
-            event: "identity_toolkit_unavailable",
-            route,
-            upstreamStatus: err.upstreamStatus,
-        }),
-    );
-    return c.json(
+const serviceUnavailable = (c: Context) =>
+    c.json(
         error(
             "SERVICE_UNAVAILABLE",
             "We can't reach the account service right now. Please try again in a moment.",
@@ -259,6 +269,20 @@ const upstreamUnavailable = (c: Context, route: AuthRoute, err: IdentityToolkitE
         503,
         { "retry-after": String(UPSTREAM_RETRY_AFTER_SECONDS) },
     );
+
+const upstreamUnavailable = (
+    c: Context,
+    route: AuthRoute | ProviderRoute,
+    err: IdentityToolkitError,
+) => {
+    console.error(
+        JSON.stringify({
+            event: "identity_toolkit_unavailable",
+            route,
+            upstreamStatus: err.upstreamStatus,
+        }),
+    );
+    return serviceUnavailable(c);
 };
 
 /**
@@ -545,6 +569,22 @@ const activate = async (c: Context, raw: unknown) => {
     // The token was real but the account behind it is gone or going — a delete landed
     // between the email and the click. Nothing to activate, and a dead link is what the
     // holder of a deleted account's link should see.
+    const before = await readUser(result.uid);
+    if (before.deleted || !before.user) return tokenFailure(c, "invalid");
+    // **Retract first, stamp second, and the order is the whole point.** An earlier version
+    // stamped `activatedAt` and then retracted, which left a window — three Admin SDK round
+    // trips wide — in which the document said activated while the attacker's provider was
+    // still linked. `/auth/idp` reads exactly that flag to decide whether to run its claim,
+    // so a request landing inside the window skipped the claim and was minted a 30-day Eva
+    // JWT, which nothing can revoke. And a transient failure of the retraction left the
+    // account activated with the identity still attached, permanently, because the
+    // transition had already been spent.
+    //
+    // This way round, every failure leaves the account unactivated with the claim gate
+    // still armed, and the worst case is a user clicking their link again. `proveAddress`
+    // is idempotent, so two concurrent activations both running it is harmless.
+    if (!before.user.activated) await retractUnprovenIdentities(result.uid);
+    // Last, and still checked: a delete may have landed since the read above.
     if (!(await markActivated(result.uid))) return tokenFailure(c, "invalid");
     return c.json({ activated: true });
 };
@@ -641,13 +681,381 @@ app.post("/auth/password/reset", async (c) => {
     if (!user) return tokenFailure(c, "invalid");
 
     await setPassword(result.uid, password);
-    // Proof of control of the address, whichever link it came by.
-    await markActivated(result.uid);
+    // Same retraction as the activation route, and reachable by the same person: this is
+    // the recovery an owner is sent to when someone else has reserved their address, so it
+    // has to take that person's credentials away rather than merely reset the password.
+    //
+    // Keyed on the state read *above*, before anything was written, and run before the
+    // stamp — see the activation route for why that order matters. Only when the account
+    // was not already activated: someone who linked Apple deliberately from Profile and
+    // then forgot their password must still have Apple afterwards.
+    if (!user.activated) await retractUnprovenIdentities(result.uid);
+    // Only here, and never from the activation route: a reset proves address control *and*
+    // sets the password in the same request, so the credentials are the caller's. At
+    // activation the password may be a stranger's, and Firebase's merge-wipe is what takes
+    // it away — see `markCredentialsProven`.
+    //
+    // Unconditional rather than transition-only: a long-activated user who resets has just
+    // proven the password whoever they are, and a wipe on their next provider sign-in would
+    // be pure loss.
+    await markCredentialsProven(result.uid);
+    // Proof of control of the address, whichever link it came by. Last, for the same
+    // reason as the activation route. A delete landing since the read above answers a dead
+    // link rather than a session for a tombstone.
+    if (!(await markActivated(result.uid))) return tokenFailure(c, "invalid");
     return c.json({
         token: await mintToken(result.uid, user.email),
         user: { ...user, activated: true },
     });
 });
+
+// ── Sign in with Apple and Google (#7) ─────────────────────────────────────────
+// The app never talks to Apple, Google or Firebase (ARCHITECTURE §2): it obtains a
+// provider credential natively and sends *that* here, and this spends it through
+// `identity-toolkit.ts` — the same seam the password path already goes through, and still
+// the only place the web API key lives.
+//
+// **This code never matches on email. Firebase does, and that is the whole design.**
+// `signInWithIdp` returns the uid Firebase keyed to the provider's `sub`; `ensureUser`
+// lands on that document. Whether an address that already has a password account resolves
+// to the *same* uid is the console setting `Authentication → Settings → User account
+// linking`, set to "Link accounts that use the same email" (decided 2026-09-03). So a
+// Google sign-in on an existing address logs into that account, which is what the PRD's
+// edge case always asked for. Do not add a lookup here: the rule lives in one place, and a
+// second copy is how the two come to disagree invisibly.
+//
+// Hide My Email is the case the setting cannot help — a relay address matches nothing, so
+// those users get a new account regardless, and `POST /me/auth/providers` is their only
+// route into an existing one.
+//
+// **`claimUnprovenAccount` below is what makes the linking safe, and is not optional.**
+// Sign-up creates the Auth user before the address is confirmed, and the web API key is
+// public, so anyone can pre-register an address and attach their own provider identity to
+// it directly at Identity Toolkit. Deleting that call re-opens an account takeover; the
+// full walk-through is on the function.
+//
+// Nothing here stores a display name, and nothing widens `users/{uid}`. Apple offers a name
+// on first authorization and Eva shows a name nowhere, so collecting it would be personal
+// data held for no purpose (#7's decision) — it is dropped where it arrives, which is
+// `signInWithIdp`, which never asks for it.
+
+/** A ceiling on the opaque credentials the app forwards. An Apple `identityToken` is a JWT
+ *  of a few hundred bytes and an authorization code is shorter; 4096 is far above either
+ *  and far below anything worth carrying to a provider on a caller's say-so. */
+const PROVIDER_TOKEN_MAX_LENGTH = 4096;
+const REDIRECT_URI_MAX_LENGTH = 512;
+
+/** Apple's authorization code on `DELETE /me`. Same reasoning, smaller thing. */
+const APPLE_AUTH_CODE_MAX_LENGTH = 2048;
+
+/**
+ * What the client sends, per provider. Apple is native — the app already holds an
+ * `identityToken` — and `rawNonce` is the nonce it hashed into its `ASAuthorization`
+ * request, which is required rather than optional: without it Firebase has nothing to check
+ * a replayed token against.
+ *
+ * Google is PKCE against a *public* iOS OAuth client, so what comes back from the dance is
+ * an authorization code and there is no client secret anywhere in it — that is what keeps
+ * the GoogleSignIn SDK out of the app (GUARDRAILS 25).
+ */
+type ProviderCredential =
+    | { provider: "apple"; identityToken: string; rawNonce: string }
+    | { provider: "google"; code: string; codeVerifier: string; redirectUri: string };
+
+type CredentialCheck =
+    | { ok: true; value: ProviderCredential }
+    | { ok: false; message: string };
+
+/** Echoed to Google, which checks it against the client the code was issued for. Parsed
+ *  only for shape — the app's is a custom scheme (`com.googleusercontent.apps.…:/…`), so
+ *  this cannot demand https. */
+const isRedirectUri = (value: unknown): value is string => {
+    if (!isBounded(value, REDIRECT_URI_MAX_LENGTH)) return false;
+    try {
+        new URL(value);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+/** Validation at the edge, for both provider routes (GUARDRAILS 13). Nothing below this
+ *  line inspects the shape of a request again. */
+const parseProviderCredential = (body: Record<string, unknown>): CredentialCheck => {
+    if (body.provider === "apple") {
+        if (
+            !isBounded(body.identityToken, PROVIDER_TOKEN_MAX_LENGTH) ||
+            !isBounded(body.rawNonce, PROVIDER_TOKEN_MAX_LENGTH)
+        ) {
+            return { ok: false, message: "identityToken and rawNonce are required" };
+        }
+        return {
+            ok: true,
+            value: {
+                provider: "apple",
+                identityToken: body.identityToken,
+                rawNonce: body.rawNonce,
+            },
+        };
+    }
+    if (body.provider === "google") {
+        if (
+            !isBounded(body.code, PROVIDER_TOKEN_MAX_LENGTH) ||
+            !isBounded(body.codeVerifier, PROVIDER_TOKEN_MAX_LENGTH) ||
+            !isRedirectUri(body.redirectUri)
+        ) {
+            return {
+                ok: false,
+                message: "code, codeVerifier and redirectUri are required",
+            };
+        }
+        return {
+            ok: true,
+            value: {
+                provider: "google",
+                code: body.code,
+                codeVerifier: body.codeVerifier,
+                redirectUri: body.redirectUri,
+            },
+        };
+    }
+    return { ok: false, message: "provider must be 'apple' or 'google'" };
+};
+
+/**
+ * The OIDC token to spend at Firebase, whichever dance produced it. Apple's arrives with
+ * the request; Google's has to be fetched from its token endpoint with the code verifier,
+ * which is the one outbound call `providers.ts` exists for.
+ *
+ * `index.ts` does no `fetch` of its own here (ARCHITECTURE §3) — it decides which module
+ * answers the question and nothing else.
+ */
+const providerIdToken = async (credential: ProviderCredential): Promise<IdpCredential> =>
+    credential.provider === "apple"
+        ? {
+              provider: "apple",
+              idToken: credential.identityToken,
+              rawNonce: credential.rawNonce,
+          }
+        : { provider: "google", idToken: await exchangeGoogleAuthCode(credential) };
+
+/** Per IP and only per IP — `ProviderRoute` says why there is no per-address dimension.
+ *  Counted after validation and before either upstream call, exactly as the password
+ *  routes' throttle is, so a refused request costs nothing and can depend on nothing. */
+const throttleProvider = (c: Context, route: ProviderRoute) => {
+    if (consumeProviderAttempt(route, clientIp(c))) return null;
+    return c.json(error("RATE_LIMITED", "Too many attempts. Try again later."), 429, {
+        "retry-after": String(authRetryAfterSeconds("signin")),
+    });
+};
+
+/**
+ * The one thing a caller is told about a provider credential that did not work: an expired
+ * Apple token, a nonce that does not match, a code already spent, a code minted for another
+ * client. All one answer, in our words, with nothing of the provider's own reason in it
+ * (GUARDRAILS 12) — the caller's recovery is the same for every one of them, which is to
+ * start the sign-in again.
+ */
+const PROVIDER_REJECTED = "That sign-in couldn't be completed. Please try again.";
+
+/**
+ * Maps both upstream boundaries — Firebase's and the provider's own — onto the contract,
+ * by the rule ARCHITECTURE §3 already states for Identity Toolkit: **the status decides
+ * before the reason does**, and the reason string reaches no body, header, or log line.
+ *
+ * `null` means this was not an upstream failure at all, and the caller rethrows so
+ * `app.onError` answers it as the bug it is.
+ */
+const providerFailure = (c: Context, route: ProviderRoute, err: unknown) => {
+    if (err instanceof IdentityToolkitError) {
+        if (err.kind === "unavailable") return upstreamUnavailable(c, route, err);
+        // The `sub` is attached to a different Eva account. Answered plainly rather than
+        // merged: merging two accounts on a credential is the account-takeover shape #7
+        // rejected, and only the holder of a session for one account and a provider
+        // credential for the other can ever see this.
+        if (err.kind === "provider-linked") {
+            return c.json(
+                error(
+                    "PROVIDER_ALREADY_LINKED",
+                    "That Apple or Google account is already connected to another Eva account.",
+                ),
+                409,
+            );
+        }
+        return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+    }
+    if (err instanceof ProviderError) {
+        if (err.kind === "rejected") {
+            return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+        }
+        // The operator's signal, and separable from `identity_toolkit_unavailable` because
+        // it is a different upstream with a different fix. `kind` distinguishes an outage
+        // at Apple or Google (`unavailable`) from credentials this deploy was never given
+        // (`unconfigured`) — the second is a page, not a retry. Both are constants of ours;
+        // no code, no token, no address (GUARDRAILS 12).
+        console.error(
+            JSON.stringify({
+                event: "provider_endpoint_unavailable",
+                route,
+                kind: err.kind,
+                upstreamStatus: err.upstreamStatus,
+            }),
+        );
+        return serviceUnavailable(c);
+    }
+    return null;
+};
+
+/**
+ * Sign in — or sign up; with a provider they are the same request, which is the point.
+ *
+ * **The session comes back activated**, and that is a decision rather than an oversight
+ * (#7). Google's address is verified and Apple's relay is Apple's own, so a provider
+ * sign-in proves the address at least as well as the link we email does — and without this,
+ * every Apple user would hit `403 NOT_ACTIVATED` from #6 and we would send a confirmation
+ * link to a relay address to prove something Apple has already proved.
+ */
+app.post("/auth/idp", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = parseProviderCredential(body);
+    if (!parsed.ok) return c.json(error("VALIDATION", parsed.message), 400);
+    const throttled = throttleProvider(c, "idp");
+    if (throttled) return throttled;
+
+    try {
+        const { localId, email } = await signInWithIdp(await providerIdToken(parsed.value));
+        // A **read**, deliberately, and before anything else. `ensureUser` writes — it
+        // unions the provider into `authProviders` — and running it first meant a credential
+        // this route was about to refuse still left its provider mirrored on the account it
+        // collided with. Permanently, and where the app can see it: Profile reads
+        // `authProviders` to decide whether to offer "Connect Apple", so a false entry takes
+        // away the real owner's only way to link the identity that is actually theirs.
+        const existing = await readUser(localId);
+        // Mid-deletion, the same case `/auth/signin` refuses: the credential is real and
+        // that is exactly why this must not mint a token, or a provider sign-in would walk
+        // an account back out of its own deletion.
+        if (existing.deleted) {
+            return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+        }
+        // An unactivated account is one nobody has proven they own, and #6 creates it
+        // before the address is confirmed — so every credential already on it was attached
+        // by someone unverified. `claimUnprovenAccount` takes them all away, keeping only
+        // the provider that just signed in, before the line below marks the account
+        // activated on that person's behalf.
+        //
+        // The condition is `!user.activated` **alone**. An earlier version also required
+        // `authProviders` to contain "password", which reads Eva's Firestore mirror rather
+        // than Firebase's record of the account — and those diverge in exactly the case
+        // that matters, because sign-up writes the Auth user before the document.
+        // `claimUnprovenAccount` does test for a password, but against Firebase's
+        // `providerData`, which is the authoritative record the mirror only copies.
+        //
+        // Fails **closed**: the throw is not a provider failure, so it falls through to
+        // `app.onError` as a 500 and no token is minted. Continuing would hand out a
+        // session for an account still carrying credentials we meant to take away.
+        if (!existing.user?.activated) {
+            const outcome = await claimUnprovenAccount(
+                localId,
+                PROVIDER_IDS[parsed.value.provider],
+            );
+            // `refused` means the address on this account was reserved by someone who never
+            // proved it, and this provider is not them. Answering as for any bad credential
+            // is deliberate: it says nothing about whether the address is registered
+            // (GUARDRAILS 12b), and returning here is what keeps `markActivated` below from
+            // stamping the account on the attacker's behalf — which is the step that would
+            // disarm the claim for the real owner's later sign-in.
+            if (outcome === "refused") {
+                return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+            }
+        }
+        // Only now, once the credential has earned the account. The second tombstone check
+        // is `ensureUser`'s own, and closes the window between the read above and this
+        // write: a `DELETE /me` landing in between must still win.
+        const user = await ensureUser(localId, email, PROVIDER_IDS[parsed.value.provider]);
+        if (!user) return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+        // The claim above has already taken the account, so there is nothing left to
+        // retract — and `proveAddress` must not run here: a provider sign-in would unlink
+        // the very identity that just signed in.
+        await markActivated(localId);
+        return c.json({
+            token: await mintToken(localId, email),
+            user: { ...user, activated: true },
+        });
+    } catch (err) {
+        const answer = providerFailure(c, "idp", err);
+        if (answer) return answer;
+        throw err;
+    }
+});
+
+/**
+ * Attaches a provider to **the account the bearer token names** — the deliberate link #7
+ * put in place of automatic email matching, and the only way an existing email/password
+ * account ever gains an Apple or Google credential.
+ *
+ * How, and why this way: the Admin SDK mints a custom token for the signed-in uid,
+ * `identity-toolkit.ts` exchanges it for a Firebase ID token, and `signInWithIdp` links
+ * against that. Every step stays inside seams that already exist and adds no dependency.
+ * The one-call alternative — `adminAuth.updateUser(uid, { providerToLink })` — takes a
+ * `sub` we would have had to verify ourselves, which means owning Apple's and Google's JWKS
+ * and the nonce check; letting Firebase remain the only validator of a provider token is
+ * the same choice ARCHITECTURE §2 makes for passwords.
+ */
+app.post("/me/auth/providers", requireAuth, requireAccount, async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = parseProviderCredential(body);
+    if (!parsed.ok) return c.json(error("VALIDATION", parsed.message), 400);
+    const throttled = throttleProvider(c, "link");
+    if (throttled) return throttled;
+
+    const account = c.get("account");
+    try {
+        // The provider credential is resolved first, so a code that was never going to work
+        // fails before we mint a Firebase session for the account it would have joined.
+        const credential = await providerIdToken(parsed.value);
+        const { localId } = await signInWithIdp(
+            credential,
+            await idTokenForUid(account.id),
+        );
+        // Linking that landed on another account would mean Firebase merged rather than
+        // linked — the console setting in step 0 of docs/PROVIDER-SIGNIN.md. There is no
+        // safe answer to give a caller for that, so it is raised as the fault it is and
+        // `app.onError` answers 500 with a `ref`.
+        if (localId !== account.id) {
+            throw new Error("signInWithIdp resolved a different account");
+        }
+        const user = await ensureUser(
+            account.id,
+            account.email,
+            PROVIDER_IDS[parsed.value.provider],
+        );
+        // A delete landed between the account gate and here.
+        if (!user) return c.json(error("UNAUTHORIZED", "Invalid or expired token"), 401);
+        return c.json({ user });
+    } catch (err) {
+        const answer = providerFailure(c, "link", err);
+        if (answer) return answer;
+        throw err;
+    }
+});
+
+/**
+ * Apple's revocation step on account deletion (#7). Never throws and never fails the
+ * delete: revocation not happening is a compliance problem, revocation stopping a deletion
+ * is a data problem, and the second is worse. One log line, of the same no-PII shape as
+ * every other upstream failure — a stage and a status, no code, no uid, no address.
+ */
+const revokeApple = async (authorizationCode: string): Promise<void> => {
+    const outcome = await revokeAppleToken(authorizationCode).catch(() => null);
+    if (outcome?.ok) return;
+    console.error(
+        JSON.stringify({
+            event: "apple_revocation_failed",
+            stage: outcome?.stage ?? "threw",
+            upstreamStatus: outcome?.upstreamStatus ?? null,
+        }),
+    );
+};
 
 app.get("/me", requireAuth, requireAccount, (c) => c.json({ user: c.get("account") }));
 
@@ -682,7 +1090,37 @@ app.get("/me", requireAuth, requireAccount, (c) => c.json({ user: c.get("account
  */
 app.delete("/me", requireAuth, async (c) => {
     const { sub } = c.get("claims");
+    // An **optional** fresh Apple authorization code (#7), obtained by the app re-prompting
+    // for authorization just before it calls this. Optional because deletion cannot depend
+    // on it: an old client, a user who declines the prompt, or a request built by anything
+    // else must still delete the account. Absent, this route is exactly what it was.
+    //
+    // A code and not a stored refresh token, deliberately: keeping Apple's refresh token
+    // would put a long-lived third-party credential in a health app's user document and
+    // would widen `users/{uid}`, which #7 does not do. See `providers.ts` for the cost.
+    const body = await c.req.json().catch(() => ({}));
+    // Absent and malformed are **not** the same answer, though one expression used to give
+    // them one. Absent is the documented case above and deletes without revoking. Present
+    // but over-long or not a string is a client bug, and folding it into "absent" meant the
+    // account was deleted with Apple's entitlement quietly unmet — no error, no log line,
+    // and nothing the caller could see. Every other field on this API is refused at the
+    // edge; this one now is too.
+    const rawAppleCode = (body as Record<string, unknown>).appleAuthorizationCode;
+    const supplied = rawAppleCode !== undefined && rawAppleCode !== null;
+    if (supplied && !isBounded(rawAppleCode, APPLE_AUTH_CODE_MAX_LENGTH)) {
+        return c.json(
+            error("VALIDATION", "appleAuthorizationCode must be a short, non-empty string"),
+            400,
+        );
+    }
+    const appleAuthorizationCode = supplied ? (rawAppleCode as string) : null;
+
     await markUserDeleted(sub);
+    // After the tombstone, so the account is already inert whatever Apple answers, and
+    // before the Auth user goes, so the ordering below is untouched. Revocation is Apple's
+    // requirement of any app offering Sign in with Apple *and* in-app deletion, and App
+    // Review rejects on its absence.
+    if (appleAuthorizationCode) await revokeApple(appleAuthorizationCode);
     await deleteAuthAccount(sub);
     await deleteAllUserEvents(sub);
     await deleteTokensForUid(sub);

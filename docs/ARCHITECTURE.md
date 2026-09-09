@@ -50,8 +50,17 @@ Consequences you must respect:
   Firestore. Do not open rules to "make the app work"; the app is not supposed to
   reach Firestore. See [GUARDRAILS.md](GUARDRAILS.md).
 - The Admin SDK cannot verify a password, so `api/src/identity-toolkit.ts` calls the
-  Identity Toolkit REST API (`accounts:signUp`, `accounts:signInWithPassword`) with
-  the Firebase **web** API key. That file is the only outbound auth dependency.
+  Identity Toolkit REST API (`accounts:signUp`, `accounts:signInWithPassword`,
+  `accounts:signInWithIdp`, `accounts:signInWithCustomToken`) with the Firebase **web**
+  API key. That file is the only user of that key, and the only thing that validates a
+  credential.
+- **Apple and Google go the same way (#7).** The app obtains a provider credential
+  *natively* and sends it here; the API spends it at `accounts:signInWithIdp`. So the app
+  still holds one credential type, still never speaks to Firebase, and the provider does
+  not become a second protocol the client has to learn. The two things Firebase cannot do
+  for us — Google's PKCE code exchange and Apple's token revocation — are the whole of
+  `api/src/providers.ts`, which is the second outbound auth dependency and deliberately
+  the last.
 
 Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpowers/specs/2026-07-18-email-auth-design.md).
 
@@ -61,7 +70,8 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 |---|---|---|
 | `index.ts` | Routes, request validation, HTTP status/error mapping | No Firestore or `fetch` calls here — delegate |
 | `auth.ts` | Minting and verifying the Eva JWT, `requireAuth` middleware | The only place `JWT_SECRET` is used |
-| `identity-toolkit.ts` | The Firebase Auth account: password credential create/verify via Google REST, delete via the Admin SDK | The only place the web API key is used; the only place an Auth user is deleted |
+| `identity-toolkit.ts` | The Firebase Auth account: password and provider credentials verified via Google REST, delete via the Admin SDK | The only place the web API key is used; the only place an Auth user is deleted |
+| `providers.ts` | The two calls that go to Apple and Google *directly*: Google's PKCE code exchange, Apple's client secret and token revocation | The only place `GOOGLE_IOS_CLIENT_ID` and the Apple keys are used; writes no log line |
 | `rate-limit.ts` | In-memory attempt counters for `/auth/*` | Holds no identity state; never logs its keys |
 | `users.ts` | The `users/{uid}` document: read, create, update, mark deleted, delete, list IDs | The only module that touches `users/` |
 | `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all | The only module that touches `events/` |
@@ -71,9 +81,9 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
 
-Layering: `index.ts` → (`auth`, `identity-toolkit`, `rate-limit`, `users`, `events`,
-`refdata`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward, never
-sideways along the middle row.
+Layering: `index.ts` → (`auth`, `identity-toolkit`, `providers`, `rate-limit`, `users`,
+`events`, `refdata`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward,
+never sideways along the middle row.
 
 ### Contracts
 
@@ -81,7 +91,8 @@ Errors are always `{ "error": { "code": string, "message": string } }`. `code` i
 stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
 `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`,
 `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`, `SERVICE_UNAVAILABLE`,
-`DAY_ALREADY_LOGGED`, `NOT_ACTIVATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INTERNAL`);
+`DAY_ALREADY_LOGGED`, `NOT_ACTIVATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`,
+`PROVIDER_ALREADY_LINKED`, `INTERNAL`);
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
@@ -94,8 +105,10 @@ change for the iOS client.
 | `POST /auth/activation/resend` | — | `{ sent: true }`, always |
 | `POST /auth/password/forgot` | — | `{ sent: true }`, always |
 | `POST /auth/password/reset` | Token in the link | `200 { token, user }` — sets the password and signs in |
+| `POST /auth/idp` | — | `200 { token, user }` — Apple or Google; signs up and signs in at once, already activated |
 | `GET /me` | Bearer | `{ user }` |
-| `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately |
+| `POST /me/auth/providers` | Bearer | `{ user }` — attaches a provider to *this* account; `409 PROVIDER_ALREADY_LINKED` when its `sub` belongs to another |
+| `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately; an optional `appleAuthorizationCode` also revokes the Apple token |
 | `PUT /me/questionnaire` | Bearer | `{ user }` |
 | `GET /me/events?from=&to=` | Bearer | `{ events }` — inclusive `localDate` range, soft-deleted excluded |
 | `POST /me/events` | Bearer | `201 { event }` |
@@ -217,6 +230,236 @@ address and no reason. So a `503` plus that line means Google did not answer us,
 distinguishes "never landed" from "answered badly". `rejected` deliberately logs nothing —
 a wrong password per line is a log full of nothing.
 
+**Apple and Google (#7).** Two routes, one mechanism.
+
+| Route | Body | Answers |
+|---|---|---|
+| `POST /auth/idp` | `{ provider: "apple", identityToken, rawNonce }` or `{ provider: "google", code, codeVerifier, redirectUri }` | `200 { token, user }` — the same shape `/auth/signin` returns |
+| `POST /me/auth/providers` | the same two shapes, with a bearer token | `200 { user }`, with the provider added to `user.authProviders` |
+
+Apple is native: the app already holds an `identityToken`, and it sends the **raw** nonce it
+hashed into its `ASAuthorization` request. That nonce is forwarded to `signInWithIdp`, where
+Firebase hashes it and compares — which is the whole of what stops a captured
+`identityToken` being replayed at this route by somebody else. Google is PKCE against a
+*public* iOS OAuth client: the app returns an authorization code, `providers.ts` exchanges it
+at `https://oauth2.googleapis.com/token` with the code verifier and **no client secret**
+(an iOS client has none), takes the `id_token` out, and that is what gets spent. Doing the
+exchange server-side is what keeps the GoogleSignIn SDK and its transitive packages out of
+the app (GUARDRAILS 25).
+
+**The account is whichever uid Firebase returns, and this code never looks up an address.**
+`signInWithIdp` hands back the uid Firebase keyed to the provider's `sub`; `ensureUser` lands
+on that `users/{uid}` document and `arrayUnion`s the provider. Whether a shared address
+resolves to one account or two is a **console setting** — `Authentication → Settings → User
+account linking`, set to *"Link accounts that use the same email"* (decided 2026-09-03) — and
+it is decided before this code sees anything. So a Google sign-in on an address that already
+has a password account logs into that account, which is what the PRD's edge case always
+asked for. The rule lives in one place; a second copy here is how two copies come to
+disagree, invisibly.
+
+**Hide My Email is the case that setting cannot help.** Apple's relay address matches
+nothing, so those users get a new account regardless. `POST /me/auth/providers` — deliberate,
+authenticated, from Profile — is their only route into an existing one, which is why it is
+not optional.
+
+**A 200 from `signInWithIdp` is not always a sign-in, and there is more than one of them.**
+Identity Toolkit has several outcomes that are refusals wearing a success status, each
+carrying **somebody else's `localId`**:
+
+- `needConfirmation` — the `sub` is linked to nothing, an account already holds the address
+  the credential asserts, and the credential's own `email_verified` is falsy. What the
+  Firebase JS SDK surfaces as `account-exists-with-different-credential`.
+- `emailRecycled` — the address matches an account that already holds an entry for *this
+  same provider under a different `sub`*. The provider reassigned the address; a workplace
+  mailbox given to a new employee is the ordinary way it happens. Firebase merges anyway,
+  hands back the previous owner's uid, **and issues a token** — this one is a full sign-in
+  as far as the wire is concerned, which is why it needs a named check rather than the
+  backstop below.
+- an MFA challenge — `mfaPendingCredential` and no token. Not reachable today because MFA is
+  off on the project, and one console switch from being reachable silently.
+
+These were found one at a time, in consecutive reviews of #7, which is the argument against
+enumerating them: the list belongs to Google. So `identity-toolkit.ts` names the two it
+knows and then requires `idToken` to be present on any sign-in response — every request sets
+`returnSecureToken: true`, so its absence catches the shapes that have not been met yet, the
+MFA challenge being the one that is known to exist. The backstop is *not* sufficient on its
+own: `emailRecycled` carries a token. Both mechanisms are needed, and they run in **both**
+transports — `call`, which serves sign-up and password sign-in, and `signInWithIdp`. An
+earlier version guarded only the provider route while this section claimed it guarded every
+sign-in, which left the password path — the one with more users — open.
+
+Reading past any of them hands the caller a 30-day session on an account they have never
+authenticated to, and — because an activated account skips the claim entirely — with nothing
+downstream to catch it.
+
+**Auto-linking is only safe because `/auth/idp` claims an unproven account.** Sign-up (#6)
+creates the Firebase Auth user *before* the address is confirmed, and **the web API key is
+public** — Firebase Hosting serves it at `/__/firebase/init.json`, and Identity Toolkit
+accepts it. So anyone who pre-registers an address is a first-class client for that account
+and can, without touching Eva: sign in at Identity Toolkit with the password they chose,
+attach *their own* Apple identity to the account with the ID token that returns, and wait.
+When the real owner signs in with Google, Firebase merges onto the same uid and Eva marks
+it activated on their behalf — and the attacker signs in with Apple from then on.
+
+Overwriting the password does not stop that; the attacker never uses it again. So
+`claimUnprovenAccount` (`identity-toolkit.ts`) takes **everything**: it overwrites the
+password, unlinks every *federated* identity except the one that just signed in, and
+revokes outstanding refresh tokens. The password is overwritten rather than unlinked, both
+because an account with no password provider has nothing for forgot-password to reset and
+because Firebase will not accept "set this password" and "remove the password provider" in
+one call. It asks `adminAuth.getUser` rather than `users/{uid}` — Eva's
+`authProviders` is a mirror, and sign-up writes the Auth user before the document, so a
+failure between the two leaves an account the mirror cannot see.
+
+**Unlinking closes only one of the two orderings, so the address is checked as well.** The
+paragraph above assumes the *victim* reaches `/auth/idp` first. Nothing makes them: the
+attacker knows when they pre-registered, and can simply sign in here themselves as soon as
+their identity is attached. Then nothing is stripped — `password` and their own `apple.com`
+are both kept — and the account is marked activated, which disarms the claim permanently, so
+the victim's later Google sign-in merges onto an account the attacker holds.
+
+What separates the two orderings is the address. Firebase merged the victim's provider into
+the account *because* the provider's own address equals the account's; an identity attached
+out of band has no such equality and cannot manufacture one without controlling the address,
+at which point they are the owner. So on an account **nobody has proved the address of** —
+`emailVerified` false — the provider signing in must carry that account's address.
+
+The trigger is `emailVerified`, not "does it have a password", because it has to be a fact
+the attacker cannot move. A password entry is not one: Identity Toolkit derives it from
+`email && passwordHash`, an idToken holder adds and drops credentials on their own account,
+and the claim's own write sets a password. It also missed a takeover outright — an attacker
+can create a federated-only account with their own Apple `sub`, then point its address at a
+victim who has not signed up yet, so no password is ever attached and a password-shaped
+trigger skips the test entirely. `emailVerified` is admin-only on `accounts:update`, and
+changing an address forces it false. Otherwise `claimUnprovenAccount` returns `refused`, the route answers
+`401 INVALID_CREDENTIALS`, and crucially **does not activate**: the stamp is what would make
+the takeover permanent. It fails closed on a missing provider address, and only in that
+branch, so Apple's Hide My Email relay — which creates a fresh account with no password — is
+never affected. The function also re-reads the account after writing it, so the loser of a
+race between two concurrent claims is refused rather than handed a session for an account
+that no longer carries its identity.
+
+**The claim runs before anything is written.** `/auth/idp` reads the account document
+rather than calling `ensureUser` first, because `ensureUser` writes: it unions the provider
+into `authProviders`. Calling it ahead of the gate meant a credential the route was about to
+refuse still left its provider mirrored on the account it collided with, permanently, and
+where the app can see it — Profile reads `authProviders` to decide whether to offer "Connect
+Apple", so a false entry takes away the real owner's only way to link the identity that is
+actually theirs. The write happens once the claim has returned `claimed`, and `ensureUser`'s
+own tombstone check closes the window between the read and it.
+
+**Proving the address retracts what was attached while it was not.** The claim above guards
+`/auth/idp` and is gated on `activatedAt` — but the activation link and a password reset also
+stamp `activatedAt`, and for four review rounds they stamped it and nothing else. So the
+takeover survived by waiting: reserve the address, attach a provider identity out of band,
+be refused at `/auth/idp`, and then sign in the moment the real owner activates or recovers.
+`proveAddress` (`identity-toolkit.ts`) runs on that transition — and only on the transition,
+so a provider linked deliberately from Profile survives a later password reset. It runs
+**before** `activatedAt` is stamped, not after: the stamp is what disarms the claim gate, so
+retracting afterwards leaves a window in which `/auth/idp` skips the claim and mints a
+30-day session nothing can revoke, and leaves a failed retraction permanently unrepeatable
+because the transition has already been spent. Retract first and every failure leaves the
+account unactivated with the gate still armed. `retractUnprovenIdentities` unlinks every
+federated identity and revokes outstanding refresh tokens.
+
+**What it deliberately does not do is set Firebase's `emailVerified`, and that is the
+subtlest decision in this section.** Identity Toolkit clears `passwordHash` and unlinks
+every provider when a verified provider address merges onto an account whose own address is
+unverified. Read as a bug, that wipe silently destroys a real user's password while
+`users/{uid}.authProviders` goes on advertising it. Read as a defence, it is the *only*
+thing that evicts a pre-registering attacker's password once the real owner arrives with a
+provider — Eva's own claim is already disarmed by then, because the account is activated.
+
+An earlier version of this section set `emailVerified` at activation and stated only the
+first reading. That turned a self-healing case into a permanent one: attacker reserves
+`victim@x` with a password of their choosing, the victim clicks the confirmation mail they
+never asked for, and the attacker's password then survives the victim's Google sign-in
+forever. So `markCredentialsProven` is called from the **reset** route only, where the
+caller proved address control *and* chose the password in the same request. Activation
+proves the address and nothing about the password, so there the wipe stays armed; a
+legitimate user who loses a password to it recovers through the same reset, which marks them
+proven for good.
+
+The cost, stated plainly: a user who signed up with a password, activated by link, never
+reset, and then signs in with a provider on the same address loses that password with no
+message. `users/{uid}.authProviders` will still list `password` — that mirror is #117.
+Eliminating the cost means Eva tracking whether each password was ever proven, which is a
+`users/{uid}` field and a larger decision than #7.
+
+It fires on `activatedAt` being null and nothing else. No legitimate flow puts a second
+provider on an unactivated account: Eva's link route is behind `requireAuth`, and an
+unactivated account cannot sign in to obtain a token. A confirmed address has already
+proven its credentials belong to its owner, so nothing is taken there — invalidating an
+activated account would lock a real user out for adding Apple to it.
+
+The route **fails closed**: the throw is not a provider failure, so it reaches
+`app.onError` as `500 INTERNAL` and no token is minted. Continuing would hand out a session
+for an account still carrying credentials we meant to take away. The cost is that a real
+user who never clicked their activation link and then used Google must reset a password
+they did own — nothing can distinguish them from the attacker, and forgot-password is the
+flow they needed anyway.
+
+**A provider session comes back activated.** Google's address is verified and Apple's relay
+is Apple's own, so a provider sign-in proves the address at least as well as the link #6
+emails — and without the stamp every Apple user would meet `403 NOT_ACTIVATED` and we would
+mail a confirmation link to a relay address to prove what Apple already proved.
+
+**No display name is stored, and `users/{uid}` does not change.** Apple offers a name on
+first authorization; Eva shows a name nowhere, so collecting it would be personal data kept
+for no purpose. It is dropped where it arrives.
+
+**Linking goes through Firebase rather than around it.** The Admin SDK mints a custom token
+for the signed-in uid, `signInWithCustomToken` exchanges it for a Firebase ID token, and
+`signInWithIdp` links against that. The one-call alternative,
+`adminAuth.updateUser(uid, { providerToLink })`, takes a `sub` we would have had to verify
+ourselves — Apple's and Google's JWKS, `iss`, `aud`, `exp` and the nonce, and the rotation of
+both — so this keeps Firebase the only validator of a provider token, which is the same
+choice §2 makes for passwords. It has one operational requirement: `createCustomToken` needs
+Admin credentials that can sign, so the Cloud Run runtime service account needs
+`roles/iam.serviceAccountTokenCreator` **on itself**. Until that is granted this route is the
+only thing that fails.
+
+A `sub` already attached to a different account is `409 PROVIDER_ALREADY_LINKED`, never a
+silent merge. Adding that code is additive; it is the only new one #7 introduces.
+
+**`DELETE /me` revokes the Apple token.** Apple requires it of any app offering Sign in with
+Apple *and* in-app account deletion, and App Review rejects on it. Eva does **not** store an
+Apple refresh token: a long-lived third-party credential in a health app's user document is
+worse than what it buys, and it would be a `users/{uid}` schema change. Instead `DELETE /me`
+accepts an **optional** fresh `appleAuthorizationCode` — the app re-prompts for authorization
+at delete time — exchanges it at Apple, and revokes. It is optional because deletion cannot
+depend on it, and **a failed revocation never fails the delete**: one log line
+(`apple_revocation_failed`, carrying a stage and an upstream status and nothing else) and the
+sweep carries on. The cost, stated: an account deleted without a code is deleted without
+revocation, and nothing is kept that could revoke it afterwards.
+
+**Failures map by the same rule as everything else.** `providers.ts` reduces Apple's and
+Google's answers to `unconfigured | rejected | unavailable`, `identity-toolkit.ts` gains a
+fourth kind, `provider-linked`, and the routes branch on the kind and never on the reason:
+a rejected credential is `401 INVALID_CREDENTIALS` in our own words, a 5xx or 429 or network
+failure is `503 SERVICE_UNAVAILABLE` with the constant `Retry-After`. `unconfigured` — a
+provider whose credentials this deploy was never given — is answered as `503` too, because
+the capability genuinely is unavailable, and is logged as
+`{"event":"provider_endpoint_unavailable","route","kind","upstreamStatus"}`, which
+distinguishes "Google is down" from "page somebody, we never set `GOOGLE_IOS_CLIENT_ID`".
+Every provider credential (`GOOGLE_IOS_CLIENT_ID`, `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`,
+`APPLE_KEY_ID`, `APPLE_SIGNIN_KEY`) is **optional** in `config.ts` for the same reason
+`POSTMARK_API_KEY` is: none is provisioned yet, and an API that will not boot without Apple's
+signing key is an API that cannot serve email/password sign-in either.
+
+Both routes are throttled **per IP only** (`RATE_LIMIT_IDP_PER_IP`, separate budgets). There
+is no per-address dimension: the only address in the request is inside a provider token that
+has not been verified yet, so counting against it would hand anyone a lockout primitive
+aimed at any address they cared to name.
+
+*What is not tested, and cannot be here.* `api/test/provider-signin.test.ts` fakes the
+provider boundary — no test process can obtain a real Apple `identityToken` or a real Google
+authorization code — so what is proven is our half: the identity rule against the live
+Firestore, the activation stamp, `authProviders`, the 409, the validation, and that the raw
+nonce reaches the wire. That Firebase rejects a replayed nonce, that Google accepts our PKCE
+exchange, and that Apple accepts our client secret are unproven until a device and a
+provisioned provider exist.
+
 **Nothing escapes the error shape (#48).** `app.onError` in `index.ts` is the floor under
 every route: any throw no handler answered for is `500 { error: { code: "INTERNAL",
 message } }`, where `message` is one constant sentence plus an eight-character `ref`. It is
@@ -299,7 +542,7 @@ provider resolving to the same Auth account lands on the same document.
 
 ```
 email                  string
-authProviders          string[]        // arrayUnion, e.g. ["password"]
+authProviders          string[]        // arrayUnion: "password", "apple.com", "google.com"
 questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
 activatedAt            Timestamp | null  // #6; null = unconfirmed, ABSENT = pre-#6 = confirmed
@@ -551,13 +794,73 @@ adding it to the delete is the way health-adjacent identifiers outlive their own
 |---|---|
 | `Networking/` | `APIClient` (generic async JSON), `APIError`, `APIModels` (wire types) |
 | `Session/` | `AppSession` — the single source of app state; `KeychainTokenStore` — the only place the JWT is persisted |
+| `Session/Providers/` | Sign in with Apple and Google: the two controllers, the PKCE/nonce derivations, and the buttons that run them (#7) |
 | `Onboarding/` | `OnboardingModel` (flow state machine) + `Steps/` + `Components/` |
-| `Profile/` | `ProfileView` and `DeleteAccountModal` — the account-deletion entry point |
+| `Profile/` | `ProfileView` (identity, connected accounts, log out, danger zone) and `DeleteAccountModal` |
 | `Theme/` | Colors, gradients, `PrimaryButton`, progress style — see [DESIGN.md](DESIGN.md) |
 
 `AppSession.State` (`loading → signedOut | needsQuestionnaire | ready | unreachable`)
 drives the root view. **The server is the source of truth for `questionnaireCompleted`** — never
 reintroduce a local `@AppStorage` flag for it.
+
+### Apple and Google, without an SDK and without a Firebase token (#7)
+
+The app obtains a **provider credential** natively and posts it to the API, which does
+everything else (§2). It never holds a Firebase ID token, a Google access token or an
+Apple refresh token — one credential type, still, and one protocol.
+
+`Session/Providers/` is four files and one idea each:
+
+| File | Owns |
+|---|---|
+| `AuthCrypto` | The raw nonce, its SHA-256, the PKCE verifier and its S256 challenge. Pure, and unit-tested against published vectors — every value here fails *silently* when it is wrong |
+| `AppleSignInController` | One `ASAuthorizationAppleIDProvider` request, as an `async` call. Also the fresh authorization code account deletion needs |
+| `GoogleOAuthConfiguration` | The client id, the redirect it implies, the authorization URL, and what the callback means. All pure |
+| `GoogleSignInController` | The `ASWebAuthenticationSession` that presents it |
+| `ProviderSignInButtons` | The two buttons plus the flow behind them, shared by sign-up, log in and Profile |
+
+Four things about it are load-bearing:
+
+**The nonce goes to Apple hashed and to us raw.** `request.nonce` is
+`sha256(rawNonce)`; the API is sent the **raw** value beside the `identityToken`. Apple
+copies the hash into the token's `nonce` claim, so the API can prove the token was minted
+for the request this app just made. Send the hash to the API instead and the check becomes
+"this hash equals this hash", which a replayed token also passes.
+
+**Google is PKCE in an `ASWebAuthenticationSession`, with no SDK.** An iOS OAuth client is
+a public client with no secret, so the app can run the authorization-code flow itself and
+the `code` is protected by the verifier rather than by a shared secret. Adding a
+dependency is an always-human gate (AUTONOMY) and this one was decided against; the app
+still has zero Swift Package dependencies. A real `WKWebView` is not an alternative —
+Google answers `disallowed_useragent` — so the sheet is what "a web view, not a browser
+redirect" means in practice. The app never spends the code; the API does.
+
+**Which calls go through `authorized(_:)`, and why it is not both.** `signInWithProvider`
+posts `/auth/idp` **outside** the wrapper, like `signUp` and `signIn`: it carries no token,
+so its 401 means the provider credential was refused, not that this device's session is
+over. `attachProvider` posts `/me/auth/providers` **inside** it, because that one does
+carry the token. Getting this backwards would log a signed-in user out for a failed
+attempt to link a second provider.
+
+**Deleting an account offers Apple a revocation.** Apple requires an app that offers both
+Sign in with Apple and in-app account deletion to revoke on delete, and Eva deliberately
+stores no Apple refresh token — so `DeleteAccountModal` runs a fresh authorization and
+sends the resulting `authorizationCode` in the `DELETE /me` body. **Cancelling that step
+does not stop the deletion.** A provider handshake is never allowed to be what stands
+between someone and the destruction of their own data; the cost is a token that stays
+unrevoked, which is Eva's problem with Apple rather than the user's with Eva.
+
+There is **no new `OnboardingStep`**. Provider sign-in draws no screen: it starts from a
+button on a step that exists and lands where every other authentication lands. The enum is
+a list of screens, and a case with nothing behind it would leave a raw value
+`EVA_ONBOARDING_STEP` could still jump to.
+
+**None of it can be driven by a UI test.** Sign in with Apple needs a device signed in to
+an Apple ID — the simulator answers `ASAuthorizationError.unknown` — and Google needs a
+provisioned OAuth client and a real account. `EvaTests` covers the derivations, the wire
+shapes and the callback parsing, which is the part that fails silently; the flows
+themselves are exercised by hand on a device. This is the same honest gap
+`docs/PROVIDER-SIGNIN.md` names, and it is stated rather than papered over.
 
 ### A dead credential signs the user out, wherever it lands (#55)
 

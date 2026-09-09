@@ -41,13 +41,37 @@ jobs:
           # without it, so catch a missing variable here rather than on the revision.
           PUBLIC_WEB_URL: ${{ vars.PUBLIC_WEB_URL }}
           POSTMARK_FROM: ${{ vars.POSTMARK_FROM }}
+          # Apple and Google sign-in (#7, docs/PROVIDER-SIGNIN.md). Deliberately *not*
+          # guarded with `test -n` the way the two above are: `config.ts` reads all of
+          # these with `optionalString`, and an unprovisioned deploy is a supported state
+          # in which the provider routes answer 503 rather than the API refusing to boot.
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+          APPLE_CLIENT_ID: ${{ vars.APPLE_CLIENT_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_KEY_ID: ${{ vars.APPLE_KEY_ID }}
         run: |
           test -n "$PUBLIC_WEB_URL" || { echo "::error::PUBLIC_WEB_URL repo variable is not set"; exit 1; }
           test -n "$POSTMARK_FROM" || { echo "::error::POSTMARK_FROM repo variable is not set"; exit 1; }
+          # All three Apple variables or none. `appleCredentials()` treats a partial group
+          # as unconfigured, which is the right call at runtime — a half-signed client
+          # secret is one Apple rejects — but it means clearing one variable turns token
+          # revocation off *silently*, and revocation is deliberately non-fatal, so
+          # `DELETE /me` would go on answering 200 with the App Review requirement unmet.
+          # Nobody would see it. A partial group is always a mistake; say so here, where
+          # someone is watching. (`APPLE_SIGNIN_KEY` lives in Secret Manager and cannot be
+          # checked from this side.)
+          apple_set=0
+          for v in "$APPLE_CLIENT_ID" "$APPLE_TEAM_ID" "$APPLE_KEY_ID"; do
+            test -n "$v" && apple_set=$((apple_set + 1))
+          done
+          if [ "$apple_set" -ne 0 ] && [ "$apple_set" -ne 3 ]; then
+            echo "::error::APPLE_CLIENT_ID, APPLE_TEAM_ID and APPLE_KEY_ID must be set together or not at all ($apple_set of 3 set); Apple token revocation would be silently disabled"
+            exit 1
+          fi
           gcloud run deploy eva-api \
             --source api \
             --project ${{ vars.GCP_PROJECT_ID }} \
             --region ${{ vars.GCP_REGION }} \
             --allow-unauthenticated \
-            --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }},EMAIL_TRANSPORT=postmark,POSTMARK_FROM=$POSTMARK_FROM,PUBLIC_WEB_URL=$PUBLIC_WEB_URL" \
-            --set-secrets "JWT_SECRET=eva-jwt-secret:latest,POSTMARK_API_KEY=eva-postmark-key:latest"
+            --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }},EMAIL_TRANSPORT=postmark,POSTMARK_FROM=$POSTMARK_FROM,PUBLIC_WEB_URL=$PUBLIC_WEB_URL,GOOGLE_IOS_CLIENT_ID=$GOOGLE_IOS_CLIENT_ID,APPLE_CLIENT_ID=$APPLE_CLIENT_ID,APPLE_TEAM_ID=$APPLE_TEAM_ID,APPLE_KEY_ID=$APPLE_KEY_ID" \
+            --set-secrets "JWT_SECRET=eva-jwt-secret:latest,POSTMARK_API_KEY=eva-postmark-key:latest,APPLE_SIGNIN_KEY=eva-apple-signin-key:latest"

@@ -17,6 +17,10 @@ export interface User {
   email: string
   questionnaireCompleted: boolean
   profile: Profile | null
+  /** Which credentials open this account: `password`, `apple.com`, `google.com` (#7). The
+   *  client shows it in Profile and decides from it whether "Link Apple" is still offered.
+   *  Absent on no document — the field has existed since the first one. */
+  authProviders: string[]
   /** Whether the address has been confirmed (#6). Derived from `activatedAt`, which the
    *  client never sees. */
   activated: boolean
@@ -37,6 +41,7 @@ const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => ({
   email: data.email,
   questionnaireCompleted: data.questionnaireCompleted ?? false,
   profile: data.profile ?? null,
+  authProviders: data.authProviders ?? [],
   activated: isActivatedData(data),
 })
 
@@ -50,8 +55,11 @@ const isTombstone = (snapshot: FirebaseFirestore.DocumentSnapshot): boolean =>
   snapshot.get('deletedAt') != null
 
 /** Creates the user doc if missing; returns the (existing or new) user.
- *  Doc ID = Firebase Auth uid, so future providers matched to the same
- *  Auth account (by email) always land on the same document.
+ *  Doc ID = Firebase Auth uid, so a provider resolving to the same Auth account always
+ *  lands on the same document. **Never by email** (#7): what puts an Apple or Google
+ *  sign-in on an existing account is Firebase returning the uid it already keyed to that
+ *  provider's `sub`, and nothing here looks an address up. An unseen `sub` is a new
+ *  account even when the address matches one that exists — see `signInWithIdp`.
  *
  *  `null` means the uid names a tombstone — a delete is in flight — and this refuses to
  *  revive it. That refusal is half of what makes deletion real: `ensureUser` runs on every
@@ -77,7 +85,16 @@ export const ensureUser = async (
       authProviders: FieldValue.arrayUnion(provider),
       updatedAt: FieldValue.serverTimestamp(),
     })
-    return toUser(uid, snapshot.data()!)
+    // The union is applied to the value that is returned as well as to the document, so a
+    // caller is never handed a list that is already stale by one provider — which is
+    // exactly what `POST /me/auth/providers` answers with (#7). Reading the document back
+    // would cost a second round trip to learn something we just decided.
+    const data = snapshot.data()!
+    const existing: string[] = data.authProviders ?? []
+    return toUser(uid, {
+      ...data,
+      authProviders: existing.includes(provider) ? existing : [...existing, provider],
+    })
   }
   // A new document starts *not* activated, explicitly: `null`, never absent, because
   // absent is what a pre-#6 document looks like and means the opposite (see
@@ -92,7 +109,37 @@ export const ensureUser = async (
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   })
-  return { id: uid, email, questionnaireCompleted: false, profile: null, activated: false }
+  return {
+    id: uid,
+    email,
+    questionnaireCompleted: false,
+    profile: null,
+    authProviders: [provider],
+    activated: false,
+  }
+}
+
+/**
+ * What `/auth/idp` needs to know *before* it writes anything (#7).
+ *
+ * `getUser` answers `null` for both "no document" and "tombstone", which are the same
+ * answer to a route that only wants to read. They are not the same answer to one that has
+ * to decide whether to refuse: a provider sign-in must not revive a deleted account, and
+ * must run the claim on an account that has none yet.
+ *
+ * It exists because `ensureUser` *writes* — it unions the provider into `authProviders` —
+ * and calling it before the claim gate left a refused credential's provider permanently
+ * mirrored on a stranger's document. That is not cosmetic: the app reads `authProviders`
+ * to decide whether to offer "Connect Apple", so a false entry removes the real owner's
+ * only way to link the identity they actually own.
+ */
+export const readUser = async (
+  uid: string,
+): Promise<{ deleted: boolean; user: User | null }> => {
+  const snapshot = await users().doc(uid).get()
+  if (!snapshot.exists) return { deleted: false, user: null }
+  if (isTombstone(snapshot)) return { deleted: true, user: null }
+  return { deleted: false, user: toUser(uid, snapshot.data()!) }
 }
 
 export const getUser = async (uid: string): Promise<User | null> => {
@@ -104,10 +151,18 @@ export const getUser = async (uid: string): Promise<User | null> => {
  *  routes that ask it — sign-in, resend — say what they are asking. */
 export const isActivated = (user: User): boolean => user.activated
 
-/** Stamps `activatedAt`, once: a document already activated — by a timestamp, or by
- *  predating the field — is left exactly as it is, so the first confirmation stays the
- *  record of when the address was proven. `false` means there was nothing to activate: no
- *  document, or a tombstone. The caller treats that as a dead link, not an error. */
+/**
+ * Stamps `activatedAt`, once: a document already activated — by a timestamp, or by
+ * predating the field — is left exactly as it is, so the first confirmation stays the
+ * record of when the address was proven. `false` means there was nothing to activate: no
+ * document, or a tombstone. The caller treats that as a dead link, not an error.
+ *
+ * It briefly reported *which* of those three it did, so a caller could act on the
+ * transition. That is no longer how the retraction is decided (#7): the routes read the
+ * account before writing anything and retract while it is still unactivated, because
+ * anything keyed on this call's result necessarily happens **after** the stamp — and the
+ * stamp is what disarms `/auth/idp`'s claim gate. See `proveAddress`.
+ */
 export const markActivated = async (uid: string): Promise<boolean> => {
   const ref = users().doc(uid)
   return firestore.runTransaction(async (tx) => {

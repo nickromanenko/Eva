@@ -8,7 +8,14 @@ settings:
     SWIFT_VERSION: "6.0"
     TARGETED_DEVICE_FAMILY: "1"
     CODE_SIGN_STYLE: Automatic
-    # DEVELOPMENT_TEAM: XXXXXXXXXX   # set when signing for a real device
+    # The Apple Developer team that owns the `com.evaapp.ios` App ID. Needed to sign for a
+    # real device, which #7 makes unavoidable: Sign in with Apple cannot be completed in the
+    # simulator, so the only way to verify that path is on hardware.
+    #
+    # Not a secret — a Team ID is visible in every `.ipa` anyone downloads. It is here
+    # rather than in an untracked local file so that what a build signs as is reviewable,
+    # the same argument the entitlement block below makes for itself.
+    DEVELOPMENT_TEAM: 266X9686VN
 # Firebase iOS SDK (later phase):
 # packages:
 #   firebase-ios-sdk:
@@ -19,6 +26,17 @@ targets:
     type: application
     platform: iOS
     sources: [Eva]
+    # Sign in with Apple (#7). Apple requires the entitlement on the App ID *and* in the
+    # bundle; `docs/PROVIDER-SIGNIN.md` §1 is the human half. Written here rather than by
+    # hand because Eva.xcodeproj is generated — the file XcodeGen emits is tracked
+    # alongside Eva/Info.plist for the same reason, so what the build signs is reviewable.
+    #
+    # `Default` is the plain flow. The other legal value, `DefaultAndAutomaticPasskeys`,
+    # opts into the passkey upgrade prompt, which is a product decision nobody has taken.
+    entitlements:
+      path: Eva/Eva.entitlements
+      properties:
+        com.apple.developer.applesignin: [Default]
     info:
       path: Eva/Info.plist
       properties:
@@ -43,6 +61,18 @@ targets:
         # refuses to launch if it is missing or not an absolute URL; the
         # EVA_API_BASE_URL launch environment variable still overrides it at runtime.
         EVAAPIBaseURL: $(EVA_API_BASE_URL_DEFAULT)
+        # Google's iOS OAuth client id (#7), substituted from GOOGLE_IOS_CLIENT_ID below
+        # the same way EVAAPIBaseURL is. An iOS OAuth client is a *public* client — it has
+        # no secret — which is what lets the app run the authorization-code flow itself
+        # with PKCE instead of linking the GoogleSignIn SDK. So this is configuration, not
+        # a credential, and it belongs in the bundle.
+        #
+        # **Not provisioned yet.** `docs/PROVIDER-SIGNIN.md` §4 is the human step. Until it
+        # is done both settings below are empty, `GoogleOAuthConfiguration` reports the
+        # build as unconfigured and the Google button says so. There is deliberately no
+        # placeholder to fall back to: a plausible-looking client id would fail at Google
+        # with an error nobody could trace back to here.
+        GoogleIOSClientID: $(GOOGLE_IOS_CLIENT_ID)
         # The shipped version and build number. Without these two keys XcodeGen writes
         # its own defaults — a literal 1.0 and 1 — and the literals are what land in the
         # bundle, so MARKETING_VERSION / CURRENT_PROJECT_VERSION below had no effect on
@@ -60,11 +90,27 @@ targets:
         # file and no entitlement, which a paid-team capability would need. Neither URL
         # carries data — `eva://activated` and `eva://open` are signals, and a token
         # never travels through either. `EvaDeepLink` is the only reader.
+        #
+        # The second entry is Google's OAuth redirect (#7): the reversed iOS client id,
+        # `com.googleusercontent.apps.<numeric>`. `ASWebAuthenticationSession` claims the
+        # callback itself and does not need the registration, but Google's own iOS guidance
+        # asks for it and a registered scheme is what makes the redirect survive if the
+        # flow ever leaves the session — so it is declared.
+        #
+        # It is a *second* setting rather than something derived from GOOGLE_IOS_CLIENT_ID
+        # because Info.plist substitution cannot manipulate a string. The two can therefore
+        # drift, so `GoogleOAuthConfiguration` derives the scheme from the client id at
+        # runtime and refuses to start a sign-in unless the bundle actually registers the
+        # scheme it derived. `GoogleOAuthConfigurationTests` covers the derivation.
         CFBundleURLTypes:
           - CFBundleURLName: com.evaapp.ios.deeplink
             CFBundleTypeRole: Editor
             CFBundleURLSchemes:
               - eva
+          - CFBundleURLName: com.evaapp.ios.google
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - $(GOOGLE_IOS_REDIRECT_SCHEME)
         # `openURL` reports whether anything claimed `message://`, and iOS answers
         # `false` for an unlisted scheme without ever asking the user. The activation
         # screen's "Open email app" is the only caller.
@@ -194,6 +240,27 @@ targets:
         # here so it stays a decision rather than a default that could move under us and
         # turn the stamp into a silent no-op.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
+        # Google sign-in (#7), in both configurations because there is one Google client
+        # for the bundle id and it does not vary by environment.
+        #
+        # Provisioned 2026-09-09 (`docs/PROVIDER-SIGNIN.md` §4). Neither value is a secret:
+        # an iOS OAuth client has no client secret, which is what lets the app run PKCE
+        # itself instead of pulling in the GoogleSignIn SDK (GUARDRAILS 25).
+        #
+        # These are **two settings that must agree**, and nothing at build time checks that
+        # they do. `GoogleOAuthConfiguration.redirectScheme(forClientID:)` derives the scheme
+        # from the client id and refuses at runtime if the bundle does not register the one
+        # it derived — the flow would otherwise open, complete at Google, and hand the
+        # callback to nobody. The scheme is the client id with `.apps.googleusercontent.com`
+        # dropped and `com.googleusercontent.apps.` prefixed:
+        #   client id  1234567890-abc.apps.googleusercontent.com
+        #   scheme     com.googleusercontent.apps.1234567890-abc
+        #
+        # If either is ever blanked, leave it as `""` rather than deleting the line: an
+        # undefined setting leaves the literal `$(GOOGLE_IOS_CLIENT_ID)` in the built
+        # Info.plist, which reads as configured to anything that only checks for presence.
+        GOOGLE_IOS_CLIENT_ID: 976826401031-jnmhrgu3gldhrph0b11rq66ndlbrt17f.apps.googleusercontent.com
+        GOOGLE_IOS_REDIRECT_SCHEME: com.googleusercontent.apps.976826401031-jnmhrgu3gldhrph0b11rq66ndlbrt17f
       configs:
         # Deliberately *not* named EVA_API_BASE_URL. That name belongs to the runtime
         # launch-environment override; giving the build setting the same name would put

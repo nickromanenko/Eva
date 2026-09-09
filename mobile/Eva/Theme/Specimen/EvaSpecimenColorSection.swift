@@ -117,7 +117,8 @@ struct EvaSpecimenColorSection: View {
 
             EvaSpecimenGroupLabel(title: "Authentication")
             EvaSpecimenNote(
-                text: "§5 names these two fills. There is no auth-button component yet — tokens only."
+                text: "§5 names the first two fills; the third is the loading state the "
+                    + "design system's Authentication column draws, which #7 made reachable."
             )
             LazyVGrid(columns: columns, spacing: EvaSpacing.sm) {
                 EvaSpecimenSwatch(name: "Auth · Apple", color: .evaAuthApple)
@@ -126,6 +127,7 @@ struct EvaSpecimenColorSection: View {
                     color: .evaAuthGoogleFill,
                     showsAlphaBacking: true
                 )
+                EvaSpecimenSwatch(name: "Auth · Apple loading", color: .evaAuthAppleLoading)
             }
 
             EvaSpecimenGroupLabel(title: "Gradients")

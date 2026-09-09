@@ -161,6 +161,25 @@ const authenticatedRoutes = (): { name: string; call: (token: string) => Promise
         },
         { name: "GET /refdata", call: (t) => api("/refdata", { token: t }) },
         {
+            // Added by #7, and missing from this list until the fifth review of that PR —
+            // which is the failure mode the comment above predicts. Replacing
+            // `requireAccount` on it with a pass-through left the whole suite green, and it
+            // is the worst route to lose the gate on: the handler calls `ensureUser`, which
+            // *creates* `users/{uid}` when there is no document, so a deleted account's
+            // still-valid 30-day token would rebuild the document #8 deleted.
+            name: "POST /me/auth/providers",
+            call: (t) =>
+                api("/me/auth/providers", {
+                    method: "POST",
+                    token: t,
+                    body: JSON.stringify({
+                        provider: "apple",
+                        identityToken: "an-apple-identity-token",
+                        rawNonce: "a-raw-nonce",
+                    }),
+                }),
+        },
+        {
             name: "GET /me/events",
             call: (t) => api(`/me/events?from=${today}&to=${today}`, { token: t }),
         },

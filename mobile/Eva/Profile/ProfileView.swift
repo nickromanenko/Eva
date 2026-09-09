@@ -8,8 +8,9 @@ import SwiftUI
 /// item **Settings**, draws an avatar, an Edit control, a cycle-tracking status pill and
 /// five sections of settings rows above the danger zone. All of that is #19. What is
 /// here is the identity header reduced to the one identity fact the app actually holds
-/// today, the Log out row, and the danger card — laid out in the artboard's own shape
-/// and rhythm so #19 grows into this screen rather than replacing it.
+/// today, the connected-accounts card #7 needed, the Log out row, and the danger card —
+/// laid out in the artboard's own shape and rhythm so #19 grows into this screen rather
+/// than replacing it.
 ///
 /// ## Where this rounds the artboard off
 ///
@@ -32,6 +33,8 @@ import SwiftUI
 ///   and it is what the danger card should carry when it is the only action in it.
 /// * **No version footer.** The artboard's "Eva 2.4.1 · Not a medical device" line needs
 ///   a real version string and belongs with the rest of #19's chrome.
+/// * **Connected accounts is a card, not a row with a chevron.** See the section itself:
+///   the artboard's row points at a detail screen the canvas never draws.
 struct ProfileView: View {
 
     let session: AppSession
@@ -50,6 +53,7 @@ struct ProfileView: View {
                         .foregroundStyle(Color.evaPrimaryText)
 
                     identityCard
+                    connectedAccountsCard
                     logOutCard
                     dangerZone
                         // The artboard sets the danger zone further off than it sets the
@@ -92,6 +96,104 @@ struct ProfileView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(EvaSpacing.md)
         .evaCardSurface()
+    }
+
+    /// The artboard's "Manage connected accounts" row, opened out into the card it would
+    /// have led to (#7).
+    ///
+    /// The Settings artboard draws it as one row reading `Manage connected accounts ·
+    /// Apple ›`, and the screen behind that chevron is not drawn anywhere on the canvas.
+    /// Rather than invent one, this is the row's content in place: what is attached, and
+    /// the buttons to attach what is not. The chevron and the detail screen belong with
+    /// the rest of Settings (#19), and this grows into it.
+    ///
+    /// **Unlinking is deliberately absent** — out of scope on #7, and it is the half with
+    /// the sharp edge: removing the last provider from an account with no password would
+    /// lock its owner out permanently.
+    ///
+    /// ## What this can and cannot do, said plainly
+    ///
+    /// It attaches a provider identity Eva has never seen to the account you are signed in
+    /// to. It does **not** merge two accounts: if you already signed in with Apple and got
+    /// a separate account that way, its `sub` belongs to that account and the API answers
+    /// `409 PROVIDER_ALREADY_LINKED`. The caption says so, because the opposite belief is
+    /// exactly what someone in that situation would arrive with, and DESIGN.md §8 asks us
+    /// to describe rather than reassure.
+    private var connectedAccountsCard: some View {
+        VStack(alignment: .leading, spacing: EvaSpacing.sm) {
+            Text("Connected accounts")
+                .evaTextStyle(.label)
+                .foregroundStyle(Color.evaSecondaryText)
+
+            // Nothing is drawn for an API that does not send `authProviders`: the list is
+            // empty, and stating a sign-in method the server never claimed would be a
+            // guess presented as a fact.
+            ForEach(connectedMethods, id: \.self) { method in
+                connectedRow(method)
+            }
+
+            if !unconnectedProviders.isEmpty {
+                Text(
+                    "Add another way to sign in to this account. If you already made a "
+                        + "separate Eva account with Apple or Google, this won't join the "
+                        + "two — it will tell you instead."
+                )
+                .evaTextStyle(.inputHelper)
+                .foregroundStyle(Color.evaSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, EvaSpacing.xxs)
+
+                ProviderSignInButtons(
+                    providers: unconnectedProviders,
+                    identifierPrefix: "profile.connect",
+                    onCredential: session.attachProvider
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(EvaSpacing.md)
+        .evaCardSurface()
+    }
+
+    /// One attached sign-in method. A fact, not a control — unlinking is out of scope —
+    /// so it is a row of text rather than the artboard's 52-high tappable row.
+    ///
+    /// The ✓ is §2's rule that a state is never colour alone; here it is not colour at
+    /// all, which is the safe end of that rule.
+    private func connectedRow(_ method: String) -> some View {
+        HStack(spacing: EvaSpacing.xs) {
+            Image(systemName: "checkmark.circle")
+                .font(.evaCaption)
+                .foregroundStyle(Color.evaSuccessInk)
+                .accessibilityHidden(true)
+            Text(method)
+                .evaTextStyle(.bodyMedium)
+                .foregroundStyle(Color.evaPrimaryText)
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: EvaSpacing.lg)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("\(method), connected"))
+        .accessibilityIdentifier("profile.connected.\(method)")
+    }
+
+    /// What the account can be signed in with today, in a fixed order so the card does not
+    /// reorder itself between reads.
+    private var connectedMethods: [String] {
+        guard let user = session.user else { return [] }
+        var methods: [String] = []
+        if user.hasPassword { methods.append("Email and password") }
+        methods += EvaAuthProvider.allCases
+            .filter(user.isConnected)
+            .map(\.displayName)
+        return methods
+    }
+
+    /// The providers there is still something to attach. Empty while the user is unknown,
+    /// so the card offers nothing it cannot carry out.
+    private var unconnectedProviders: [EvaAuthProvider] {
+        guard let user = session.user else { return [] }
+        return EvaAuthProvider.allCases.filter { !user.isConnected($0) }
     }
 
     /// Log out, in the artboard's own shape: a 52-high row filling a glass card of its

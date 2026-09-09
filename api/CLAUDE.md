@@ -24,8 +24,8 @@ Needs `api/.env` (copy `.env.example`) and Application Default Credentials
 ## Module boundaries — enforced by review
 
 ```
-index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts · events.ts · refdata.ts
-         ──► email.ts · email-tokens.ts
+index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.ts · users.ts
+         ──► events.ts · refdata.ts · email.ts · email-tokens.ts
          ──► firebase.ts · config.ts
 ```
 
@@ -33,13 +33,21 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
 - `auth.ts` — JWT mint/verify + `requireAuth`. The only user of `JWT_SECRET`. It proves a
   token is ours and nothing more; whether the account still exists is `requireAccount` in
   `index.ts`, which is where it has to live because this file must not reach Firestore.
-- `identity-toolkit.ts` — the Firebase Auth account: password credentials via Google REST
-  (the only user of the web API key — the Admin SDK cannot verify passwords, which is why
-  this exists), and `deleteAuthAccount` via the Admin SDK, which is the only place an Auth
-  user is deleted. Two transports, one owner.
+- `identity-toolkit.ts` — the Firebase Auth account: password *and* provider credentials via
+  Google REST (the only user of the web API key — the Admin SDK cannot verify either, which
+  is why this exists), and `deleteAuthAccount` via the Admin SDK, which is the only place an
+  Auth user is deleted. Two transports, one owner. `signInWithIdp` is the Apple/Google seam
+  (#7): Firebase returns the uid it keyed to the provider's `sub`, which is what makes
+  "identity is `sub`, and only `sub`" true by construction. Never add an email lookup to it.
   Also classifies every upstream failure as `email-exists | rejected | unavailable`;
   routes branch on that kind and never on Google's reason string, which must not reach a
   body, a header, or a log line (#32).
+- `providers.ts` — the only two calls that go to Apple or Google *directly*, and the only
+  user of `GOOGLE_IOS_CLIENT_ID` and the Apple keys (#7): Google's PKCE authorization-code
+  exchange (public iOS client, no client secret) and Apple's token revocation for
+  `DELETE /me` (an ES256 client secret signed with WebCrypto — no JWT library, and never
+  `JWT_SECRET`). Every credential it needs is optional; unconfigured is a `503` on that one
+  capability, never a boot failure, and never a failed delete. Writes no log line.
 - `rate-limit.ts` — attempt counters behind the `/auth/*` throttle. In-memory, so the
   limit is per Cloud Run instance — the guarantee, and what would have to change to make
   it real, are written out at the top of the file and in ARCHITECTURE §3. It never sees
@@ -82,7 +90,7 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
   `INVALID_CREDENTIALS`, `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`,
   `BACKDATE_LIMIT_EXCEEDED`, `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`,
   `SERVICE_UNAVAILABLE`, `DAY_ALREADY_LOGGED`, `NOT_ACTIVATED`, `INVALID_TOKEN`,
-  `TOKEN_EXPIRED`, `INTERNAL`.
+  `TOKEN_EXPIRED`, `PROVIDER_ALREADY_LINKED`, `INTERNAL`.
 - Every authenticated route carries `requireAuth, requireAccount` — the second is what
   makes a deleted account's still-valid token useless. `DELETE /me` is the one exception,
   so an interrupted delete can be retried with the same token.
@@ -100,6 +108,61 @@ index.ts ──► auth.ts · identity-toolkit.ts · rate-limit.ts · users.ts �
   earlier would tell any caller which addresses have Eva accounts. `/auth/activation/resend`
   and `/auth/password/forgot` answer `200 { sent: true }` for every well-formed address,
   registered or not, for the same reason.
+- **This code never matches on email; Firebase does (#7).** `POST /auth/idp` acts on the
+  uid `signInWithIdp` returns and performs no lookup of its own — never add one. Whether a
+  shared address resolves to one account or two is the console's
+  *"Link accounts that use the same email"* setting, and it is set to link. A relay address
+  from Hide My Email matches nothing and so still creates a new account; joining that one
+  to an existing account is `POST /me/auth/providers`, deliberate and authenticated.
+- **`/auth/idp` claims an unproven account before it mints a session (#7).** Sign-up
+  creates the Auth user before the address is confirmed, and the Firebase web API key is
+  public, so anyone can pre-register an address and attach their own provider identity to
+  it directly at Identity Toolkit. `claimUnprovenAccount` overwrites the password, unlinks
+  every *federated* provider except the one that just signed in, and revokes refresh
+  tokens. `password` is overwritten rather than unlinked — an account with no password
+  provider has nothing for forgot-password to reset, and the two cannot be asked for in
+  one `updateUser` anyway. It asks
+  `adminAuth.getUser`, never `users/{uid}`, because the mirror cannot see an Auth user
+  whose document was never written. Gated on `activatedAt` being null alone.
+- **Unlinking is half of it; the address test is the other half.** Stripping defends only
+  the ordering where the victim signs in first, and the attacker can always choose to go
+  first — nothing is stripped when `password` and their own provider are the only two, and
+  activation then disarms the claim forever. So on an account whose address nobody has
+  proved (`emailVerified` false), the provider signing in must carry that account's own
+  address (the fact that made Firebase merge it). The trigger is `emailVerified` and never
+  "has a password": a password entry is derived, client-mutable, and set by this function's
+  own write, and an attacker can point a federated-only account at a victim's address
+  without ever attaching one. Otherwise `claimUnprovenAccount` returns `refused` and the route
+  answers 401 **without activating**. Fails closed on a missing provider address; a fresh
+  provider account has no password and never reaches that branch, so Hide My Email is safe.
+  Removing any part of this re-opens an account takeover; ARCHITECTURE §3 walks it through.
+- **Some refusals from Identity Toolkit arrive as a 200 (#7).** `needConfirmation` (an
+  account already holds this address and the credential has not proved it owns it),
+  `emailRecycled` (the provider reassigned the address to a different `sub`), and an MFA
+  challenge all answer 200 with the *other* account's `localId` and **no `idToken`**. Two
+  were found in consecutive review rounds, so `requireSignedIn` names those and then
+  requires `idToken` on any sign-in response for the shapes not met yet. Both halves are
+  needed — `emailRecycled` *does* carry a token — and it runs in **both** transports,
+  `call` and `signInWithIdp`. Never read `localId` before it.
+- **Proving an address retracts what was attached while it was not (#7).** `/auth/activate`
+  and `/auth/password/reset` call `retractUnprovenIdentities` on the transition to activated
+  — only the transition, so a deliberately linked provider survives a later reset — and
+  **before** stamping `activatedAt`, because the stamp is what disarms the claim gate.
+  Without it the `/auth/idp` claim is simply outwaited: an attacker attaches a provider to a
+  reserved address and signs in the moment the real owner activates.
+- **`markCredentialsProven` is called from the reset route only, never from activation
+  (#7).** It sets Firebase's `emailVerified`, which Identity Toolkit also uses to decide
+  whether to wipe `passwordHash` and every provider on a merge. That wipe is the only thing
+  that evicts a pre-registering attacker's password once the owner arrives with a provider,
+  so it stays armed for accounts whose password nobody has proven. A reset proves the
+  password; activation does not. ARCHITECTURE §3 has the attack.
+- **`/auth/idp` reads before it writes (#7).** `ensureUser` unions the provider into
+  `authProviders`, so calling it before the claim gate left a refused credential's provider
+  on a stranger's document — which is what the app reads to decide whether to offer
+  "Connect Apple". Use `readUser` to decide, `ensureUser` only once the claim says
+  `claimed`.
+- A provider session comes back already activated, stores no display name, and adds no
+  field to `users/{uid}`.
 - CORS is on exactly the two routes the website's link pages call (`/auth/activate`,
   `/auth/password/reset`), for exactly `config.publicWebOrigin`. Never `*`, never a third
   route: an allowed origin is a page that can spend a token it was handed.

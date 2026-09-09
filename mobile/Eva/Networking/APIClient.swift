@@ -73,6 +73,16 @@ struct APIClient: Sendable {
         try await send(path: path, method: "DELETE", body: nil as Never?, authorized: authorized)
     }
 
+    /// `DELETE` with a body, which `DELETE /me` grew when Apple token revocation landed
+    /// (#7). Separate from the bodyless overload rather than an optional parameter,
+    /// because "no body" and "an empty body" are different requests and the route treats
+    /// them the same only by accident.
+    func delete<Body: Encodable, Response: Decodable>(
+        _ path: String, body: Body, authorized: Bool = false
+    ) async throws -> Response {
+        try await send(path: path, method: "DELETE", body: body, authorized: authorized)
+    }
+
     private func send<Body: Encodable, Response: Decodable>(
         path: String, method: String, body: Body?, authorized: Bool
     ) async throws -> Response {
@@ -106,12 +116,23 @@ struct APIClient: Sendable {
         }
         let failure = try? JSONDecoder().decode(APIFailure.self, from: data)
         let message = failure?.error.message ?? "Something went wrong (\(status))."
-        // A 401 is only a dead credential if this request actually presented one. The
-        // status alone doesn't say that: `POST /auth/signin` answers a wrong password
-        // with 401 INVALID_CREDENTIALS and sends no token, and a nil token under
-        // `authorized: true` is a client bug rather than a session that ended. Both must
-        // stay ordinary server errors, or a failed sign-in would sign the user out.
-        if status == 401, sentToken {
+        // A 401 is only a dead session if this request presented a token **and** the server
+        // says the token is what it rejected. Neither half is enough on its own:
+        //
+        // - the status alone is not, because `POST /auth/signin` answers a wrong password
+        //   with 401 INVALID_CREDENTIALS and sends no token, and a nil token under
+        //   `authorized: true` is a client bug rather than a session that ended;
+        // - the token alone is not, because `POST /me/auth/providers` (#7) carries one and
+        //   still answers 401 INVALID_CREDENTIALS when *Apple's or Google's* credential is
+        //   refused — an expired `identityToken`, a spent code, a mismatched nonce. Reading
+        //   that as a dead session signed the user out of Eva for tapping "Connect Google"
+        //   at the wrong moment, and cleared their Keychain doing it.
+        //
+        // The server has always drawn this line: every session gate answers `UNAUTHORIZED`,
+        // and nothing else does. An undecodable body is treated as a dead session, because
+        // a 401 we cannot read at all is not something to keep a token through.
+        let code = failure?.error.code
+        if status == 401, sentToken, code == nil || code == "UNAUTHORIZED" {
             throw APIError.sessionExpired(message: message)
         }
         throw APIError.server(code: failure?.error.code ?? "UNKNOWN", message: message, status: status)

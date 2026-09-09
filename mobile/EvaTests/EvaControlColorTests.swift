@@ -40,7 +40,10 @@ enum EvaControlPalette {
         // "Auth · Apple | Solid #1C1A1B, white"
         EvaColorExpectation("Apple button", "#1C1A1B", .evaAuthApple),
         // "Auth · Google | Glass rgba(255,255,255,.85) with a hairline border"
-        EvaColorExpectation("Google button", "#FFFFFF", alpha: 0.85, .evaAuthGoogleFill)
+        EvaColorExpectation("Google button", "#FFFFFF", alpha: 0.85, .evaAuthGoogleFill),
+        // Design System artboard, Authentication column: the only loading state the
+        // canvas draws for any button — `background:#3A3436` (#7).
+        EvaColorExpectation("Apple button · loading", "#3A3436", .evaAuthAppleLoading)
     ]
 
     // MARK: §6 Form controls

@@ -112,6 +112,21 @@ export type AuthRoute = 'signin' | 'signup' | 'resend' | 'forgot'
 export type TokenRoute = 'activate' | 'reset'
 
 /**
+ * The two provider routes (#7), counted per IP and only per IP.
+ *
+ * There is no address to count against: the only address in the request is inside a
+ * provider token we have not verified yet, so counting against it would let anyone spend
+ * any user's budget by asserting their address — a lockout primitive handed out for free,
+ * which is the thing the per-address counters above are careful to keep bounded. And
+ * counting *after* verification would put the throttle behind the upstream call it exists
+ * to protect us from paying for.
+ *
+ * `link` is separate from `idp` for the reason sign-in and sign-up are separate: they
+ * defend different things, and exhausting one must not deny the other to the same person.
+ */
+export type ProviderRoute = 'idp' | 'link'
+
+/**
  * Two dimensions per route, in separate maps so an address can never collide with an IP.
  *
  * The per-IP limits are the loose backstop and the per-address limits the sharp one: iOS
@@ -145,6 +160,15 @@ const tokenLimiters: Record<TokenRoute, RateLimiter> = {
   activate: createRateLimiter(config.rateLimit.tokenPerIp, config.rateLimit.windowSeconds),
   reset: createRateLimiter(config.rateLimit.tokenPerIp, config.rateLimit.windowSeconds),
 }
+
+const providerLimiters: Record<ProviderRoute, RateLimiter> = {
+  idp: createRateLimiter(config.rateLimit.idpPerIp, config.rateLimit.windowSeconds),
+  link: createRateLimiter(config.rateLimit.idpPerIp, config.rateLimit.windowSeconds),
+}
+
+/** Counts one attempt on a provider route. Per IP only — see `ProviderRoute`. */
+export const consumeProviderAttempt = (route: ProviderRoute, ip: string | null): boolean =>
+  ip === null || providerLimiters[route].consume(ip)
 
 /** Counts one attempt on a link route. Per IP only — see `TokenRoute`. An unknown address
  *  (no `x-forwarded-for`) is served: the alternative is refusing every caller behind a
@@ -203,4 +227,5 @@ export const resetAuthRateLimits = (): void => {
     route.byEmail.reset()
   }
   for (const limiter of Object.values(tokenLimiters)) limiter.reset()
+  for (const limiter of Object.values(providerLimiters)) limiter.reset()
 }

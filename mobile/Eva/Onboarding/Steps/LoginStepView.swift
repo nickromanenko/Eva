@@ -8,6 +8,8 @@ import SwiftUI
 ///
 /// ## Two divergences from the artboard, both explained below
 ///
+/// (A third is gone: both provider buttons used to raise "Coming soon". #7 wired them.)
+///
 /// **The hero is "Welcome back", not "Welcome back, Maria".** The canvas is a prototype
 /// with a signed-in mock; on the real screen nobody has authenticated yet, so there is no
 /// name to greet.
@@ -20,14 +22,17 @@ struct LoginStepView: View {
 
     @Bindable var model: OnboardingModel
     let onSubmit: (_ email: String, _ password: String) async throws -> Void
+    /// Signs in with an Apple or Google credential (#7). The same closure the sign-up
+    /// screen takes, and deliberately so: `/auth/idp` does not distinguish signing up from
+    /// signing in — an unseen `sub` makes an account, a known one signs into it — so the
+    /// two screens differ in their wording, not in what the button does.
+    let onProviderCredential: (ProviderCredential) async throws -> Void
     let onGoToSignUp: () -> Void
     let onForgotPassword: () -> Void
 
     @State private var errorMessage: String?
     @State private var isRevealingPassword = false
     @State private var isLoading = false
-    @State private var comingSoonMessage = ""
-    @State private var showsComingSoon = false
 
     private enum Field: Hashable { case email, password }
     @FocusState private var focusedField: Field?
@@ -67,20 +72,12 @@ struct LoginStepView: View {
             )
             .padding(.top, EvaSpacing.lg)
         }
-        .alert("Coming soon", isPresented: $showsComingSoon) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(comingSoonMessage)
-        }
     }
 
     // MARK: - Sections
 
     private var providerButtons: some View {
-        VStack(spacing: EvaSpacing.sm) {
-            EvaAuthButton(provider: .apple) { comingSoon(.providers) }
-            EvaAuthButton(provider: .google) { comingSoon(.providers) }
-        }
+        ProviderSignInButtons(identifierPrefix: "auth", onCredential: onProviderCredential)
     }
 
     private var emailForm: some View {
@@ -154,23 +151,6 @@ struct LoginStepView: View {
 
     // MARK: - Behaviour
 
-    /// The one thing this screen draws but cannot do yet.
-    private enum Unbuilt {
-        case providers
-
-        var message: String {
-            switch self {
-            case .providers:
-                "Apple and Google sign-in are on the way. For now, log in with your email."
-            }
-        }
-    }
-
-    private func comingSoon(_ unbuilt: Unbuilt) {
-        comingSoonMessage = unbuilt.message
-        showsComingSoon = true
-    }
-
     private func submit() {
         guard isValid, !isLoading else { return }
         focusedField = nil
@@ -193,6 +173,7 @@ struct LoginStepView: View {
         LoginStepView(
             model: OnboardingModel(),
             onSubmit: { _, _ in },
+            onProviderCredential: { _ in },
             onGoToSignUp: {},
             onForgotPassword: {}
         )
