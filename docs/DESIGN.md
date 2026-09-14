@@ -319,6 +319,24 @@ and the one screen where that matters most is the one telling someone their heal
 is about to be destroyed. Both strings were rewritten to name what is actually removed,
 and the modal says "straight away" rather than giving a window that does not exist.
 
+**The Privacy & security footer says only what is true — and what the request policy
+says (A10, A19).** The artboard once promised device-side encryption; A10 rewrote the first
+sentence to what the architecture delivers, and A19 (#91) added the second. As drawn on
+the canvas since #108, and the one wording for the app:
+
+> Your health entries are encrypted in transit and at rest, never sold, never shared with
+> advertisers, and deletable in full. Eva hands data to no one without legal process, tells
+> you when it does unless a court forbids it, and publishes how often it was asked.
+
+The second sentence is the in-app statement of `REQUESTS.md`; change one only with the
+other. "No one" is read against the consent screen (A21), which is where the processors
+Eva does use are named and agreed — the footer is about requests from outside, and
+`REQUESTS.md` §2.4 is where the two meet. The same screen carries a **"Requests for your
+data"** row (value "Policy") below Data export, which opens the website's `/transparency`
+page rather than an in-app copy: the policy has legal positions still marked *counsel*,
+and the one place they change is the one place they are read. Neither the footer nor the
+row is built yet; both are drawn.
+
 **The modal drops "Export data instead".** The artboard offers an export button and an
 "Export your data first" card beside the confirmation. There is no export feature (#58),
 and an inert button next to an irreversible action reads as an offered escape route and
