@@ -331,8 +331,7 @@ describe("what the operator gets, and what they deliberately do not", () => {
     test(
         "one line: the route, the method, the error's class and a ref — and nothing else",
         async () => {
-            credential = succeeds;
-            userStore = firestoreUnavailable;
+            tokenStore = firestoreUnavailable;
             const answer = await signup();
 
             expect(logged).toHaveLength(1);
@@ -446,10 +445,13 @@ describe("onError is the floor, not a replacement", () => {
     test(
         "#32's Identity Toolkit mapping still wins, with its Retry-After",
         async () => {
+            // On the route that creates the account now (#120). Sign-up makes no upstream
+            // call at all, so there is no mapping left for it to get wrong.
+            tokenStore = null;
             credential = () => {
                 throw new identityToolkit.IdentityToolkitError("INTERNAL_ERROR", 500);
             };
-            const answer = await signup();
+            const answer = await signin();
 
             expect(answer.status).toBe(503);
             expect(answer.body.error.code).toBe("SERVICE_UNAVAILABLE");
@@ -464,13 +466,11 @@ describe("onError is the floor, not a replacement", () => {
     test(
         "EMAIL_EXISTS is still 409 and a wrong password still 401",
         async () => {
-            credential = () => {
-                throw new identityToolkit.IdentityToolkitError("EMAIL_EXISTS", 400);
-            };
-            const taken = await signup();
-            expect(taken.status).toBe(409);
-            expect(taken.body.error.code).toBe("EMAIL_EXISTS");
-
+            // Sign-up's 409 is now decided by reading the account rather than by an upstream
+            // refusal (#120), and `users.getUser` is throwing throughout this describe — so
+            // this half of the pair moved to `auth.test.ts`, where a real activated account
+            // exists to be refused. What is still true here is the other half.
+            tokenStore = null;
             credential = () => {
                 throw new identityToolkit.IdentityToolkitError("INVALID_LOGIN_CREDENTIALS", 400);
             };
@@ -486,6 +486,9 @@ describe("onError is the floor, not a replacement", () => {
         async () => {
             const perEmail = config.rateLimit.signupPerEmail;
             expect(perEmail).toBeGreaterThan(0);
+            // Firestore is down for the token write, so each attempt is a shaped 500 — the
+            // point being that the throttle answers before the route can throw at all.
+            tokenStore = firestoreUnavailable;
             for (let i = 0; i < perEmail; i++) expect((await signup()).status).toBe(500);
 
             const throttled = await signup();

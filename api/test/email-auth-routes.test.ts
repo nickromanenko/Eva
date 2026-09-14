@@ -597,12 +597,17 @@ describe("a link goes to the address the account was looked up by", () => {
     });
 
     test("an activation link is too", async () => {
-        const { uid, attacker, victim } = await diverged();
+        const { attacker, victim } = await diverged();
 
         expect((await post("/auth/activation/resend", { email: victim })).status).toBe(200);
 
-        expect(await issuedFor(uid, "activation")).toEqual([victim]);
-        expect(await issuedFor(uid, "activation")).not.toContain(attacker);
+        // Found by address, not uid: a resend issues the same shape sign-up does, and that
+        // token is minted before any account exists (#120), so it carries no uid.
+        const issued = (await tokenDocsByEmail(victim)).docs
+            .filter((d) => d.get("kind") === "activation")
+            .map((d) => d.get("email") as string);
+        expect(issued).toEqual([victim]);
+        expect(await tokenDocsByEmail(attacker).then((s2) => s2.size)).toBe(0);
     });
 });
 
