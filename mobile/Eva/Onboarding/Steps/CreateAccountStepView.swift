@@ -26,7 +26,7 @@ import SwiftUI
 struct CreateAccountStepView: View {
 
     @Bindable var model: OnboardingModel
-    let onSubmit: (_ email: String, _ password: String) async throws -> Void
+    let onSubmit: (_ email: String) async throws -> Void
     /// Signs in (or creates an account) with an Apple or Google credential (#7).
     let onProviderCredential: (ProviderCredential) async throws -> Void
     let onGoToLogIn: () -> Void
@@ -37,25 +37,16 @@ struct CreateAccountStepView: View {
     var previewShowsAccountLinking = false
 
     @State private var emailError: String?
-    /// Whether the stated password rule is currently unsatisfied. Not an error message:
-    /// the artboard recolours the helper line and leaves the input alone — see
-    /// `EvaInputField.isHelperUnmet`.
-    @State private var isPasswordRuleUnmet = false
     @State private var submissionError: String?
-    @State private var isRevealingPassword = false
     @State private var isLoading = false
 
-    private enum Field: Hashable { case email, password }
+    private enum Field: Hashable { case email }
     @FocusState private var focusedField: Field?
 
-    /// The rule §6 asks to be stated up front rather than revealed as a failure.
-    ///
-    /// It is helper text in **every** state, never an error: the `signup` artboard's spec
-    /// note says password rules are "stated up front as helper text, not revealed as an
-    /// error after failure", and `signupErr` keeps it as helper text with the password
-    /// input on its normal border. Failing it only recolours the line and adds the `!`
-    /// mark §2 requires. A *server* failure is a real error and gets the full treatment.
-    private static let passwordRule = "At least 8 characters, including one number."
+    // The password rule that used to live here moved to the activation page with the
+    // field itself (#120) — `website/src/pages/activate.astro`. `api/test/auth.test.ts`
+    // reads it from there and pins the server's WEAK_PASSWORD message against it, so the
+    // message still quotes text the user was actually shown.
 
     var body: some View {
         AuthScreenLayout {
@@ -128,12 +119,19 @@ struct CreateAccountStepView: View {
 
     private var emailForm: some View {
         VStack(alignment: .leading, spacing: EvaSpacing.md) {
+            // **No password field** (#120). Sign-up sends an address and nothing else: a
+            // credential set here would sit on an address nobody had proved yet, which is
+            // exactly what let someone reserve a stranger's address and inherit the account
+            // when they confirmed it. The password is chosen on the activation page, where
+            // the link has just proved the address in the same request.
+            //
+            // The server error still hangs off the last field, which is now this one.
             EvaInputField(
                 label: "Email",
                 placeholder: "you@email.com",
                 isFocused: focusedField == .email,
-                errorMessage: emailError,
-                errorIdentifier: "signup.email.error"
+                errorMessage: emailError ?? submissionError,
+                errorIdentifier: "signup.error"
             ) { prompt in
                 TextField("Email", text: $model.email, prompt: prompt)
                     .keyboardType(.emailAddress)
@@ -141,65 +139,9 @@ struct CreateAccountStepView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .focused($focusedField, equals: .email)
-                    .submitLabel(.next)
-                    .onSubmit { focusedField = .password }
+                    .submitLabel(.go)
                     .accessibilityIdentifier("signup.email")
             }
-
-            EvaInputField(
-                label: "Password",
-                placeholder: "Create a password",
-                isFocused: focusedField == .password,
-                // Server failures only. A failed submission names neither field, so it
-                // hangs off the last one — where it has always been drawn — and it is the
-                // one thing on this screen that earns the error border and ring.
-                errorMessage: submissionError,
-                errorIdentifier: "signup.error",
-                // The rule is always the helper line; failing it recolours the line and
-                // marks it, and never touches the input. Its own identifier, so a showing
-                // rule and a server error are two elements rather than one.
-                helperText: Self.passwordRule,
-                isHelperUnmet: isPasswordRuleUnmet,
-                helperIdentifier: "signup.password.rule",
-                accessory: {
-                    EvaInputRevealButton(
-                        isRevealed: isRevealingPassword,
-                        identifier: "signup.password.reveal"
-                    ) {
-                        isRevealingPassword.toggle()
-                    }
-                }
-            ) { prompt in
-                passwordField(prompt: prompt)
-            }
-        }
-    }
-
-    /// `SecureField` until the reveal button is tapped, `TextField` after it.
-    ///
-    /// `.password`, not `.newPassword`: the automatic strong-password overlay breaks both
-    /// UI tests and manual typing in the simulator. Both branches carry the same
-    /// identifier and the same focus value, so revealing does not move focus and a test
-    /// finds the control either way — as a secure text field by default, a text field once
-    /// revealed.
-    @ViewBuilder
-    private func passwordField(prompt: Text) -> some View {
-        if isRevealingPassword {
-            TextField("Password", text: $model.password, prompt: prompt)
-                .textContentType(.password)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .focused($focusedField, equals: .password)
-                .submitLabel(.done)
-                .onSubmit(submit)
-                .accessibilityIdentifier("signup.password")
-        } else {
-            SecureField("Password", text: $model.password, prompt: prompt)
-                .textContentType(.password)
-                .focused($focusedField, equals: .password)
-                .submitLabel(.done)
-                .onSubmit(submit)
-                .accessibilityIdentifier("signup.password")
         }
     }
 
@@ -212,8 +154,6 @@ struct CreateAccountStepView: View {
             emailError = model.email.isEmpty || model.isEmailValid
                 ? nil
                 : "That doesn't look like a valid email address."
-        case .password:
-            isPasswordRuleUnmet = !model.password.isEmpty && !model.isPasswordValid
         case nil:
             break
         }
@@ -226,7 +166,7 @@ struct CreateAccountStepView: View {
         submissionError = nil
         Task {
             do {
-                try await onSubmit(model.email, model.password)
+                try await onSubmit(model.email)
             } catch {
                 submissionError = error.localizedDescription
             }
@@ -240,7 +180,7 @@ struct CreateAccountStepView: View {
         EvaScreenBackground().ignoresSafeArea()
         CreateAccountStepView(
             model: OnboardingModel(),
-            onSubmit: { _, _ in },
+            onSubmit: { _ in },
             onProviderCredential: { _ in },
             onGoToLogIn: {}
         )
@@ -252,7 +192,7 @@ struct CreateAccountStepView: View {
         EvaScreenBackground().ignoresSafeArea()
         CreateAccountStepView(
             model: OnboardingModel(),
-            onSubmit: { _, _ in },
+            onSubmit: { _ in },
             onProviderCredential: { _ in },
             onGoToLogIn: {},
             previewShowsAccountLinking: true

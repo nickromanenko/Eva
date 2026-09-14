@@ -57,19 +57,23 @@ class EvaUITestCase: XCTestCase {
     static let mailboxURL = ProcessInfo.processInfo.environment["EVA_MAILBOX_URL"]
         ?? "http://localhost:3103"
 
+    /// An address and nothing else (#120). Sign-up has no password field: the credential is
+    /// chosen on the activation page, in the request that spends the link.
     func fillSignUpForm(_ app: XCUIApplication, email: String) {
         type(email, into: app.textFields["signup.email"], in: app)
-        revealAndTypePassword(Self.password, prefix: "signup", in: app)
     }
 
     /// Sign up, pass the activation gate, and land on the questionnaire.
     ///
-    /// The gate is #6\'s: sign-up creates the account and sends a link, and the app
-    /// cannot sign in until the link is opened. A simulator has no mailbox, so the
-    /// activation is done out of band by `api/scripts/uitest-mailbox.ts` — which spends a
-    /// real token on the real `GET /auth/activate` — and the app then finds out the way
-    /// it does in life: it retries sign-in when it comes back to the foreground. Nothing
-    /// tells it directly, which is the point.
+    /// Sign-up creates no account (#120): it sends an address and a link, and the account
+    /// comes into existence when that link is spent *with a password*. A simulator has no
+    /// mailbox and cannot reach the web form, so both halves are done out of band by
+    /// `api/scripts/uitest-mailbox.ts` — which issues a real token and spends it on the
+    /// real `POST /auth/activate`, setting `Self.password`.
+    ///
+    /// The app cannot sign itself in afterwards, and that is not a gap: it never held the
+    /// password, because the user never typed one into it. So this signs in the way a
+    /// person would, on the log-in screen, with the password they chose on the web.
     ///
     /// Every suite that needs an account goes through here, so the four of them keep
     /// meaning the same thing by "signed up".
@@ -98,14 +102,11 @@ class EvaUITestCase: XCTestCase {
 
         activate(email: email, file: file, line: line)
 
-        // Backgrounding and returning is the app\'s own trigger for retrying sign-in —
-        // the same thing that happens when someone taps the link in Mail and comes back.
-        XCUIDevice.shared.press(.home)
-        app.activate()
+        signIn(app, email: email, password: Self.password, file: file, line: line)
 
         XCTAssertTrue(
             app.staticTexts["A little about you"].waitForExistence(timeout: 20),
-            "The activation gate did not let the account through after it was activated",
+            "Signing in after activation did not reach the questionnaire",
             file: file, line: line
         )
     }
@@ -149,6 +150,35 @@ class EvaUITestCase: XCTestCase {
     /// Both destinations are checked because callers arrive with different accounts: an
     /// account that never finished the questionnaire lands on "A little about you", one
     /// that did lands on the dashboard.
+    /// Signs in through the log-in screen and asserts it got somewhere.
+    ///
+    /// Needed since #120: sign-up creates no account and the app never sees a password, so
+    /// there is nothing for it to retry with after activation. A person signs in here too —
+    /// with the password they chose on the activation page — so the test does what they do.
+    func signIn(
+        _ app: XCUIApplication,
+        email: String,
+        password: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        tap(app.buttons["text.Log in"], in: app)
+        XCTAssertTrue(
+            app.staticTexts["Welcome back"].waitForExistence(timeout: 10),
+            "Could not reach the log-in screen",
+            file: file, line: line
+        )
+        type(email, into: app.textFields["login.email"], in: app)
+        revealAndTypePassword(password, prefix: "login", in: app)
+        tap(app.buttons["primary.Log in"], in: app)
+
+        XCTAssertFalse(
+            app.staticTexts["login.error"].waitForExistence(timeout: 8),
+            "Signing in after activation failed for \(email)",
+            file: file, line: line
+        )
+    }
+
     @discardableResult
     func failedLogIn(
         _ app: XCUIApplication,

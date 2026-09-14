@@ -331,11 +331,15 @@ describe("activation password rule", () => {
      * rule quoting text the user never saw is the failure this pins.
      */
     const clientHelperText = async (): Promise<string> => {
-        const swift = await Bun.file(
-            `${import.meta.dir}/../../mobile/Eva/Onboarding/Steps/CreateAccountStepView.swift`,
+        // Read from the **website's** activation page, because that is where the password
+        // is chosen now (#120). The point of this assertion has not changed: the server's
+        // WEAK_PASSWORD message must be the text the user was actually shown, or it quotes
+        // a rule they never saw. It moved because the field moved.
+        const page = await Bun.file(
+            `${import.meta.dir}/../../website/src/pages/activate.astro`,
         ).text();
-        const match = swift.match(/passwordRule = "([^"]+)"/);
-        if (!match) throw new Error("passwordRule not found in CreateAccountStepView.swift");
+        const match = page.match(/passwordRule = '([^']+)'/);
+        if (!match) throw new Error("passwordRule not found in activate.astro");
         return match[1]!;
     };
 

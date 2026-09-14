@@ -292,6 +292,46 @@ Reading past any of them hands the caller a 30-day session on an account they ha
 authenticated to, and — because an activated account skips the claim entirely — with nothing
 downstream to catch it.
 
+### Sign-up creates nothing; activation creates everything (#120)
+
+**The invariant: a password only works if the person who set it proved the address.**
+
+`POST /auth/signup` takes an address and nothing else. It creates no Firebase Auth user, no
+`users/{uid}` document and no credential — it issues an activation token and sends a link.
+`POST /auth/activate` takes that token **and a password**, and does both halves in one
+request: the link proves the address, the form supplies the credential, and only then does
+the account come into existence.
+
+Before this, sign-up created the Auth user with the caller's password. That reserved the
+address for whoever asked first and put a working credential on it before anyone had proved
+it was theirs. An attacker signed up as a victim; the victim clicked the confirmation mail
+they never asked for; the attacker's password then opened an activated account holding the
+victim's cycle and symptom history. Everything §3 describes above — the claim, the address
+test, the retraction at activation, the withheld `emailVerified` — was a way of living with
+that rather than removing it.
+
+Three consequences worth stating, because each reads as a regression until you see why:
+
+- **`403 NOT_ACTIVATED` is unreachable through the normal flow.** There is no password to try
+  before activation. The gate still exists and still matters, for accounts predating #120 and
+  for addresses reserved by calling Identity Toolkit directly.
+- **A valid activation link on an *already activated* account is a dead link**, where it used
+  to answer `200` idempotently. That was right while activation only stamped a flag. The link
+  sets a password now, so honouring a stale one would make every activation email anybody
+  ever saw a password-reset primitive.
+- **Activation sets `emailVerified` again.** Withholding it was the subtlest decision in #7 —
+  a true fact suppressed so Firebase's merge-wipe would stay armed against a pre-registering
+  attacker's password. There is no such password any more: the only credential an account can
+  have at activation is the one supplied in that same request by whoever proved the address.
+
+**What this does not close.** The Firebase web API key is public, so anyone can call
+`accounts:signUp` at Identity Toolkit directly and reserve an address. That is denial of
+service, not takeover — Eva never emails the victim, so the victim never activates — and
+activation handles it: an Auth account nobody has proved is *claimed* by the holder of a
+valid link rather than refusing them. Disabling public sign-up in the console would close
+even that, and must not be done: it returns `ADMIN_ONLY_OPERATION` for **federated** account
+creation too, so every first-time Apple and Google user would fail.
+
 **Auto-linking is only safe because `/auth/idp` claims an unproven account.** Sign-up (#6)
 creates the Firebase Auth user *before* the address is confirmed, and **the web API key is
 public** — Firebase Hosting serves it at `/__/firebase/init.json`, and Identity Toolkit

@@ -102,12 +102,29 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
 - Never log passwords, tokens, profile contents, or event payloads (health data).
 - New env var → `config.ts` + `.env.example` (placeholder only).
 - No refresh tokens in v1. Adding them is an architecture change, not a task.
-- `POST /auth/signup` hands out no session (#6): the account exists, the address is not
-  proven, and `POST /auth/signin` answers `403 NOT_ACTIVATED` until it is. That gate sits
-  **after** Identity Toolkit has verified the password, and must stay there — answering it
-  earlier would tell any caller which addresses have Eva accounts. `/auth/activation/resend`
-  and `/auth/password/forgot` answer `200 { sent: true }` for every well-formed address,
+- **`POST /auth/signup` creates nothing (#120).** No Auth user, no document, no credential —
+  it takes an address, issues an activation token and sends a link. `POST /auth/activate`
+  takes that token **and a password** and creates the account, so the address is proven and
+  the credential set in the same request. The invariant: *a password only works if the person
+  who set it proved the address.* Sign-up used to create the Auth user with the caller's
+  password, which reserved the address and put a working credential on it before anyone had
+  proved it — the hole every defence below was written to live with.
+  - It still answers `409 EMAIL_EXISTS` for an address whose owner is **activated**
+    (ARCHITECTURE §3 says why sign-up discloses that deliberately). An unproven reservation is
+    not ownership and does not block anyone.
+  - A password in the body is **ignored, not refused**, so an un-updated client does not break
+    outright.
+- `POST /auth/signin` answers `403 NOT_ACTIVATED` for an unproven account, and that gate sits
+  **after** Identity Toolkit has verified the password — answering earlier would tell any
+  caller which addresses have Eva accounts. Since #120 the normal flow cannot reach it: there
+  is no password before activation. It still guards accounts predating #120 and addresses
+  reserved directly at Identity Toolkit. `/auth/activation/resend` and
+  `/auth/password/forgot` answer `200 { sent: true }` for every well-formed address,
   registered or not, for the same reason.
+- **A valid activation link on an already-activated account is a dead link (#120).** It used
+  to answer `200` idempotently, which was right while activation only stamped a flag. The link
+  sets a password now, so honouring a stale one would turn every activation email anybody ever
+  saw into a password-reset primitive.
 - **This code never matches on email; Firebase does (#7).** `POST /auth/idp` acts on the
   uid `signInWithIdp` returns and performs no lookup of its own — never add one. Whether a
   shared address resolves to one account or two is the console's
@@ -150,12 +167,12 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   **before** stamping `activatedAt`, because the stamp is what disarms the claim gate.
   Without it the `/auth/idp` claim is simply outwaited: an attacker attaches a provider to a
   reserved address and signs in the moment the real owner activates.
-- **`markCredentialsProven` is called from the reset route only, never from activation
-  (#7).** It sets Firebase's `emailVerified`, which Identity Toolkit also uses to decide
-  whether to wipe `passwordHash` and every provider on a merge. That wipe is the only thing
-  that evicts a pre-registering attacker's password once the owner arrives with a provider,
-  so it stays armed for accounts whose password nobody has proven. A reset proves the
-  password; activation does not. ARCHITECTURE §3 has the attack.
+- **`markCredentialsProven` is called from both the reset route and activation (#120).** It
+  sets Firebase's `emailVerified`, which Identity Toolkit also uses to decide whether to wipe
+  `passwordHash` on a merge. Activation withheld it under #7, deliberately, so that wipe
+  stayed armed against a pre-registering attacker's password — the subtlest call in that
+  issue. #120 removes the reason: the only credential an account can have at activation is
+  the one supplied in that same request by whoever proved the address.
 - **`/auth/idp` reads before it writes (#7).** `ensureUser` unions the provider into
   `authProviders`, so calling it before the claim gate left a refused credential's provider
   on a stranger's document — which is what the app reads to decide whether to offer
