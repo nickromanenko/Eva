@@ -237,6 +237,44 @@ in project.yml:     com.googleusercontent.apps.976826401031-jnmhrgu3gldhrph0b11r
 > Google sign-in, and without §6a linking a provider from Profile is a `500`. Turning the
 > providers on first means the first users to try them are the ones who find that out.
 
+### 5a. Register the iOS app first — done 2026-09-09
+
+**Firebase console → Project settings → Your apps → Add app → Apple.**
+
+| Field | Value |
+|---|---|
+| Apple bundle ID | `com.evaapp.ios` (case-sensitive) |
+| App nickname | `Eva iOS` |
+| App Store ID | leave blank |
+
+**Then stop.** Do not download `GoogleService-Info.plist`, do not add the SDK, do not add
+initialization code, and ignore the "register with an AI coding agent" banner — it walks you
+through exactly those steps. Eva's app never talks to Firebase (ARCHITECTURE §2) and has no
+Firebase dependency; adding one would contradict that and GUARDRAILS 25. This registration
+is **server-side only**: it tells Firebase that `com.evaapp.ios` is a client of this project.
+Nothing ships in the app.
+
+*This step was missing, and it cost a live debugging round.* Apple's `identityToken` carries
+`aud: com.evaapp.ios`, and `signInWithIdp` validates that audience against the clients
+Firebase knows for the project. With no app registered and the Services ID deliberately
+empty (§2), there was no audience it would accept, so **every** Apple sign-in was refused —
+and refused as a plain bad credential, indistinguishable from a wrong nonce or an expired
+token. Two log lines, before and after registering, with nothing else changed:
+
+```
+20:49:59 POST 401 /auth/idp
+21:14:40 POST 200 /auth/idp
+```
+
+Firebase's documentation does not state that `signInWithIdp` enforces this; its Apple
+setup page says only that the bundle ID must be registered. So the mechanism above is
+inference from the observed behaviour, and the evidence is those two lines.
+
+Registering the app also creates an iOS API key in the project. Eva does not use it — the
+API reads the **web** key (GUARDRAILS 4), which is unchanged.
+
+### 5b. Enable the providers
+
 Firebase console → Authentication → Sign-in method.
 
 - **Apple** — enable, and **leave the OAuth code flow fields empty**: Services ID, Apple
@@ -248,8 +286,8 @@ Firebase console → Authentication → Sign-in method.
   signs its own client secret from `config.providers.apple` and never asks Firebase to
   revoke anything. And the client id it signs with is the **App ID**, not a Services ID, so
   filling Firebase's form would not have supplied it either. What Firebase actually needs
-  for a native iOS sign-in is the provider enabled and the bundle id registered; it verifies
-  the `identityToken`'s `aud` against that.
+  for a native iOS sign-in is the provider enabled and the bundle id registered — see §5a,
+  which is the half that was missing and the half that actually broke it.
 - **Google** — enable, and set the project support email.
 
 ## 6. Repo variables the code will need
