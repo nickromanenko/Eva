@@ -542,9 +542,13 @@ const sendResetLink = async (uid: string, email: string): Promise<void> => {
 
 /**
  * Spends an activation token and stamps the account. Idempotent from the user's side: a
- * valid link on an account activated by some other route (a password reset, say) still
- * answers `200`, because the thing the user did — prove the address — is done either way.
- * The token is consumed regardless, so the link cannot be replayed.
+ * valid link on an account that is **already activated** is now a dead link, and that is a
+ * deliberate change (#120). It used to answer `200` idempotently, on the grounds that the
+ * thing the user did — prove the address — was done either way. That reasoning held while
+ * activation only stamped a flag. It does not hold now that the link *sets the password*:
+ * honouring a stale link against an activated account would make every unspent activation
+ * email a password-reset primitive, usable by anyone who ever saw one. The token is consumed
+ * either way, so it still cannot be replayed.
  */
 const claimForActivation = async (uid: string, password: string): Promise<void> => {
     await setPassword(uid, password);

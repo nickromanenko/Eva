@@ -171,18 +171,25 @@ describe("auth", () => {
         const firstConfirmation = doc.data()!.activatedAt;
         expect(firstConfirmation).not.toBeNull();
 
-        // Single-use: the same link a second time is a dead link, not a second activation.
+        // A second, *unspent* link against an account that is already activated is now a
+        // dead link (#120), and that is the change rather than an accident. It used to
+        // answer 200 idempotently, which was right while activation only stamped a flag.
+        // The link sets the password now, so honouring a stale one against an activated
+        // account would turn every activation email anybody ever saw into a password-reset
+        // primitive.
         const token = await issueToken(uid, email, "activation");
         const activate = (body: unknown) =>
             api("/auth/activate", { method: "POST", body: JSON.stringify(body) });
-        expect((await activate({ token })).status).toBe(200);
-        const replay = await activate({ token });
+        const second = await activate({ token, password });
+        expect(second.status).toBe(400);
+        expect((await json<ErrorResponse>(second)).error.code).toBe("INVALID_TOKEN");
+
+        // Consumed anyway, so it cannot be replayed either.
+        const replay = await activate({ token, password });
         expect(replay.status).toBe(400);
         expect((await json<ErrorResponse>(replay)).error.code).toBe("INVALID_TOKEN");
 
-        // The second valid link answered 200 — the user's side of it is done either way —
-        // but it must not restamp the account: the record of when the address was proven
-        // is the first confirmation, not the last.
+        // And the record of when the address was proven is the first confirmation.
         expect((await firestore.collection("users").doc(uid).get()).data()!.activatedAt)
             .toEqual(firstConfirmation);
     });
