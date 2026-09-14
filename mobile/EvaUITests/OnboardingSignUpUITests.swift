@@ -391,7 +391,12 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         type("not-an-email", into: app.textFields["signup.email"], in: app)
         app.textFields["signup.email"].typeText("\n")
 
-        let emailError = app.staticTexts["signup.email.error"]
+        // `signup.error`, not `signup.email.error`. There is one field on this screen now
+        // and therefore one message slot, shared by the client's address check and the
+        // server's refusal (#120). The old identifier has no producer anywhere in
+        // `mobile/Eva/`, so this assertion could only ever time out — a rename with an
+        // un-updated call site, which is what GUARDRAILS 22 is about.
+        let emailError = app.staticTexts["signup.error"]
         XCTAssertTrue(
             emailError.waitForExistence(timeout: 5),
             "An address with no @ blurred without showing the email error"

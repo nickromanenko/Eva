@@ -25,7 +25,6 @@ import { issueToken } from '../src/email-tokens'
 /** What the UI suites sign in with afterwards. Kept in step with
  *  `EvaUITestCase.password`; a mismatch would pass activation and fail every sign-in. */
 const DEFAULT_PASSWORD = 'uitest-pass-1'
-import { adminAuth } from '../src/firebase'
 
 if (process.env.NODE_ENV === 'production') {
   throw new Error('uitest-mailbox activates accounts; it must never run in production')
@@ -76,10 +75,12 @@ const server = Bun.serve({
       console.error(`[uitest-mailbox] activate ${activated.status} for ${email}: ${detail}`)
       return json({ error: `activate answered ${activated.status}` }, 502)
     }
-    // The password is a fixture, not a credential, and this process only ever accepts
-    // `e2e+*@e2e.evaapp.dev`. Printed because "sign-in failed" and "sign-in failed with
-    // *this* password" are different amounts of information.
-    console.log(`[uitest-mailbox] activated ${email} with password ${password}`)
+    // The length, never the value. GUARDRAILS 12 says never log a password and grants
+    // `api/scripts/` no exemption; that this one is a fixture and that this process refuses
+    // `NODE_ENV=production` are reasons it is not a leak today, not reasons to write a line
+    // that gets copied. The length is what the debugging case actually needed — it tells an
+    // empty or truncated password from a wrong one.
+    console.log(`[uitest-mailbox] activated ${email} (password length ${password.length})`)
     return json({ activated: true })
   },
 })

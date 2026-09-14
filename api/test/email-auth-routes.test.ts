@@ -100,6 +100,25 @@ const headersWithoutClock = (a: Answer): string =>
 const expiredToken = (uid: string, email: string, kind: "activation" | "reset") =>
     issueToken(uid, email, kind, () => Date.now() - (kind === "activation" ? ACTIVATION_TTL_SECONDS : RESET_TTL_SECONDS) * 1000 - 1000);
 
+/**
+ * Whether a password opens an account, asked of Identity Toolkit rather than of
+ * `POST /auth/signin` — which answers `403 NOT_ACTIVATED` or `401` for exactly the accounts
+ * worth asking about, and so cannot tell "the credential changed" from "the gate refused".
+ * `config.identityToolkitBaseUrl` follows the Auth emulator under `scripts/ci-api.sh` (#67);
+ * a hardcoded Google URL reports every emulator account's password dead.
+ */
+const passwordOpens = async (email: string, password: string): Promise<boolean> => {
+    const res = await fetch(
+        `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+        {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email, password, returnSecureToken: true }),
+        },
+    );
+    return res.ok;
+};
+
 const userDoc = (uid: string) => firestore.collection("users").doc(uid);
 
 const tokenDocs = (uid: string) =>
@@ -305,8 +324,12 @@ describe("the two send-a-link routes", () => {
         await activate(token);
 
         expect((await post("/auth/activation/resend", { email })).status).toBe(200);
+        // **By address, not by uid, and that is the whole test.** It counted `tokenDocs(uid)`
+        // and could not fail: resend issues its tokens with `uid: null` since #120, so a
+        // link wrongly mailed to an activated account's address is invisible to a uid query.
+        // Deleting the guard this test is named for left the suite fully green.
+        const tokens = await tokenDocsByEmail(email);
         // Only the one that was spent above; the route had nothing to confirm.
-        const tokens = await tokenDocs(uid);
         expect(tokens.size).toBe(1);
         expect(tokens.docs[0]!.data().usedAt).not.toBeNull();
     });
@@ -366,7 +389,11 @@ describe("an account that went away between the email and the click", () => {
         const reset = await issueToken(uid, email, "reset");
         expect(await markUserDeleted(uid)).toBe(true);
 
-        expect((await activate(activation)).error!.code).toBe(
+        // **A password the account does not already have.** Defaulting to `PASSWORD` here
+        // made the assertions below unfalsifiable: with the `deleted` guard removed the
+        // route runs `setPassword` with whatever this sends, so sending the current password
+        // rewrites it to itself and nothing observable changes.
+        expect((await activate(activation, "set-by-a-dead-link-31")).error!.code).toBe(
             "INVALID_TOKEN",
         );
         const res = await post("/auth/password/reset", { token: reset, password: "brand-new-42" });
@@ -374,10 +401,21 @@ describe("an account that went away between the email and the click", () => {
         expect(res.error!.code).toBe("INVALID_TOKEN");
         // And the sign-in credentials are untouched: the reset never reached `setPassword`.
         expect((await post("/auth/signin", { email, password: "brand-new-42" })).status).toBe(401);
+        // **The same question of the activation link, which needed asking separately.** Both
+        // halves above answer `INVALID_TOKEN` with the `deleted` guard removed, because
+        // `ensureUser` refuses a tombstone a moment later and the route reports that as a
+        // dead link either way. What the guard is actually for is everything that would
+        // already have happened by then: without it, activation runs `setPassword` on an
+        // account that is mid-delete, so a stale link silently rewrites the credential of an
+        // account its owner has asked to be destroyed. The status cannot see that; the
+        // credential can.
+        expect(await passwordOpens(email, PASSWORD)).toBe(true);
+        expect(await passwordOpens(email, "set-by-a-dead-link-31")).toBe(false);
+        expect(await passwordOpens(email, "brand-new-42")).toBe(false);
     });
 
     test("deleting the account takes its tokens with it", async () => {
-        // `deleteTokensForUid` is unit-tested in email-tokens.test.ts; this pins that
+        // `deleteTokensForAccount` is unit-tested in email-tokens.test.ts; this pins that
         // `DELETE /me` actually calls it. A token document carries the account's address,
         // and a deleted account keeps nothing (GUARDRAILS, ARCHITECTURE §3).
         const { email, uid } = await unactivated();

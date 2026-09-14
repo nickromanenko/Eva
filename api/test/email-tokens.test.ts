@@ -6,7 +6,7 @@ import {
     RESET_TTL_SECONDS,
     TOKEN_LENGTH,
     consumeToken,
-    deleteTokensForUid,
+    deleteTokensForAccount,
     issueToken,
 } from "../src/email-tokens";
 import { firestore } from "../src/firebase";
@@ -34,9 +34,88 @@ const tokenDocs = () => firestore.collection("authTokens");
 
 const sha256 = (raw: string) => createHash("sha256").update(raw).digest("hex");
 
+/** The address the `uid: null` cases below use, and the only handle they have — sweeping
+ *  them needs the email key, which is the point of that half of the sweep. */
+const PENDING_EMAIL = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+
 afterAll(async () => {
-    await deleteTokensForUid(UID).catch(() => {});
-    await deleteTokensForUid(OTHER_UID).catch(() => {});
+    await deleteTokensForAccount(UID, null).catch(() => {});
+    await deleteTokensForAccount(OTHER_UID, null).catch(() => {});
+    await deleteTokensForAccount("no-such-uid", PENDING_EMAIL).catch(() => {});
+});
+
+/**
+ * The shape #120 introduced to this module: a token issued **before** its account exists.
+ *
+ * `POST /auth/signup` creates nothing now, so the activation link it mails is issued with no
+ * uid at all and the address is the only thing identifying it. Every other case in this file
+ * passes a uid, so the null one was reaching Firestore only incidentally through the routes
+ * — and the module that owns `authTokens/` is where its round trip belongs.
+ */
+describe("a token issued before the account exists", () => {
+    test(
+        "null is stored as null and comes back as null, and nothing else changes",
+        async () => {
+            const raw = await issueToken(null, PENDING_EMAIL, "activation");
+
+            const stored = await tokenDocs().doc(sha256(raw)).get();
+            expect(stored.exists).toBe(true);
+            // `null`, not absent: a missing field and a null one are different documents,
+            // and `where('uid','==',null)` would not match an absent one.
+            expect(stored.data()!.uid).toBeNull();
+            expect(stored.data()!.email).toBe(PENDING_EMAIL);
+            expect(stored.data()!.kind).toBe("activation");
+
+            const spent = await consumeToken(raw, "activation");
+            expect(spent.ok).toBe(true);
+            if (!spent.ok) return;
+            // The address is what the route activates on; the uid it resolves itself.
+            expect(spent.uid).toBeNull();
+            expect(spent.email).toBe(PENDING_EMAIL);
+        },
+        SLOW,
+    );
+
+    test(
+        "single use and expiry are the same for it as for any other token",
+        async () => {
+            const raw = await issueToken(null, PENDING_EMAIL, "activation");
+            expect((await consumeToken(raw, "activation")).ok).toBe(true);
+            // Spent once is spent: the missing uid does not exempt it from the transaction.
+            expect((await consumeToken(raw, "activation")).ok).toBe(false);
+
+            const stale = await issueToken(
+                null,
+                PENDING_EMAIL,
+                "activation",
+                () => Date.now() - ACTIVATION_TTL_SECONDS * 1000 - 1000,
+            );
+            const dead = await consumeToken(stale, "activation");
+            expect(dead.ok).toBe(false);
+            if (dead.ok) return;
+            expect(dead.reason).toBe("expired");
+        },
+        SLOW,
+    );
+
+    test(
+        "the address sweep is the only one that can find it",
+        async () => {
+            const raw = await issueToken(null, PENDING_EMAIL, "activation");
+            const id = sha256(raw);
+            expect((await tokenDocs().doc(id).get()).exists).toBe(true);
+
+            // The uid half of `deleteTokensForAccount` cannot see it — there is no uid to
+            // match. That is exactly why `DELETE /me` sweeps by address as well: without it
+            // a signed-up-but-never-activated address survived its own account's deletion.
+            await deleteTokensForAccount("no-such-uid", null);
+            expect((await tokenDocs().doc(id).get()).exists).toBe(true);
+
+            await deleteTokensForAccount("no-such-uid", PENDING_EMAIL);
+            expect((await tokenDocs().doc(id).get()).exists).toBe(false);
+        },
+        SLOW,
+    );
 });
 
 describe("what is issued, and what is stored", () => {
@@ -267,13 +346,13 @@ describe("a second activation link does NOT kill the first", () => {
 
             expect((await consumeToken(first, "activation")).ok).toBe(true);
             expect((await consumeToken(second, "activation")).ok).toBe(true);
-            await deleteTokensForUid(uid);
+            await deleteTokensForAccount(uid, null);
         },
         SLOW,
     );
 });
 
-describe("deleteTokensForUid", () => {
+describe("deleteTokensForAccount", () => {
     test(
         "removes every token of the uid, used or not, and is a no-op the second time",
         async () => {
@@ -283,9 +362,9 @@ describe("deleteTokensForUid", () => {
             await issueToken(uid, EMAIL, "reset");
             expect((await tokenDocs().where("uid", "==", uid).get()).size).toBe(2);
 
-            await deleteTokensForUid(uid);
+            await deleteTokensForAccount(uid, null);
             expect((await tokenDocs().where("uid", "==", uid).get()).size).toBe(0);
-            await deleteTokensForUid(uid);
+            await deleteTokensForAccount(uid, null);
         },
         SLOW,
     );
@@ -318,7 +397,7 @@ describe("deleteTokensForUid", () => {
             }
             expect((await tokenDocs().where("uid", "==", uid).get()).size).toBe(520);
 
-            await deleteTokensForUid(uid);
+            await deleteTokensForAccount(uid, null);
             expect((await tokenDocs().where("uid", "==", uid).get()).size).toBe(0);
         },
         60_000,

@@ -68,7 +68,10 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
 - `email-tokens.ts` — the only module that touches `authTokens/`. The tokens behind
   activation and password-reset links (#6): 32 random bytes handed out once, stored only
   as a SHA-256, single-use, spent in a transaction, each with its own TTL (24h / 60min).
-  Issuing a reset token invalidates every unused one the account already has. Writes
+  Issuing a reset token invalidates every unused one the account already has. A token issued
+  before its account exists carries `uid: null` (#120), so `deleteTokensForAccount` sweeps by
+  **address as well as uid** — a uid query alone cannot see the tokens of anyone who signed
+  up and never activated, and `DELETE /me` left them behind. Writes
   nothing to the console — a raw token or its hash in a log line is the link itself.
 - `email.ts` — the only user of `POSTMARK_API_KEY`, and the only outbound mail. Postmark
   over REST with `fetch`, no SDK (GUARDRAILS 25). Two messages, no personalisation: a
@@ -167,6 +170,18 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   **before** stamping `activatedAt`, because the stamp is what disarms the claim gate.
   Without it the `/auth/idp` claim is simply outwaited: an attacker attaches a provider to a
   reserved address and signs in the moment the real owner activates.
+- **`markCredentialsProven` runs last, after `markActivated` (#120).** `emailVerified` is
+  what turns off `claimUnprovenAccount`'s address test; `activatedAt` is what turns off the
+  claim itself. Any window in which the first is set and the second is not is the one
+  combination that claims unconditionally, so the account is created *without*
+  `emailVerified` (`createAccountWithPassword`) and the flag is set at the very end. Failing
+  the other way leaves an activated account with the merge-wipe still armed, which costs its
+  owner a password on a later provider sign-in and is recoverable through reset.
+- **Both paths through `/auth/activate` share one set of guards.** The `email-exists` race
+  and the ordinary "account already exists" branch both fall through the same
+  `deleted` / `activated` refusals and the same tail. They were separate once, and the race
+  branch skipped both — two unspent links for one address could overwrite each other's
+  password.
 - **`markCredentialsProven` is called from both the reset route and activation (#120).** It
   sets Firebase's `emailVerified`, which Identity Toolkit also uses to decide whether to wipe
   `passwordHash` on a merge. Activation withheld it under #7, deliberately, so that wipe

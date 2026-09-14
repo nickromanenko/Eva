@@ -5,7 +5,7 @@ import { routePath } from "hono/route";
 import { mintToken, requireAuth, type TokenClaims } from "./auth";
 import { config } from "./config";
 import { EmailError, sendActivationEmail, sendPasswordResetEmail } from "./email";
-import { TOKEN_LENGTH, consumeToken, deleteTokensForUid, issueToken } from "./email-tokens";
+import { TOKEN_LENGTH, consumeToken, deleteTokensForAccount, issueToken } from "./email-tokens";
 import {
     authRetryAfterSeconds,
     consumeAuthAttempt,
@@ -22,7 +22,7 @@ import {
     findAuthUidByEmail,
     idTokenForUid,
     claimUnprovenAccount,
-    createProvenAccount,
+    createAccountWithPassword,
     markCredentialsProven,
     retractUnprovenIdentities,
     setPassword,
@@ -59,6 +59,7 @@ import {
     getUser,
     isActivated,
     markActivated,
+    addressOfDeletedUser,
     markUserDeleted,
     readUser,
     saveQuestionnaire,
@@ -553,7 +554,6 @@ const sendResetLink = async (uid: string, email: string): Promise<void> => {
 const claimForActivation = async (uid: string, password: string): Promise<void> => {
     await setPassword(uid, password);
     await retractUnprovenIdentities(uid);
-    await markCredentialsProven(uid);
 };
 
 const activate = async (c: Context, raw: unknown, body: Record<string, unknown>) => {
@@ -582,51 +582,74 @@ const activate = async (c: Context, raw: unknown, body: Record<string, unknown>)
     // for their 24 hours rather than stranding whoever is mid-flow.
     const existingUid = result.uid ?? (await findAuthUidByEmail(result.email));
 
+    // Resolve the account first, then run **one** set of guards over everything this
+    // request did not itself create. An earlier version answered the race below inline,
+    // with its own copy of the tail, and so skipped the two refusals the other branch
+    // makes: two unspent links for one address — a sign-up plus a resend, opened on two
+    // devices — let the second one overwrite the password the first had just set, on an
+    // account that was by then activated. The dead-link rule has to hold on every path
+    // that can reach an account somebody else already proved, not just the common one.
     let uid: string;
+    let created = false;
     if (existingUid === null) {
         try {
-            uid = await createProvenAccount(result.email, password);
+            uid = await createAccountWithPassword(result.email, password);
+            created = true;
         } catch (err) {
             if (!(err instanceof IdentityToolkitError)) throw err;
             // The address was taken between this caller's sign-up and their click — by
             // someone calling Identity Toolkit directly, which the public web API key
-            // allows. They cannot have *proved* it, because proving it is this route, so
-            // the holder of a valid link takes the account rather than being refused.
+            // allows, or by a second link for the same address landing first. Whoever it
+            // was cannot have *proved* the address, because proving it is this route, so
+            // the holder of a valid link takes the account rather than being refused —
+            // subject to the same guards as any other account that already existed.
             if (err.kind === "email-exists") {
                 const raced = await findAuthUidByEmail(result.email);
                 if (!raced) throw err;
                 uid = raced;
-                await claimForActivation(uid, password);
-                const claimed = await ensureUser(uid, result.email, "password");
-                if (!claimed) return tokenFailure(c, "invalid");
-                if (!(await markActivated(uid))) return tokenFailure(c, "invalid");
-                return c.json({ activated: true });
+            } else if (err.kind === "unavailable") {
+                // #32: shaped, never a bare 500. `unavailable` is worth a retry and pages
+                // an operator; `rejected` is something about the request our edge let
+                // through.
+                return upstreamUnavailable(c, "signup", err);
+            } else {
+                return c.json(
+                    error(
+                        "VALIDATION",
+                        "That email or password can't be used. Check them and try again.",
+                    ),
+                    400,
+                );
             }
-            // #32: shaped, never a bare 500. `unavailable` is worth a retry and pages an
-            // operator; `rejected` is something about the request our edge let through.
-            if (err.kind === "unavailable") return upstreamUnavailable(c, "signup", err);
-            return c.json(
-                error(
-                    "VALIDATION",
-                    "That email or password can't be used. Check them and try again.",
-                ),
-                400,
-            );
         }
     } else {
-        const existing = await readUser(existingUid);
-        // Gone or going: a delete landed between the email and the click.
+        uid = existingUid;
+    }
+
+    if (!created) {
+        const existing = await readUser(uid);
+        // Gone or going: a delete landed between the email and the click. Answered as a
+        // dead link rather than left to fall through — `setPassword` throws on a deleted
+        // Auth user, which would page an operator with a 500 for what is just a stale link.
         if (existing.deleted) return tokenFailure(c, "invalid");
         // Already proven by somebody. A valid link must not take an account away from an
         // owner who has one — that would be the takeover wearing a confirmation email.
         if (existing.user?.activated) return tokenFailure(c, "invalid");
-        uid = existingUid;
         await claimForActivation(uid, password);
     }
 
     const user = await ensureUser(uid, result.email, "password");
     if (!user) return tokenFailure(c, "invalid");
     if (!(await markActivated(uid))) return tokenFailure(c, "invalid");
+    // **Last, and the order is load-bearing.** `emailVerified` is what
+    // `claimUnprovenAccount` reads to decide whether to apply its address test, and
+    // `activatedAt` is what decides whether it runs the claim at all. Setting the first
+    // before the second leaves a window — one dropped request wide — in which the claim is
+    // armed and its address test is not, which is the one combination that claims
+    // unconditionally. Setting it after inverts the failure: an activated account whose
+    // merge-wipe is still armed, costing its owner a password on some later provider
+    // sign-in and recoverable through reset. That is the direction to fail in.
+    await markCredentialsProven(uid);
     return c.json({ activated: true });
 };
 
@@ -649,15 +672,25 @@ app.post("/auth/activate", async (c) => {
  * account is not the caller's to learn. The throttle runs before the lookup, so a refused
  * request is refused the same way for both.
  *
- * The branches also have to answer in the same *time*, which they do not naturally: a
- * registered address costs a Firestore write and a POST to Postmark, an unknown one costs
- * a failed Auth lookup and nothing else — hundreds of milliseconds against tens, readable
- * from a single request. `atLeast` holds both to a floor well above the slow branch, so
- * the fast one cannot be told from it. That is a floor, not a constant: a Postmark call
- * slower than `SEND_LINK_FLOOR_MS` still overruns it, and the residue is bounded by
- * Postmark's own variance rather than by the difference between doing the work and not.
- * Answering before the send instead would be exact, but Cloud Run throttles CPU after the
- * response, so the email would go out whenever the next request happened to arrive.
+ * The branches also have to answer in the same *time*, which they do not naturally: sending
+ * costs a Firestore write and a POST to Postmark, not sending costs a lookup and nothing
+ * else — hundreds of milliseconds against tens, readable from a single request. `atLeast`
+ * holds both to a floor well above the slow branch, so the fast one cannot be told from it.
+ * That is a floor, not a constant: a Postmark call slower than `SEND_LINK_FLOOR_MS` still
+ * overruns it, and the residue is bounded by Postmark's own variance rather than by the
+ * difference between doing the work and not. Answering before the send instead would be
+ * exact, but Cloud Run throttles CPU after the response, so the email would go out whenever
+ * the next request happened to arrive.
+ *
+ * **Which branch is the fast one differs between the two routes, and on `resend` it
+ * inverted with #120.** On `forgot`, an address with no account is the fast one, as it
+ * always was. On `resend` there is no account to look up until somebody activates, so the
+ * fast branch is now the *activated* address — the one case that must not be mailed a fresh
+ * link — and every other address does the send. So the residue above discriminates "this
+ * address has an activated Eva account". That is deliberate to leave: it is the same fact
+ * `POST /auth/signup` hands out flatly and for free as `409` against `201`, which §3 argues
+ * for on its own terms. A tail-latency oracle, sampled at one request per address per
+ * minute, buys nobody anything they cannot have in one request.
  */
 app.post("/auth/activation/resend", async (c) => {
     const body = await c.req.json().catch(() => ({}));
@@ -1207,6 +1240,10 @@ app.delete("/me", requireAuth, async (c) => {
     }
     const appleAuthorizationCode = supplied ? (rawAppleCode as string) : null;
 
+    // Read before the tombstone makes every ordinary accessor answer `null`, and kept for
+    // the token sweep below — which since #120 cannot find an activation token by uid,
+    // because there was no uid when it was issued.
+    const address = await addressOfDeletedUser(sub);
     await markUserDeleted(sub);
     // After the tombstone, so the account is already inert whatever Apple answers, and
     // before the Auth user goes, so the ordering below is untouched. Revocation is Apple's
@@ -1215,7 +1252,7 @@ app.delete("/me", requireAuth, async (c) => {
     if (appleAuthorizationCode) await revokeApple(appleAuthorizationCode);
     await deleteAuthAccount(sub);
     await deleteAllUserEvents(sub);
-    await deleteTokensForUid(sub);
+    await deleteTokensForAccount(sub, address);
     await deleteUserDocument(sub);
     // No count, no email, no id — a delete is exactly where a log line is tempting
     // (GUARDRAILS 12). Anything that throws above lands in `app.onError` as a 500 with a

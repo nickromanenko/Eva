@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, firestore } from "../src/firebase";
 import { config } from "../src/config";
 import { resetAuthRateLimits } from "../src/rate-limit";
+import { createUnactivatedAccount } from "./support/session";
 
 /**
  * The non-enumeration property on `POST /auth/signin` (issue #21).
@@ -161,6 +162,17 @@ describe("signin does not reveal whether an address is registered", () => {
 let takenUid: string | null = null;
 
 beforeAll(async () => {
+    // **Delete-first, because the address is fixed rather than a fresh uuid.** An
+    // interrupted run — a killed `bun run verify`, a failure before `afterAll` — leaves this
+    // account behind against the real project, and the next run's `createUser` then throws
+    // `email-already-exists` and takes the whole file red for a reason that has nothing to
+    // do with what it tests. A stale account is exactly as good as no account here, so it is
+    // cleared rather than worked around.
+    const stale = await adminAuth.getUserByEmail(REGISTERED).catch(() => null);
+    if (stale) {
+        await firestore.collection("users").doc(stale.uid).delete().catch(() => {});
+        await adminAuth.deleteUser(stale.uid).catch(() => {});
+    }
     const { uid } = await adminAuth.createUser({
         email: REGISTERED,
         password: PASSWORD,
@@ -197,12 +209,34 @@ describe("signup deliberately does distinguish a taken address", () => {
         // The other side, and the reason the 409 now reads the account rather than trusting
         // that one exists: a reservation nobody has proved is not ownership, so the person
         // whose address it actually is can still sign up.
+        //
+        // **An Auth user with no document, which is not the shape that matters.** Anything
+        // created outside the API looks like this, and `readUser` answers `{ user: null }`
+        // for it — so the gate's condition is never evaluated in either direction, and
+        // widening it from `existing.user?.activated` to `existing.user` left this test
+        // green. The case below is the one with teeth.
         const unproven = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
         const { uid } = await adminAuth.createUser({ email: unproven, password: PASSWORD });
         try {
             const res = await post("/auth/signup", { email: unproven });
             expect(res.status).toBe(201);
         } finally {
+            await adminAuth.deleteUser(uid).catch(() => {});
+        }
+    });
+
+    test("a pre-#120 account that never activated can still ask for a link", async () => {
+        // The population this actually protects, and the only one where the gate's condition
+        // is reached: an account made by `POST /auth/signup` *before* #120 — a document, a
+        // password, and `activatedAt: null` — whose owner never clicked the link. Sign-up is
+        // the route that re-issues it, so a `409` here strands them with no way back in.
+        const stranded = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+        const uid = await createUnactivatedAccount(stranded, PASSWORD);
+        try {
+            const res = await post("/auth/signup", { email: stranded });
+            expect(res.status).toBe(201);
+        } finally {
+            await firestore.collection("users").doc(uid).delete().catch(() => {});
             await adminAuth.deleteUser(uid).catch(() => {});
         }
     });

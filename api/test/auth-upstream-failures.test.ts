@@ -1,5 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { config } from "../src/config";
 import { issueToken } from "../src/email-tokens";
+import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, firestore } from "../src/firebase";
 import { resetAuthRateLimits } from "../src/rate-limit";
 
@@ -38,10 +40,22 @@ const { IdentityToolkitError } = identityToolkit;
 // describe in this file can exercise the real client against a stubbed `fetch` while the
 // route tests see the mock. Reading it off the namespace later would get the mock instead.
 const realSignUp = identityToolkit.signUpWithPassword;
+// Same reason, for the call that actually creates the account since #120. The route
+// tests below replace this one wholesale, so without a value captured here nothing in
+// the suite ever runs the real function.
+const realCreateAccount = identityToolkit.createAccountWithPassword;
+// And again for the lookup, which the staged race below calls through. Reading it off the
+// namespace at call time instead resolves to the mock — the function calls itself, and Bun
+// reports the stack overflow as a `RangeError` 500 from whichever route was unlucky.
+const realFindAuthUid = identityToolkit.findAuthUidByEmail;
 
 /** The failure the next call gets. Every test sets one; reaching the route without one
  *  set is a bug in the test, not a success path — this file never exercises one. */
 let upstream: (() => never) | null = null;
+
+/** Makes the next `findAuthUidByEmail` answer `null` once, staging the create/lookup race.
+ *  Reset in `beforeEach`, so a test that sets it and returns early cannot leak it. */
+let hideAccountOnce = false;
 
 const noUpstreamSet = (): never => {
     throw new Error("test reached Identity Toolkit without setting `upstream`");
@@ -55,10 +69,23 @@ mock.module("../src/identity-toolkit", () => ({
     // Identity Toolkit at all, so #32's guarantee — an upstream failure is a shaped answer,
     // never Hono's bare 500 — has to be pinned here instead. It is the same guarantee about
     // a different call.
-    createProvenAccount: () => (upstream ?? noUpstreamSet)(),
+    createAccountWithPassword: () => (upstream ?? noUpstreamSet)(),
     // Left real: activation looks the address up before creating, and a fake that failed
     // would send every case down the claim branch instead of the create branch.
-    findAuthUidByEmail: identityToolkit.findAuthUidByEmail,
+    //
+    // Except for one shot, which is the only way to reach the race at all. `/auth/activate`
+    // asks this twice — once to decide whether to create, and once more after the create
+    // comes back `EMAIL_EXISTS` — and the branch under test is entered exactly when the
+    // first answers `null` and the second does not. That gap is real (another request
+    // creating the account in between) and cannot be produced on demand, so it is staged
+    // here, one call deep, with the second answer left genuine.
+    findAuthUidByEmail: async (value: string): Promise<string | null> => {
+        if (hideAccountOnce) {
+            hideAccountOnce = false;
+            return null;
+        }
+        return realFindAuthUid(value);
+    },
 }));
 
 // Imported after the mock, and never as a listening server.
@@ -94,6 +121,8 @@ const shedsLoad = () => {
 const REGISTERED = "e2e+upstream-registered@e2e.evaapp.dev";
 const UNKNOWN = "e2e+upstream-unknown@e2e.evaapp.dev";
 const PASSWORD = "correct-horse-8";
+/** The password the *link holder* chooses, distinct from the squatter's above. */
+const CHOSEN = "chosen-at-activation-9";
 
 interface Answer {
     status: number;
@@ -129,10 +158,32 @@ const signup = (email = REGISTERED) => post("/auth/signup", { email });
  * therefore where `upstream` fires. The token is issued directly, the way every live suite
  * does it, because the link itself never reaches a test.
  */
-const activate = async (email = REGISTERED): Promise<Answer> => {
+const activate = async (email = REGISTERED, password = PASSWORD): Promise<Answer> => {
     await signup(email);
     const token = await issueToken(null, email, "activation");
-    return post("/auth/activate", { token, password: PASSWORD });
+    return post("/auth/activate", { token, password });
+};
+
+/**
+ * Whether a password actually opens an account, asked of Identity Toolkit directly.
+ *
+ * Not through `POST /auth/signin`, which would answer `403 NOT_ACTIVATED` for exactly the
+ * accounts worth asking about, and not through `../src/identity-toolkit` — `mock.module`
+ * has replaced that module's bindings for this whole process, so a helper reading it would
+ * be asking the fake. `config` is not mocked, and `identityToolkitBaseUrl` follows the
+ * emulator when `FIREBASE_AUTH_EMULATOR_HOST` is set (#67); a hardcoded Google URL would
+ * report "that password is dead" for every account that exists only in the emulator.
+ */
+const passwordOpens = async (email: string, password: string): Promise<boolean> => {
+    const res = await fetch(
+        `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+        {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email, password, returnSecureToken: true }),
+        },
+    );
+    return res.ok;
 };
 const signin = (email = REGISTERED) => post("/auth/signin", { email, password: PASSWORD });
 
@@ -175,6 +226,7 @@ const strays: string[] = [];
 beforeEach(() => {
     resetAuthRateLimits();
     upstream = null;
+    hideAccountOnce = false;
 });
 afterAll(async () => {
     resetAuthRateLimits();
@@ -259,18 +311,68 @@ describe("creating the account: an upstream failure that is not EMAIL_EXISTS", (
         strays.push(uid);
 
         upstream = rejects("EMAIL_EXISTS");
-        const answer = await activate(squatted);
+        const answer = await activate(squatted, CHOSEN);
 
         expect(answer.status).toBe(200);
         expect(answer.body).toEqual({ activated: true });
-        // Claimed, not inherited: the reserver's password no longer opens it.
+        // **Claimed, not inherited — asked of the credential, not of a flag.** This asserted
+        // `emailVerified === true` alone, which `markCredentialsProven` satisfies on its own:
+        // replacing the whole `claimForActivation` call with that one line left the suite
+        // green, while the branch quietly started handing the squatter's password an
+        // activated account. That is the #120 takeover surviving in its residual race, so the
+        // question has to be the one the comment claims: which password opens this account.
         expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
+        expect(await passwordOpens(squatted, PASSWORD)).toBe(false);
+        expect(await passwordOpens(squatted, CHOSEN)).toBe(true);
         // Its own budget. Every other case in this file is in-process against a mocked
         // upstream and finishes in milliseconds, so the file keeps Bun's 5s default; this
         // one makes four real round trips (create, look up, claim, read back) and blew that
         // default against the real project while passing against the emulator — `bun test`
         // green, `bun run verify` red, for a test that was working. 20s is the ceiling the
         // live suites use (#31).
+    }, 20_000);
+});
+
+describe("the email-exists race obeys the same guards as every other path", () => {
+    test("the race does not reopen the dead-link rule on an activated account", async () => {
+        // **The one path where that rule was not enforced.** `/auth/activate` reaches an
+        // account that already exists two ways: the ordinary lookup, and this one — the
+        // create failing with `EMAIL_EXISTS` and the uid being found on a second look. The
+        // second had its own copy of the tail and skipped both refusals the first makes, so
+        // a link for an address whose owner is already activated claimed the account and
+        // overwrote their password. Two unspent links for one address — a sign-up and a
+        // Resend, opened on two devices — is enough to produce it without an attacker.
+        //
+        // An *activated* account, built the way an activated account looks: Auth user plus a
+        // document with `activatedAt` set. Without both, the guard reads `user: null` and the
+        // branch is never entered in either direction.
+        const owned = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+        const { uid } = await adminAuth.createUser({ email: owned, password: PASSWORD });
+        strays.push(uid);
+        await firestore.collection("users").doc(uid).set({
+            email: owned,
+            authProviders: ["password"],
+            questionnaireCompleted: false,
+            profile: null,
+            activatedAt: FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        // Signed up *before* the race is staged: sign-up asks the same question, and it
+        // would otherwise spend the one-shot below on the wrong call.
+        await signup(owned);
+        const token = await issueToken(null, owned, "activation");
+
+        hideAccountOnce = true;
+        upstream = rejects("EMAIL_EXISTS");
+        const answer = await post("/auth/activate", { token, password: CHOSEN });
+
+        expect(answer.status).toBe(400);
+        expectStandardShape(answer, "INVALID_TOKEN");
+        // The owner's credential is the thing at stake, so it is the thing asserted.
+        expect(await passwordOpens(owned, PASSWORD)).toBe(true);
+        expect(await passwordOpens(owned, CHOSEN)).toBe(false);
     }, 20_000);
 });
 
@@ -502,4 +604,77 @@ describe("the Identity Toolkit client's own classification", () => {
         expect(err.kind).toBe("rejected");
     });
 });
-import { config } from "../src/config";
+
+
+/**
+ * The classifier **inside** `createAccountWithPassword`, driven for real.
+ *
+ * The route tests above replace the whole function through `mock.module` and throw
+ * `IdentityToolkitError`s they built themselves, so they prove what `index.ts` does with a
+ * classification and never that the classification is the one the Admin SDK would produce.
+ * Two independent mutations confirmed the gap: collapsing every `unavailable` into
+ * `rejected`, and deleting the `auth/email-already-exists` mapping, each left the suite
+ * fully green. What that costs is precisely #32's guarantee — the one this file exists for:
+ * a Firebase outage during activation answering `400 VALIDATION` ("that email or password
+ * can't be used") instead of a `503` with `Retry-After`, and a real race answering `503` and
+ * leaving the user with a spent link and no account.
+ *
+ * `realCreateAccount`, never the namespace: the mock above is installed for this whole
+ * process and reading `identityToolkit.createAccountWithPassword` here would ask the fake.
+ */
+describe("createAccountWithPassword classifies the Admin SDK's own failures", () => {
+    test("an address that already exists is email-exists, which the route claims", async () => {
+        const email = `e2e+create-${crypto.randomUUID()}@e2e.evaapp.dev`;
+        const uid = await realCreateAccount(email, PASSWORD);
+        strays.push(uid);
+
+        // Not a fake and not a stubbed fetch: the second create genuinely collides.
+        const err = (await realCreateAccount(email, PASSWORD).then(
+            () => null,
+            (e: unknown) => e,
+        )) as InstanceType<typeof IdentityToolkitError> | null;
+
+        expect(err).toBeInstanceOf(IdentityToolkitError);
+        expect(err!.kind).toBe("email-exists");
+    });
+
+    test("a password the SDK refuses is the caller's fault, not an outage", async () => {
+        // Seven characters: under Firebase's own six-character floor is not enough to get a
+        // refusal, so this uses the length Eva's edge would have caught — reaching here at
+        // all means the edge changed, and the answer must still be a 400 rather than a 503.
+        const email = `e2e+create-${crypto.randomUUID()}@e2e.evaapp.dev`;
+        const err = (await realCreateAccount(email, "12345").then(
+            () => null,
+            (e: unknown) => e,
+        )) as InstanceType<typeof IdentityToolkitError> | null;
+
+        expect(err).toBeInstanceOf(IdentityToolkitError);
+        expect(err!.kind).toBe("rejected");
+    });
+
+    test("anything else is an outage the caller can retry", async () => {
+        // The one case that cannot be produced honestly — the real project will not have an
+        // internal error on demand — so the SDK call itself is stubbed, one level below the
+        // classifier, which is the thing under test.
+        const spy = spyOn(adminAuth, "createUser").mockImplementation(() => {
+            throw Object.assign(new Error("backend unavailable"), {
+                code: "auth/internal-error",
+            });
+        });
+        try {
+            const err = (await realCreateAccount(
+                `e2e+create-${crypto.randomUUID()}@e2e.evaapp.dev`,
+                PASSWORD,
+            ).then(
+                () => null,
+                (e: unknown) => e,
+            )) as InstanceType<typeof IdentityToolkitError> | null;
+
+            expect(err).toBeInstanceOf(IdentityToolkitError);
+            // The distinction the whole file is about: retryable, not the caller's fault.
+            expect(err!.kind).toBe("unavailable");
+        } finally {
+            spy.mockRestore();
+        }
+    });
+});

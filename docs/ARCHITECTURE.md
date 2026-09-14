@@ -181,14 +181,16 @@ not the link.
 the website's link pages call from the browser — for exactly `PUBLIC_WEB_URL`'s origin.
 Never `*`: an allowed origin is a page that can spend a token it was handed.
 
-**Password rule — creation only.** `POST /auth/signup` enforces the rule the sign-up
-screen states as helper text: *at least 8 characters, including one number*. A password
-that fails it is `400 WEAK_PASSWORD`, and the `message` **is** that helper text verbatim,
-so the user is never told two different rules. The server's copy of the string lives in
-`api/src/index.ts` and the client's in
-`mobile/Eva/Onboarding/Steps/CreateAccountStepView.swift`; `api/test/auth.test.ts` reads
-the Swift file and asserts they still match. `POST /auth/signin` **never** applies the
-rule — accounts that predate it hold passwords with no digit and must keep working.
+**Password rule — where the password is set, which is no longer sign-up.** Since #120 the
+rule is enforced by `POST /auth/activate` and `POST /auth/password/reset`: *at least 8
+characters, including one number*. A password that fails it is `400 WEAK_PASSWORD`, and the
+`message` **is** the helper text the page states verbatim, so the user is never told two
+different rules. The server's copy of the string lives in `api/src/index.ts` and the
+client's in `website/src/pages/activate.astro` — not in the iOS app, which has no password
+field any more; `api/test/auth.test.ts` reads the Astro page and asserts they still match.
+Both routes check the rule **before** spending the token, so a weak password costs a retry
+rather than the only link. `POST /auth/signin` **never** applies the rule — accounts that
+predate it hold passwords with no digit and must keep working.
 
 **Sign-in answers identically whether the password was wrong or the address was never
 registered** — same status, same code, same message. This is deliberate: knowing that an
@@ -609,7 +611,7 @@ rather than under `users/`, because the document is looked up by the token alone
 anyone knows whose it is. Owned by `api/src/email-tokens.ts`.
 
 ```
-uid        string            // the account the link opens
+uid        string | null     // the account the link opens; null until one exists (#120)
 email      string            // the address it was sent to
 kind       'activation' | 'reset'
 expiresAt  Timestamp         // 24h for activation, 60min for reset
@@ -623,9 +625,11 @@ many tokens an account accumulates (every Resend issues one, and activation toke
 never revoked), and each document holds the address it was sent to. Without the policy,
 `authTokens/` becomes a permanent index of every Eva address with its signup and reset
 times — which for a health app is the sensitive artefact, even though the tokens
-themselves are useless. `deleteTokensForUid` pages in batches for the same reason: an
+themselves are useless. `deleteTokensForAccount` pages in batches for the same reason: an
 unbounded collection needs an unbounded delete, and one 500-op batch would leave
-`DELETE /me` unable to finish at all.
+`DELETE /me` unable to finish at all. It sweeps by **uid and by address**, because since
+#120 an activation token is issued before its account exists and carries `uid: null` — a
+uid query alone cannot see the tokens of anyone who signed up and never activated.
 
 The document ID **is** the hash, so nothing here can be turned back into a link, and there
 is no index from an account to a usable token. Account deletion takes them all — the
@@ -688,7 +692,9 @@ soft-deleted entries still inside their 30-day window**. That is a deliberate di
 from event retention above, not a conflict with it: deleting one entry is an edit someone
 may want to undo, deleting an account is a decision about all of it, and a recovery window
 inside an account that no longer exists is a promise to nobody. Nothing else is keyed to a
-uid except `authTokens/` (#6), which goes with it; `refdata/` is global, and the `/auth/*`
+uid except `authTokens/` (#6), which goes with it — by address as well as by uid, since a
+token issued before its account existed has no uid to be found by (#120), and the address
+is the sensitive thing those documents hold. `refdata/` is global, and the `/auth/*`
 throttle's counters are in memory and keyed by address and IP rather than by account.
 
 The order is the design, because a partial failure has to be safe *and* resumable:

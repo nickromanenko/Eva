@@ -215,6 +215,31 @@ export const markUserDeleted = async (uid: string): Promise<boolean> => {
   }
 }
 
+/**
+ * The address on a document that is on its way out, tombstone or not — the one thing a
+ * delete still needs to read after `markUserDeleted` has made every ordinary accessor
+ * answer `null`.
+ *
+ * It exists for the `authTokens/` sweep (#8). That sweep was keyed on uid alone, which was
+ * complete while every token carried one; since #120 an activation token is issued *before*
+ * its account exists and carries `uid: null`, so a uid query cannot see it and `DELETE /me`
+ * left the documents holding the user's address behind. The TTL policy on `expiresAt` reaps
+ * them within a day, but "immediate and complete" is what ARCHITECTURE promises, and a day
+ * is not immediate.
+ *
+ * Read from the raw snapshot rather than through `getUser`, deliberately: by the time the
+ * sweep runs the tombstone is already set, and every accessor that respects it — which is
+ * all of them, correctly — answers `null`. `null` here means no document at all, which is a
+ * resumed delete that already got past `deleteUserDocument`, and there is nothing left to
+ * sweep by then.
+ */
+export const addressOfDeletedUser = async (uid: string): Promise<string | null> => {
+  const snapshot = await users().doc(uid).get()
+  if (!snapshot.exists) return null
+  const email = snapshot.data()!.email
+  return typeof email === 'string' ? email : null
+}
+
 /** Removes the tombstone — the last step of a delete, and only ever after the Firebase
  *  Auth user and the events are gone. Deleting a document that is not there succeeds, so
  *  a resumed delete ends here quietly rather than erroring. */

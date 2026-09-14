@@ -21,9 +21,16 @@ const BASE = process.env.EVA_API_URL ?? "http://localhost:3003";
 const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
 const password = "correct-horse-8";
 const createdUids: string[] = [];
+/** Every address this file signed up, so the token sweep below can find what the uid sweep
+ *  cannot. Populated wherever an address is minted, not at the point of use. */
+const createdEmails: string[] = [email];
 
 /** A fresh address per case, for the ones that must not share the suite's account. */
-const address = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+const address = () => {
+    const value = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+    createdEmails.push(value);
+    return value;
+};
 
 /** Every `users/{uid}` holding this address — asked of Firestore, because "sign-up created
  *  nothing" is a claim about the database and not about a response body. */
@@ -63,7 +70,30 @@ interface ErrorResponse {
 const json = <T>(res: Response): Promise<T> => res.json() as Promise<T>;
 
 afterAll(async () => {
+    // **By address, and that half is not redundant.** This file does most of the suite's
+    // sign-ups, and since #120 a sign-up issues its activation token *before* any account
+    // exists — `uid: null`. The uid loop below cannot match those, so a clean full run was
+    // leaving dozens of `authTokens/` rows behind, each holding an address. The TTL policy on
+    // `expiresAt` reaps them within a day, so this is hygiene rather than accumulation, but
+    // ARCHITECTURE §3 makes the address the sensitive artefact in that collection and a day
+    // is not the promise.
+    for (const value of createdEmails) {
+        const byEmail = await firestore
+            .collection("authTokens")
+            .where("email", "==", value)
+            .get()
+            .catch(() => null);
+        if (byEmail) {
+            await Promise.all(byEmail.docs.map((d) => d.ref.delete().catch(() => {})));
+        }
+    }
     for (const uid of createdUids) {
+        const byUid = await firestore
+            .collection("authTokens")
+            .where("uid", "==", uid)
+            .get()
+            .catch(() => null);
+        if (byUid) await Promise.all(byUid.docs.map((d) => d.ref.delete().catch(() => {})));
         await adminAuth.deleteUser(uid).catch(() => {});
         await firestore
             .collection("users")

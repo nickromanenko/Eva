@@ -394,7 +394,8 @@ export const findAuthUidByEmail = async (email: string): Promise<string | null> 
 }
 
 /**
- * Creates the Firebase Auth account for an address that has **just been proven** (#120).
+ * Creates the Firebase Auth account, with its password, for an address that has **just been
+ * proven** (#120).
  *
  * *Why this exists at all.* Sign-up used to call `signUpWithPassword`, which created the
  * account and its password before anyone had proved the address. That reserved the address
@@ -408,18 +409,27 @@ export const findAuthUidByEmail = async (email: string): Promise<string | null> 
  * link proves the address, the form supplies the password — so there is no window in which a
  * credential exists on an address nobody has confirmed.
  *
- * `emailVerified` is set here, unlike at the old activation: the caller proved the address
- * *and* chose the password, which is exactly the condition `markCredentialsProven` documents
- * as making it safe. Firebase's merge-wipe has nothing left to protect anyone from.
+ * **`emailVerified` is deliberately not set here**, and the route calls
+ * `markCredentialsProven` at the very end instead. Not because the flag is unearned — this
+ * caller proved the address *and* chose the password, which is exactly the condition
+ * `markCredentialsProven` documents as making it safe. Because of *when*. `emailVerified` is
+ * what turns off `claimUnprovenAccount`'s address test, and `activatedAt` is what turns off
+ * the claim itself; any gap in which the first is set and the second is not is the one
+ * combination that claims unconditionally. Setting it at creation and stamping `activatedAt`
+ * three calls later opened that gap on every single sign-up. See the ordering comment in the
+ * route.
  *
  * Throws `email-exists` if the address was taken between the caller's sign-up and their
  * click — by someone calling Identity Toolkit directly, which the public web API key allows
  * and which Eva cannot prevent. The route turns that into a claim rather than a failure; see
  * there.
  */
-export const createProvenAccount = async (email: string, password: string): Promise<string> => {
+export const createAccountWithPassword = async (
+  email: string,
+  password: string,
+): Promise<string> => {
   try {
-    const user = await adminAuth.createUser({ email, password, emailVerified: true })
+    const user = await adminAuth.createUser({ email, password })
     return user.uid
   } catch (err) {
     const code = (err as { code?: string }).code ?? ''

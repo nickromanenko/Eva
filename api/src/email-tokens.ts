@@ -132,10 +132,33 @@ export const consumeToken = async (
  *  and for the same reason. */
 const DELETE_BATCH = 400
 
+const deleteMatching = async (
+  query: FirebaseFirestore.Query,
+): Promise<void> => {
+  for (;;) {
+    const owned = await query.limit(DELETE_BATCH).get()
+    if (owned.empty) return
+    const batch = firestore.batch()
+    for (const doc of owned.docs) batch.delete(doc.ref)
+    await batch.commit()
+  }
+}
+
 /**
- * Removes every token of `uid`, used or not — part of account deletion (#8), because a
- * token document carries the account's address and a deleted account keeps nothing.
- * Deleting nothing succeeds, so a resumed delete passes through here quietly.
+ * Removes every token belonging to an account, used or not — part of account deletion
+ * (#8), because a token document carries the account's address and a deleted account keeps
+ * nothing. Deleting nothing succeeds, so a resumed delete passes through here quietly.
+ *
+ * **Both keys, and that is not belt-and-braces.** A uid query alone was complete while every
+ * token carried one. Since #120 an activation token is issued *before* its account exists
+ * and stores `uid: null`, so a uid query cannot see it — a sign-up and every Resend after it
+ * survived `DELETE /me` and kept the user's address in `authTokens/` until the TTL policy
+ * reaped them. The address is the other half of what identifies them, and it is the half the
+ * new shape has.
+ *
+ * `address` is nullable because the delete route can only learn it from the document it is
+ * about to remove, and a resumed delete that already passed that step has nothing left to
+ * sweep by.
  *
  * A batch at a time, re-querying rather than paging a cursor, exactly as
  * `deleteAllUserEvents` does. Nothing bounds how many tokens an account can accumulate —
@@ -144,12 +167,10 @@ const DELETE_BATCH = 400
  * tombstone would stay, every retry would fail the same way, and the documents holding
  * the address would survive. An unbounded collection needs an unbounded delete.
  */
-export const deleteTokensForUid = async (uid: string): Promise<void> => {
-  for (;;) {
-    const owned = await tokens().where('uid', '==', uid).limit(DELETE_BATCH).get()
-    if (owned.empty) return
-    const batch = firestore.batch()
-    for (const doc of owned.docs) batch.delete(doc.ref)
-    await batch.commit()
-  }
+export const deleteTokensForAccount = async (
+  uid: string,
+  address: string | null,
+): Promise<void> => {
+  await deleteMatching(tokens().where('uid', '==', uid))
+  if (address !== null) await deleteMatching(tokens().where('email', '==', address))
 }
