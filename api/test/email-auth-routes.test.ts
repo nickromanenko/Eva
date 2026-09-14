@@ -680,6 +680,12 @@ describe("proving the address takes back what was attached while it was not", ()
         expect(res.status).toBe(200);
 
         expect(await providers(uid)).toEqual(["password"]);
+        // And the credentials are marked proven on **this** branch too — the account was
+        // never activated before now. Gating `markCredentialsProven` on `user.activated`
+        // passed every other test, and would leave exactly the person this route exists to
+        // rescue at `emailVerified: false`: Firebase's merge-wipe stays armed, so their next
+        // Apple or Google sign-in silently destroys the password they just chose.
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
     });
 
     test("a provider linked deliberately survives a later password reset", async () => {
