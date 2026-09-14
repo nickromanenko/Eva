@@ -629,7 +629,14 @@ app.post("/auth/activation/resend", async (c) => {
         const uid = await findAuthUidByEmail(email);
         if (!uid) return;
         const user = await getUser(uid);
-        if (user && !isActivated(user)) await sendActivationLink(uid, user.email);
+        // Delivered to `email` — the address this account was *looked up by* — and never
+        // to `user.email`. Those are not the same fact. The lookup is `getUserByEmail`
+        // against Firebase Auth; `users/{uid}.email` is written once at creation and
+        // `ensureUser` never rewrites it. An idToken holder can move their own Auth address
+        // with `accounts:update` (the web API key is public), so the two can be made to
+        // disagree — and whoever did it owns the document's stale copy. Sending there mails
+        // a live link for the victim's address to the attacker.
+        if (user && !isActivated(user)) await sendActivationLink(uid, email);
     });
     return c.json({ sent: true });
 });
@@ -647,7 +654,12 @@ app.post("/auth/password/forgot", async (c) => {
         // Activated or not: a reset proves control of the address as surely as the
         // activation link does, and the reset route stamps the account accordingly.
         const user = await getUser(uid);
-        if (user) await sendResetLink(uid, user.email);
+        // `email`, not `user.email` — see the resend route above. This one is worse: the
+        // reset route sets a password, stamps the account and calls `markCredentialsProven`,
+        // so a link delivered to the wrong address hands over a password *and* an
+        // `emailVerified` account at the victim's address, which disarms the merge-wipe that
+        // would otherwise have evicted the attacker on the victim's next provider sign-in.
+        if (user) await sendResetLink(uid, email);
     });
     return c.json({ sent: true });
 });

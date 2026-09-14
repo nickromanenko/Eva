@@ -523,6 +523,66 @@ describe("a second factor is not a session", () => {
     });
 });
 
+describe("a link goes to the address the account was looked up by", () => {
+    /**
+     * The divergence: `findAuthUidByEmail` asks **Firebase Auth**, while
+     * `users/{uid}.email` is written once at creation and `ensureUser` never rewrites it.
+     * An idToken holder can move their own Auth address with `accounts:update` — the web
+     * API key is public — so the two can be made to disagree, and the person who can do it
+     * owns the document's stale copy.
+     *
+     * Sending to `user.email` therefore mailed a live link **for the victim's address** to
+     * the attacker. On the reset route that is a full takeover: the link sets a password,
+     * stamps the account, and calls `markCredentialsProven`, which disarms the merge-wipe
+     * that would otherwise have evicted them when the victim later signed in with Google.
+     * It also denies the victim recovery for good — every later forgot-password for their
+     * address would deliver to the attacker too.
+     *
+     * Asserted on the **token document** rather than on the mail. `sendResetLink` passes one
+     * address to both `issueToken` and the sender, so `authTokens/{hash}.email` is a
+     * faithful record of where the link went — and unlike a console spy it is observable
+     * from here, which drives the API in a separate process.
+     */
+    const issuedFor = async (uid: string, kind: string): Promise<string[]> => {
+        const snap = await firestore
+            .collection("authTokens")
+            .where("uid", "==", uid)
+            .where("kind", "==", kind)
+            .get();
+        return snap.docs.map((d) => d.get("email") as string);
+    };
+
+    /** An account whose Auth address has been moved off the one its document records. */
+    const diverged = async (): Promise<{ uid: string; attacker: string; victim: string }> => {
+        const attacker = address();
+        const victim = address();
+        const uid = await createUnactivatedAccount(attacker, PASSWORD);
+        createdUids.push(uid);
+        await adminAuth.updateUser(uid, { email: victim, emailVerified: false });
+        expect((await adminAuth.getUser(uid)).email).toBe(victim);
+        expect((await userDoc(uid).get()).get("email")).toBe(attacker);
+        return { uid, attacker, victim };
+    };
+
+    test("a reset link is issued for the Auth address, not the document's stale copy", async () => {
+        const { uid, attacker, victim } = await diverged();
+
+        expect((await post("/auth/password/forgot", { email: victim })).status).toBe(200);
+
+        expect(await issuedFor(uid, "reset")).toEqual([victim]);
+        expect(await issuedFor(uid, "reset")).not.toContain(attacker);
+    });
+
+    test("an activation link is too", async () => {
+        const { uid, attacker, victim } = await diverged();
+
+        expect((await post("/auth/activation/resend", { email: victim })).status).toBe(200);
+
+        expect(await issuedFor(uid, "activation")).toEqual([victim]);
+        expect(await issuedFor(uid, "activation")).not.toContain(attacker);
+    });
+});
+
 describe("proving the address takes back what was attached while it was not", () => {
     /**
      * The takeover that survived two rounds of fixing `/auth/idp`, by waiting.
