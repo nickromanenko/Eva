@@ -71,7 +71,15 @@ const server = Bun.serve({
       // and the simulator cannot reach the web form that would normally supply it.
       body: JSON.stringify({ token, password }),
     })
-    if (!activated.ok) return json({ error: `activate answered ${activated.status}` }, 502)
+    if (!activated.ok) {
+      const detail = await activated.text().catch(() => '')
+      console.error(`[uitest-mailbox] activate ${activated.status} for ${email}: ${detail}`)
+      return json({ error: `activate answered ${activated.status}` }, 502)
+    }
+    // The password is a fixture, not a credential, and this process only ever accepts
+    // `e2e+*@e2e.evaapp.dev`. Printed because "sign-in failed" and "sign-in failed with
+    // *this* password" are different amounts of information.
+    console.log(`[uitest-mailbox] activated ${email} with password ${password}`)
     return json({ activated: true })
   },
 })

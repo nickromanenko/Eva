@@ -176,15 +176,32 @@ class EvaUITestCase: XCTestCase {
             "Could not reach the log-in screen",
             file: file, line: line
         )
-        type(email, into: app.textFields["login.email"], in: app)
+        // Cleared first: `OnboardingModel` is shared across these screens, so the log-in
+        // field arrives carrying whatever sign-up put there. `type` appends, which would
+        // silently make the address wrong and the failure look like a bad password.
+        clearAndType(email, into: app.textFields["login.email"], in: app)
         revealAndTypePassword(password, prefix: "login", in: app)
         tap(app.buttons["primary.Log in"], in: app)
 
+        let failure = app.staticTexts["login.error"]
         XCTAssertFalse(
-            app.staticTexts["login.error"].waitForExistence(timeout: 8),
-            "Signing in after activation failed for \(email)",
+            failure.waitForExistence(timeout: 8),
+            // The label, not just the fact: "wrong password" and "confirm your email
+            // first" are different bugs, and a bare failure cannot tell them apart.
+            "Signing in after activation failed for \(email): \(failure.exists ? failure.label : "no error shown")",
             file: file, line: line
         )
+    }
+
+    /// Taps a field, empties it, then types. XCUITest has no clear, so this deletes as many
+    /// characters as the field currently reports.
+    func clearAndType(_ text: String, into element: XCUIElement, in app: XCUIApplication) {
+        tap(element, in: app)
+        let existing = (element.value as? String) ?? ""
+        if !existing.isEmpty {
+            element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
+        }
+        element.typeText(text)
     }
 
     @discardableResult

@@ -166,13 +166,11 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         let app = launch()
         let email = Self.freshEmail()
 
-        // No activation needed: the address is taken the moment the account exists.
-        fillSignUpForm(app, email: email)
-        tap(app.buttons["primary.Create account"], in: app)
-        XCTAssertTrue(
-            app.staticTexts["Check your inbox"].waitForExistence(timeout: 15),
-            "Could not create the account this test then duplicates"
-        )
+        // **Activation is needed now** (#120). Signing up creates no account, and an
+        // address whose only claim is an unspent link is not taken — anyone may still
+        // complete it, which is the denial-of-service half #120 closes. `409` means an
+        // address with an *activated* owner, so the account has to be finished first.
+        signUpAndActivate(app, email: email)
 
         app.terminate()
         launch(app)
@@ -222,7 +220,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
     /// Then the same screen is driven the rest of the way: activate out of band, come
     /// back to the foreground, and the account is through — without anything touching the
     /// app to tell it so.
-    func testAnUnconfirmedAccountIsSentToTheActivationGateRatherThanFailingLogIn() throws {
+    func testSignUpLandsOnTheActivationGateWithResendOnCooldown() throws {
         let app = launch()
         let email = Self.freshEmail()
 
@@ -240,20 +238,17 @@ final class OnboardingSignUpUITests: EvaUITestCase {
             "Resend was available immediately after sign-up sent an email"
         )
 
-        // Start over as a returning user who never opened the link.
-        app.terminate()
-        launch(app)
-
-        tap(app.buttons["text.Log in"], in: app)
-        XCTAssertTrue(app.staticTexts["Welcome back"].waitForExistence(timeout: 5))
-        type(email, into: app.textFields["login.email"], in: app)
-        revealAndTypePassword(Self.password, prefix: "login", in: app)
-        tap(app.buttons["primary.Log in"], in: app)
-
-        XCTAssertTrue(
-            app.staticTexts["Check your inbox first"].waitForExistence(timeout: 15),
-            "A correct password on an unconfirmed account did not reach the activation gate"
-        )
+        // The rest of this case cannot be reached through the app any more (#120): an
+        // account that never opened its link has no password, so there is nothing to type
+        // on the log-in screen and no way to meet the `403 NOT_ACTIVATED` gate from here.
+        //
+        // The gate is not gone — it still guards accounts predating #120 and addresses
+        // reserved by calling Identity Toolkit directly — and it is covered where those
+        // shapes can actually be built: `api/test/auth.test.ts`, "signin is refused until
+        // the address is confirmed", which stands one up with the Admin SDK.
+        //
+        // What is still worth checking here is the half above: sign-up lands on the gate
+        // screen with Resend on cooldown.
         XCTAssertFalse(
             app.staticTexts["login.error"].exists,
             "The activation gate was shown as a log-in field error as well"
@@ -390,10 +385,11 @@ final class OnboardingSignUpUITests: EvaUITestCase {
 
         // Blur by tapping the CTA's neighbourhood rather than a second field — there is
         // only one field now.
-        // Blur without leaving the screen: tapping the CTA is a no-op while it is disabled,
-        // and there is no second field to move focus to any more.
+        // Blur without leaving the screen. Tapping the CTA does nothing while it is
+        // disabled, and there is no second field to move focus to any more — so the
+        // keyboard's Go key is what ends editing.
         type("not-an-email", into: app.textFields["signup.email"], in: app)
-        tap(submit, in: app)
+        app.textFields["signup.email"].typeText("\n")
 
         let emailError = app.staticTexts["signup.email.error"]
         XCTAssertTrue(
