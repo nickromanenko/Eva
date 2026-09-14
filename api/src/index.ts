@@ -629,7 +629,14 @@ app.post("/auth/activation/resend", async (c) => {
         const uid = await findAuthUidByEmail(email);
         if (!uid) return;
         const user = await getUser(uid);
-        if (user && !isActivated(user)) await sendActivationLink(uid, user.email);
+        // Delivered to `email` — the address this account was *looked up by* — and never
+        // to `user.email`. Those are not the same fact. The lookup is `getUserByEmail`
+        // against Firebase Auth; `users/{uid}.email` is written once at creation and
+        // `ensureUser` never rewrites it. An idToken holder can move their own Auth address
+        // with `accounts:update` (the web API key is public), so the two can be made to
+        // disagree — and whoever did it owns the document's stale copy. Sending there mails
+        // a live link for the victim's address to the attacker.
+        if (user && !isActivated(user)) await sendActivationLink(uid, email);
     });
     return c.json({ sent: true });
 });
@@ -647,7 +654,12 @@ app.post("/auth/password/forgot", async (c) => {
         // Activated or not: a reset proves control of the address as surely as the
         // activation link does, and the reset route stamps the account accordingly.
         const user = await getUser(uid);
-        if (user) await sendResetLink(uid, user.email);
+        // `email`, not `user.email` — see the resend route above. This one is worse: the
+        // reset route sets a password, stamps the account and calls `markCredentialsProven`,
+        // so a link delivered to the wrong address hands over a password *and* an
+        // `emailVerified` account at the victim's address, which disarms the merge-wipe that
+        // would otherwise have evicted the attacker on the victim's next provider sign-in.
+        if (user) await sendResetLink(uid, email);
     });
     return c.json({ sent: true });
 });
@@ -859,6 +871,28 @@ const throttleProvider = (c: Context, route: ProviderRoute) => {
 const PROVIDER_REJECTED = "That sign-in couldn't be completed. Please try again.";
 
 /**
+ * The operator's half of a refused provider sign-in.
+ *
+ * `PROVIDER_REJECTED` is one message for five different refusals, on purpose — the caller's
+ * recovery is identical for all of them and telling them apart would say whether an address
+ * has an account (GUARDRAILS 12b). But nothing wrote a log line either, so *nobody* could
+ * tell them apart, including us. The first real Apple sign-in on a device failed with that
+ * message and there was no way to learn whether Firebase had refused the token, the claim
+ * had refused the account, or the account was mid-delete.
+ *
+ * `stage` closes that, and carries nothing else: no address, no uid, no provider reason
+ * string, no token. It says *which branch*, not *who*.
+ */
+const refuseProvider = (
+    c: Context,
+    route: ProviderRoute,
+    stage: "credential" | "upstream" | "deleted" | "claim" | "deleted-race",
+) => {
+    console.error(JSON.stringify({ event: "provider_signin_refused", route, stage }));
+    return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+};
+
+/**
  * Maps both upstream boundaries — Firebase's and the provider's own — onto the contract,
  * by the rule ARCHITECTURE §3 already states for Identity Toolkit: **the status decides
  * before the reason does**, and the reason string reaches no body, header, or log line.
@@ -882,11 +916,11 @@ const providerFailure = (c: Context, route: ProviderRoute, err: unknown) => {
                 409,
             );
         }
-        return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+        return refuseProvider(c, route, "credential");
     }
     if (err instanceof ProviderError) {
         if (err.kind === "rejected") {
-            return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+            return refuseProvider(c, route, "upstream");
         }
         // The operator's signal, and separable from `identity_toolkit_unavailable` because
         // it is a different upstream with a different fix. `kind` distinguishes an outage
@@ -935,7 +969,7 @@ app.post("/auth/idp", async (c) => {
         // that is exactly why this must not mint a token, or a provider sign-in would walk
         // an account back out of its own deletion.
         if (existing.deleted) {
-            return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+            return refuseProvider(c, "idp", "deleted");
         }
         // An unactivated account is one nobody has proven they own, and #6 creates it
         // before the address is confirmed — so every credential already on it was attached
@@ -965,14 +999,14 @@ app.post("/auth/idp", async (c) => {
             // stamping the account on the attacker's behalf — which is the step that would
             // disarm the claim for the real owner's later sign-in.
             if (outcome === "refused") {
-                return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+                return refuseProvider(c, "idp", "claim");
             }
         }
         // Only now, once the credential has earned the account. The second tombstone check
         // is `ensureUser`'s own, and closes the window between the read above and this
         // write: a `DELETE /me` landing in between must still win.
         const user = await ensureUser(localId, email, PROVIDER_IDS[parsed.value.provider]);
-        if (!user) return c.json(error("INVALID_CREDENTIALS", PROVIDER_REJECTED), 401);
+        if (!user) return refuseProvider(c, "idp", "deleted-race");
         // The claim above has already taken the account, so there is nothing left to
         // retract — and `proveAddress` must not run here: a provider sign-in would unlink
         // the very identity that just signed in.

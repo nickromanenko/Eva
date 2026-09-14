@@ -1075,6 +1075,56 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
     );
 
     test(
+        "each refusal is one message to the caller and a distinct stage in the log",
+        async () => {
+            // Five branches answer `PROVIDER_REJECTED`, and that is deliberate — the
+            // caller's recovery is the same for all of them and telling them apart would
+            // say whether an address has an account. But none of them logged, so nobody
+            // could tell them apart either: the first real Apple sign-in on a device failed
+            // with that message and there was no way to learn whether Firebase had refused
+            // the token or the claim had refused the account.
+            const logged: string[] = [];
+            const spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+                logged.push(args.map(String).join(" "));
+            });
+
+            let credential: Answer;
+            let claim: Answer;
+            try {
+                // Firebase refuses the credential.
+                idp = () => {
+                    throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
+                };
+                credential = await post("/auth/idp", appleBody());
+
+                // The claim refuses the account: a provider whose address is not the
+                // account's, on one nobody has proved.
+                const victimEmail = newEmail();
+                const uid = await trackedUnactivatedAccount(victimEmail);
+                await attachProvider(uid, PROVIDER_IDS.apple, newEmail());
+                idp = () => ({ localId: uid, email: victimEmail });
+                claim = await post("/auth/idp", appleBody());
+            } finally {
+                spy.mockRestore();
+            }
+
+            // Identical to the caller, byte for byte.
+            expect(credential.status).toBe(401);
+            expect(claim.status).toBe(401);
+            expect(credential.text).toBe(claim.text);
+
+            // Distinguishable to an operator, and carrying nothing else.
+            const line = logged.join(" ");
+            expect(line).toContain('"stage":"credential"');
+            expect(line).toContain('"stage":"claim"');
+            expect(line).not.toContain("INVALID_IDP_RESPONSE");
+            expect(line).not.toContain(RAW_NONCE);
+            expect(line).not.toContain(IDENTITY_TOKEN);
+        },
+        SLOW,
+    );
+
+    test(
         "the same refusal says nothing about whether the address is registered",
         async () => {
             // GUARDRAILS 12b. The 401 above must be indistinguishable from the 401 for a
