@@ -106,8 +106,12 @@ final class OnboardingModel {
         password.count >= 8 && password.contains(where: \.isNumber)
     }
 
+    /// What enables the sign-up CTA. **The address alone** (#120): sign-up sends nothing
+    /// else, because a credential set before the address is proven is the hole that issue
+    /// closes. `isPasswordValid` still guards the log-in and reset forms, where a password
+    /// is actually typed.
     var isEmailFormValid: Bool {
-        isEmailValid && isPasswordValid
+        isEmailValid
     }
 
     /// Questionnaire answers as the API payload.

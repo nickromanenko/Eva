@@ -162,7 +162,15 @@ class EvaUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        tap(app.buttons["text.Log in"], in: app)
+        // From wherever the caller is. After `signUpAndActivate` that is the activation
+        // gate, whose way out is "Change email" back to sign-up; from sign-up it is the
+        // "Log in" cross-link. Both are tried because the two callers arrive differently.
+        if app.buttons["text.Change email"].waitForExistence(timeout: 3) {
+            tap(app.buttons["text.Change email"], in: app)
+        }
+        if app.buttons["text.Log in"].waitForExistence(timeout: 5) {
+            tap(app.buttons["text.Log in"], in: app)
+        }
         XCTAssertTrue(
             app.staticTexts["Welcome back"].waitForExistence(timeout: 10),
             "Could not reach the log-in screen",

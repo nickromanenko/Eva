@@ -21,7 +21,8 @@ import XCTest
 final class OnboardingSignUpUITests: EvaUITestCase {
 
     /// The rule the password field states as helper text, verbatim from
-    /// `CreateAccountStepView.passwordRule`. Duplicated rather than shared because a UI
+    /// The password the log-in cases type. The sign-up screen has no password field since
+    /// #120 — the rule it used to state lives on the activation page. Duplicated because a UI
     /// test cannot import the app target — which is the point: if the screen's wording
     /// changes, this suite should have to notice.
     private static let passwordRule = "At least 8 characters, including one number."
@@ -189,23 +190,13 @@ final class OnboardingSignUpUITests: EvaUITestCase {
             "signup.error carried something other than EMAIL_EXISTS: \(error.label)"
         )
 
-        // The other half of the split. The password rule is a separate element and stays
-        // exactly as it was: a server error must not displace it, and must not be routed
-        // onto it. Asserted here as well as in the validation test because the defect the
-        // split fixed was one of these two masking the other — a check that cannot tell
-        // them apart would not catch it in either direction.
-        let passwordRule = app.staticTexts["signup.password.rule"]
-        XCTAssertTrue(
-            passwordRule.exists,
-            "The password rule disappeared when the server error arrived"
-        )
-        XCTAssertTrue(
-            passwordRule.label.contains("8 characters"),
-            "signup.password.rule carried the server error instead of the rule: \(passwordRule.label)"
-        )
+        // The split this used to guard is gone with the field (#120): there is no
+        // client-side rule on this screen to be masked by a server error, because there is
+        // no password on this screen. What remains worth asserting is that the server error
+        // is the *only* thing in the slot.
         XCTAssertFalse(
             error.label.contains("8 characters"),
-            "signup.error carried the client-side rule: \(error.label)"
+            "signup.error carried a password rule that this screen no longer states: \(error.label)"
         )
 
         XCTAssertFalse(
@@ -381,97 +372,41 @@ final class OnboardingSignUpUITests: EvaUITestCase {
 
     // MARK: - Validation
 
-    /// The sign-up screen's own gate, with no network involved.
-    ///
-    /// Both fields are only ever appended to, never cleared: a re-tap on a field puts
-    /// the caret wherever the tap landed, and past the end of a short string that is the
-    /// end — but only reliably so if nothing has to be deleted first.
-    ///
-    /// Validation runs on blur, so each assertion follows a tap that moves focus off the
+    /// Validation runs on blur, so the assertion follows a tap that moves focus off the
     /// field it is about.
-    func testSignUpRejectsABadEmailAndAPasswordWithoutADigit() throws {
+    ///
+    /// **The password half of this test is gone, not lost** (#120). The sign-up screen has
+    /// no password field: sending a credential for an address nobody has proved is the hole
+    /// that issue closes, so the password is chosen on the activation page instead. The rule
+    /// and its unmet/met announcement live in `website/src/pages/activate.astro`, which a
+    /// simulator cannot reach — `api/test/auth.test.ts` pins the server's WEAK_PASSWORD
+    /// message against that page's helper text, which is the part that could silently drift.
+    func testSignUpRejectsABadEmail() throws {
         let app = launch()
 
         let submit = app.buttons["primary.Create account"]
         XCTAssertTrue(submit.waitForExistence(timeout: 15))
         XCTAssertFalse(submit.isEnabled, "The CTA is enabled on an empty form")
 
-        // Bad email. The error appears when focus moves to the password field.
+        // Blur by tapping the CTA's neighbourhood rather than a second field — there is
+        // only one field now.
+        // Blur without leaving the screen: tapping the CTA is a no-op while it is disabled,
+        // and there is no second field to move focus to any more.
         type("not-an-email", into: app.textFields["signup.email"], in: app)
-        revealAndTypePassword("evaprimeee", prefix: "signup", in: app)
+        tap(submit, in: app)
 
         let emailError = app.staticTexts["signup.email.error"]
         XCTAssertTrue(
-            emailError.waitForExistence(timeout: 3),
+            emailError.waitForExistence(timeout: 5),
             "An address with no @ blurred without showing the email error"
         )
+        XCTAssertFalse(submit.isEnabled, "The CTA is enabled for an invalid address")
 
-        // Eight characters is not enough on its own — the screen states a digit too.
-        // Blur the password by going back to the email field.
-        tap(app.textFields["signup.email"], in: app)
-
-        // The rule is **helper text**, on `signup.password.rule`, and it is drawn in
-        // every state — so its presence is not the assertion. Two things are.
-        //
-        // First, the state. The element keeps one identifier and changes its *label*:
-        // unmet reads "Not met yet: …", met reads the bare rule. Before that the state
-        // was the ink and a decorative `!` alone, so nothing — no test and no screen
-        // reader — could tell the two apart.
-        //
-        // Second, the split. The rule does not reach `signup.error`, which now carries
-        // server failures only. Those two shared one identifier until this branch split
-        // them, and a showing rule occupied the slot a submission error needed.
-        let passwordRule = app.staticTexts["signup.password.rule"]
+        // A valid address is all the form needs now.
+        type("@e2e.evaapp.dev", into: app.textFields["signup.email"], in: app)
         XCTAssertTrue(
-            passwordRule.waitForExistence(timeout: 3),
-            "The password field has no helper rule at all"
-        )
-        XCTAssertEqual(
-            passwordRule.label, "Not met yet: \(Self.passwordRule)",
-            "An unmet rule does not announce itself as unmet: \(passwordRule.label)"
-        )
-        XCTAssertFalse(
-            app.staticTexts["signup.error"].exists,
-            "An unmet client-side rule reached signup.error, which is for server failures only — the two identifiers are wired together again"
-        )
-
-        // The `!` beside it is decoration and must stay out of the accessibility tree —
-        // otherwise VoiceOver reads a bare symbol name before the sentence that already
-        // says it. Both marks on screen right now (this one and the email error's) are
-        // hidden, so the symbol must not appear as an element at all.
-        XCTAssertFalse(
-            app.images["exclamationmark.circle.fill"].exists,
-            "The decorative `!` mark is exposed to VoiceOver; it should be accessibilityHidden"
-        )
-        XCTAssertFalse(
             submit.isEnabled,
-            "The CTA enabled itself for a bad email and a password with no digit"
-        )
-
-        // Fix both, in place. The caret is already at the end of each field.
-        app.textFields["signup.email"].typeText("@e2e.evaapp.dev")
-        tap(app.textFields["signup.password"], in: app)   // blurs the email
-        app.textFields["signup.password"].typeText("1")
-        tap(app.textFields["signup.email"], in: app)      // blurs the password
-
-        XCTAssertTrue(submit.isEnabled, "The CTA stayed disabled for a valid email and password")
-        XCTAssertFalse(emailError.exists, "The email error survived a valid address")
-        // The rule does not disappear once it is met — it is helper text, stated up
-        // front, and the artboard keeps it on the screen in both states. What changes is
-        // the label: the "Not met yet:" prefix comes off, leaving the bare rule. Asserted
-        // as equality in both directions, so a label stuck in either state fails.
-        XCTAssertTrue(passwordRule.exists, "The password rule vanished once it was met")
-        XCTAssertEqual(
-            passwordRule.label, Self.passwordRule,
-            "A met rule still announces itself as unmet: \(passwordRule.label)"
-        )
-        XCTAssertFalse(
-            app.images["exclamationmark.circle.fill"].exists,
-            "A mark is exposed to VoiceOver with nothing on the form in error"
-        )
-        XCTAssertFalse(
-            app.staticTexts["signup.error"].exists,
-            "A server-error element appeared with no submission behind it"
+            "A valid address did not enable the CTA — sign-up asks for nothing else"
         )
     }
 
