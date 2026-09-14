@@ -172,5 +172,10 @@ export const deleteTokensForAccount = async (
   address: string | null,
 ): Promise<void> => {
   await deleteMatching(tokens().where('uid', '==', uid))
-  if (address !== null) await deleteMatching(tokens().where('email', '==', address))
+  // Scoped to `uid: null`, which is the only shape a uid query cannot reach. Without it this
+  // is an address-keyed delete over the whole collection, and an address is not a strong
+  // enough key to own other people's documents by.
+  if (address !== null) {
+    await deleteMatching(tokens().where('email', '==', address).where('uid', '==', null))
+  }
 }

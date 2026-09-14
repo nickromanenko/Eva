@@ -18,6 +18,7 @@ import {
 import {
     IdentityToolkitError,
     PROVIDER_IDS,
+    addressOfAuthAccount,
     deleteAuthAccount,
     findAuthUidByEmail,
     idTokenForUid,
@@ -59,7 +60,6 @@ import {
     getUser,
     isActivated,
     markActivated,
-    addressOfDeletedUser,
     markUserDeleted,
     readUser,
     saveQuestionnaire,
@@ -163,12 +163,18 @@ const normalizeEmail = (email: unknown): string | null => {
 };
 
 /**
- * The password rule, stated exactly as the sign-up screen states it —
- * `passwordRule` in mobile/Eva/Onboarding/Steps/CreateAccountStepView.swift. The user
- * must never be told two different rules, so this string is the rejection message
- * verbatim, and test/auth.test.ts reads the Swift file to pin the two together.
+ * The password rule, stated exactly as the page that asks for a password states it —
+ * `passwordRule` in website/src/pages/activate.astro. The user must never be told two
+ * different rules, so this string is the rejection message verbatim, and test/auth.test.ts
+ * reads the Astro page to pin the two together.
  *
- * Creation only. Sign-in never applies it: accounts predating this rule keep working.
+ * **Not the iOS app.** Sign-up has no password field since #120 — the password is chosen on
+ * the activation page, where the link has just proved the address — so the Swift file this
+ * comment used to name no longer states a rule at all.
+ *
+ * Applied where a password is *set*: `/auth/activate` and `/auth/password/reset`, both
+ * before the token is spent. Sign-in never applies it: accounts predating this rule keep
+ * working.
  */
 const PASSWORD_RULE = "At least 8 characters, including one number.";
 
@@ -649,7 +655,21 @@ const activate = async (c: Context, raw: unknown, body: Record<string, unknown>)
     // unconditionally. Setting it after inverts the failure: an activated account whose
     // merge-wipe is still armed, costing its owner a password on some later provider
     // sign-in and recoverable through reset. That is the direction to fail in.
-    await markCredentialsProven(uid);
+    // **Not allowed to fail the request, now that it is last.** The account is activated and
+    // the password is set by this point and the token is spent, so throwing here would show
+    // the user an error for something that worked and page an operator for a link that did
+    // its job — the same outcome the `deleted` guard above exists to avoid. A concurrent
+    // `DELETE /me` is enough to cause it. What is lost by swallowing is Firebase's
+    // `emailVerified`, which leaves the merge-wipe armed: a later provider sign-in may cost
+    // this user their password, recoverable through reset. That is the direction to fail in,
+    // and it is the same trade the ordering above is chosen for.
+    try {
+        await markCredentialsProven(uid);
+    } catch {
+        // No uid, no address, no reason string (GUARDRAILS 12) — this says only that an
+        // account finished activation without its flag, which is what an operator needs.
+        console.log(JSON.stringify({ event: "credentials_unproven_after_activation" }));
+    }
     return c.json({ activated: true });
 };
 
@@ -1240,10 +1260,12 @@ app.delete("/me", requireAuth, async (c) => {
     }
     const appleAuthorizationCode = supplied ? (rawAppleCode as string) : null;
 
-    // Read before the tombstone makes every ordinary accessor answer `null`, and kept for
-    // the token sweep below — which since #120 cannot find an activation token by uid,
-    // because there was no uid when it was issued.
-    const address = await addressOfDeletedUser(sub);
+    // Read **from Firebase Auth**, and before `deleteAuthAccount` below removes it, for the
+    // token sweep — which since #120 cannot find an activation token by uid, because there
+    // was no uid when it was issued. Not from `users/{uid}.email`: that copy is written once
+    // at creation and can be left pointing at an address the account no longer holds (#121),
+    // and as a *delete* key a stale address wipes somebody else's live links.
+    const address = await addressOfAuthAccount(sub);
     await markUserDeleted(sub);
     // After the tombstone, so the account is already inert whatever Apple answers, and
     // before the Auth user goes, so the ordering below is untouched. Revocation is Apple's

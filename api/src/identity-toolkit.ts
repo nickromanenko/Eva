@@ -377,6 +377,36 @@ export const deleteAuthAccount = async (uid: string): Promise<void> => {
 }
 
 /**
+ * The address a uid's Auth account actually holds, or `null` if there is no such account.
+ *
+ * For the `authTokens/` sweep in `DELETE /me` (#8). That sweep needs an address as well as a
+ * uid, because a token issued before its account existed carries `uid: null` (#120) and a
+ * uid query cannot see it — but it is a **delete key**, so which copy of the address it uses
+ * decides whose documents go.
+ *
+ * Firebase Auth, never `users/{uid}.email`. The document's copy is written once at creation
+ * and `ensureUser` never rewrites it, while an idToken holder can move their own Auth
+ * address with `accounts:update` — the web API key is public. The routes that send links
+ * already refuse to trust that mirror for the same reason (#121); trusting it here is worse
+ * still, because it deletes rather than sends: an attacker who reserves an address, signs in
+ * once to have the document written, then moves their Auth address away, leaves a document
+ * permanently claiming a victim's address, and every `DELETE /me` on it would wipe the
+ * victim's live activation and reset tokens.
+ *
+ * `null` on a resumed delete whose Auth user is already gone. The caller skips the address
+ * half rather than guessing; the TTL policy on `expiresAt` is the backstop, and a stranded
+ * token is a far smaller thing than someone else's deleted one. Logs nothing.
+ */
+export const addressOfAuthAccount = async (uid: string): Promise<string | null> => {
+  try {
+    return (await adminAuth.getUser(uid)).email ?? null
+  } catch (err) {
+    if ((err as { code?: string }).code === USER_NOT_FOUND) return null
+    throw err
+  }
+}
+
+/**
  * The uid behind an address, or `null` when no Auth user holds it — the lookup behind
  * the two "send me a link" routes (#6). Those routes answer `200 { sent: true }` either
  * way, so the `null` never reaches a caller; it only decides whether there is anyone to
@@ -580,16 +610,25 @@ export const retractUnprovenIdentities = async (uid: string): Promise<void> => {
  *   wipe is what takes the attacker's password away at that moment. Nothing else does —
  *   Eva's own claim is already disarmed, because the account is activated.
  *
- * So this is called from the **reset** route and not from activation. A reset proves
- * address control *and* sets the password in the same request, so the credentials really
- * are the caller's and the wipe has nothing left to protect anyone from. Activation proves
- * only the address; there the wipe stays armed, and a legitimate user who loses a password
- * to it recovers through the same reset flow, which then marks them proven for good.
+ * Under #7 this was therefore called from the **reset** route and deliberately *not* from
+ * activation: a reset proved address control and set the password in the same request, so
+ * the credentials really were the caller's, while activation proved only the address — the
+ * password on the account could still be a pre-registering attacker's, and the wipe was the
+ * only thing that would ever take it away. Withholding a fact that is true, for the sake of
+ * a side effect, was unusual enough to be worth the paragraph.
  *
- * Withholding a fact that is true — the address *is* proven at activation — for the sake of
- * a side effect is unusual enough to be worth the paragraph. The alternative is Eva doing
- * the retraction itself, which means tracking whether each password was ever proven; that
- * is a `users/{uid}` field and a bigger decision than #7.
+ * **#120 removed the premise, and both routes call this now.** Sign-up creates no account
+ * and no credential; the only password an account can hold at activation is the one supplied
+ * in the request that spent the link, by whoever proved the address. So activation is now
+ * exactly as strong a claim as a reset, and the attack above has nowhere to start.
+ *
+ * What did *not* change is the ordering: this must run **after** `markActivated`, never
+ * before. `emailVerified` is what turns off `claimUnprovenAccount`'s address test and
+ * `activatedAt` is what turns off the claim itself, so an account carrying the first without
+ * the second is the one state that claims unconditionally. See the tail of `activate` in
+ * `index.ts`. (`/auth/password/reset` still calls it in the other order; the retraction it
+ * runs first makes the window unexploitable there, and straightening it out is its own
+ * issue rather than #120's.)
  */
 export const markCredentialsProven = async (uid: string): Promise<void> => {
   await adminAuth.updateUser(uid, { emailVerified: true })

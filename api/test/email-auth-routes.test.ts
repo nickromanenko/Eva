@@ -433,6 +433,40 @@ describe("an account that went away between the email and the click", () => {
 
         expect((await tokenDocs(uid)).size).toBe(0);
     });
+
+    test("including the ones issued before the account existed", async () => {
+        // **The half the uid sweep cannot reach, and the half that was broken.** The case
+        // above stands its account up with the Admin SDK and issues both tokens *with* a
+        // uid, so it stayed green the whole time `DELETE /me` was leaving every real
+        // sign-up's activation token behind — since #120 those are issued before any account
+        // exists and carry `uid: null`. This one goes through `POST /auth/signup`, which is
+        // the only way to produce that shape, and asks by address.
+        const pending = address();
+        createdEmails.push(pending);
+        expect((await post("/auth/signup", { email: pending })).status).toBe(201);
+        const issued = await tokenDocsByEmail(pending);
+        expect(issued.size).toBe(1);
+        expect(issued.docs[0]!.data().uid).toBeNull();
+
+        // Activate it so there is an account to delete, with a *second* pending-shaped token
+        // still unspent — a Resend before the delete, which is the ordinary case.
+        const token = await issueToken(null, pending, "activation");
+        expect((await activate(token)).status).toBe(200);
+        const uid = (await adminAuth.getUserByEmail(pending)).uid;
+        createdUids.push(uid);
+        await issueToken(null, pending, "activation");
+
+        const session = await signIn(BASE, pending, PASSWORD);
+        const res = await fetch(`${BASE}/me`, {
+            method: "DELETE",
+            headers: { authorization: `Bearer ${session}` },
+        });
+        expect(res.status).toBe(200);
+
+        // Nothing holding this address is left. Asked by address, because by uid is exactly
+        // the question that could not see them.
+        expect((await tokenDocsByEmail(pending)).size).toBe(0);
+    });
 });
 
 describe("POST /auth/password/reset", () => {
