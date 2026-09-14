@@ -310,8 +310,17 @@ describe("creating the account: an upstream failure that is not EMAIL_EXISTS", (
         const { uid } = await adminAuth.createUser({ email: squatted, password: PASSWORD });
         strays.push(uid);
 
+        // **Staged, because pre-creating the squatter is not enough to reach this branch.**
+        // With the account already there, the route's *first* `findAuthUidByEmail` finds it
+        // and takes the ordinary path — `createAccountWithPassword` is never called and the
+        // `upstream` stub below sits inert. This test carried its name and its comment for a
+        // while while exercising a different code path; `hideAccountOnce` is what makes the
+        // first lookup miss and the create collide, which is the race itself.
+        await signup(squatted);
+        const token = await issueToken(null, squatted, "activation");
+        hideAccountOnce = true;
         upstream = rejects("EMAIL_EXISTS");
-        const answer = await activate(squatted, CHOSEN);
+        const answer = await post("/auth/activate", { token, password: CHOSEN });
 
         expect(answer.status).toBe(200);
         expect(answer.body).toEqual({ activated: true });
@@ -330,6 +339,85 @@ describe("creating the account: an upstream failure that is not EMAIL_EXISTS", (
         // default against the real project while passing against the emulator — `bun test`
         // green, `bun run verify` red, for a test that was working. 20s is the ceiling the
         // live suites use (#31).
+    }, 20_000);
+});
+
+/**
+ * What the request leaves behind when it **fails after the claim**, which is the only thing
+ * the `markCredentialsProven`-last ordering is for.
+ *
+ * On the happy path both orderings produce the same account, so nothing observable separates
+ * them and two mutations — setting `emailVerified` at creation, and moving
+ * `markCredentialsProven` back inside `claimForActivation` — each left the suite fully green.
+ * The difference only shows when the route stops between the claim and the stamp, so this
+ * makes it stop there.
+ *
+ * The fault is the real one, not an invented one: a `DELETE /me` landing mid-activation.
+ * `readUser` runs several awaits before `ensureUser` does, and the tombstone written in that
+ * gap is what `ensureUser` refuses — the case the `existing.deleted` guard three lines above
+ * explicitly does **not** cover, because it covers the settled one.
+ */
+describe("a request that dies after the claim leaves nothing armed", () => {
+    test("the address is not marked proven unless the account was activated", async () => {
+        const email = `e2e+midflight-${crypto.randomUUID()}@e2e.evaapp.dev`;
+        const { uid } = await adminAuth.createUser({ email, password: PASSWORD });
+        strays.push(uid);
+        await firestore.collection("users").doc(uid).set({
+            email,
+            authProviders: ["password"],
+            questionnaireCompleted: false,
+            profile: null,
+            activatedAt: null,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        await signup(email);
+        const token = await issueToken(null, email, "activation");
+
+        // Tombstoned **during** `claimForActivation`'s first write, so the route is already
+        // past its `deleted` guard and has not yet reached `ensureUser`. Hung off
+        // `setPassword`'s call rather than fired beforehand, because fired beforehand the
+        // guard catches it and the route never enters the window at all.
+        const realUpdateUser = adminAuth.updateUser.bind(adminAuth);
+        const spy = spyOn(adminAuth, "updateUser").mockImplementation(
+            async (target: string, props: Record<string, unknown>) => {
+                const result = await realUpdateUser(target, props);
+                if (props?.password) {
+                    await firestore.collection("users").doc(uid).update({
+                        deletedAt: FieldValue.serverTimestamp(),
+                    });
+                }
+                return result;
+            },
+        );
+
+        let answer: Answer;
+        try {
+            answer = await post("/auth/activate", { token, password: CHOSEN });
+        } finally {
+            spy.mockRestore();
+        }
+
+        // A dead link, because `ensureUser` refuses to revive a tombstone.
+        //
+        // The two tail refusals — `!user` and `markActivated` returning false — are
+        // **jointly** pinned by this and individually redundant: with either one deleted the
+        // other still answers `INVALID_TOKEN` for the same account, so neither mutation is
+        // visible alone and deleting both is (1 failure, here). That is a true fact about the
+        // route rather than a gap to paper over, and it is the reason to state it: the pair
+        // is load-bearing, and a test that pinned each separately would only be pinning that
+        // the redundancy exists.
+        expect(answer.status).toBe(400);
+        expectStandardShape(answer, "INVALID_TOKEN");
+
+        const account = await adminAuth.getUser(uid);
+        // **The assertion the ordering exists for.** `activatedAt` was never stamped, so
+        // `emailVerified` must not be set either: that pair is what disarms
+        // `claimUnprovenAccount`'s address test while leaving its gate armed, which is the
+        // one combination that claims unconditionally.
+        expect(account.emailVerified).toBe(false);
+        expect((await firestore.collection("users").doc(uid).get()).data()!.activatedAt).toBeNull();
     }, 20_000);
 });
 
@@ -627,6 +715,13 @@ describe("createAccountWithPassword classifies the Admin SDK's own failures", ()
         const email = `e2e+create-${crypto.randomUUID()}@e2e.evaapp.dev`;
         const uid = await realCreateAccount(email, PASSWORD);
         strays.push(uid);
+        // **Created unproven, and the route proves it at the end.** `emailVerified` turns off
+        // `claimUnprovenAccount`'s address test while `activatedAt` turns off the claim
+        // itself, so an account carrying the first without the second is the one state that
+        // claims unconditionally — and setting it here, three calls before `markActivated`,
+        // opened exactly that window on every sign-up. Nothing asserted the one-word change
+        // that closed it; putting `emailVerified: true` back left the whole suite green.
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
 
         // Not a fake and not a stubbed fetch: the second create genuinely collides.
         const err = (await realCreateAccount(email, PASSWORD).then(
