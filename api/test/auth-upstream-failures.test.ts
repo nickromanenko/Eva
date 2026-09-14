@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { issueToken } from "../src/email-tokens";
+import { adminAuth, firestore } from "../src/firebase";
 import { resetAuthRateLimits } from "../src/rate-limit";
 
 /**
@@ -168,13 +169,20 @@ const expectNoLeak = (haystack: string) => {
     for (const leak of LEAKS) expect(whole).not.toContain(leak.toLowerCase());
 };
 
+/** The few cases here that need a real account, swept at the end (GUARDRAILS 16). */
+const strays: string[] = [];
+
 beforeEach(() => {
     resetAuthRateLimits();
     upstream = null;
 });
-afterAll(() => {
+afterAll(async () => {
     resetAuthRateLimits();
     upstream = null;
+    for (const uid of strays) {
+        await firestore.collection("users").doc(uid).delete().catch(() => {});
+        await adminAuth.deleteUser(uid).catch(() => {});
+    }
 });
 
 describe("creating the account: an upstream failure that is not EMAIL_EXISTS", () => {
@@ -243,11 +251,20 @@ describe("creating the account: an upstream failure that is not EMAIL_EXISTS", (
         //
         // `409` still exists, at sign-up, for an address whose owner is *activated*. That is
         // tested in `auth.test.ts`.
+        // A real account for the address, because the race this models is real: somebody
+        // reserved it by calling Identity Toolkit directly while this caller was reading
+        // their email. Without one the route has nothing to claim and rightly rethrows.
+        const squatted = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+        const { uid } = await adminAuth.createUser({ email: squatted, password: PASSWORD });
+        strays.push(uid);
+
         upstream = rejects("EMAIL_EXISTS");
-        const answer = await activate();
+        const answer = await activate(squatted);
 
         expect(answer.status).toBe(200);
         expect(answer.body).toEqual({ activated: true });
+        // Claimed, not inherited: the reserver's password no longer opens it.
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
     });
 });
 
