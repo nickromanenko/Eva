@@ -58,6 +58,7 @@ Each rule is stated so a reviewer can check it mechanically.
     data, and a symptom log in a log line is worse than a profile field. An activation or
     reset link is a token: never log the link, the raw token, its hash, or the address it
     went to. `EMAIL_TRANSPORT=log` is the one exception and is refused in production.
+    This rule is about logs; its analytics twin is rule 34.
 12a. **A link token is stored as a hash, handed out once, and never put in a URL a server
     can see.** `authTokens/` documents are keyed by `sha256(token)` and hold no copy of it,
     so a read of the collection opens nothing. Single-use, spent in a transaction, and
@@ -114,7 +115,8 @@ Each rule is stated so a reviewer can check it mechanically.
 
 25. **No new dependency without a note in the PR** saying what it replaces and why the
     stdlib/existing stack won't do. The stack is deliberately small: Hono, Bun,
-    firebase-admin, Astro, SwiftUI. No Firebase iOS SDK until it's a decided task.
+    firebase-admin, Astro, SwiftUI. No Firebase iOS SDK until it's a decided task. Where
+    the dependency would see health data, rules 32–34 decide, not the note.
 26. Stay inside the issue's declared scope. Something else looks wrong? File it, don't
     fix it in the same PR.
 27. No reformatting, renaming, or "while I was here" refactors mixed into a feature PR.
@@ -127,3 +129,66 @@ Each rule is stated so a reviewer can check it mechanically.
     stop and ask — don't proceed and note it afterwards.
 31. Update [ARCHITECTURE.md](ARCHITECTURE.md) / [DESIGN.md](DESIGN.md) in the same PR
     that makes them stale.
+
+## Health data & product
+
+Everything Eva stores about a user is health data (rule 12), and the two FTC actions that
+define this market — *Flo Health* (2021) and *Premom* (2023), both period trackers — were
+for letting analytics and advertising SDKs see it. Rules 32–34 exist so that cannot happen
+here by accident; rule 35 keeps Eva inside the wellness line the FDA's 2026 guidance draws.
+Each is checked against a dependency list, a grep, or a screen — never against intent.
+The pattern behind 32–34: a vendor the API *calls* is allowed, under a DPA, from one
+named module that chooses what to send; a vendor's SDK *linked into* the app or API process
+sees everything and reports on its own terms, and is not.
+
+32. **No third-party SDK is linked into the iOS app, and the API process imports nothing
+    beyond its runtime and its data store.** Every vendor that receives health data is a
+    contracted processor called over HTTPS from a single owning module, with a DPA
+    named in the PR that adds it (LAUNCH.md §4.5): the LLM vendor (A5) and the
+    photo-recognition vendor are reached that way, exactly as Postmark is from
+    `email.ts`. Check: `grep -n '^packages:' mobile/project.yml` matches nothing (the
+    Firebase iOS SDK stays commented out, together with its `dependencies:` block — rule
+    25); `grep -rhoE '^import [A-Za-z]+' mobile/Eva | sort -u` lists Apple frameworks only;
+    `api/package.json` `dependencies` is `firebase-admin` and `hono`, and `website/package.json`
+    `dependencies` is `astro`; every outbound host in `api/src/` is a URL constant in
+    `identity-toolkit.ts`, `providers.ts`, `email.ts` or `config.ts` (`grep -rn 'https://' api/src`).
+    Source: LAUNCH.md §2.1 (FTC Act §5 — *Flo*, *Premom*).
+33. **No advertising SDK, ad identifier, tracking prompt, or ad-network attribution — on
+    any surface, ever.** Health data may not be used for advertising, and an ad SDK in the
+    process is exactly the *Flo* fact pattern. Check: `grep -rn -iE
+    'AdSupport|AppTrackingTransparency|advertisingIdentifier|SKAdNetwork|NSUserTracking'
+    mobile/` matches nothing; `mobile/Eva/Info.plist` has no `NSUserTrackingUsageDescription`
+    or `SKAdNetworkItems`; `grep -rn '<script' website/src` finds no third-party `src=`
+    (`AuthLayout.astro` states the promise: no third-party request); the App Store privacy
+    label declares no tracking. Source: LAUNCH.md §2.1 and §3.1 (App Store 5.1.3).
+34. **Analytics is first-party aggregate counts only: event type, never payload, never a
+    stable user id.** The analytics twin of rule 12 (A34): the API may count that an event
+    of a *type* happened on a *day*, keyed by an id that rotates daily, and nothing else —
+    no cycle day, flow, symptom, meal, goal, profile field, address, or uid, and nothing
+    that lets two days be joined into one user. No third-party analytics or crash SDK on
+    the client, none that uploads breadcrumbs; crash reports reach us through Apple's
+    opt-in (Xcode Organizer) only. Check: today `grep -rn -iE
+    'analytics|crashlytics|sentry|mixpanel|amplitude' api/src mobile/Eva website/src`
+    matches only the `AuthLayout.astro` comment; the first PR that adds a counter adds
+    the exact field allow-list (`type`, `day`, rotating id) to this rule and a test in
+    `api/test/` that rejects any other field, and rule 32's dependency check stays green.
+    Source: LAUNCH.md §2.4 item 1 (data minimisation, post-*Dobbs*), review §3.1 P8, PRD
+    §Product frame (A34).
+35. **No feature outputs a value that mimics a clinical measurement or guides clinical
+    management, and every prediction shows its confidence and its limits at the point of
+    use.** DESIGN.md §8 binds the copy; this binds the feature. Two mechanisms satisfy it
+    today and any new predicted or computed value uses one of them: the "How this is
+    calculated" sheet (Nutrition canvas, `docs/design/Eva Nutrition Coach.dc.html`, sheet
+    `why`), which discloses the formula and the cycle adjustment behind every target; and
+    the fixture-driven cycle maths (A11, #11 C11 — cycles in, next-period date and fertile
+    window and confidence out, constants from config that fail loudly when unset), whose
+    confidence sentence is rendered wherever the prediction is, with "not a contraceptive
+    method" beside the fertile window. Check: for every new user-facing number, date or
+    range in the PR, the reviewer finds either the sheet or the confidence sentence on the
+    same screen; a value a clinic would report (gestational age as fact, a screening score,
+    a lab-style number) or an imperative about care ("increase iron", "skip the scan")
+    fails, and "estimated", "based on N logged cycles", "contact your provider" pass. The
+    deterministic escalation card (rule 10's `events.ts` red flags, PRD §Calendar) is the
+    only place Eva reacts to a symptom, and it points to care rather than interpreting.
+    Source: LAUNCH.md §1.1 (FDA *General Wellness* guidance, 6 January 2026) and §3.1
+    (App Store 1.4.1).

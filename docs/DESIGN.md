@@ -195,6 +195,8 @@ language *and* in indicators.
   dropped"
 
 This applies to every user-facing string an engineer writes, not just marketing copy.
+It binds the copy; [GUARDRAILS.md](GUARDRAILS.md) rule 35 binds the feature behind it —
+no value that mimics a clinical measurement, and confidence shown at the point of use.
 
 **US English, neutral roles (A17, 2026-08-30).** *anemia, hot flashes, color, fiber*; and
 "your provider" / "your doctor", never GP, OB-GYN or midwife as a role the copy addresses.
