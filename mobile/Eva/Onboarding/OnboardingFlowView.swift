@@ -59,11 +59,12 @@ struct OnboardingFlowView: View {
         case .createAccount:
             CreateAccountStepView(
                 model: model,
-                onSubmit: { email, password in
-                    // Sign-up no longer signs anyone in (#6): the account exists and an
-                    // activation link is on its way, so the next screen is the gate, not
-                    // the questionnaire.
-                    _ = try await session.signUp(email: email, password: password)
+                onSubmit: { email in
+                    // Sign-up no longer signs anyone in — and since #120 it creates no
+                    // account either. An address is all it sends; the link on its way is
+                    // where the account is made and the password chosen. So the next
+                    // screen is the gate, not the questionnaire.
+                    _ = try await session.signUp(email: email)
                     model.showActivation(after: .signUp)
                 },
                 onProviderCredential: signIn(with:),

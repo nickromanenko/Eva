@@ -55,6 +55,10 @@ import { resetAuthRateLimits } from "../src/rate-limit";
 const identityToolkit = { ...(await import("../src/identity-toolkit")) };
 const users = { ...(await import("../src/users")) };
 const events = { ...(await import("../src/events")) };
+const emailTokens = { ...(await import("../src/email-tokens")) };
+/** The real issuer, captured before the mock below replaces it, so the activation helper
+ *  can mint a token that the route will actually find. */
+const realIssueToken = emailTokens.issueToken;
 
 /** The uid every credential call hands back. Fabricated, and never written anywhere. */
 const UID = "unhandled-errors-test-uid";
@@ -67,6 +71,9 @@ const PASSWORD = "correct-horse-8";
 
 /** What the next credential call does. `null` is a bug in the test, never a success. */
 let credential: (() => { localId: string; email: string }) | null = null;
+/** What `email-tokens.issueToken` does next: throw, or fall through to the real one. */
+let tokenStore: null | (() => void) = null;
+
 /** What `users.ensureUser` / `users.getUser` do next: throw, or answer with an account.
  *  Every authenticated route now reads the user document before its handler runs (#8's
  *  account gate), so a test that wants to reach a handler at all has to say the account
@@ -83,6 +90,20 @@ mock.module("../src/identity-toolkit", () => ({
     ...identityToolkit,
     signInWithPassword: async () => (credential ?? unset("Identity Toolkit"))(),
     signUpWithPassword: async () => (credential ?? unset("Identity Toolkit"))(),
+}));
+
+// Sign-up's only Firestore write is the activation token (#120) — it no longer creates an
+// account — so this is the seam that makes "Firestore is down inside sign-up" reachable.
+mock.module("../src/email-tokens", () => ({
+    ...emailTokens,
+    issueToken: async (
+        uid: string | null,
+        email: string,
+        kind: "activation" | "reset",
+    ): Promise<string> => {
+        if (tokenStore) tokenStore();
+        return realIssueToken(uid, email, kind);
+    },
 }));
 
 mock.module("../src/users", () => ({
@@ -163,8 +184,18 @@ const send = async (
     };
 };
 
-const signup = (email = EMAIL) =>
-    send("POST", "/auth/signup", { body: { email, password: PASSWORD } });
+const signup = (email = EMAIL) => send("POST", "/auth/signup", { body: { email } });
+
+/**
+ * A sign-up then the link spent, which is where the account is created (#120) and therefore
+ * where the failures this file is about now happen. Sign-up itself reaches Firestore only
+ * to issue the token.
+ */
+const activate = async (email = EMAIL) => {
+    await signup(email);
+    const token = await realIssueToken(null, email, "activation");
+    return send("POST", "/auth/activate", { body: { token, password: PASSWORD } });
+};
 const signin = (email = EMAIL) =>
     send("POST", "/auth/signin", { body: { email, password: PASSWORD } });
 
@@ -227,6 +258,7 @@ beforeEach(() => {
     credential = null;
     userStore = null;
     deleteEvent = null;
+    tokenStore = null;
     logged = [];
     spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
         logged.push(args.map((a) => String(a)).join(" "));
@@ -244,14 +276,17 @@ afterAll(() => {
     mock.module("../src/identity-toolkit", () => identityToolkit);
     mock.module("../src/users", () => users);
     mock.module("../src/events", () => events);
+    mock.module("../src/email-tokens", () => emailTokens);
 });
 
 describe("a Firestore outage inside an auth route", () => {
     test(
         "signup answers a shaped 500 instead of Hono's bare one",
         async () => {
-            credential = succeeds;
-            userStore = firestoreUnavailable;
+            // Sign-up no longer creates an account (#120), so `users.ensureUser` is not the
+            // seam any more. Its one Firestore write is the activation token, and that is
+            // what fails here.
+            tokenStore = firestoreUnavailable;
 
             expectShapedInternalError(await signup());
         },
@@ -275,10 +310,9 @@ describe("a Firestore outage inside an auth route", () => {
             // The two failures carry very different text — a credential URL in one, a
             // document path in the other. If any of it reached the caller, these two
             // answers could not be identical once the ref is masked.
-            credential = succeeds;
-            userStore = firestoreUnavailable;
+            tokenStore = firestoreUnavailable;
             const outage = await signup();
-            userStore = firestoreNamesTheDocument;
+            tokenStore = firestoreNamesTheDocument;
             const missing = await signup();
 
             const masked = (a: Answer) => a.text.replace(/[0-9a-f]{8}\)/, "REF)");
@@ -297,8 +331,7 @@ describe("what the operator gets, and what they deliberately do not", () => {
     test(
         "one line: the route, the method, the error's class and a ref — and nothing else",
         async () => {
-            credential = succeeds;
-            userStore = firestoreUnavailable;
+            tokenStore = firestoreUnavailable;
             const answer = await signup();
 
             expect(logged).toHaveLength(1);
@@ -325,8 +358,7 @@ describe("what the operator gets, and what they deliberately do not", () => {
     test(
         "the thrown error's own text reaches the log in no form at all",
         async () => {
-            credential = succeeds;
-            userStore = firestoreUnavailable;
+            tokenStore = firestoreUnavailable;
             await signup();
             userStore = firestoreNamesTheDocument;
             await signin();
@@ -376,6 +408,7 @@ describe("onError is the floor, not a replacement", () => {
         credential = succeeds;
         userStore = firestoreUnavailable;
         deleteEvent = firestoreNamesTheDocument;
+        tokenStore = null;
     });
 
     test(
@@ -394,8 +427,13 @@ describe("onError is the floor, not a replacement", () => {
     test(
         "the weak-password rule still answers first",
         async () => {
-            const answer = await send("POST", "/auth/signup", {
-                body: { email: EMAIL, password: "short" },
+            // On activation now, not sign-up: sign-up takes no password (#120). Firestore
+            // is throwing throughout this describe, so a rule that stopped answering for
+            // itself would surface as a shaped 500 instead of this 400.
+            await signup();
+            const token = await realIssueToken(null, EMAIL, "activation");
+            const answer = await send("POST", "/auth/activate", {
+                body: { token, password: "short" },
             });
 
             expect(answer.status).toBe(400);
@@ -407,10 +445,13 @@ describe("onError is the floor, not a replacement", () => {
     test(
         "#32's Identity Toolkit mapping still wins, with its Retry-After",
         async () => {
+            // On the route that creates the account now (#120). Sign-up makes no upstream
+            // call at all, so there is no mapping left for it to get wrong.
+            tokenStore = null;
             credential = () => {
                 throw new identityToolkit.IdentityToolkitError("INTERNAL_ERROR", 500);
             };
-            const answer = await signup();
+            const answer = await signin();
 
             expect(answer.status).toBe(503);
             expect(answer.body.error.code).toBe("SERVICE_UNAVAILABLE");
@@ -425,13 +466,11 @@ describe("onError is the floor, not a replacement", () => {
     test(
         "EMAIL_EXISTS is still 409 and a wrong password still 401",
         async () => {
-            credential = () => {
-                throw new identityToolkit.IdentityToolkitError("EMAIL_EXISTS", 400);
-            };
-            const taken = await signup();
-            expect(taken.status).toBe(409);
-            expect(taken.body.error.code).toBe("EMAIL_EXISTS");
-
+            // Sign-up's 409 is now decided by reading the account rather than by an upstream
+            // refusal (#120), and `users.getUser` is throwing throughout this describe — so
+            // this half of the pair moved to `auth.test.ts`, where a real activated account
+            // exists to be refused. What is still true here is the other half.
+            tokenStore = null;
             credential = () => {
                 throw new identityToolkit.IdentityToolkitError("INVALID_LOGIN_CREDENTIALS", 400);
             };
@@ -447,6 +486,9 @@ describe("onError is the floor, not a replacement", () => {
         async () => {
             const perEmail = config.rateLimit.signupPerEmail;
             expect(perEmail).toBeGreaterThan(0);
+            // Firestore is down for the token write, so each attempt is a shaped 500 — the
+            // point being that the throttle answers before the route can throw at all.
+            tokenStore = firestoreUnavailable;
             for (let i = 0; i < perEmail; i++) expect((await signup()).status).toBe(500);
 
             const throttled = await signup();

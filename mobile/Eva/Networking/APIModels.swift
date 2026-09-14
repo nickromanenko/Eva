@@ -105,7 +105,9 @@ struct Credentials: Encodable {
     let password: String
 }
 
-/// The body of the two "send me an email" routes.
+/// The body of every route that takes an address and nothing else: the two "send me an
+/// email" routes, and — since #120 — sign-up, which no longer takes a password because it
+/// no longer creates an account.
 struct EmailAddress: Encodable {
     let email: String
 }

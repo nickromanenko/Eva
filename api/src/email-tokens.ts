@@ -34,8 +34,16 @@ const TOKEN_BYTES = 32
 /** `TOKEN_BYTES` as unpadded base64url, for the route edge to refuse anything else. */
 export const TOKEN_LENGTH = Math.ceil((TOKEN_BYTES * 4) / 3)
 
+/**
+ * `uid` is `null` for an activation token issued before the account exists (#120). Sign-up
+ * no longer creates a Firebase Auth user — the address is not proven yet, and a credential
+ * on an unproven address is the thing #120 removes — so the only identity an activation
+ * token can carry at that point is the address itself.
+ *
+ * A reset token always has one: resetting is something you do to an account that exists.
+ */
 export type ConsumeResult =
-  | { ok: true; uid: string; email: string }
+  | { ok: true; uid: string | null; email: string }
   | { ok: false; reason: 'invalid' | 'expired' }
 
 const tokens = () => firestore.collection('authTokens')
@@ -71,12 +79,14 @@ const invalidateResetTokens = async (uid: string): Promise<void> => {
  * without sleeping through a day.
  */
 export const issueToken = async (
-  uid: string,
+  uid: string | null,
   email: string,
   kind: TokenKind,
   now: () => number = Date.now,
 ): Promise<string> => {
-  if (kind === 'reset') await invalidateResetTokens(uid)
+  // `uid` is non-null for every reset token by construction: the route looks the account up
+  // before issuing one.
+  if (kind === 'reset' && uid !== null) await invalidateResetTokens(uid)
   const raw = Buffer.from(crypto.getRandomValues(new Uint8Array(TOKEN_BYTES))).toString('base64url')
   await tokens()
     .doc(hashToken(raw))
@@ -122,10 +132,33 @@ export const consumeToken = async (
  *  and for the same reason. */
 const DELETE_BATCH = 400
 
+const deleteMatching = async (
+  query: FirebaseFirestore.Query,
+): Promise<void> => {
+  for (;;) {
+    const owned = await query.limit(DELETE_BATCH).get()
+    if (owned.empty) return
+    const batch = firestore.batch()
+    for (const doc of owned.docs) batch.delete(doc.ref)
+    await batch.commit()
+  }
+}
+
 /**
- * Removes every token of `uid`, used or not — part of account deletion (#8), because a
- * token document carries the account's address and a deleted account keeps nothing.
- * Deleting nothing succeeds, so a resumed delete passes through here quietly.
+ * Removes every token belonging to an account, used or not — part of account deletion
+ * (#8), because a token document carries the account's address and a deleted account keeps
+ * nothing. Deleting nothing succeeds, so a resumed delete passes through here quietly.
+ *
+ * **Both keys, and that is not belt-and-braces.** A uid query alone was complete while every
+ * token carried one. Since #120 an activation token is issued *before* its account exists
+ * and stores `uid: null`, so a uid query cannot see it — a sign-up and every Resend after it
+ * survived `DELETE /me` and kept the user's address in `authTokens/` until the TTL policy
+ * reaped them. The address is the other half of what identifies them, and it is the half the
+ * new shape has.
+ *
+ * `address` is nullable because the delete route can only learn it from the document it is
+ * about to remove, and a resumed delete that already passed that step has nothing left to
+ * sweep by.
  *
  * A batch at a time, re-querying rather than paging a cursor, exactly as
  * `deleteAllUserEvents` does. Nothing bounds how many tokens an account can accumulate —
@@ -134,12 +167,15 @@ const DELETE_BATCH = 400
  * tombstone would stay, every retry would fail the same way, and the documents holding
  * the address would survive. An unbounded collection needs an unbounded delete.
  */
-export const deleteTokensForUid = async (uid: string): Promise<void> => {
-  for (;;) {
-    const owned = await tokens().where('uid', '==', uid).limit(DELETE_BATCH).get()
-    if (owned.empty) return
-    const batch = firestore.batch()
-    for (const doc of owned.docs) batch.delete(doc.ref)
-    await batch.commit()
+export const deleteTokensForAccount = async (
+  uid: string,
+  address: string | null,
+): Promise<void> => {
+  await deleteMatching(tokens().where('uid', '==', uid))
+  // Scoped to `uid: null`, which is the only shape a uid query cannot reach. Without it this
+  // is an address-keyed delete over the whole collection, and an address is not a strong
+  // enough key to own other people's documents by.
+  if (address !== null) {
+    await deleteMatching(tokens().where('email', '==', address).where('uid', '==', null))
   }
 }

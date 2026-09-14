@@ -181,14 +181,16 @@ not the link.
 the website's link pages call from the browser — for exactly `PUBLIC_WEB_URL`'s origin.
 Never `*`: an allowed origin is a page that can spend a token it was handed.
 
-**Password rule — creation only.** `POST /auth/signup` enforces the rule the sign-up
-screen states as helper text: *at least 8 characters, including one number*. A password
-that fails it is `400 WEAK_PASSWORD`, and the `message` **is** that helper text verbatim,
-so the user is never told two different rules. The server's copy of the string lives in
-`api/src/index.ts` and the client's in
-`mobile/Eva/Onboarding/Steps/CreateAccountStepView.swift`; `api/test/auth.test.ts` reads
-the Swift file and asserts they still match. `POST /auth/signin` **never** applies the
-rule — accounts that predate it hold passwords with no digit and must keep working.
+**Password rule — where the password is set, which is no longer sign-up.** Since #120 the
+rule is enforced by `POST /auth/activate` and `POST /auth/password/reset`: *at least 8
+characters, including one number*. A password that fails it is `400 WEAK_PASSWORD`, and the
+`message` **is** the helper text the page states verbatim, so the user is never told two
+different rules. The server's copy of the string lives in `api/src/index.ts` and the
+client's in `website/src/pages/activate.astro` — not in the iOS app, which has no password
+field any more; `api/test/auth.test.ts` reads the Astro page and asserts they still match.
+Both routes check the rule **before** spending the token, so a weak password costs a retry
+rather than the only link. `POST /auth/signin` **never** applies the rule — accounts that
+predate it hold passwords with no digit and must keep working.
 
 **Sign-in answers identically whether the password was wrong or the address was never
 registered** — same status, same code, same message. This is deliberate: knowing that an
@@ -291,6 +293,46 @@ sign-in, which left the password path — the one with more users — open.
 Reading past any of them hands the caller a 30-day session on an account they have never
 authenticated to, and — because an activated account skips the claim entirely — with nothing
 downstream to catch it.
+
+### Sign-up creates nothing; activation creates everything (#120)
+
+**The invariant: a password only works if the person who set it proved the address.**
+
+`POST /auth/signup` takes an address and nothing else. It creates no Firebase Auth user, no
+`users/{uid}` document and no credential — it issues an activation token and sends a link.
+`POST /auth/activate` takes that token **and a password**, and does both halves in one
+request: the link proves the address, the form supplies the credential, and only then does
+the account come into existence.
+
+Before this, sign-up created the Auth user with the caller's password. That reserved the
+address for whoever asked first and put a working credential on it before anyone had proved
+it was theirs. An attacker signed up as a victim; the victim clicked the confirmation mail
+they never asked for; the attacker's password then opened an activated account holding the
+victim's cycle and symptom history. Everything §3 describes above — the claim, the address
+test, the retraction at activation, the withheld `emailVerified` — was a way of living with
+that rather than removing it.
+
+Three consequences worth stating, because each reads as a regression until you see why:
+
+- **`403 NOT_ACTIVATED` is unreachable through the normal flow.** There is no password to try
+  before activation. The gate still exists and still matters, for accounts predating #120 and
+  for addresses reserved by calling Identity Toolkit directly.
+- **A valid activation link on an *already activated* account is a dead link**, where it used
+  to answer `200` idempotently. That was right while activation only stamped a flag. The link
+  sets a password now, so honouring a stale one would make every activation email anybody
+  ever saw a password-reset primitive.
+- **Activation sets `emailVerified` again.** Withholding it was the subtlest decision in #7 —
+  a true fact suppressed so Firebase's merge-wipe would stay armed against a pre-registering
+  attacker's password. There is no such password any more: the only credential an account can
+  have at activation is the one supplied in that same request by whoever proved the address.
+
+**What this does not close.** The Firebase web API key is public, so anyone can call
+`accounts:signUp` at Identity Toolkit directly and reserve an address. That is denial of
+service, not takeover — Eva never emails the victim, so the victim never activates — and
+activation handles it: an Auth account nobody has proved is *claimed* by the holder of a
+valid link rather than refusing them. Disabling public sign-up in the console would close
+even that, and must not be done: it returns `ADMIN_ONLY_OPERATION` for **federated** account
+creation too, so every first-time Apple and Google user would fail.
 
 **Auto-linking is only safe because `/auth/idp` claims an unproven account.** Sign-up (#6)
 creates the Firebase Auth user *before* the address is confirmed, and **the web API key is
@@ -569,7 +611,7 @@ rather than under `users/`, because the document is looked up by the token alone
 anyone knows whose it is. Owned by `api/src/email-tokens.ts`.
 
 ```
-uid        string            // the account the link opens
+uid        string | null     // the account the link opens; null until one exists (#120)
 email      string            // the address it was sent to
 kind       'activation' | 'reset'
 expiresAt  Timestamp         // 24h for activation, 60min for reset
@@ -583,9 +625,11 @@ many tokens an account accumulates (every Resend issues one, and activation toke
 never revoked), and each document holds the address it was sent to. Without the policy,
 `authTokens/` becomes a permanent index of every Eva address with its signup and reset
 times — which for a health app is the sensitive artefact, even though the tokens
-themselves are useless. `deleteTokensForUid` pages in batches for the same reason: an
+themselves are useless. `deleteTokensForAccount` pages in batches for the same reason: an
 unbounded collection needs an unbounded delete, and one 500-op batch would leave
-`DELETE /me` unable to finish at all.
+`DELETE /me` unable to finish at all. It sweeps by **uid and by address**, because since
+#120 an activation token is issued before its account exists and carries `uid: null` — a
+uid query alone cannot see the tokens of anyone who signed up and never activated.
 
 The document ID **is** the hash, so nothing here can be turned back into a link, and there
 is no index from an account to a usable token. Account deletion takes them all — the
@@ -648,7 +692,9 @@ soft-deleted entries still inside their 30-day window**. That is a deliberate di
 from event retention above, not a conflict with it: deleting one entry is an edit someone
 may want to undo, deleting an account is a decision about all of it, and a recovery window
 inside an account that no longer exists is a promise to nobody. Nothing else is keyed to a
-uid except `authTokens/` (#6), which goes with it; `refdata/` is global, and the `/auth/*`
+uid except `authTokens/` (#6), which goes with it — by address as well as by uid, since a
+token issued before its account existed has no uid to be found by (#120), and the address
+is the sensitive thing those documents hold. `refdata/` is global, and the `/auth/*`
 throttle's counters are in memory and keyed by address and IP rather than by account.
 
 The order is the design, because a partial failure has to be safe *and* resumable:

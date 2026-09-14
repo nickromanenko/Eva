@@ -110,13 +110,19 @@ const clearAll = async () => {
     await Promise.all(docs.map((doc) => doc.delete()));
 };
 
+// **A budget, because activation is not one round trip any more.** `signUpActivated` is
+// sign up, spend a link, sign in — and since #120 the middle step also creates the Firebase
+// Auth account, sets its password and stamps two flags. Against the real project that runs
+// past Bun's 5000ms hook default often enough to fail a run at random, which reads as a
+// product regression rather than as a clock. 60s is the same kind of ceiling the live suites
+// set: far above the work, still loud on a genuine hang (#31).
 beforeAll(async () => {
     // Sign-up no longer hands out a session (#6): the account has to be activated first.
     // `signUpActivated` does the three steps — sign up, spend an activation token, sign in.
     const session = await signUpActivated(BASE, email, password);
     token = session.token;
     uid = session.uid;
-});
+}, 60_000);
 
 afterAll(async () => {
     if (uid) {

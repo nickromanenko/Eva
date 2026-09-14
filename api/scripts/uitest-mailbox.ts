@@ -21,7 +21,10 @@
  */
 
 import { issueToken } from '../src/email-tokens'
-import { adminAuth } from '../src/firebase'
+
+/** What the UI suites sign in with afterwards. Kept in step with
+ *  `EvaUITestCase.password`; a mismatch would pass activation and fail every sign-in. */
+const DEFAULT_PASSWORD = 'uitest-pass-1'
 
 if (process.env.NODE_ENV === 'production') {
   throw new Error('uitest-mailbox activates accounts; it must never run in production')
@@ -49,26 +52,35 @@ const server = Bun.serve({
       return json({ error: 'not found' }, 404)
     }
 
-    const body = (await request.json().catch(() => ({}))) as { email?: unknown }
+    const body = (await request.json().catch(() => ({}))) as { email?: unknown; password?: unknown }
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
     if (!E2E_ADDRESS.test(email)) {
       return json({ error: 'only e2e+*@e2e.evaapp.dev addresses may be activated' }, 400)
     }
 
-    let uid: string
-    try {
-      uid = (await adminAuth.getUserByEmail(email)).uid
-    } catch {
-      return json({ error: 'no such account' }, 404)
-    }
-
-    const token = await issueToken(uid, email, 'activation')
+    // **No account to look up** (#120). Sign-up creates none — it sends an address and a
+    // link — so the token carries the address alone and the route creates the account when
+    // it is spent. Asking Firebase for a uid here would 404 on every fresh sign-up.
+    const password = typeof body.password === 'string' ? body.password : DEFAULT_PASSWORD
+    const token = await issueToken(null, email, 'activation')
     const activated = await fetch(`${apiUrl}/auth/activate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token }),
+      // The password travels with the token: activation is where the credential is set,
+      // and the simulator cannot reach the web form that would normally supply it.
+      body: JSON.stringify({ token, password }),
     })
-    if (!activated.ok) return json({ error: `activate answered ${activated.status}` }, 502)
+    if (!activated.ok) {
+      const detail = await activated.text().catch(() => '')
+      console.error(`[uitest-mailbox] activate ${activated.status} for ${email}: ${detail}`)
+      return json({ error: `activate answered ${activated.status}` }, 502)
+    }
+    // The length, never the value. GUARDRAILS 12 says never log a password and grants
+    // `api/scripts/` no exemption; that this one is a fixture and that this process refuses
+    // `NODE_ENV=production` are reasons it is not a leak today, not reasons to write a line
+    // that gets copied. The length is what the debugging case actually needed — it tells an
+    // empty or truncated password from a wrong one.
+    console.log(`[uitest-mailbox] activated ${email} (password length ${password.length})`)
     return json({ activated: true })
   },
 })

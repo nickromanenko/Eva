@@ -1,6 +1,9 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { FieldValue } from "firebase-admin/firestore";
+import { adminAuth, firestore } from "../src/firebase";
 import { config } from "../src/config";
 import { resetAuthRateLimits } from "../src/rate-limit";
+import { createUnactivatedAccount } from "./support/session";
 
 /**
  * The non-enumeration property on `POST /auth/signin` (issue #21).
@@ -149,12 +152,93 @@ describe("signin does not reveal whether an address is registered", () => {
  *
  * If you are here to make the two routes agree, this is the note saying don't.
  */
+/**
+ * A real, **activated** account, because that is now what sign-up's 409 means (#120).
+ * It used to come from Identity Toolkit refusing `accounts:signUp`, which this file's
+ * mock could fabricate. Sign-up creates nothing now, so the refusal is decided by
+ * reading the account — and an address with no activated owner is one anybody may still
+ * claim, which is the denial-of-service half #120 closes.
+ */
+let takenUid: string | null = null;
+
+beforeAll(async () => {
+    // **Delete-first, because the address is fixed rather than a fresh uuid.** An
+    // interrupted run — a killed `bun run verify`, a failure before `afterAll` — leaves this
+    // account behind against the real project, and the next run's `createUser` then throws
+    // `email-already-exists` and takes the whole file red for a reason that has nothing to
+    // do with what it tests. A stale account is exactly as good as no account here, so it is
+    // cleared rather than worked around.
+    const stale = await adminAuth.getUserByEmail(REGISTERED).catch(() => null);
+    if (stale) {
+        await firestore.collection("users").doc(stale.uid).delete().catch(() => {});
+        await adminAuth.deleteUser(stale.uid).catch(() => {});
+    }
+    const { uid } = await adminAuth.createUser({
+        email: REGISTERED,
+        password: PASSWORD,
+        emailVerified: true,
+    });
+    takenUid = uid;
+    await firestore.collection("users").doc(uid).set({
+        email: REGISTERED,
+        authProviders: ["password"],
+        questionnaireCompleted: false,
+        profile: null,
+        activatedAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+    });
+});
+
+afterAll(async () => {
+    if (!takenUid) return;
+    await firestore.collection("users").doc(takenUid).delete().catch(() => {});
+    await adminAuth.deleteUser(takenUid).catch(() => {});
+});
+
+
 describe("signup deliberately does distinguish a taken address", () => {
     test("a registered address is 409 EMAIL_EXISTS, not the combined message", async () => {
-        const res = await post("/auth/signup", { email: REGISTERED, password: PASSWORD });
+        const res = await post("/auth/signup", { email: REGISTERED });
         expect(res.status).toBe(409);
         expect(res.error.code).toBe("EMAIL_EXISTS");
         expect(res.error.code).not.toBe("INVALID_CREDENTIALS");
+    });
+
+    test("an address whose only account is unproven is not taken", async () => {
+        // The other side, and the reason the 409 now reads the account rather than trusting
+        // that one exists: a reservation nobody has proved is not ownership, so the person
+        // whose address it actually is can still sign up.
+        //
+        // **An Auth user with no document, which is not the shape that matters.** Anything
+        // created outside the API looks like this, and `readUser` answers `{ user: null }`
+        // for it — so the gate's condition is never evaluated in either direction, and
+        // widening it from `existing.user?.activated` to `existing.user` left this test
+        // green. The case below is the one with teeth.
+        const unproven = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+        const { uid } = await adminAuth.createUser({ email: unproven, password: PASSWORD });
+        try {
+            const res = await post("/auth/signup", { email: unproven });
+            expect(res.status).toBe(201);
+        } finally {
+            await adminAuth.deleteUser(uid).catch(() => {});
+        }
+    });
+
+    test("a pre-#120 account that never activated can still ask for a link", async () => {
+        // The population this actually protects, and the only one where the gate's condition
+        // is reached: an account made by `POST /auth/signup` *before* #120 — a document, a
+        // password, and `activatedAt: null` — whose owner never clicked the link. Sign-up is
+        // the route that re-issues it, so a `409` here strands them with no way back in.
+        const stranded = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+        const uid = await createUnactivatedAccount(stranded, PASSWORD);
+        try {
+            const res = await post("/auth/signup", { email: stranded });
+            expect(res.status).toBe(201);
+        } finally {
+            await firestore.collection("users").doc(uid).delete().catch(() => {});
+            await adminAuth.deleteUser(uid).catch(() => {});
+        }
     });
 });
 
@@ -295,19 +379,19 @@ describe("the /auth/* throttle", () => {
         const signins = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
         expect(signins[SIGNIN_PER_EMAIL]!.status).toBe(429);
 
-        // 409, because the mocked upstream says the address is taken — the point is that
-        // it was served at all rather than refused by sign-in's exhausted counter.
-        const signup = await post("/auth/signup", { email: REGISTERED, password: PASSWORD });
+        // 409, because the address has an activated owner (#120) — the point is that it
+        // was served at all rather than refused by sign-in's exhausted counter.
+        const signup = await post("/auth/signup", { email: REGISTERED });
         expect(signup.status).toBe(409);
         expect(signup.error.code).toBe("EMAIL_EXISTS");
 
         // And the reverse direction, on its own budget.
         expect(SIGNUP_PER_EMAIL).toBeGreaterThan(0);
         for (let i = 1; i < SIGNUP_PER_EMAIL; i++) {
-            expect((await post("/auth/signup", { email: REGISTERED, password: PASSWORD })).status)
+            expect((await post("/auth/signup", { email: REGISTERED })).status)
                 .toBe(409);
         }
-        const overSignup = await post("/auth/signup", { email: REGISTERED, password: PASSWORD });
+        const overSignup = await post("/auth/signup", { email: REGISTERED });
         expect(overSignup.status).toBe(429);
         expect(overSignup.error.code).toBe("RATE_LIMITED");
     });

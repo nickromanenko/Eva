@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { applicationDefault } from "firebase-admin/app";
 import { config } from "../src/config";
 import { ACTIVATION_TTL_SECONDS, RESET_TTL_SECONDS, issueToken } from "../src/email-tokens";
 import { adminAuth, firestore } from "../src/firebase";
@@ -32,6 +33,7 @@ setDefaultTimeout(20_000);
 const BASE = process.env.EVA_API_URL ?? "http://localhost:3003";
 const PASSWORD = "correct-horse-8";
 const createdUids: string[] = [];
+const createdEmails: string[] = [];
 
 const address = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
 
@@ -40,6 +42,7 @@ const unactivated = async (): Promise<{ email: string; uid: string }> => {
     const email = address();
     const uid = await createUnactivatedAccount(email, PASSWORD);
     createdUids.push(uid);
+    createdEmails.push(email);
     return { email, uid };
 };
 
@@ -75,9 +78,17 @@ const post = async (path: string, body: unknown): Promise<Answer> =>
 
 const get = async (path: string): Promise<Answer> => answer(await fetch(`${BASE}${path}`));
 
-/** Spends an activation token. POST, with the token in the body: the route takes it no
- *  other way, so that a token cannot reach a request log (#6). */
-const activate = (token: string): Promise<Answer> => post("/auth/activate", { token });
+/**
+ * Spends an activation token. POST, with the token in the body: the route takes it no other
+ * way, so that a token cannot reach a request log (#6).
+ *
+ * The password travels with it (#120). Activation is where the credential comes into
+ * existence — sign-up creates none — so a link without one is an incomplete request, not a
+ * simpler one. Defaulted here because most cases in this file are about the *token*, and
+ * `auth.test.ts` is where the rule itself is pinned.
+ */
+const activate = (token: string, password: string = PASSWORD): Promise<Answer> =>
+    post("/auth/activate", { token, password });
 
 /** The response headers minus `date`, which ticks between two requests and would make a
  *  byte-for-byte comparison depend on which second each landed in. */
@@ -89,14 +100,44 @@ const headersWithoutClock = (a: Answer): string =>
 const expiredToken = (uid: string, email: string, kind: "activation" | "reset") =>
     issueToken(uid, email, kind, () => Date.now() - (kind === "activation" ? ACTIVATION_TTL_SECONDS : RESET_TTL_SECONDS) * 1000 - 1000);
 
+/**
+ * Whether a password opens an account, asked of Identity Toolkit rather than of
+ * `POST /auth/signin` — which answers `403 NOT_ACTIVATED` or `401` for exactly the accounts
+ * worth asking about, and so cannot tell "the credential changed" from "the gate refused".
+ * `config.identityToolkitBaseUrl` follows the Auth emulator under `scripts/ci-api.sh` (#67);
+ * a hardcoded Google URL reports every emulator account's password dead.
+ */
+const passwordOpens = async (email: string, password: string): Promise<boolean> => {
+    const res = await fetch(
+        `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+        {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email, password, returnSecureToken: true }),
+        },
+    );
+    return res.ok;
+};
+
 const userDoc = (uid: string) => firestore.collection("users").doc(uid);
 
 const tokenDocs = (uid: string) =>
     firestore.collection("authTokens").where("uid", "==", uid).get();
 
+/** Tokens found by address rather than uid. Activation tokens are issued **before** the
+ *  account exists (#120), so they carry `uid: null` and only the address identifies them. */
+const tokenDocsByEmail = (value: string) =>
+    firestore.collection("authTokens").where("email", "==", value).get();
+
 // Its own budget: this suite stands up an account per case and the sweep is one Firestore
 // query and three deletes each, well past the 20s the cases get.
 afterAll(async () => {
+    // Tokens issued before an account exists have no uid, so the uid sweep below cannot see
+    // them (#120). Swept by address as well, or `authTokens/` accumulates e2e rows forever.
+    for (const value of createdEmails) {
+        const byEmail = await tokenDocsByEmail(value).catch(() => null);
+        if (byEmail) await Promise.all(byEmail.docs.map((d) => d.ref.delete().catch(() => {})));
+    }
     for (const uid of createdUids) {
         const tokens = await tokenDocs(uid).catch(() => null);
         if (tokens) await Promise.all(tokens.docs.map((doc) => doc.ref.delete().catch(() => {})));
@@ -238,12 +279,22 @@ describe("the two send-a-link routes", () => {
         const registered = await time(email);
         const unknown = await time(address());
 
-        // Both above the floor, and within a fraction of it of each other. The bound is
-        // loose on purpose — it fails on "one branch skips the work", which is the leak,
-        // and not on ordinary network jitter.
+        // **Both above the floor — that pair is the whole property.** Removing `atLeast`
+        // from the route drops `registered` to about 10ms, which is what the first of these
+        // catches; the second says the same of the branch that does no work.
         expect(registered).toBeGreaterThanOrEqual(750);
         expect(unknown).toBeGreaterThanOrEqual(750);
-        expect(Math.abs(registered - unknown)).toBeLessThan(400);
+        // There used to be a third assertion here, `|registered - unknown| < 400`, and it
+        // was dropped rather than widened. It did not catch the mutation it looked like it
+        // was for — without the floor the gap is roughly 350ms and slips under the bound —
+        // and it failed against the real project whenever Firebase Auth and Firestore
+        // together ran past the 800ms floor, which is often enough to redden a run at
+        // random. A bound tuned until it stops failing is not evidence of anything.
+        //
+        // What it was reaching for is real and is **not** closed by this route: a send
+        // slower than `SEND_LINK_FLOOR_MS` overruns the floor, so the residue is bounded by
+        // Firebase's own variance rather than by our code. That is written down where it
+        // belongs, in the route's docstring, instead of asserted here with a number.
     });
 
     test("an address that is not one is a 400, before anything is looked up", async () => {
@@ -258,10 +309,12 @@ describe("the two send-a-link routes", () => {
 
     test("resend issues a fresh activation token for an unactivated account", async () => {
         const { email, uid } = await unactivated();
-        expect((await tokenDocs(uid)).size).toBe(0);
+        // Found by address: a resend issues the same shape sign-up does, and that token is
+        // minted before any account exists (#120), so it carries no uid to look it up by.
+        expect((await tokenDocsByEmail(email)).size).toBe(0);
         expect((await post("/auth/activation/resend", { email })).status).toBe(200);
 
-        const tokens = await tokenDocs(uid);
+        const tokens = await tokenDocsByEmail(email);
         expect(tokens.size).toBe(1);
         expect(tokens.docs[0]!.data().kind).toBe("activation");
         // The document is keyed by the hash and holds no copy of the token itself.
@@ -281,8 +334,12 @@ describe("the two send-a-link routes", () => {
         await activate(token);
 
         expect((await post("/auth/activation/resend", { email })).status).toBe(200);
+        // **By address, not by uid, and that is the whole test.** It counted `tokenDocs(uid)`
+        // and could not fail: resend issues its tokens with `uid: null` since #120, so a
+        // link wrongly mailed to an activated account's address is invisible to a uid query.
+        // Deleting the guard this test is named for left the suite fully green.
+        const tokens = await tokenDocsByEmail(email);
         // Only the one that was spent above; the route had nothing to confirm.
-        const tokens = await tokenDocs(uid);
         expect(tokens.size).toBe(1);
         expect(tokens.docs[0]!.data().usedAt).not.toBeNull();
     });
@@ -342,7 +399,11 @@ describe("an account that went away between the email and the click", () => {
         const reset = await issueToken(uid, email, "reset");
         expect(await markUserDeleted(uid)).toBe(true);
 
-        expect((await activate(activation)).error!.code).toBe(
+        // **A password the account does not already have.** Defaulting to `PASSWORD` here
+        // made the assertions below unfalsifiable: with the `deleted` guard removed the
+        // route runs `setPassword` with whatever this sends, so sending the current password
+        // rewrites it to itself and nothing observable changes.
+        expect((await activate(activation, "set-by-a-dead-link-31")).error!.code).toBe(
             "INVALID_TOKEN",
         );
         const res = await post("/auth/password/reset", { token: reset, password: "brand-new-42" });
@@ -350,10 +411,21 @@ describe("an account that went away between the email and the click", () => {
         expect(res.error!.code).toBe("INVALID_TOKEN");
         // And the sign-in credentials are untouched: the reset never reached `setPassword`.
         expect((await post("/auth/signin", { email, password: "brand-new-42" })).status).toBe(401);
+        // **The same question of the activation link, which needed asking separately.** Both
+        // halves above answer `INVALID_TOKEN` with the `deleted` guard removed, because
+        // `ensureUser` refuses a tombstone a moment later and the route reports that as a
+        // dead link either way. What the guard is actually for is everything that would
+        // already have happened by then: without it, activation runs `setPassword` on an
+        // account that is mid-delete, so a stale link silently rewrites the credential of an
+        // account its owner has asked to be destroyed. The status cannot see that; the
+        // credential can.
+        expect(await passwordOpens(email, PASSWORD)).toBe(true);
+        expect(await passwordOpens(email, "set-by-a-dead-link-31")).toBe(false);
+        expect(await passwordOpens(email, "brand-new-42")).toBe(false);
     });
 
     test("deleting the account takes its tokens with it", async () => {
-        // `deleteTokensForUid` is unit-tested in email-tokens.test.ts; this pins that
+        // `deleteTokensForAccount` is unit-tested in email-tokens.test.ts; this pins that
         // `DELETE /me` actually calls it. A token document carries the account's address,
         // and a deleted account keeps nothing (GUARDRAILS, ARCHITECTURE §3).
         const { email, uid } = await unactivated();
@@ -370,6 +442,40 @@ describe("an account that went away between the email and the click", () => {
         expect(res.status).toBe(200);
 
         expect((await tokenDocs(uid)).size).toBe(0);
+    });
+
+    test("including the ones issued before the account existed", async () => {
+        // **The half the uid sweep cannot reach, and the half that was broken.** The case
+        // above stands its account up with the Admin SDK and issues both tokens *with* a
+        // uid, so it stayed green the whole time `DELETE /me` was leaving every real
+        // sign-up's activation token behind — since #120 those are issued before any account
+        // exists and carry `uid: null`. This one goes through `POST /auth/signup`, which is
+        // the only way to produce that shape, and asks by address.
+        const pending = address();
+        createdEmails.push(pending);
+        expect((await post("/auth/signup", { email: pending })).status).toBe(201);
+        const issued = await tokenDocsByEmail(pending);
+        expect(issued.size).toBe(1);
+        expect(issued.docs[0]!.data().uid).toBeNull();
+
+        // Activate it so there is an account to delete, with a *second* pending-shaped token
+        // still unspent — a Resend before the delete, which is the ordinary case.
+        const token = await issueToken(null, pending, "activation");
+        expect((await activate(token)).status).toBe(200);
+        const uid = (await adminAuth.getUserByEmail(pending)).uid;
+        createdUids.push(uid);
+        await issueToken(null, pending, "activation");
+
+        const session = await signIn(BASE, pending, PASSWORD);
+        const res = await fetch(`${BASE}/me`, {
+            method: "DELETE",
+            headers: { authorization: `Bearer ${session}` },
+        });
+        expect(res.status).toBe(200);
+
+        // Nothing holding this address is left. Asked by address, because by uid is exactly
+        // the question that could not see them.
+        expect((await tokenDocsByEmail(pending)).size).toBe(0);
     });
 });
 
@@ -472,6 +578,30 @@ describe("POST /auth/password/reset", () => {
     });
 });
 
+/**
+ * Whether this run can produce an MFA challenge at all.
+ *
+ * The Auth emulator hardcodes `mfaConfig.state === "ENABLED"` at project level and offers
+ * no way to turn it off, so under `scripts/ci-api.sh` the answer is always yes. The real
+ * project's answer is a console switch, and it is **DISABLED** today — asked rather than
+ * assumed, so that flipping it on makes the guard below load-bearing here too instead of
+ * leaving a test that reads as covering the case while permanently taking the other branch.
+ *
+ * A failure to ask throws. Falling back to "off" would turn any credential or network
+ * problem into a test that passes by not testing.
+ */
+const multiFactorIsOn = async (): Promise<boolean> => {
+    if (config.usingEmulators) return true;
+    const token = await applicationDefault().getAccessToken();
+    const res = await fetch(
+        `https://identitytoolkit.googleapis.com/admin/v2/projects/${config.firebaseProjectId}/config`,
+        { headers: { authorization: `Bearer ${token.access_token}` } },
+    );
+    if (!res.ok) throw new Error(`could not read the project MFA state: ${res.status}`);
+    const state = ((await res.json()) as { mfa?: { state?: string } }).mfa?.state;
+    return state === "ENABLED" || state === "MANDATORY";
+};
+
 describe("a second factor is not a session", () => {
     /**
      * `requireSignedIn` was added for `/auth/idp` in the fourth review of #7 and called only
@@ -514,6 +644,19 @@ describe("a second factor is not a session", () => {
 
         // The same request that succeeded a moment ago, now with a second factor enrolled.
         const res = await post("/auth/signin", { email, password: PASSWORD });
+
+        if (!(await multiFactorIsOn())) {
+            // Identity Toolkit only issues the challenge when the *project* enables MFA, so
+            // with it off there is no half-signed-in response to refuse and sign-in is
+            // simply correct. Asserting the refusal anyway made `bun run verify` red against
+            // the real project for a guard that works; skipping quietly would let a reader
+            // take this file's green as evidence it had been exercised. So: say what the
+            // account looks like, say the run proved nothing here, and leave the assertion
+            // to the emulator — which CI gates on, and where MFA is always on.
+            expect((await adminAuth.getUser(uid)).multiFactor?.enrolledFactors).toHaveLength(1);
+            expect(res.status).toBe(200);
+            return;
+        }
 
         // Whatever it answers, it must not be a session.
         expect(res.status).not.toBe(200);
@@ -574,12 +717,17 @@ describe("a link goes to the address the account was looked up by", () => {
     });
 
     test("an activation link is too", async () => {
-        const { uid, attacker, victim } = await diverged();
+        const { attacker, victim } = await diverged();
 
         expect((await post("/auth/activation/resend", { email: victim })).status).toBe(200);
 
-        expect(await issuedFor(uid, "activation")).toEqual([victim]);
-        expect(await issuedFor(uid, "activation")).not.toContain(attacker);
+        // Found by address, not uid: a resend issues the same shape sign-up does, and that
+        // token is minted before any account exists (#120), so it carries no uid.
+        const issued = (await tokenDocsByEmail(victim)).docs
+            .filter((d) => d.get("kind") === "activation")
+            .map((d) => d.get("email") as string);
+        expect(issued).toEqual([victim]);
+        expect(await tokenDocsByEmail(attacker).then((s2) => s2.size)).toBe(0);
     });
 });
 
@@ -626,44 +774,42 @@ describe("proving the address takes back what was attached while it was not", ()
         expect(await providers(uid)).toEqual(["password"]);
     });
 
-    test("activation does NOT tell Firebase the credentials are proven", async () => {
-        // The most counter-intuitive assertion in this suite, so: Identity Toolkit uses
-        // `emailVerified` to decide whether to wipe `passwordHash` and every provider when a
-        // verified provider address merges onto an account. That wipe is a nuisance — it is
-        // how a real user adding Google loses the password `authProviders` still advertises
-        // — and it is also the only thing that evicts a **pre-registering attacker's**
-        // password once the real owner arrives with a provider, because Eva's own claim is
-        // disarmed by then.
+    test("activation tells Firebase the credentials are proven — because now they are", async () => {
+        // **This assertion is the inverse of what it was, and the inversion is the point of
+        // #120.**
         //
-        // Activation proves the address. It proves nothing about who chose the password: the
-        // person who clicks the link and the person who set it are the same only in the
-        // honest case. So the wipe stays armed here. A version of this test asserted the
-        // opposite, and the code it was written against turned a self-healing takeover into
-        // a permanent one.
+        // Activation used to withhold `emailVerified` deliberately. Identity Toolkit uses it
+        // to decide whether to wipe `passwordHash` on a provider merge, and that wipe was
+        // the only thing that evicted a pre-registering attacker's password once the real
+        // owner arrived with Apple or Google. Withholding a true fact for its side effect
+        // was the subtlest thing in #7 and cost a review round of its own.
+        //
+        // It is no longer needed. Sign-up sets no password, so the only password an account
+        // can have at activation is the one supplied in that same request by the person who
+        // proved the address. There is no stranger's credential left for the wipe to protect
+        // anyone from.
         const { email, uid } = await unactivated();
         expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
 
         await activate(await issueToken(uid, email, "activation"));
-
-        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
-    });
-
-    test("a password reset does, because it sets the password it is proving", async () => {
-        // The other side. A reset proves address control *and* chooses the password in the
-        // same request, so the credentials really are the caller's and the wipe has nothing
-        // left to protect anyone from. It is also the recovery a user reaches for after the
-        // wipe has taken a password from them, which is what makes the loss one-time.
-        const { email, uid } = await unactivated();
-        await activate(await issueToken(uid, email, "activation"));
-        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
-
-        const res = await post("/auth/password/reset", {
-            token: await issueToken(uid, email, "reset"),
-            password: "a-password-they-chose-9",
-        });
-        expect(res.status).toBe(200);
 
         expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
+    });
+
+    test("the password activation set is the one that works afterwards", async () => {
+        // The other half, and the reason the flip above is safe: activation does not merely
+        // mark the account proven, it *replaces* whatever credential was on it. An account
+        // reserved by someone calling Identity Toolkit directly carries their password; the
+        // person holding the link takes it over rather than inheriting it.
+        const { email, uid } = await unactivated();
+        const chosen = "a-password-they-chose-9";
+
+        await activate(await issueToken(uid, email, "activation"), chosen);
+
+        expect(await signIn(BASE, email, chosen)).toBeString();
+        // And the reserver's password is gone.
+        const stale = await post("/auth/signin", { email, password: PASSWORD });
+        expect(stale.status).toBe(401);
     });
 
     test("a password reset retracts it too, because that is the recovery an owner is sent to", async () => {

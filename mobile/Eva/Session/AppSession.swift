@@ -129,9 +129,13 @@ final class AppSession {
 
     /// Creates the account. Does **not** sign in — the session state is untouched, and
     /// the caller shows the activation screen (#6).
-    func signUp(email: String, password: String) async throws -> SignUpOutcome {
+    /// Asks for an activation link. **Sends no password** (#120): sign-up creates no
+    /// account, so there is nothing for a credential to attach to yet, and one set here
+    /// would sit on an address nobody had proved. The password is chosen on the activation
+    /// page, in the same request that spends the link.
+    func signUp(email: String) async throws -> SignUpOutcome {
         let response: SignUpResponse = try await client.post(
-            "/auth/signup", body: Credentials(email: email, password: password)
+            "/auth/signup", body: EmailAddress(email: email)
         )
         // Read, not assumed — the same rule `deleteAccount` applies to its flag. The
         // route has no `false` branch; if one ever answers, "pending" is the only thing

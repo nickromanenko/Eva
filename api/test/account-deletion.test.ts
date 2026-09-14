@@ -325,9 +325,11 @@ describe("DELETE /me removes the account and everything keyed to it", () => {
                 pending: true,
                 email,
             });
+            // No account exists yet — sign-up creates none (#120) — so the uid can only be
+            // read after the link is spent, which is also when the password is set.
+            await activateAccount(BASE, null, email, password);
             const { uid: freshUid } = await adminAuth.getUserByEmail(email);
             createdUids.push(freshUid);
-            await activateAccount(BASE, freshUid, email);
             const signin = await api("/auth/signin", {
                 method: "POST",
                 body: JSON.stringify({ email, password }),

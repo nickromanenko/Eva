@@ -1509,6 +1509,7 @@ describe("activation retracts before it stamps", () => {
                     door === "activate"
                         ? await post("/auth/activate", {
                               token: await issueToken(uid, email, "activation"),
+                              password: "a-password-they-chose-9",
                           })
                         : await post("/auth/password/reset", {
                               token: await issueToken(uid, email, "reset"),
@@ -1567,12 +1568,15 @@ describe("activation retracts before it stamps", () => {
         expect(res.body.error?.code).not.toBe("INTERNAL");
     }, SLOW);
 
-    test("an activation link used on an already-activated account retracts nothing", async () => {
+    test("an activation link used on an already-activated account changes nothing", async () => {
         // The guard that keeps activation from being a second, unauthenticated unlink
-        // button. The link stays valid for 24h, so this is an ordinary sequence: activate
-        // by reset, connect Apple from Profile, then click the original mail still sitting
-        // in the inbox. `/auth/activate` documents a valid link on an activated account as
-        // a supported 200 — it must be an inert one.
+        // button — and, since #120, from being a password-reset primitive. The link stays
+        // valid for 24h, so this is an ordinary sequence: activate by reset, connect Apple
+        // from Profile, then click the original mail still sitting in the inbox.
+        //
+        // It answers a dead link now rather than an inert 200. That changed with #120 and
+        // had to: the link carries a password, so honouring a stale one against an activated
+        // account would let anyone who ever saw an activation email set its password.
         const email = newEmail();
         const uid = await trackedUnactivatedAccount(email);
         await markActivated(uid);
@@ -1580,12 +1584,16 @@ describe("activation retracts before it stamps", () => {
 
         const res = await post("/auth/activate", {
             token: await issueToken(uid, email, "activation"),
+            password: "a-password-they-chose-9",
         });
 
-        expect(res.status).toBe(200);
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe("INVALID_TOKEN");
+        // Nothing retracted, and — the part that matters most — the password not replaced.
         expect(
             (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort(),
         ).toEqual([PROVIDER_IDS.apple, "password"].sort());
+        expect(await passwordStillWorks(email, PASSWORD)).toBe(true);
     }, SLOW);
 });
 
