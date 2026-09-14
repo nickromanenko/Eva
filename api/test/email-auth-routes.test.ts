@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { applicationDefault } from "firebase-admin/app";
 import { config } from "../src/config";
 import { ACTIVATION_TTL_SECONDS, RESET_TTL_SECONDS, issueToken } from "../src/email-tokens";
 import { adminAuth, firestore } from "../src/firebase";
@@ -495,6 +496,30 @@ describe("POST /auth/password/reset", () => {
     });
 });
 
+/**
+ * Whether this run can produce an MFA challenge at all.
+ *
+ * The Auth emulator hardcodes `mfaConfig.state === "ENABLED"` at project level and offers
+ * no way to turn it off, so under `scripts/ci-api.sh` the answer is always yes. The real
+ * project's answer is a console switch, and it is **DISABLED** today — asked rather than
+ * assumed, so that flipping it on makes the guard below load-bearing here too instead of
+ * leaving a test that reads as covering the case while permanently taking the other branch.
+ *
+ * A failure to ask throws. Falling back to "off" would turn any credential or network
+ * problem into a test that passes by not testing.
+ */
+const multiFactorIsOn = async (): Promise<boolean> => {
+    if (config.usingEmulators) return true;
+    const token = await applicationDefault().getAccessToken();
+    const res = await fetch(
+        `https://identitytoolkit.googleapis.com/admin/v2/projects/${config.firebaseProjectId}/config`,
+        { headers: { authorization: `Bearer ${token.access_token}` } },
+    );
+    if (!res.ok) throw new Error(`could not read the project MFA state: ${res.status}`);
+    const state = ((await res.json()) as { mfa?: { state?: string } }).mfa?.state;
+    return state === "ENABLED" || state === "MANDATORY";
+};
+
 describe("a second factor is not a session", () => {
     /**
      * `requireSignedIn` was added for `/auth/idp` in the fourth review of #7 and called only
@@ -537,6 +562,19 @@ describe("a second factor is not a session", () => {
 
         // The same request that succeeded a moment ago, now with a second factor enrolled.
         const res = await post("/auth/signin", { email, password: PASSWORD });
+
+        if (!(await multiFactorIsOn())) {
+            // Identity Toolkit only issues the challenge when the *project* enables MFA, so
+            // with it off there is no half-signed-in response to refuse and sign-in is
+            // simply correct. Asserting the refusal anyway made `bun run verify` red against
+            // the real project for a guard that works; skipping quietly would let a reader
+            // take this file's green as evidence it had been exercised. So: say what the
+            // account looks like, say the run proved nothing here, and leave the assertion
+            // to the emulator — which CI gates on, and where MFA is always on.
+            expect((await adminAuth.getUser(uid)).multiFactor?.enrolledFactors).toHaveLength(1);
+            expect(res.status).toBe(200);
+            return;
+        }
 
         // Whatever it answers, it must not be a session.
         expect(res.status).not.toBe(200);

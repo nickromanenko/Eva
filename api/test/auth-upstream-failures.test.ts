@@ -265,7 +265,13 @@ describe("creating the account: an upstream failure that is not EMAIL_EXISTS", (
         expect(answer.body).toEqual({ activated: true });
         // Claimed, not inherited: the reserver's password no longer opens it.
         expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
-    });
+        // Its own budget. Every other case in this file is in-process against a mocked
+        // upstream and finishes in milliseconds, so the file keeps Bun's 5s default; this
+        // one makes four real round trips (create, look up, claim, read back) and blew that
+        // default against the real project while passing against the emulator — `bun test`
+        // green, `bun run verify` red, for a test that was working. 20s is the ceiling the
+        // live suites use (#31).
+    }, 20_000);
 });
 
 describe("signin: an upstream failure that is not a wrong password", () => {
