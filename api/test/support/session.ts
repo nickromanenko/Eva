@@ -21,10 +21,22 @@ const post = (base: string, path: string, body: unknown) =>
         body: JSON.stringify(body),
     });
 
-/** Spends a freshly issued activation token on the live server. */
-export const activateAccount = async (base: string, uid: string, email: string): Promise<void> => {
+/**
+ * Spends a freshly issued activation token on the live server, setting the password.
+ *
+ * `uid` is `null` for the sign-up flow (#120): sign-up creates no account, so the token it
+ * issues carries only the address and the route creates the account when the link is spent.
+ * Pass a uid to activate an account that already exists — which is what a token minted
+ * before #120 looks like, and what a directly-reserved address looks like.
+ */
+export const activateAccount = async (
+    base: string,
+    uid: string | null,
+    email: string,
+    password: string,
+): Promise<void> => {
     const token = await issueToken(uid, email, "activation");
-    const res = await post(base, "/auth/activate", { token });
+    const res = await post(base, "/auth/activate", { token, password });
     if (res.status !== 200) throw new Error(`activate answered ${res.status}`);
 };
 
@@ -35,17 +47,22 @@ export const signIn = async (base: string, email: string, password: string): Pro
     return ((await res.json()) as { token: string }).token;
 };
 
-/** Sign-up → activation → sign-in. The uid comes from Auth, since sign-up no longer
- *  returns one. */
+/**
+ * Sign-up → activation → sign-in, through the live routes.
+ *
+ * The account does not exist until the link is spent (#120): sign-up sends an address and
+ * gets `201 { pending }`, and the password is chosen at activation. So the uid can only be
+ * read from Auth *after* activating, not before.
+ */
 export const signUpActivated = async (
     base: string,
     email: string,
     password: string,
 ): Promise<{ token: string; uid: string }> => {
-    const res = await post(base, "/auth/signup", { email, password });
+    const res = await post(base, "/auth/signup", { email });
     if (res.status !== 201) throw new Error(`signup answered ${res.status}`);
+    await activateAccount(base, null, email, password);
     const { uid } = await adminAuth.getUserByEmail(email);
-    await activateAccount(base, uid, email);
     return { token: await signIn(base, email, password), uid };
 };
 

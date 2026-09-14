@@ -394,6 +394,42 @@ export const findAuthUidByEmail = async (email: string): Promise<string | null> 
 }
 
 /**
+ * Creates the Firebase Auth account for an address that has **just been proven** (#120).
+ *
+ * *Why this exists at all.* Sign-up used to call `signUpWithPassword`, which created the
+ * account and its password before anyone had proved the address. That reserved the address
+ * for whoever asked first and put a working credential on it — so an attacker could sign up
+ * as a victim, the victim could click the confirmation mail they never asked for, and the
+ * attacker's password would open an activated account holding the victim's data. Every
+ * defence #7 built was a way of living with that rather than removing it.
+ *
+ * The invariant this restores, and it is the whole point: **a password only works if the
+ * person who set it proved the address.** Both halves happen in the same request now — the
+ * link proves the address, the form supplies the password — so there is no window in which a
+ * credential exists on an address nobody has confirmed.
+ *
+ * `emailVerified` is set here, unlike at the old activation: the caller proved the address
+ * *and* chose the password, which is exactly the condition `markCredentialsProven` documents
+ * as making it safe. Firebase's merge-wipe has nothing left to protect anyone from.
+ *
+ * Throws `email-exists` if the address was taken between the caller's sign-up and their
+ * click — by someone calling Identity Toolkit directly, which the public web API key allows
+ * and which Eva cannot prevent. The route turns that into a claim rather than a failure; see
+ * there.
+ */
+export const createProvenAccount = async (email: string, password: string): Promise<string> => {
+  try {
+    const user = await adminAuth.createUser({ email, password, emailVerified: true })
+    return user.uid
+  } catch (err) {
+    if ((err as { code?: string }).code === 'auth/email-already-exists') {
+      throw new IdentityToolkitError('EMAIL_EXISTS', null, 'email-exists')
+    }
+    throw err
+  }
+}
+
+/**
  * Sets a new password on the Auth account — the last step of a reset (#6), after the
  * token has been spent. The Admin SDK can set a password even though it cannot verify one,
  * so this is the one credential operation that needs no web API key. Never logs, and is

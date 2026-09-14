@@ -34,8 +34,16 @@ const TOKEN_BYTES = 32
 /** `TOKEN_BYTES` as unpadded base64url, for the route edge to refuse anything else. */
 export const TOKEN_LENGTH = Math.ceil((TOKEN_BYTES * 4) / 3)
 
+/**
+ * `uid` is `null` for an activation token issued before the account exists (#120). Sign-up
+ * no longer creates a Firebase Auth user — the address is not proven yet, and a credential
+ * on an unproven address is the thing #120 removes — so the only identity an activation
+ * token can carry at that point is the address itself.
+ *
+ * A reset token always has one: resetting is something you do to an account that exists.
+ */
 export type ConsumeResult =
-  | { ok: true; uid: string; email: string }
+  | { ok: true; uid: string | null; email: string }
   | { ok: false; reason: 'invalid' | 'expired' }
 
 const tokens = () => firestore.collection('authTokens')
@@ -71,12 +79,14 @@ const invalidateResetTokens = async (uid: string): Promise<void> => {
  * without sleeping through a day.
  */
 export const issueToken = async (
-  uid: string,
+  uid: string | null,
   email: string,
   kind: TokenKind,
   now: () => number = Date.now,
 ): Promise<string> => {
-  if (kind === 'reset') await invalidateResetTokens(uid)
+  // `uid` is non-null for every reset token by construction: the route looks the account up
+  // before issuing one.
+  if (kind === 'reset' && uid !== null) await invalidateResetTokens(uid)
   const raw = Buffer.from(crypto.getRandomValues(new Uint8Array(TOKEN_BYTES))).toString('base64url')
   await tokens()
     .doc(hashToken(raw))

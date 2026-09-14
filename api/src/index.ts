@@ -22,6 +22,7 @@ import {
     findAuthUidByEmail,
     idTokenForUid,
     claimUnprovenAccount,
+    createProvenAccount,
     markCredentialsProven,
     retractUnprovenIdentities,
     setPassword,
@@ -328,57 +329,45 @@ app.get("/health", (c) => c.json({ status: "ok" }));
 app.post("/auth/signup", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const email = normalizeEmail(body.email);
-    const password = typeof body.password === "string" ? body.password : "";
     if (!email)
         return c.json(error("VALIDATION", "A valid email is required"), 400);
-    if (!isValidPassword(password)) {
-        return c.json(error("WEAK_PASSWORD", passwordFailure(password)), 400);
-    }
     const throttled = throttleAuth(c, "signup", email);
     if (throttled) return throttled;
 
-    try {
-        const { localId } = await signUpWithPassword(email, password);
-        const user = await ensureUser(localId, email, "password");
-        // `null` means the uid is mid-deletion, and Identity Toolkit has just minted this
-        // one, so it cannot be. Raised as the fault it would be rather than papered over
-        // with a plausible answer; `app.onError` shapes it into a 500 with a `ref`.
-        if (!user) throw new Error("ensureUser refused a newly created uid");
-        // No session (#6): the account exists but its address is not proven, and the
-        // activation gate in `/auth/signin` is what proves it. The caller gets the address
-        // back — the one it just sent — so the gate screen can name where the link went.
-        //
-        // Nothing here is allowed to fail the request. The Auth user and the document are
-        // already committed, so a throw would answer `500` on an account that exists, and
-        // the retry would be `409 EMAIL_EXISTS` on an account nobody can sign into — with
-        // the recovery, Resend, living on the gate screen the failed sign-up never
-        // reached. Better a gate with no email yet and a working Resend.
-        await sendActivationLink(localId, email).catch(() => {});
-        return c.json({ pending: true, email }, 201);
-    } catch (err) {
-        if (err instanceof IdentityToolkitError) {
-            if (err.kind === "email-exists") {
-                return c.json(
-                    error("EMAIL_EXISTS", "This email is already registered"),
-                    409,
-                );
-            }
-            if (err.kind === "unavailable") return upstreamUnavailable(c, "signup", err);
-            // `rejected`: upstream refused the credentials for something our own edge
-            // validation did not catch — a shape of address our regex allows and Google
-            // does not, most likely. Answered in our words, at 400 because the request is
-            // the problem; the upstream reason stays in the exception (GUARDRAILS 12), so
-            // we say what the caller can act on and no more.
+    // **No password, and no account** (#120). Sign-up used to create the Firebase Auth user
+    // and its password here, before anyone had proved the address — which reserved the
+    // address for whoever asked first and put a working credential on it. An attacker signed
+    // up as a victim; the victim clicked the confirmation mail they never asked for; the
+    // attacker's password then opened an activated account holding the victim's data.
+    //
+    // Both halves now happen at `/auth/activate`: the link proves the address and the form
+    // supplies the password, in one request. So there is no moment at which a credential
+    // exists on an address nobody has confirmed.
+    //
+    // What this route still does is refuse an address that already belongs to somebody.
+    const existingUid = await findAuthUidByEmail(email);
+    if (existingUid) {
+        const existing = await readUser(existingUid);
+        // Activated means proven, and proven means taken. Answered plainly, as it always
+        // has been (ARCHITECTURE §3): sign-up is the one route that deliberately says an
+        // address is registered, because a sign-up form that silently did nothing would be
+        // worse than the disclosure.
+        if (existing.user?.activated) {
             return c.json(
-                error(
-                    "VALIDATION",
-                    "That email or password can't be used. Check them and try again.",
-                ),
-                400,
+                error("EMAIL_EXISTS", "This email is already registered"),
+                409,
             );
         }
-        throw err;
+        // An Auth user with no proven owner is not an obstacle. It is either an abandoned
+        // sign-up or an address someone reserved by calling Identity Toolkit directly —
+        // which the public web API key allows and Eva cannot prevent. Either way nobody has
+        // proved it, so the link below is issued and whoever completes it takes the account.
     }
+
+    await sendActivationLink(null, email);
+    // The address comes back — the one the caller just sent — so the "check your email"
+    // screen can name where the link went.
+    return c.json({ pending: true, email }, 201);
 });
 
 app.post("/auth/signin", async (c) => {
@@ -532,7 +521,7 @@ const tokenFailure = (c: Context, reason: "invalid" | "expired") =>
  * typed error is swallowed here. Anything else (Firestore, on the token write) is a fault
  * of ours and still lands in `app.onError`.
  */
-const sendActivationLink = async (uid: string, email: string): Promise<void> => {
+const sendActivationLink = async (uid: string | null, email: string): Promise<void> => {
     const token = await issueToken(uid, email, "activation");
     try {
         await sendActivationEmail(email, token);
@@ -557,35 +546,55 @@ const sendResetLink = async (uid: string, email: string): Promise<void> => {
  * answers `200`, because the thing the user did — prove the address — is done either way.
  * The token is consumed regardless, so the link cannot be replayed.
  */
-const activate = async (c: Context, raw: unknown) => {
+const claimForActivation = async (uid: string, password: string): Promise<void> => {
+    await setPassword(uid, password);
+    await retractUnprovenIdentities(uid);
+    await markCredentialsProven(uid);
+};
+
+const activate = async (c: Context, raw: unknown, body: Record<string, unknown>) => {
     if (raw === undefined || raw === null || raw === "") {
         return c.json(error("VALIDATION", "A token is required"), 400);
     }
     const token = parseToken(raw);
     if (!token) return tokenFailure(c, "invalid");
+    // Checked **before** the token is spent, exactly as the reset route does it: a weak
+    // password costs the caller a retry, not their only link.
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!isValidPassword(password)) {
+        return c.json(error("WEAK_PASSWORD", passwordFailure(password)), 400);
+    }
 
     const result = await consumeToken(token, "activation");
     if (!result.ok) return tokenFailure(c, result.reason);
-    // The token was real but the account behind it is gone or going — a delete landed
-    // between the email and the click. Nothing to activate, and a dead link is what the
-    // holder of a deleted account's link should see.
-    const before = await readUser(result.uid);
-    if (before.deleted || !before.user) return tokenFailure(c, "invalid");
-    // **Retract first, stamp second, and the order is the whole point.** An earlier version
-    // stamped `activatedAt` and then retracted, which left a window — three Admin SDK round
-    // trips wide — in which the document said activated while the attacker's provider was
-    // still linked. `/auth/idp` reads exactly that flag to decide whether to run its claim,
-    // so a request landing inside the window skipped the claim and was minted a 30-day Eva
-    // JWT, which nothing can revoke. And a transient failure of the retraction left the
-    // account activated with the identity still attached, permanently, because the
-    // transition had already been spent.
+
+    // **Here the address becomes proven and the credential comes into existence, in that
+    // order, in one request** (#120). Sign-up created neither, which is the whole change:
+    // there is no longer a window in which a working password sits on an address nobody has
+    // confirmed.
     //
-    // This way round, every failure leaves the account unactivated with the claim gate
-    // still armed, and the worst case is a user clicking their link again. `proveAddress`
-    // is idempotent, so two concurrent activations both running it is harmless.
-    if (!before.user.activated) await retractUnprovenIdentities(result.uid);
-    // Last, and still checked: a delete may have landed since the read above.
-    if (!(await markActivated(result.uid))) return tokenFailure(c, "invalid");
+    // `result.uid` is null for a token sign-up issued. It is non-null only for a legacy
+    // token minted before #120 against an account that already existed; those keep working
+    // for their 24 hours rather than stranding whoever is mid-flow.
+    const existingUid = result.uid ?? (await findAuthUidByEmail(result.email));
+
+    let uid: string;
+    if (existingUid === null) {
+        uid = await createProvenAccount(result.email, password);
+    } else {
+        const existing = await readUser(existingUid);
+        // Gone or going: a delete landed between the email and the click.
+        if (existing.deleted) return tokenFailure(c, "invalid");
+        // Already proven by somebody. A valid link must not take an account away from an
+        // owner who has one — that would be the takeover wearing a confirmation email.
+        if (existing.user?.activated) return tokenFailure(c, "invalid");
+        uid = existingUid;
+        await claimForActivation(uid, password);
+    }
+
+    const user = await ensureUser(uid, result.email, "password");
+    if (!user) return tokenFailure(c, "invalid");
+    if (!(await markActivated(uid))) return tokenFailure(c, "invalid");
     return c.json({ activated: true });
 };
 
@@ -598,7 +607,7 @@ app.post("/auth/activate", async (c) => {
     const throttled = throttleToken(c, "activate");
     if (throttled) return throttled;
     const body = await c.req.json().catch(() => ({}));
-    return activate(c, body.token);
+    return activate(c, body.token, body);
 });
 
 /**
@@ -626,18 +635,28 @@ app.post("/auth/activation/resend", async (c) => {
     if (throttled) return throttled;
 
     await atLeast(SEND_LINK_FLOOR_MS, async () => {
-        const uid = await findAuthUidByEmail(email);
-        if (!uid) return;
-        const user = await getUser(uid);
-        // Delivered to `email` — the address this account was *looked up by* — and never
-        // to `user.email`. Those are not the same fact. The lookup is `getUserByEmail`
-        // against Firebase Auth; `users/{uid}.email` is written once at creation and
-        // `ensureUser` never rewrites it. An idToken holder can move their own Auth address
-        // with `accounts:update` (the web API key is public), so the two can be made to
-        // disagree — and whoever did it owns the document's stale copy. Sending there mails
-        // a live link for the victim's address to the attacker.
-        if (user && !isActivated(user)) await sendActivationLink(uid, email);
+        // A pending sign-up has no account to look up (#120), so this cannot ask Firebase
+        // whether one exists the way it used to. What it asks instead is the only question
+        // that should stop a link being sent: does the address already belong to somebody?
+        //
+        // Always addressed to `email`, the address the caller asked about, and never to
+        // `users/{uid}.email`. Those are not the same fact: the lookup is `getUserByEmail`
+        // against Firebase Auth, while the document's copy is written once at creation and
+        // never rewritten, and an idToken holder can move their own Auth address with
+        // `accounts:update` (the web API key is public). Sending to the stale copy mails a
+        // live link for the victim's address to whoever moved it.
+        const existingUid = await findAuthUidByEmail(email);
+        if (existingUid) {
+            const existing = await readUser(existingUid);
+            // Proven, so taken. A resend must not hand a fresh link to an address whose
+            // owner already has it — a valid activation link can claim an unproven account.
+            if (existing.user?.activated) return;
+        }
+        await sendActivationLink(null, email);
     });
+    // `200 { sent: true }` for every well-formed address, registered or not (GUARDRAILS
+    // 12b). That is unchanged, and is why the branch above returns silently rather than
+    // answering differently.
     return c.json({ sent: true });
 });
 
@@ -687,12 +706,18 @@ app.post("/auth/password/reset", async (c) => {
 
     const result = await consumeToken(token, "reset");
     if (!result.ok) return tokenFailure(c, result.reason);
+    // Non-null for every reset token by construction — `/auth/password/forgot` looks the
+    // account up before issuing one, and only sign-up's activation tokens are issued
+    // without a uid (#120). Narrowed rather than asserted, so a future issuer that forgets
+    // that is a dead link instead of a crash.
+    if (result.uid === null) return tokenFailure(c, "invalid");
+    const uid = result.uid;
     // Gone or going: the credentials must not be reset on an account mid-delete, and the
     // link is as dead as the account.
-    const user = await getUser(result.uid);
+    const user = await getUser(uid);
     if (!user) return tokenFailure(c, "invalid");
 
-    await setPassword(result.uid, password);
+    await setPassword(uid, password);
     // Same retraction as the activation route, and reachable by the same person: this is
     // the recovery an owner is sent to when someone else has reserved their address, so it
     // has to take that person's credentials away rather than merely reset the password.
@@ -701,22 +726,23 @@ app.post("/auth/password/reset", async (c) => {
     // stamp — see the activation route for why that order matters. Only when the account
     // was not already activated: someone who linked Apple deliberately from Profile and
     // then forgot their password must still have Apple afterwards.
-    if (!user.activated) await retractUnprovenIdentities(result.uid);
-    // Only here, and never from the activation route: a reset proves address control *and*
-    // sets the password in the same request, so the credentials are the caller's. At
-    // activation the password may be a stranger's, and Firebase's merge-wipe is what takes
-    // it away — see `markCredentialsProven`.
+    if (!user.activated) await retractUnprovenIdentities(uid);
+    // Safe here because a reset proves address control *and* sets the password in the same
+    // request, so the credentials are demonstrably the caller's. Activation now meets that
+    // same condition (#120) and calls it too — it did not before, when sign-up set the
+    // password and activation only proved the address, and the two could be different
+    // people.
     //
     // Unconditional rather than transition-only: a long-activated user who resets has just
     // proven the password whoever they are, and a wipe on their next provider sign-in would
     // be pure loss.
-    await markCredentialsProven(result.uid);
+    await markCredentialsProven(uid);
     // Proof of control of the address, whichever link it came by. Last, for the same
     // reason as the activation route. A delete landing since the read above answers a dead
     // link rather than a session for a tombstone.
-    if (!(await markActivated(result.uid))) return tokenFailure(c, "invalid");
+    if (!(await markActivated(uid))) return tokenFailure(c, "invalid");
     return c.json({
-        token: await mintToken(result.uid, user.email),
+        token: await mintToken(uid, user.email),
         user: { ...user, activated: true },
     });
 });

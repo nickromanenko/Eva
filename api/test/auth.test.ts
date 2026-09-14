@@ -3,7 +3,7 @@ import { verify } from "hono/jwt";
 import { config } from "../src/config";
 import { issueToken } from "../src/email-tokens";
 import { adminAuth, firestore } from "../src/firebase";
-import { activateAccount, createLegacyAccount } from "./support/session";
+import { activateAccount, createLegacyAccount, createUnactivatedAccount } from "./support/session";
 
 /**
  * Integration tests against the REAL Firebase project (per spec §6).
@@ -21,6 +21,14 @@ const BASE = process.env.EVA_API_URL ?? "http://localhost:3003";
 const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
 const password = "correct-horse-8";
 const createdUids: string[] = [];
+
+/** A fresh address per case, for the ones that must not share the suite's account. */
+const address = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+
+/** Every `users/{uid}` holding this address — asked of Firestore, because "sign-up created
+ *  nothing" is a claim about the database and not about a response body. */
+const accountsForEmail = async (value: string): Promise<string[]> =>
+    (await firestore.collection("users").where("email", "==", value).get()).docs.map((d) => d.id);
 
 const api = (path: string, init?: RequestInit & { token?: string }) =>
     fetch(`${BASE}${path}`, {
@@ -69,33 +77,52 @@ describe("auth", () => {
     let token = "";
     let uid = "";
 
-    test("signup creates the account but no session, and the record starts unactivated", async () => {
+    test("signup creates nothing at all — no account, no document, no credential", async () => {
         const res = await api("/auth/signup", {
             method: "POST",
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify({ email }),
         });
         expect(res.status).toBe(201);
-        // #6: the answer carries no token — the address is not proven yet — and echoes
-        // the address back so the gate screen can name where the link went.
+        // No token — the address is not proven — and the address echoed back so the
+        // "check your email" screen can name where the link went.
         expect(await json<PendingResponse>(res)).toEqual({ pending: true, email });
 
-        uid = (await adminAuth.getUserByEmail(email)).uid;
-        createdUids.push(uid);
+        // **The assertion this whole issue is about** (#120). Sign-up used to create a
+        // Firebase Auth user with the caller's password here, which reserved the address
+        // and put a working credential on it before anyone had proved it was theirs. An
+        // attacker signed up as a victim, the victim clicked the confirmation mail they
+        // never asked for, and the attacker's password opened an activated account holding
+        // the victim's data. Nothing exists to inherit now.
+        await expect(adminAuth.getUserByEmail(email)).rejects.toThrow();
+        expect(await accountsForEmail(email)).toEqual([]);
+    });
 
-        // The spec's core assertion: the users/{uid} record exists in Firestore.
-        const doc = await firestore.collection("users").doc(uid).get();
-        expect(doc.exists).toBe(true);
-        expect(doc.data()!.email).toBe(email);
-        expect(doc.data()!.authProviders).toEqual(["password"]);
-        expect(doc.data()!.questionnaireCompleted).toBe(false);
-        // Explicitly null, not absent: absent is the pre-#6 shape and means activated.
-        expect(doc.data()!.activatedAt).toBeNull();
+    test("a password sent to signup is ignored, not honoured", async () => {
+        // An older client still posts one. It must not become a credential — that is the
+        // whole point — and it must not fail the request either, or every un-updated app
+        // breaks at once.
+        const other = address();
+        const res = await api("/auth/signup", {
+            method: "POST",
+            body: JSON.stringify({ email: other, password }),
+        });
+        expect(res.status).toBe(201);
+        await expect(adminAuth.getUserByEmail(other)).rejects.toThrow();
     });
 
     test("signin is refused until the address is confirmed", async () => {
+        // The gate still exists, but the normal flow can no longer reach it: a pending
+        // sign-up has no account and no password, so there is nothing to sign in with.
+        // What reaches it is an account somebody created *outside* sign-up — by calling
+        // Identity Toolkit directly with the public web API key, which Eva cannot prevent
+        // — or one predating #120. That is the shape this stands up.
+        const stranded = address();
+        const strandedUid = await createUnactivatedAccount(stranded, password);
+        createdUids.push(strandedUid);
+
         const res = await api("/auth/signin", {
             method: "POST",
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify({ email: stranded, password }),
         });
         expect(res.status).toBe(403);
         expect((await json<ErrorResponse>(res)).error.code).toBe("NOT_ACTIVATED");
@@ -123,10 +150,25 @@ describe("auth", () => {
         expect(await unconfirmed.text()).toBe(await unknown.text());
     });
 
-    test("the activation link confirms the address, once", async () => {
-        await activateAccount(BASE, uid, email);
-        const firstConfirmation = (await firestore.collection("users").doc(uid).get())
-            .data()!.activatedAt;
+    test("the activation link creates the account, sets the password, and confirms once", async () => {
+        // The account comes into existence *here*, not at sign-up (#120): the link proves
+        // the address and the form supplies the password, in the same request. So the uid
+        // can only be read afterwards.
+        await activateAccount(BASE, null, email, password);
+        uid = (await adminAuth.getUserByEmail(email)).uid;
+        createdUids.push(uid);
+
+        const doc = await firestore.collection("users").doc(uid).get();
+        expect(doc.exists).toBe(true);
+        expect(doc.data()!.email).toBe(email);
+        expect(doc.data()!.authProviders).toEqual(["password"]);
+        expect(doc.data()!.questionnaireCompleted).toBe(false);
+        // Proven at Firebase too, which the old activation never did: the caller proved the
+        // address *and* chose the password, so there is no unproven credential left for
+        // Firebase's merge-wipe to protect anyone from.
+        expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
+
+        const firstConfirmation = doc.data()!.activatedAt;
         expect(firstConfirmation).not.toBeNull();
 
         // Single-use: the same link a second time is a dead link, not a second activation.
@@ -156,20 +198,14 @@ describe("auth", () => {
         );
     });
 
-    test("signup validates email and password", async () => {
+    test("signup validates the address, which is all it is given", async () => {
         const bad = await api("/auth/signup", {
             method: "POST",
-            body: JSON.stringify({ email: "not-an-email", password }),
+            body: JSON.stringify({ email: "not-an-email" }),
         });
         expect(bad.status).toBe(400);
-        const weak = await api("/auth/signup", {
-            method: "POST",
-            body: JSON.stringify({
-                email: `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`,
-                password: "short",
-            }),
-        });
-        expect(weak.status).toBe(400);
+        // The password rule moved with the password: it is enforced at activation now, and
+        // `activation password rule` below is where it is tested.
     });
 
     test("signin returns token for correct password, matches same user", async () => {
@@ -280,8 +316,13 @@ describe("auth", () => {
  * The last test is the load-bearing one: the rule applies to signup, never to signin,
  * because accounts created before it exist and must keep working.
  */
-describe("signup password rule", () => {
-    /** The helper text the sign-up screen actually shows, read from the client. */
+describe("activation password rule", () => {
+    /**
+     * The rule moved with the password (#120). Sign-up takes no password, so the screen
+     * that enforces it client-side moved too — from the sign-up step to the activation
+     * page — and this reads the helper text from wherever it now lives, because a server
+     * rule quoting text the user never saw is the failure this pins.
+     */
     const clientHelperText = async (): Promise<string> => {
         const swift = await Bun.file(
             `${import.meta.dir}/../../mobile/Eva/Onboarding/Steps/CreateAccountStepView.swift`,
@@ -291,50 +332,82 @@ describe("signup password rule", () => {
         return match[1]!;
     };
 
-    const signup = (password: string) =>
-        api("/auth/signup", {
+    /** A whole sign-up, then the link spent with `password`. The rule is checked before the
+     *  token is consumed, so a rejected attempt leaves the link usable — asserted below. */
+    const activateWith = async (password: string): Promise<Response> => {
+        const target = address();
+        await api("/auth/signup", { method: "POST", body: JSON.stringify({ email: target }) });
+        const token = await issueToken(null, target, "activation");
+        return api("/auth/activate", {
             method: "POST",
-            body: JSON.stringify({
-                email: `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`,
-                password,
-            }),
+            body: JSON.stringify({ token, password }),
         });
-
-    /** Sign-up answers with the address, not the account (#6), so the sweep list is
-     *  filled from Auth rather than from the body. */
-    const uidOf = async (res: Response): Promise<string> =>
-        (await adminAuth.getUserByEmail((await json<PendingResponse>(res)).email)).uid;
+    };
 
     test("8 characters without a digit is rejected", async () => {
-        const res = await signup("password");
+        const res = await activateWith("password");
         expect(res.status).toBe(400);
         expect((await json<ErrorResponse>(res)).error.code).toBe("WEAK_PASSWORD");
     });
 
     test("7 characters with a digit is rejected", async () => {
-        const res = await signup("passwo1");
+        const res = await activateWith("passwo1");
         expect(res.status).toBe(400);
         expect((await json<ErrorResponse>(res)).error.code).toBe("WEAK_PASSWORD");
     });
 
     test("8 characters with a digit is accepted", async () => {
-        const res = await signup("passwor1");
-        expect(res.status).toBe(201);
-        createdUids.push(await uidOf(res));
+        const target = address();
+        await api("/auth/signup", { method: "POST", body: JSON.stringify({ email: target }) });
+        const token = await issueToken(null, target, "activation");
+        const res = await api("/auth/activate", {
+            method: "POST",
+            body: JSON.stringify({ token, password: "passwor1" }),
+        });
+        expect(res.status).toBe(200);
+        createdUids.push((await adminAuth.getUserByEmail(target)).uid);
     });
 
     test("a non-ASCII digit counts as a number, as it does on the client", async () => {
         // Swift's Character.isNumber is Unicode-wide, so the CTA enables for this
         // password. An ASCII-only server check would reject it while quoting the rule
         // the user had just satisfied.
-        const res = await signup("passwor\u0663");
-        expect(res.status).toBe(201);
-        createdUids.push(await uidOf(res));
+        const target = address();
+        await api("/auth/signup", { method: "POST", body: JSON.stringify({ email: target }) });
+        const token = await issueToken(null, target, "activation");
+        const res = await api("/auth/activate", {
+            method: "POST",
+            body: JSON.stringify({ token, password: "passwor\u0663" }),
+        });
+        expect(res.status).toBe(200);
+        createdUids.push((await adminAuth.getUserByEmail(target)).uid);
     });
 
-    test("the rejection message is the sign-up screen's helper text", async () => {
-        const res = await signup("password");
+    test("the rejection message is the screen's helper text", async () => {
+        const res = await activateWith("password");
         expect((await json<ErrorResponse>(res)).error.message).toBe(await clientHelperText());
+    });
+
+    test("a rejected password does not spend the link", async () => {
+        // The reason the rule is checked before `consumeToken`: a weak password should cost
+        // the caller a retry, not the only link they have. Without this the user is left
+        // with a dead link and an account that does not exist.
+        const target = address();
+        await api("/auth/signup", { method: "POST", body: JSON.stringify({ email: target }) });
+        const token = await issueToken(null, target, "activation");
+
+        const weak = await api("/auth/activate", {
+            method: "POST",
+            body: JSON.stringify({ token, password: "short" }),
+        });
+        expect(weak.status).toBe(400);
+
+        const good = await api("/auth/activate", {
+            method: "POST",
+            body: JSON.stringify({ token, password: "passwor1" }),
+        });
+        expect(good.status).toBe(200);
+        createdUids.push((await adminAuth.getUserByEmail(target)).uid);
     });
 
     test("signin still accepts a pre-rule password with no digit", async () => {
