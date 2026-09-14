@@ -580,7 +580,35 @@ const activate = async (c: Context, raw: unknown, body: Record<string, unknown>)
 
     let uid: string;
     if (existingUid === null) {
-        uid = await createProvenAccount(result.email, password);
+        try {
+            uid = await createProvenAccount(result.email, password);
+        } catch (err) {
+            if (!(err instanceof IdentityToolkitError)) throw err;
+            // The address was taken between this caller's sign-up and their click — by
+            // someone calling Identity Toolkit directly, which the public web API key
+            // allows. They cannot have *proved* it, because proving it is this route, so
+            // the holder of a valid link takes the account rather than being refused.
+            if (err.kind === "email-exists") {
+                const raced = await findAuthUidByEmail(result.email);
+                if (!raced) throw err;
+                uid = raced;
+                await claimForActivation(uid, password);
+                const claimed = await ensureUser(uid, result.email, "password");
+                if (!claimed) return tokenFailure(c, "invalid");
+                if (!(await markActivated(uid))) return tokenFailure(c, "invalid");
+                return c.json({ activated: true });
+            }
+            // #32: shaped, never a bare 500. `unavailable` is worth a retry and pages an
+            // operator; `rejected` is something about the request our edge let through.
+            if (err.kind === "unavailable") return upstreamUnavailable(c, "signup", err);
+            return c.json(
+                error(
+                    "VALIDATION",
+                    "That email or password can't be used. Check them and try again.",
+                ),
+                400,
+            );
+        }
     } else {
         const existing = await readUser(existingUid);
         // Gone or going: a delete landed between the email and the click.

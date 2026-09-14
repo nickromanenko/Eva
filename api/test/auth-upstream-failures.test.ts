@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { issueToken } from "../src/email-tokens";
 import { resetAuthRateLimits } from "../src/rate-limit";
 
 /**
@@ -49,6 +50,14 @@ mock.module("../src/identity-toolkit", () => ({
     ...identityToolkit,
     signInWithPassword: () => (upstream ?? noUpstreamSet)(),
     signUpWithPassword: () => (upstream ?? noUpstreamSet)(),
+    // Where an account is created now (#120). Sign-up creates nothing and never reaches
+    // Identity Toolkit at all, so #32's guarantee — an upstream failure is a shaped answer,
+    // never Hono's bare 500 — has to be pinned here instead. It is the same guarantee about
+    // a different call.
+    createProvenAccount: () => (upstream ?? noUpstreamSet)(),
+    // Left real: activation looks the address up before creating, and a fake that failed
+    // would send every case down the claim branch instead of the create branch.
+    findAuthUidByEmail: identityToolkit.findAuthUidByEmail,
 }));
 
 // Imported after the mock, and never as a listening server.
@@ -112,7 +121,18 @@ const post = async (path: string, body: unknown): Promise<Answer> => {
     };
 };
 
-const signup = (email = REGISTERED) => post("/auth/signup", { email, password: PASSWORD });
+const signup = (email = REGISTERED) => post("/auth/signup", { email });
+
+/**
+ * A whole sign-up, then the link spent — which is where the account is created (#120) and
+ * therefore where `upstream` fires. The token is issued directly, the way every live suite
+ * does it, because the link itself never reaches a test.
+ */
+const activate = async (email = REGISTERED): Promise<Answer> => {
+    await signup(email);
+    const token = await issueToken(null, email, "activation");
+    return post("/auth/activate", { token, password: PASSWORD });
+};
 const signin = (email = REGISTERED) => post("/auth/signin", { email, password: PASSWORD });
 
 /** `{ error: { code, message } }` and nothing else (GUARDRAILS 11). */
@@ -157,10 +177,13 @@ afterAll(() => {
     upstream = null;
 });
 
-describe("signup: an upstream failure that is not EMAIL_EXISTS", () => {
+describe("creating the account: an upstream failure that is not EMAIL_EXISTS", () => {
+    // Sign-up used to make this call and now creates nothing (#120); the account comes into
+    // existence when the activation link is spent. These are the same assertions about the
+    // same guarantee, moved to the route that now carries it.
     test("a refused request is a shaped 400, not a bare 500", async () => {
         upstream = rejects("INVALID_EMAIL");
-        const answer = await signup();
+        const answer = await activate();
 
         expect(answer.status).toBe(400);
         expectStandardShape(answer, "VALIDATION");
@@ -169,7 +192,7 @@ describe("signup: an upstream failure that is not EMAIL_EXISTS", () => {
 
     test("an outage is a shaped 503 that says retrying is reasonable", async () => {
         upstream = isDown;
-        const answer = await signup();
+        const answer = await activate();
 
         expect(answer.status).toBe(503);
         expectStandardShape(answer, "SERVICE_UNAVAILABLE");
@@ -179,9 +202,9 @@ describe("signup: an upstream failure that is not EMAIL_EXISTS", () => {
 
     test("a transient failure and a malformed-input one are told apart", async () => {
         upstream = isDown;
-        const outage = await signup();
+        const outage = await activate();
         upstream = rejects("INVALID_EMAIL");
-        const malformed = await signup();
+        const malformed = await activate();
 
         // The distinction the issue asks for: 503-shaped for "Google is unavailable",
         // 400-shaped for "this email is malformed" — different status, different code,
@@ -195,7 +218,7 @@ describe("signup: an upstream failure that is not EMAIL_EXISTS", () => {
 
     test("the request never landing is an outage too, not a 400", async () => {
         upstream = unreachable;
-        const answer = await signup();
+        const answer = await activate();
 
         expect(answer.status).toBe(503);
         expectStandardShape(answer, "SERVICE_UNAVAILABLE");
@@ -203,18 +226,28 @@ describe("signup: an upstream failure that is not EMAIL_EXISTS", () => {
 
     test("upstream load-shedding on a 4xx is an outage, not the caller's fault", async () => {
         upstream = shedsLoad;
-        const answer = await signup();
+        const answer = await activate();
 
         expect(answer.status).toBe(503);
         expectStandardShape(answer, "SERVICE_UNAVAILABLE");
     });
 
-    test("EMAIL_EXISTS still answers 409, unchanged", async () => {
+    test("EMAIL_EXISTS is no longer a refusal here — the link takes the account", async () => {
+        // The one case whose *meaning* changed with #120, rather than moving.
+        //
+        // A taken address used to end sign-up with `409`. At activation it cannot: the
+        // holder of a valid link has proved the address, and whoever reserved it in the
+        // meantime — by calling Identity Toolkit directly, which the public web API key
+        // allows — has proved nothing. Refusing here would let anyone permanently lock a
+        // person out of their own address by racing their sign-up.
+        //
+        // `409` still exists, at sign-up, for an address whose owner is *activated*. That is
+        // tested in `auth.test.ts`.
         upstream = rejects("EMAIL_EXISTS");
-        const answer = await signup();
+        const answer = await activate();
 
-        expect(answer.status).toBe(409);
-        expectStandardShape(answer, "EMAIL_EXISTS");
+        expect(answer.status).toBe(200);
+        expect(answer.body).toEqual({ activated: true });
     });
 });
 
@@ -271,18 +304,19 @@ describe("the new 503 branch does not reintroduce the enumeration leak", () => {
         upstream = unreachable;
         const third = await signin(REGISTERED);
         upstream = shedsLoad;
-        const fourth = await signup(UNKNOWN);
+        const fourth = await activate(UNKNOWN);
 
         expect(new Set([first, second, third, fourth].map((a) => a.retryAfter)).size).toBe(1);
         expect(first.retryAfter).toBe("30");
     });
 
-    test("signup's 400 branch reveals nothing signup did not already know", async () => {
-        // Signup is allowed to say EMAIL_EXISTS (ARCHITECTURE §3), but the new 400 must
-        // not become a second channel: a rejection reads the same whichever address it is.
+    test("the 400 branch reveals nothing about which address it was", async () => {
+        // Sign-up is allowed to say EMAIL_EXISTS (ARCHITECTURE §3), but the 400 that
+        // account creation can answer must not become a second channel: a rejection reads
+        // the same whichever address it is.
         upstream = rejects("INVALID_EMAIL");
-        const registered = await signup(REGISTERED);
-        const unknown = await signup(UNKNOWN);
+        const registered = await activate(REGISTERED);
+        const unknown = await activate(UNKNOWN);
 
         expect(registered.text).toBe(unknown.text);
         expect(registered.headers).toBe(unknown.headers);
@@ -317,9 +351,9 @@ describe("the operator's signal", () => {
 
     test("the log line carries no reason, no address, no password, no API key", async () => {
         upstream = unreachable;
-        await signup();
+        await activate();
         upstream = rejects("INVALID_EMAIL");
-        await signup();
+        await activate();
         upstream = isDown;
         await signin();
 

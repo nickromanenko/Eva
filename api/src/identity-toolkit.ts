@@ -422,10 +422,26 @@ export const createProvenAccount = async (email: string, password: string): Prom
     const user = await adminAuth.createUser({ email, password, emailVerified: true })
     return user.uid
   } catch (err) {
-    if ((err as { code?: string }).code === 'auth/email-already-exists') {
+    const code = (err as { code?: string }).code ?? ''
+    if (code === 'auth/email-already-exists') {
       throw new IdentityToolkitError('EMAIL_EXISTS', null, 'email-exists')
     }
-    throw err
+    // #32's guarantee, carried over to the Admin SDK. It was written for the Identity
+    // Toolkit REST call sign-up used to make: an upstream problem must reach the caller as
+    // a shaped `{ error: { code, message } }`, not as Hono's bare 500, which the iOS client
+    // can only render as "Something went wrong (500)" and which makes every outage look
+    // like a bug in our own server. Account creation moved to the Admin SDK (#120); the
+    // guarantee moves with it.
+    //
+    // The two `invalid-*` codes are the caller's fault and nothing else is: a shape of
+    // address our own edge validation let through, most likely. Everything else — an
+    // internal error, a throttle, a network failure — is an outage the caller can retry,
+    // and an operator should be told about rather than the user being told their address
+    // is bad.
+    if (code === 'auth/invalid-email' || code === 'auth/invalid-password') {
+      throw new IdentityToolkitError(code, null, 'rejected')
+    }
+    throw new IdentityToolkitError(code || 'ADMIN_SDK_FAILURE', null, 'unavailable')
   }
 }
 

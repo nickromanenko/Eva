@@ -32,6 +32,7 @@ setDefaultTimeout(20_000);
 const BASE = process.env.EVA_API_URL ?? "http://localhost:3003";
 const PASSWORD = "correct-horse-8";
 const createdUids: string[] = [];
+const createdEmails: string[] = [];
 
 const address = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
 
@@ -40,6 +41,7 @@ const unactivated = async (): Promise<{ email: string; uid: string }> => {
     const email = address();
     const uid = await createUnactivatedAccount(email, PASSWORD);
     createdUids.push(uid);
+    createdEmails.push(email);
     return { email, uid };
 };
 
@@ -75,9 +77,17 @@ const post = async (path: string, body: unknown): Promise<Answer> =>
 
 const get = async (path: string): Promise<Answer> => answer(await fetch(`${BASE}${path}`));
 
-/** Spends an activation token. POST, with the token in the body: the route takes it no
- *  other way, so that a token cannot reach a request log (#6). */
-const activate = (token: string): Promise<Answer> => post("/auth/activate", { token });
+/**
+ * Spends an activation token. POST, with the token in the body: the route takes it no other
+ * way, so that a token cannot reach a request log (#6).
+ *
+ * The password travels with it (#120). Activation is where the credential comes into
+ * existence — sign-up creates none — so a link without one is an incomplete request, not a
+ * simpler one. Defaulted here because most cases in this file are about the *token*, and
+ * `auth.test.ts` is where the rule itself is pinned.
+ */
+const activate = (token: string, password: string = PASSWORD): Promise<Answer> =>
+    post("/auth/activate", { token, password });
 
 /** The response headers minus `date`, which ticks between two requests and would make a
  *  byte-for-byte comparison depend on which second each landed in. */
@@ -94,9 +104,20 @@ const userDoc = (uid: string) => firestore.collection("users").doc(uid);
 const tokenDocs = (uid: string) =>
     firestore.collection("authTokens").where("uid", "==", uid).get();
 
+/** Tokens found by address rather than uid. Activation tokens are issued **before** the
+ *  account exists (#120), so they carry `uid: null` and only the address identifies them. */
+const tokenDocsByEmail = (value: string) =>
+    firestore.collection("authTokens").where("email", "==", value).get();
+
 // Its own budget: this suite stands up an account per case and the sweep is one Firestore
 // query and three deletes each, well past the 20s the cases get.
 afterAll(async () => {
+    // Tokens issued before an account exists have no uid, so the uid sweep below cannot see
+    // them (#120). Swept by address as well, or `authTokens/` accumulates e2e rows forever.
+    for (const value of createdEmails) {
+        const byEmail = await tokenDocsByEmail(value).catch(() => null);
+        if (byEmail) await Promise.all(byEmail.docs.map((d) => d.ref.delete().catch(() => {})));
+    }
     for (const uid of createdUids) {
         const tokens = await tokenDocs(uid).catch(() => null);
         if (tokens) await Promise.all(tokens.docs.map((doc) => doc.ref.delete().catch(() => {})));
@@ -258,10 +279,12 @@ describe("the two send-a-link routes", () => {
 
     test("resend issues a fresh activation token for an unactivated account", async () => {
         const { email, uid } = await unactivated();
-        expect((await tokenDocs(uid)).size).toBe(0);
+        // Found by address: a resend issues the same shape sign-up does, and that token is
+        // minted before any account exists (#120), so it carries no uid to look it up by.
+        expect((await tokenDocsByEmail(email)).size).toBe(0);
         expect((await post("/auth/activation/resend", { email })).status).toBe(200);
 
-        const tokens = await tokenDocs(uid);
+        const tokens = await tokenDocsByEmail(email);
         expect(tokens.size).toBe(1);
         expect(tokens.docs[0]!.data().kind).toBe("activation");
         // The document is keyed by the hash and holds no copy of the token itself.
@@ -626,44 +649,42 @@ describe("proving the address takes back what was attached while it was not", ()
         expect(await providers(uid)).toEqual(["password"]);
     });
 
-    test("activation does NOT tell Firebase the credentials are proven", async () => {
-        // The most counter-intuitive assertion in this suite, so: Identity Toolkit uses
-        // `emailVerified` to decide whether to wipe `passwordHash` and every provider when a
-        // verified provider address merges onto an account. That wipe is a nuisance — it is
-        // how a real user adding Google loses the password `authProviders` still advertises
-        // — and it is also the only thing that evicts a **pre-registering attacker's**
-        // password once the real owner arrives with a provider, because Eva's own claim is
-        // disarmed by then.
+    test("activation tells Firebase the credentials are proven — because now they are", async () => {
+        // **This assertion is the inverse of what it was, and the inversion is the point of
+        // #120.**
         //
-        // Activation proves the address. It proves nothing about who chose the password: the
-        // person who clicks the link and the person who set it are the same only in the
-        // honest case. So the wipe stays armed here. A version of this test asserted the
-        // opposite, and the code it was written against turned a self-healing takeover into
-        // a permanent one.
+        // Activation used to withhold `emailVerified` deliberately. Identity Toolkit uses it
+        // to decide whether to wipe `passwordHash` on a provider merge, and that wipe was
+        // the only thing that evicted a pre-registering attacker's password once the real
+        // owner arrived with Apple or Google. Withholding a true fact for its side effect
+        // was the subtlest thing in #7 and cost a review round of its own.
+        //
+        // It is no longer needed. Sign-up sets no password, so the only password an account
+        // can have at activation is the one supplied in that same request by the person who
+        // proved the address. There is no stranger's credential left for the wipe to protect
+        // anyone from.
         const { email, uid } = await unactivated();
         expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
 
         await activate(await issueToken(uid, email, "activation"));
-
-        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
-    });
-
-    test("a password reset does, because it sets the password it is proving", async () => {
-        // The other side. A reset proves address control *and* chooses the password in the
-        // same request, so the credentials really are the caller's and the wipe has nothing
-        // left to protect anyone from. It is also the recovery a user reaches for after the
-        // wipe has taken a password from them, which is what makes the loss one-time.
-        const { email, uid } = await unactivated();
-        await activate(await issueToken(uid, email, "activation"));
-        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
-
-        const res = await post("/auth/password/reset", {
-            token: await issueToken(uid, email, "reset"),
-            password: "a-password-they-chose-9",
-        });
-        expect(res.status).toBe(200);
 
         expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
+    });
+
+    test("the password activation set is the one that works afterwards", async () => {
+        // The other half, and the reason the flip above is safe: activation does not merely
+        // mark the account proven, it *replaces* whatever credential was on it. An account
+        // reserved by someone calling Identity Toolkit directly carries their password; the
+        // person holding the link takes it over rather than inheriting it.
+        const { email, uid } = await unactivated();
+        const chosen = "a-password-they-chose-9";
+
+        await activate(await issueToken(uid, email, "activation"), chosen);
+
+        expect(await signIn(BASE, email, chosen)).toBeString();
+        // And the reserver's password is gone.
+        const stale = await post("/auth/signin", { email, password: PASSWORD });
+        expect(stale.status).toBe(401);
     });
 
     test("a password reset retracts it too, because that is the recovery an owner is sent to", async () => {
