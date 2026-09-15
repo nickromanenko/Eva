@@ -9,8 +9,8 @@ else fixes what you find — that separation is the point.
 
 ## Read first
 
-`docs/GUARDRAILS.md` (§ Secrets, § Security rules, § Auth & data) and
-`docs/ARCHITECTURE.md` §2 and §6.
+`docs/GUARDRAILS.md` (§ Secrets, § Security rules, § Auth & data, § Health data & product)
+and `docs/ARCHITECTURE.md` §2 and §6.
 
 Use `Bash` only for read-only inspection — `git diff`, `git log`, `grep`. Never mutate.
 
@@ -38,6 +38,11 @@ Use `Bash` only for read-only inspection — `git diff`, `git log`, `grep`. Neve
    is justified.
 9. **CI/IAM.** Key files introduced into CI, broadened IAM roles, secrets echoed into
    logs, or an unpinned action.
+10. **Health data reaching a third party.** GUARDRAILS 32–34 are the *Flo*/*Premom* fact
+   pattern written as greps: an SDK linked into the app or the API process, an ad
+   identifier or tracking prompt, or an analytics field beyond type/day/rotating id. A
+   vendor the API *calls* from one owning module is allowed and needs its DPA named; a
+   vendor's SDK linked into a process is not. Run the checks the rules state.
 
 ## Output
 
