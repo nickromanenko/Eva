@@ -527,3 +527,190 @@ describe("onError is the floor, not a replacement", () => {
         FAST,
     );
 });
+
+/**
+ * The two gaps #48 left, both of them a response that does not match the contract
+ * ARCHITECTURE §3 states and `APIClient` decodes (#53).
+ *
+ * Hono calls `onError` only for `err instanceof Error` and rethrows anything else at the
+ * runtime; and an unmatched path is a *miss*, not a throw, so `onError` never sees it at
+ * all. Nothing in the stack throws a non-Error today, which is why the first half is a
+ * guard rather than a bug fix — and why the tests below have to throw one on purpose.
+ */
+describe("a throw that is not an Error, and a path that is not a route", () => {
+    /** Throws `value` itself — not an Error carrying it. `never` because the call site
+     *  needs the same signature the Error-throwing fixtures have. */
+    const throwsExactly =
+        (value: unknown) =>
+        (): never => {
+            throw value;
+        };
+
+    /**
+     * The reason the log line records a type and not a value. A thrown object can be
+     * anything the throwing code had to hand, and in this codebase the things to hand are
+     * a uid, an address, and a day somebody logged a symptom on (GUARDRAILS 12).
+     *
+     * **`expectNoLeak` is the weaker assertion on this object, not the stronger** — worth
+     * saying, because the opposite is the natural assumption. `String({…})` is
+     * `"[object Object]"`, which leaks nothing, so a stringifying implementation slips past
+     * it; what it catches here is a `JSON.stringify`. The assertion carrying the claim is
+     * `errorName` being exactly `NonErrorObject`, together with the exact-field-set check
+     * in the first case: `ERROR_NAME` collapses anything not identifier-shaped to
+     * `"unknown"`, so an implementation that put part of the value in that field fails, and
+     * one that added a field to carry it fails the other.
+     */
+    const payloadObject = {
+        uid: UID,
+        email: EMAIL,
+        event: EVENT_ID,
+        password: PASSWORD,
+        note: "no entity to update",
+    };
+
+    test(
+        "a thrown string answers exactly as a thrown Error does",
+        async () => {
+            tokenStore = throwsExactly("boom");
+
+            // The same assertion the Error cases use, unchanged: same status, same two
+            // keys, same message template, nothing of the throw in the bytes.
+            expectShapedInternalError(await signup());
+            expect(logged).toHaveLength(1);
+            expect(Object.keys(line()).sort()).toEqual([
+                "errorName",
+                "event",
+                "method",
+                "ref",
+                "route",
+            ]);
+            expect(line().event).toBe("unhandled_error");
+            expect(line().route).toBe("/auth/signup");
+        },
+        FAST,
+    );
+
+    test(
+        "the log line names the thrown value's type, and never the value",
+        async () => {
+            // A string whose content is a leak, so "records something useful about it
+            // without stringifying the value" is checkable rather than asserted.
+            tokenStore = throwsExactly(`14 UNAVAILABLE ${UID} ${EVENT_ID} LEAKED-KEY-48`);
+            const answer = await signup();
+
+            expect(line().errorName).toBe("NonErrorString");
+            expectNoLeak(`${logged.join("\n")} ${answer.text} ${answer.headers}`);
+        },
+        FAST,
+    );
+
+    test(
+        "a thrown object never has a property read off it",
+        async () => {
+            tokenStore = throwsExactly(payloadObject);
+            const answer = await signup();
+
+            expectShapedInternalError(answer);
+            expect(line().errorName).toBe("NonErrorObject");
+            expectNoLeak(`${logged.join("\n")} ${answer.text} ${answer.headers}`);
+        },
+        FAST,
+    );
+
+    test(
+        "null is distinguishable from an object, which is the only reason to special-case it",
+        async () => {
+            // `typeof null === "object"`, so without the branch this line would be
+            // indistinguishable from the one above — and "something was thrown that was
+            // not an error, and it was nothing" is the most useful of these to read.
+            tokenStore = throwsExactly(null);
+
+            expectShapedInternalError(await signup());
+            expect(line().errorName).toBe("NonErrorNull");
+        },
+        FAST,
+    );
+
+    test(
+        "a refusal carries Retry-After and writes no unhandled-error line",
+        async () => {
+            // **Not a regression guard for the wildcard middleware**, despite sitting in
+            // this describe — and the honest name matters, because the obvious name for it
+            // would be a claim the next reader acts on. A 429 is a *returned* response and
+            // the wrapper only has a `catch`, so there is no path by which removing the
+            // middleware could fail this: it stays green with either new line deleted.
+            //
+            // It was written to discharge the issue's "check that it does not disturb #5's
+            // throttle" criterion, and what it actually established is that the criterion's
+            // premise was wrong — the throttle is not middleware, it is a call at the top of
+            // each handler. Kept for the `Retry-After` assertion, which nothing else makes.
+            //
+            // Firestore stays down throughout, so the spending requests write nothing to the
+            // real project. Asserted rather than assumed: if the mocked `issueToken` stopped
+            // throwing they would be real sign-ups sending real mail, and this test would
+            // still have been green.
+            tokenStore = firestoreUnavailable;
+            const email = "e2e+unhandled-errors-throttle@e2e.evaapp.dev";
+            // From config, the way the throttle test above this one reads it. The limit is
+            // env-overridable (`RATE_LIMIT_SIGNUP_PER_EMAIL`), and a hardcoded 5 would stop
+            // testing the boundary the moment anyone changed it — silently, and green.
+            const limit = config.rateLimit.signupPerEmail;
+            for (let i = 0; i < limit; i += 1) {
+                expect((await signup(email)).status).toBe(500);
+            }
+            const spent = logged.length;
+            expect(spent).toBe(limit);
+            const refused = await signup(email);
+
+            expect(refused.status).toBe(429);
+            expect(refused.body.error.code).toBe("RATE_LIMITED");
+            expect(refused.headers.toLowerCase()).toContain("retry-after");
+            // The refusal is a returned response, not a throw, so it never reached the
+            // wrapper's `catch` and added no line of its own.
+            expect(logged).toHaveLength(spent);
+        },
+        FAST,
+    );
+
+    test(
+        "an unmatched path is JSON with the shape every other error has",
+        async () => {
+            const answer = await send("GET", "/no-such-route");
+
+            expect(answer.status).toBe(404);
+            expect(Object.keys(answer.body)).toEqual(["error"]);
+            expect(Object.keys(answer.body.error).sort()).toEqual(["code", "message"]);
+            expect(answer.body.error.code).toBe("NOT_FOUND");
+            // Hono's default is `content-type: text/plain` with a bare "404 Not Found"
+            // body, which `APIClient` can only render as a status number.
+            expect(answer.headers).toContain("application/json");
+            expect(answer.text).not.toBe("404 Not Found");
+        },
+        FAST,
+    );
+
+    test(
+        "an unmatched path logs nothing — it is a bad request, not a fault of ours",
+        async () => {
+            // And `c.req.path` is the field that would make a line useful, which is the
+            // field that carries ids and dates (GUARDRAILS 12).
+            await send("POST", `/me/events/${EVENT_ID}/no-such-action`, {
+                token: await mintToken(UID, EMAIL),
+            });
+
+            expect(logged).toHaveLength(0);
+        },
+        FAST,
+    );
+
+    test(
+        "a wrong method on a real path is a 404 of the same shape, not a bare one",
+        async () => {
+            const answer = await send("GET", "/auth/signup");
+
+            expect(answer.status).toBe(404);
+            expect(answer.body.error.code).toBe("NOT_FOUND");
+        },
+        FAST,
+    );
+});
