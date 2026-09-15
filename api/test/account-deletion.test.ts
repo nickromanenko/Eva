@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { adminAuth, firestore } from "../src/firebase";
-import { markUserDeleted } from "../src/users";
+import { mintToken } from "../src/auth";
+import { config } from "../src/config";
+import { addressOfAuthAccount } from "../src/identity-toolkit";
+import { default as server } from "../src/index";
+import { consumeAuthAttempt, resetAuthRateLimits } from "../src/rate-limit";
+import { markUserDeleted, saveQuestionnaire } from "../src/users";
 import { activateAccount, createLegacyAccount, signUpActivated } from "./support/session";
 
 /**
@@ -426,6 +431,131 @@ describe("a delete interrupted after the first step", () => {
     });
 
     test(
+        "Firebase refuses to repoint an account at an address nobody verified",
+        async () => {
+            // **The premise behind the gate, measured rather than assumed** — and it does not
+            // hold the way the code's comments say it does.
+            //
+            // `identity-toolkit.ts` states that "an idToken holder can move their own Auth
+            // address with `accounts:update` — the web API key is public", and both #139 and
+            // #140 are built on that step. Against this project it is **refused**:
+            // `400 OPERATION_NOT_ALLOWED : Please verify the new email before changing email`.
+            //
+            // So an address is not freely movable here, and the gate on `forgetEmail` is
+            // defence in depth rather than the thing standing between a caller and someone
+            // else's counters. That deserves a test rather than a comment, because it is a
+            // **project setting** and not a property of this code: whoever turns it off
+            // silently makes #139 and #140 reachable, and this is what would say so.
+            //
+            // **The Auth emulator does not implement it**, so the two environments assert
+            // different things below — each the one that is true of it, and both worth having.
+            const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+            const moved = `e2e+moved-${crypto.randomUUID()}@e2e.evaapp.dev`;
+            const { uid: movable } = await adminAuth.createUser({
+                email: own,
+                password,
+                emailVerified: true,
+            });
+            createdUids.push(movable);
+
+            const signIn = await fetch(
+                `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+                {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ email: own, password, returnSecureToken: true }),
+                },
+            );
+            expect(signIn.ok).toBe(true);
+            const { idToken } = (await signIn.json()) as { idToken: string };
+
+            const update = await fetch(
+                `${config.identityToolkitBaseUrl}/v1/accounts:update?key=${config.firebaseWebApiKey}`,
+                {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ idToken, email: moved, returnSecureToken: false }),
+                },
+            );
+
+            if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+                // **The emulator allows it.** Found by this test going red in CI while green
+                // against the real project — the divergence `scripts/ci-api.sh` warns about in
+                // its own header: a green emulator run proves the code against Firebase's
+                // model of Firebase, not against Google. Here the model is the more permissive
+                // of the two, so the emulator can never be what tells anyone the setting is on.
+                //
+                // Asserted rather than skipped, because what it demonstrates is the half the
+                // gate actually needs: move the address, and `proven` goes false.
+                expect(update.ok).toBe(true);
+                const movedTo = await addressOfAuthAccount(movable);
+                expect(movedTo.address).toBe(moved);
+                expect(movedTo.proven).toBe(false);
+                return;
+            }
+
+            expect(update.ok).toBe(false);
+            expect(await update.text()).toContain("OPERATION_NOT_ALLOWED");
+            // And the account still holds what it held.
+            const unchanged = await addressOfAuthAccount(movable);
+            expect(unchanged.address).toBe(own);
+            expect(unchanged.proven).toBe(true);
+        },
+        SLOW,
+    );
+
+    test("the address a delete acts on reports whether Auth considers it proven", async () => {
+        // The gate on `forgetEmail` (#56). That call is the one step of a delete that
+        // touches state keyed by an *address* rather than by this account's uid, and an
+        // idToken holder can point their own Auth account at any address no Firebase user
+        // holds. `accounts:update` clears `emailVerified` when the address moves, so
+        // `proven` is the distinction the route needs — asserted here rather than in the
+        // route, because producing a moved address means calling Identity Toolkit directly
+        // with a credential this suite has no reason to hold.
+        const seen = await addressOfAuthAccount(uid);
+        expect(seen.address).toBe(email);
+        // `createLegacyAccount` makes an Auth user the way one existed before #6: no
+        // confirmation, so nothing has proven the address and the clear must not run.
+        expect(seen.proven).toBe(false);
+
+        // And a uid with no Auth account at all answers the same, fail-closed way.
+        const gone = await addressOfAuthAccount("no-such-uid-for-issue-56");
+        expect(gone.address).toBeNull();
+        expect(gone.proven).toBe(false);
+    });
+
+    test("saveQuestionnaire refuses the tombstone on its own, not only via the gate", async () => {
+        // Called **directly**, with no route and no middleware in front of it (#56).
+        // `requireAccount` already refuses a deleted account, so through the API this is
+        // unreachable — which is precisely why it is asserted here instead. Every other
+        // read in `users.ts` refuses a tombstone itself; this one used to be safe only
+        // because of where the gate happened to sit, and a second caller or a reordered
+        // middleware would have made it write the profile onto a deleted account.
+        // The precondition, asserted rather than inherited from where this case sits in the
+        // file. Placed after "retrying the delete finishes it" the document would be gone,
+        // `!snapshot.exists` would return null on its own, and this would pass while
+        // proving nothing.
+        expect((await userDoc(uid).get()).get("deletedAt")).not.toBeNull();
+
+        const written = await saveQuestionnaire(uid, {
+            age: 30,
+            weightKg: 65,
+            heightCm: 170,
+            goals: ["energy"],
+            conditions: [],
+            medications: "",
+            lifestyle: "active",
+            sports: ["running"],
+        });
+
+        expect(written).toBeNull();
+        // And it wrote nothing on the way to saying so.
+        const doc = await userDoc(uid).get();
+        expect(doc.get("profile") ?? null).toBeNull();
+        expect(doc.get("questionnaireCompleted") ?? false).toBe(false);
+    });
+
+    test(
         "retrying the delete finishes it",
         async () => {
             const res = await api("/me", { method: "DELETE", token });
@@ -434,6 +564,104 @@ describe("a delete interrupted after the first step", () => {
             expect(await authUserExists(uid)).toBe(false);
             expect((await userDoc(uid).get()).exists).toBe(false);
             expect(await eventIds(uid)).toEqual([]);
+        },
+        SLOW,
+    );
+});
+
+/**
+ * That `DELETE /me` actually gives the address's throttle budget back (#56).
+ *
+ * The counters live in the API server's memory, so a test that drives the route over HTTP
+ * — which is how the rest of this file works — is in a different process from the counters
+ * it wants to read, and can assert nothing about them. That was offered as a reason the
+ * behaviour could not be tested end to end. It is not one: the route runs in *this* process
+ * through `server.fetch`, against the same real Firebase, and then the counters are right
+ * there. `rate-limit.test.ts` covers `forgetEmail` itself; what is missing without this is
+ * anything at all tying the route to it — delete the call from `index.ts` and every other
+ * test stays green.
+ */
+describe("deleting an account returns its address's throttle budget", () => {
+    /** The route, in-process. Never as a listening server — the default export is a plain
+     *  object until something serves it. */
+    const deleteMe = async (token: string) =>
+        server.fetch(
+            new Request("http://api.test/me", {
+                method: "DELETE",
+                headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+            }),
+        );
+
+    /** Spends an address's sign-in budget until the next attempt is refused. */
+    const exhaust = (email: string) => {
+        for (let i = 0; i < config.rateLimit.signinPerEmail + 1; i += 1) {
+            consumeAuthAttempt("signin", null, email);
+        }
+    };
+
+    test(
+        "an address Auth never proved is left alone",
+        async () => {
+            // The gate itself (#56). Without this, deleting `if (proven)` from the route
+            // breaks nothing: the case above creates its account `emailVerified: true`, so
+            // it passes either way, and the `proven` assertions elsewhere cover the function
+            // rather than the route's decision.
+            //
+            // `createLegacyAccount` makes an Auth user the way one existed before #6 — no
+            // confirmation, so `emailVerified` is false by construction and nothing had to
+            // be moved to get there.
+            const email = `e2e+unproven-${crypto.randomUUID()}@e2e.evaapp.dev`;
+            const uid = await createLegacyAccount(email, password);
+            createdUids.push(uid);
+            expect((await addressOfAuthAccount(uid)).proven).toBe(false);
+
+            resetAuthRateLimits();
+            exhaust(email);
+            expect(consumeAuthAttempt("signin", null, email)).toBe(false);
+
+            const res = await deleteMe(await mintToken(uid, email));
+            expect(res.status).toBe(200);
+
+            // Still spent: the delete completed, and the counters were not the delete's to
+            // give back. Skipping is the harmless direction — they expire on their own.
+            expect(consumeAuthAttempt("signin", null, email)).toBe(false);
+            resetAuthRateLimits();
+        },
+        SLOW,
+    );
+
+    test(
+        "the address is served again, and the caller's IP budget is not given back",
+        async () => {
+            const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+            // `emailVerified: true` because the route only forgets an address Auth
+            // considers proven — see the note on `forgetEmail` in the route.
+            const { uid } = await adminAuth.createUser({ email, password, emailVerified: true });
+            createdUids.push(uid);
+            await userDoc(uid).set({
+                email,
+                authProviders: ["password"],
+                questionnaireCompleted: false,
+                profile: null,
+                activatedAt: new Date(),
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            });
+
+            resetAuthRateLimits();
+            exhaust(email);
+            expect(consumeAuthAttempt("signin", null, email)).toBe(false);
+            // A second address, throttled and *not* deleted: what the clear must not reach.
+            const bystander = `e2e+bystander-${crypto.randomUUID()}@e2e.evaapp.dev`;
+            exhaust(bystander);
+            expect(consumeAuthAttempt("signin", null, bystander)).toBe(false);
+
+            const res = await deleteMe(await mintToken(uid, email));
+            expect(res.status).toBe(200);
+
+            expect(consumeAuthAttempt("signin", null, email)).toBe(true);
+            expect(consumeAuthAttempt("signin", null, bystander)).toBe(false);
+            resetAuthRateLimits();
         },
         SLOW,
     );

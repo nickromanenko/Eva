@@ -177,10 +177,21 @@ export const markActivated = async (uid: string): Promise<boolean> => {
   })
 }
 
+/**
+ * Writes the questionnaire answers onto an account, or `null` if there is no account to
+ * write them onto — no document, or a tombstone.
+ *
+ * The tombstone half is defence in depth (#56), and it is worth saying why it is not
+ * redundant. `requireAccount` runs before the route and already refuses a deleted account,
+ * so this is unreachable today — but "unreachable" here means "the middleware happens to be
+ * ordered that way", which is the kind of true that stops being true when someone adds a
+ * second caller or reorders the gate. Every other read in this module refuses a tombstone
+ * on its own; this was the one that only did so by arrangement.
+ */
 export const saveQuestionnaire = async (uid: string, profile: Profile): Promise<User | null> => {
   const ref = users().doc(uid)
   const snapshot = await ref.get()
-  if (!snapshot.exists) return null
+  if (!snapshot.exists || isTombstone(snapshot)) return null
   await ref.update({
     profile,
     questionnaireCompleted: true,

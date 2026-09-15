@@ -396,12 +396,34 @@ export const deleteAuthAccount = async (uid: string): Promise<void> => {
  * `null` on a resumed delete whose Auth user is already gone. The caller skips the address
  * half rather than guessing; the TTL policy on `expiresAt` is the backstop, and a stranded
  * token is a far smaller thing than someone else's deleted one. Logs nothing.
+ *
+ * **`proven` is the same question one step further on (#56).** The address above is the one
+ * Auth holds *now*, which is not the same as one this account ever demonstrated control of:
+ * `accounts:update` moves it, and Identity Toolkit clears `emailVerified` whenever it does.
+ * **Measured, and not currently true of this project:** that call is refused —
+ * `400 OPERATION_NOT_ALLOWED : Please verify the new email before changing email` — because
+ * email-enumeration protection is on. It is a console setting, not a property of this code,
+ * so the sentence above is what to assume if anyone turns it off; `account-deletion.test.ts`
+ * asserts the refusal under `bun run verify` so that change cannot pass unnoticed. The
+ * paragraph on `addressOfAuthAccount` above states the movability as fact and has the same
+ * caveat.
+ * So a caller that is about to act on *other people's* state keyed by this address — rather
+ * than on this account's own rows — asks for `proven` and does nothing when it is false.
+ * Fails closed: an unproven address is skipped, never guessed at.
  */
-export const addressOfAuthAccount = async (uid: string): Promise<string | null> => {
+export interface AuthAddress {
+  /** The address Auth holds now, or `null` if there is no such account. */
+  address: string | null
+  /** Whether Auth considers it proven. False for a moved address, and for no account. */
+  proven: boolean
+}
+
+export const addressOfAuthAccount = async (uid: string): Promise<AuthAddress> => {
   try {
-    return (await adminAuth.getUser(uid)).email ?? null
+    const user = await adminAuth.getUser(uid)
+    return { address: user.email ?? null, proven: user.emailVerified }
   } catch (err) {
-    if ((err as { code?: string }).code === USER_NOT_FOUND) return null
+    if ((err as { code?: string }).code === USER_NOT_FOUND) return { address: null, proven: false }
     throw err
   }
 }

@@ -11,6 +11,7 @@ import {
     consumeAuthAttempt,
     consumeProviderAttempt,
     consumeTokenAttempt,
+    forgetEmail,
     type ProviderRoute,
     type TokenRoute,
     type AuthRoute,
@@ -1385,7 +1386,7 @@ app.delete("/me", requireAuth, async (c) => {
     // was no uid when it was issued. Not from `users/{uid}.email`: that copy is written once
     // at creation and can be left pointing at an address the account no longer holds (#121),
     // and as a *delete* key a stale address wipes somebody else's live links.
-    const address = await addressOfAuthAccount(sub);
+    const { address, proven } = await addressOfAuthAccount(sub);
     await markUserDeleted(sub);
     // After the tombstone, so the account is already inert whatever Apple answers, and
     // before the Auth user goes, so the ordering below is untouched. Revocation is Apple's
@@ -1396,6 +1397,46 @@ app.delete("/me", requireAuth, async (c) => {
     await deleteAllUserEvents(sub);
     await deleteTokensForAccount(sub, address);
     await deleteUserDocument(sub);
+    // The address's own throttle counters go with it (#56). In-memory and per-instance, so
+    // this is a small courtesy rather than a guarantee — but being refused a fresh sign-up
+    // by the attempts of the account you just deleted is confusing in a flow people reach
+    // at an emotional moment, and it protects nothing: there is no account behind that
+    // address any more. Per-address only; the per-IP backstop is deliberately left alone,
+    // or deleting an account would be a way to clear one's own budget.
+    //
+    // **Only a `proven` address**, and this is the half that is not obvious. This call clears
+    // state keyed by an address, and that budget is shared with whoever else is using it. An
+    // idToken holder can point their own Auth account at any address no Firebase user holds
+    // (`accounts:update`, public web API key), delete, and walk away with that address's
+    // sign-up and resend counters reset — the per-address cap on unsolicited activation mail,
+    // reset for the price of one account lifecycle. `accounts:update` clears `emailVerified`
+    // whenever the address moves, so `proven` is what tells the two apart, and skipping is
+    // the harmless direction: the counters expire on their own.
+    //
+    // **Defence in depth, not the thing holding the door.** Measured against the real
+    // project: `accounts:update` refuses to repoint an account at an address nobody has
+    // verified — `400 OPERATION_NOT_ALLOWED : Please verify the new email before changing
+    // email` — so the move this guards against is not reachable as the project is configured
+    // today, whatever `identity-toolkit.ts`'s comment says. That is a console setting rather
+    // than a property of this code, which is why `account-deletion.test.ts` asserts the
+    // refusal: turn it off and `bun run verify` goes red instead of this going quiet.
+    // **Not CI** — CI runs the emulators, which allow the move, so that half of the test
+    // asserts the permissive behaviour and can never fail for this reason.
+    //
+    // If it were reachable, the gate would still only raise the price — `/auth/password/reset`
+    // re-stamps `emailVerified` from a token it resolves by uid, without checking the account
+    // still holds the address the token was mailed to, so a moved address can be re-proved
+    // through the attacker's own inbox. That is #140, pre-existing, and the place to fix this
+    // properly.
+    //
+    // The call above is **not** covered by this reasoning and is deliberately left as it is:
+    // `deleteTokensForAccount`'s address half deletes rows with `uid == null`, which by
+    // construction were issued before this account existed and may be someone else's. That
+    // is #139, filed rather than fixed here (GUARDRAILS 26).
+    //
+    // Last, after everything that can fail. A throw above leaves the counters standing,
+    // which is the harmless direction there too.
+    if (proven) forgetEmail(address);
     // No count, no email, no id — a delete is exactly where a log line is tempting
     // (GUARDRAILS 12). Anything that throws above lands in `app.onError` as a 500 with a
     // `ref`, and the account is already inert by then.
