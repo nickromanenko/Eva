@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, firestore } from "../src/firebase";
 import { signUpActivated } from "./support/session";
@@ -29,6 +29,19 @@ import { RETIREMENTS } from "../scripts/retire-refdata";
  *   which `GET /refdata` does not serve, so two verify runs cannot collide and a crashed
  *   run leaves no half-retired chip behind.
  */
+
+/**
+ * Every case here makes live round trips to the API, Auth and Firestore. 20s is the
+ * ceiling `auth.test.ts`, `events.test.ts` and `email-auth-routes.test.ts` already set, and
+ * it is a **ceiling, not a measurement** (#31): high enough that no honest round trip
+ * reaches it, low enough that a genuine hang still fails rather than hanging the run.
+ *
+ * What it replaces is Bun's 5000ms default, which nothing chose. A default that happens to
+ * sit just above the cost of a cold connection is the shape of the flake #31 is about: the
+ * suite gates every API merge, and one failing run in three teaches people to re-run rather
+ * than to read, at which point a real regression looks like the usual flake.
+ */
+setDefaultTimeout(20_000);
 
 const BASE = process.env.EVA_API_URL ?? "http://localhost:3003";
 const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
