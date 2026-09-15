@@ -1164,8 +1164,12 @@ The store's file is in Application Support with `NSFileProtectionCompleteUntilFi
 (background sync must be able to open it after a reboot-and-unlock; `Complete` would not),
 and is **excluded from iCloud and iTunes backup** — the server is the copy of record, and a
 device backup would be a second copy of a health record living somewhere Eva does not
-control. The Keychain token is currently backup-restorable (#64); the store must not repeat
-that.
+control. The Keychain token was backup-restorable until #64 and is now written
+`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` — never in a backup, readable after the
+first unlock following a reboot, which is what a launch needs. `save` deletes and re-adds
+rather than updating, because `SecItemUpdate` does not migrate accessibility in place and
+that is the only path that moves an existing install off the old attribute. The local store
+follows the same rule for the same reason.
 
 ### 8.3 Reads
 
