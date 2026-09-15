@@ -205,12 +205,46 @@ health app selling a subscription. Verify each against the current text at submi
   "Mature/Suggestive" (sex logging) — consistent with 18+ (A12); Apple has no 18 tier.
 - **App privacy labels**: Health & Fitness, Contact Info, Identifiers, Purchases; all
   "linked to you"; none used for tracking. Must match §2 exactly.
-- **Export compliance**: the app uses only Apple-provided TLS → exempt; set
-  `ITSAppUsesNonExemptEncryption = NO` in `project.yml` so every build does not prompt.
+- **Export compliance**: **done (#92)** — `ITSAppUsesNonExemptEncryption: false` is declared
+  in `mobile/project.yml` under `info.properties`, so no build prompts. The exemption rests
+  on two things and no others: Apple's own TLS through `URLSession`, and CryptoKit's SHA-256
+  in `AuthCrypto` for the PKCE challenge and the Sign in with Apple nonce — hashing for
+  authentication. Encrypting the offline local store (ARCHITECTURE §8) or signing anything
+  with a key of Eva's makes the declaration false; change it in the PR that adds the crypto.
 - **Category**: Health & Fitness (not Medical).
 - **Pricing**: one base price; Apple equalises across storefronts. Local taxes are Apple's.
 - **Review notes**: what Eva is and is not (wellness, not medical), the demo account, how
   to reach Pregnancy mode without waiting nine months.
+
+### 3.2a Submission readiness checklist
+
+One row per item in §3.1 and §3.2, so a submission can be run against a list rather than a
+reading. **#92 closes exactly one row — export compliance.** Every other row is here to be
+seen, not to be claimed: none of them is work this issue did, and several cannot start until
+L1 gives Apple an entity to accept a submission from.
+
+State is one of **done** (true of the repo today, with what proves it), **not started**, or
+**decision needed** (someone has to choose before anyone can build it).
+
+| # | Item | State | What proves it / what it waits on | Owner |
+|---|---|---|---|---|
+| 3.2 | Export compliance — `ITSAppUsesNonExemptEncryption` | **done** (#92) | `mobile/project.yml`; `PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption'` on the built app prints `false` | — |
+| 5.1.1(v) | In-app account deletion | **done** (#8, #55) | `DELETE /me`, Profile danger zone, `account-deletion.test.ts` | — |
+| 5.1.3 | No advertising SDK, health data never sold | **done** | GUARDRAILS 33 and its greps (#93) | — |
+| 1.4.1 | Disclosure behind any accuracy claim | **not started** | GUARDRAILS 35 binds it; the "How this is calculated" sheet and the A11 confidence sentence are designed, not built | mobile |
+| 4.8 | Sign in with Apple beside Google | **not started** | #7 — both flows exist in the app; the Google client is provisioned, Apple's needs L1 | mobile |
+| 3.1.1 / 3.1.2 | Subscriptions through IAP; paywall shows price, duration, renewal, terms | **not started** | #88 — the paywall screen | mobile |
+| 5.1.1(ix) | Submitted by the legal entity, not an individual | **not started** | L1 | Nick |
+| 2.1 / 2.3 | Complete metadata; a demo account for review | **not started** | the `e2e+*@e2e.evaapp.dev` pattern exists; a *seeded* reviewer account with a populated Pregnancy timeline does not | Nick + mobile |
+| 5.1.2 | Privacy labels match what §2 says Eva collects | **decision needed** | the four label groups are agreed (§3.2); nobody has walked the questionnaire against `users/{uid}` field by field | Nick |
+| 3.2 | Age rating | **decision needed** | expected 17+ (Medical/Treatment Information, Mature/Suggestive); Apple has no 18 tier, and A12 says 18+ | Nick |
+| 3.2 | Category — Health & Fitness, not Medical | **decision needed** | follows from §1.1; unrecorded anywhere Apple can see | Nick |
+| 3.2 | Pricing | **decision needed** | A14 sets the model, not the number | Nick |
+| 3.2 | Review notes | **not started** | needs the demo account and a Pregnancy-mode shortcut for a reviewer | Nick + mobile |
+| 3.4 | Storefront list | **decision needed** | A18 — all but China mainland and Russia, pending whether the L4 policy holds everywhere else (#91) | Nick |
+
+The guideline numbers are Apple's text of 8 June 2026. Re-read them at submission; a
+renumbered guideline is the ordinary way a list like this goes quietly wrong.
 
 ### 3.3 Localisation of the store listing
 

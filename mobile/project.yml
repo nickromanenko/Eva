@@ -52,6 +52,20 @@ targets:
           - Montserrat-Medium.ttf
           - Montserrat-SemiBold.ttf
           - Montserrat-Bold.ttf
+        # Export compliance (LAUNCH §3.2). Declared so App Store Connect stops asking the
+        # encryption questionnaire on every single build.
+        #
+        # `false` says the app uses no *non-exempt* encryption — not that it uses none.
+        # What it uses: Apple's own TLS, via URLSession, which is exempt as the platform's
+        # encryption; and CryptoKit's SHA-256 in `AuthCrypto` for the PKCE challenge and the
+        # Sign in with Apple nonce, which is hashing for authentication and exempt on that
+        # ground. Neither is Eva's own cryptography.
+        #
+        # **This answer expires the moment that stops being true.** Encrypting the offline
+        # local store (ARCHITECTURE §8), signing anything with a key of ours, or any custom
+        # cipher makes the declaration false, and a false one is a customs matter rather
+        # than a rejected build. Change this line in the same PR that adds the crypto.
+        ITSAppUsesNonExemptEncryption: false
         # Allows http://localhost for DEBUG/e2e runs; no effect on remote hosts.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
