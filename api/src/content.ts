@@ -56,8 +56,13 @@ export interface Review {
  *
  * `hedged` is the wording used when a phase is estimated rather than confirmed —
  * "likely", "many women notice". `plain` states something observed: a log the user made,
- * an appointment they booked. D1 picks between them from the cycle maths' confidence; the
- * store only holds both and refuses a phase template that has no hedged variant.
+ * an appointment they booked. D1 picks between them from the cycle maths' confidence.
+ *
+ * The store records the label; it does not police it. Nothing here reads the words to
+ * check that a `hedged` template hedges, and nothing refuses a `plain` phase template —
+ * the seed's own phase templates are all hedged and a test pins that, but a document
+ * written in the console is taken at its word. `hedged` is the default the parser falls
+ * back to, so an unlabelled template is treated as the more cautious of the two.
  */
 export type Confidence = 'hedged' | 'plain'
 
@@ -234,8 +239,16 @@ export const parseItems = (id: ContentId, data: unknown): unknown[] => {
       : id === 'banners'
         ? rows.map(toBanner)
         : rows.map(toNudge)
+  // First write wins on a repeated id: `applyContent` dedupes on the way in, but a
+  // document edited in the console can hold the same id twice, and serving a card twice
+  // contradicts "ids are permanent and opaque" in a way the client cannot unpick.
+  const seen = new Set<string>()
   return (parsed as { id: string; order: number }[])
-    .filter((item) => item.id.length > 0)
+    .filter((item) => {
+      if (item.id.length === 0 || seen.has(item.id)) return false
+      seen.add(item.id)
+      return true
+    })
     .sort(byOrderThenId)
 }
 
@@ -286,9 +299,11 @@ export const reviewProblems = (review: Partial<Review> | undefined): string[] =>
 
 const CACHE_TTL_MS = 60_000
 let cache: { at: number; data: Content } | null = null
+let lastWarnedAt = 0
 
 const invalidate = (): void => {
   cache = null
+  lastWarnedAt = 0
 }
 
 const loadBundle = async (): Promise<ContentBundle> => {
@@ -312,9 +327,15 @@ export const getContent = async (): Promise<Content> => {
   const bundle = await loadBundle()
   const data: Content = { version: contentVersion(bundle), ...bundle }
   // An unseeded collection is an operational state, not a snapshot worth holding onto:
-  // caching it would keep an instance blind for a minute after seeding.
+  // caching it would keep an instance blind for a minute after seeding. Unlike `refdata/`,
+  // where empty is a brief boot window, empty is the *steady* state here until a clinician
+  // signs the copy — so the warning is rate-limited to the cache window it stands in for,
+  // rather than one line per request forever.
   if (isEmpty(bundle)) {
-    console.warn('content: no documents found — run `bun run seed:content`')
+    if (now - lastWarnedAt >= CACHE_TTL_MS) {
+      lastWarnedAt = now
+      console.warn('content: no documents found — run `bun run seed:content`')
+    }
   } else {
     cache = { at: now, data }
   }
@@ -336,7 +357,17 @@ export const readContent = async (id: ContentId): Promise<unknown[]> =>
  *
  * Additive, like `applyCatalogue`: unknown ids are appended, known ones left alone unless
  * `rewrite` is asked for, and absent ids are never removed — a template vanishing would
- * orphan every cached card pointing at it, so retirement is a deliberate act.
+ * orphan every cached card pointing at it, so retirement is a deliberate act. Items it
+ * leaves alone are written back byte for byte, fields this module does not model included.
+ *
+ * The refusal is transitive, which matters because the merge is additive and the signature
+ * is on the document rather than on each item. Items already in the document are kept and
+ * written back under *this* call's signature, so a document that is itself unsigned — one
+ * somebody added to in the Firebase console — would otherwise come out carrying a
+ * reviewer's name over copy that reviewer never saw. That is the failure this collection
+ * exists to prevent, arriving through the sanctioned path, so an unsigned document with
+ * items in it is refused rather than re-signed. Emptying or fixing its signature in the
+ * console is the way through, and both are visible acts.
  */
 export const applyContent = async (
   id: ContentId,
@@ -347,13 +378,33 @@ export const applyContent = async (
   const missing = reviewProblems(review)
   if (missing.length > 0) throw new UnreviewedContentError(id, missing)
 
-  const existing = (await readContent(id)) as { id: string; status: ContentStatus }[]
-  const byId = new Map(existing.map((item) => [item.id, item]))
+  const snapshot = await collection().doc(id).get()
+  const stored = snapshot.data()
+  // The stored rows **as written**, not as `parseItems` would serve them: a merge must not
+  // be the thing that quietly deletes a field this parser does not model yet. The read path
+  // is where unknown shapes are dropped; the write path leaves what it did not come to
+  // change.
+  const existing: { id: string; status?: ContentStatus }[] = (
+    Array.isArray(stored?.items) ? (stored.items as unknown[]) : []
+  ).filter(
+    (row): row is { id: string; status?: ContentStatus } =>
+      typeof row === 'object' &&
+      row !== null &&
+      typeof (row as { id?: unknown }).id === 'string' &&
+      (row as { id: string }).id.length > 0,
+  )
+  if (existing.length > 0) {
+    const unsigned = reviewProblems(stored as Partial<Review>)
+    if (unsigned.length > 0) throw new UnreviewedContentError(id, unsigned)
+  }
+  const byId = new Map<string, { id: string; status?: ContentStatus }>(
+    existing.map((item) => [item.id, item]),
+  )
   for (const item of items) {
     const current = byId.get(item.id)
     if (!current) byId.set(item.id, item)
     // A rewrite keeps `status`: re-seeding must not un-retire what someone retired.
-    else if (options.rewrite) byId.set(item.id, { ...item, status: current.status })
+    else if (options.rewrite) byId.set(item.id, { ...item, status: current.status ?? item.status })
   }
   const merged = [...byId.values()].sort(byOrderThenId as never)
   await collection().doc(id).set({

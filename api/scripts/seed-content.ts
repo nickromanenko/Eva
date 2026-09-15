@@ -35,8 +35,13 @@ import {
  *
  * `source` names the canvas state so a reviewer can find what they are signing:
  * `docs/design/Eva App.dc.html`, the Dashboard rail.
+ *
+ * Exported so `api/test/content.test.ts` can tell whether the gate is still closed. The
+ * case that proves this script has no way past the refusal has to *run* the script, and on
+ * the day someone fills these in that would seed whatever project the suite points at —
+ * so it skips itself the moment it would stop being a test of a refusal.
  */
-const REVIEW: Review = {
+export const REVIEW: Review = {
   reviewedBy: '',
   reviewedAt: '',
   source: '',

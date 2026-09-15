@@ -843,24 +843,39 @@ updatedAt      serverTimestamp   // not served, and not part of the version
 
 Three things differ from `refdata/`, and each is the point of the collection:
 
-- **A document with no reviewer cannot be written.** `applyContent` throws
-  `UnreviewedContentError` unless all three of `reviewedBy`, `reviewedAt` and `source`
-  are non-empty, and the seed ships with them blank — so seeding the real project needs
-  a person's name added in a commit, not a flag (PRD §Dashboard, Other requirements 4:
-  clinical content follows the same review requirement as the rest of the product, and
-  #26 has no retained clinician yet). There is deliberately no argument or env var that
-  gets past it; a test drives the script with the obvious candidates and requires a
-  refusal.
+- **This repo's tooling will not write a document with no reviewer.** `applyContent`
+  throws `UnreviewedContentError` unless all three of `reviewedBy`, `reviewedAt` and
+  `source` are non-empty, and the seed ships with them blank — so seeding the real
+  project needs a person's name added in a commit, not a flag (PRD §Dashboard, Other
+  requirements 4: clinical content follows the same review requirement as the rest of
+  the product, and #26 has no retained clinician yet). There is deliberately no argument
+  or env var that gets past it; a test drives the script with the obvious candidates and
+  requires a refusal. The refusal is transitive: a document that already holds items
+  under a missing signature is refused rather than merged into and re-signed, so a seed
+  cannot put a reviewer's name over copy they never saw.
+
+  **Two paths still write unsigned, and the read path does not re-check.** The Firebase
+  console bypasses the module entirely — the Admin SDK is the only way in, and a person
+  with project access is one of the ways in. `retireContent` is the other: flipping an
+  item to `retired` changes what is served and takes no `Review`, so the stored signature
+  keeps covering items it no longer exactly describes. `GET /content` serves what the
+  collection holds rather than re-validating it, deliberately: a signature check on the
+  read path would blank the Dashboard on an operator's typo. So the guarantee is "the
+  supported way to change this copy makes you sign it", not "everything served is
+  signed"; a release check has to look at the collection, not only at the code.
 - **The signature is stored beside the items, never inside them, and is not hashed.**
   Who reviewed the copy is an operational fact the device has no use for, so it is in
   neither the body nor the `version` — re-reviewing the same words must not push a new
   bundle to everyone.
-- **Templates may only reference an enumerated slot** (`SLOTS` in `content.ts`:
-  `cycleDay`, `phase`, `pregnancyWeek`, …). A score, a streak or a comparison to other
-  users cannot be introduced by editing a Firestore document, because the slot it would
-  need does not exist and adding one is a code change under review. That is the
-  mechanism behind PRD §Dashboard's "no comparison to other users, no scores for the
-  person, no streaks", not merely the intention.
+- **Templates may only *declare* an enumerated slot** (`SLOTS` in `content.ts`:
+  `cycleDay`, `phase`, `pregnancyWeek`, …), and the parser drops any other name on the
+  way out. What that bounds is the set of computed values a card can ever be filled
+  with: no score, streak or cross-user comparison can reach a card without adding a slot
+  in code, under review. What it does **not** bound is what a card *says* — `title`,
+  `line2` and the rest are free text and are served verbatim, so a document written in
+  the console can assert anything in prose. PRD §Dashboard's "no comparison to other
+  users, no scores for the person, no streaks" is held by both halves together: `SLOTS`
+  for the computed half, the review requirement above for the words.
 
 Ids are permanent and opaque and nothing is deleted, only retired (`retireContent`),
 exactly as for `refdata/` — a retired item is still served so an already-rendered card
@@ -1202,6 +1217,7 @@ cache of the server's shape, not a second schema:
 |---|---|---|
 | `LocalEvent` | `EvaEvent` (§4) | `serverId` (nullable until acknowledged) + `clientId` (UUID, created on device, **is** the `idempotencyKey`) |
 | `LocalRefdata` | `/refdata` catalogues + `version` | catalogue id |
+| `LocalContent` | `/content` templates, banners, nudges + `version` | content id |
 | `LocalTodayCard` | the Dashboard card (#10, when it exists) | date |
 | `PendingOperation` | the queue (§8.4) | FIFO sequence |
 
@@ -1305,7 +1321,7 @@ entry on the server. `scripts/e2e.sh` gains that flow against the real API.
 ### 8.7 What this adds to GUARDRAILS.md (in the implementation PR, not here)
 
 - Screens read the local store; only the sync engine calls `/me/events`, `/me/body-signals`
-  and `/refdata`.
+  and `/refdata` — and `/content`, which caches by the same `version` handshake (#97).
 - Every created event carries a device-generated `idempotencyKey`; the API's lookup on it is
   a pinned test.
 - The store is excluded from backups and wiped on log-out, account deletion and

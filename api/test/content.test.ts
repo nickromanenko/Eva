@@ -17,7 +17,7 @@ import {
     type Review,
     type Template,
 } from "../src/content";
-import { BANNERS, NUDGES, TEMPLATES } from "../scripts/seed-content";
+import { BANNERS, NUDGES, REVIEW as SEED_REVIEW, TEMPLATES } from "../scripts/seed-content";
 import { signUpActivated } from "./support/session";
 
 /**
@@ -103,12 +103,23 @@ describe("GET /content", () => {
     test("requires a bearer token", async () => {
         const res = await api("/content", { token: null });
         expect(res.status).toBe(401);
+        expect((await json<{ error: { code: string } }>(res)).error.code).toBe("UNAUTHORIZED");
     });
 
     test("serves the three kinds", async () => {
         const body = await json<ContentBody>(await api("/content"));
         expect(Object.keys(body).sort()).toEqual(["banners", "nudges", "templates", "version"]);
         expect(body.version).toMatch(/^[0-9a-f]{16}$/);
+    });
+
+    test("and carries the ETag and revalidation headers a plain HTTP client uses", async () => {
+        // The `?version=` query is how the app asks; `ETag` plus `no-cache` is how anything
+        // else does, and it is the half no assertion here used to read.
+        const res = await api("/content");
+        const body = await json<ContentBody>(res);
+
+        expect(res.headers.get("etag")).toBe(`"${body.version}"`);
+        expect(res.headers.get("cache-control")).toBe("private, no-cache");
     });
 
     test("a client holding the current version gets 304 and no body", async () => {
@@ -148,15 +159,36 @@ describe("the version is a hash of the content", () => {
         expect(contentVersion({ ...base, templates: edited })).not.toBe(first);
     });
 
-    test("re-signing the same copy is not a content change", () => {
+    test("re-signing the same copy is not a content change", async () => {
         // Review metadata is deliberately outside the hash: making a re-review push a new
         // bundle to every device would punish the thing the store exists to encourage.
-        const base = { templates: TEMPLATES, banners: BANNERS, nudges: NUDGES };
-        const before = contentVersion(base);
+        // Asserted through a document rather than by re-hashing the same argument, which
+        // is a tautology — `contentVersion` takes only the items, so the signature has
+        // nowhere to enter from and the property has to be read off what is stored.
+        const id = scratch();
+        const items = [{ id: "one", order: 0, status: "active" as const, title: "A line" }];
+        await applyContent(id as never, items, REVIEW);
+        const before = contentVersion({
+            templates: [],
+            banners: [],
+            nudges: (await readContent(id as never)) as Nudge[],
+        });
 
-        // `contentVersion` takes only the items, so this is structural — the signature has
-        // nowhere to enter the hash from.
-        expect(contentVersion({ ...base })).toBe(before);
+        await applyContent(id as never, items, {
+            reviewedBy: "Somebody else",
+            reviewedAt: "2026-12-01",
+            source: "a second look at the same words",
+        }, { rewrite: true });
+
+        const doc = (await collection().doc(id).get()).data()!;
+        expect(doc.reviewedBy).toBe("Somebody else");
+        expect(
+            contentVersion({
+                templates: [],
+                banners: [],
+                nudges: (await readContent(id as never)) as Nudge[],
+            }),
+        ).toBe(before);
     });
 });
 
@@ -178,13 +210,23 @@ describe("copy nobody signed is not servable", () => {
         expect((await collection().doc(id).get()).exists).toBe(false);
     });
 
-    test("the seed script refuses too, and no argument or env var gets past it", async () => {
+    /**
+     * Skipped the day the copy is signed, and that is the point rather than a gap. The case
+     * has to run the real script to prove the refusal is the script's exit status; once
+     * `REVIEW` is filled in the same four spawns would seed whatever project the suite is
+     * pointed at — `verify-api.sh` points it at the real one — and report the write as a
+     * failed assertion. A test of a refusal has nothing to say once there is nothing to
+     * refuse.
+     */
+    test.skipIf(reviewProblems(SEED_REVIEW).length === 0)(
+        "the seed script refuses too, and no argument or env var gets past it",
+        async () => {
         // Driven as a process, because the refusal is the script's exit status — not
         // something a caller could catch and ignore. The two escape hatches a hurried
         // operator would reach for are tried here, so adding either one fails this.
         const run = async (args: string[], env: Record<string, string>) => {
             const proc = Bun.spawn(["bun", "run", "scripts/seed-content.ts", ...args], {
-                cwd: new URL("..", import.meta.url).pathname,
+                cwd: `${import.meta.dir}/..`,
                 env: { ...process.env, ...env },
                 stdout: "pipe",
                 stderr: "pipe",
@@ -208,6 +250,27 @@ describe("copy nobody signed is not servable", () => {
             expect(err).toContain("Refusing to seed");
             expect(out).not.toContain("seeded content/");
         }
+        },
+    );
+
+    test("and a signature cannot be stamped over copy it never covered", async () => {
+        // The merge is additive and the signature is on the document, so without this an
+        // unsigned item added in the console would be written back under the next seeder's
+        // name — the failure this collection exists to prevent, arriving through the
+        // sanctioned path.
+        const id = scratch();
+        await collection().doc(id).set({
+            items: [{ id: "added-in-the-console", order: 0, status: "active" }],
+        });
+
+        await expect(
+            applyContent(id as never, [{ id: "mine", order: 1, status: "active" }], REVIEW),
+        ).rejects.toBeInstanceOf(UnreviewedContentError);
+
+        // And it wrote nothing on the way to refusing.
+        const after = (await collection().doc(id).get()).data()!;
+        expect(after.items).toHaveLength(1);
+        expect(after.reviewedBy).toBeUndefined();
     });
 
     test("a signature is stored beside the items, not inside them", async () => {
@@ -306,12 +369,41 @@ describe("tone and framing, checkable on the seed", () => {
         ...NUDGES.flatMap((n) => [n.text, n.sub, n.action]),
     ].filter((s): s is string => typeof s === "string");
 
+    test("every string the seed ships is the canvas' string", async () => {
+        // "Verbatim from the canvas" is the seed's central claim and nothing checked it:
+        // the other cases here compare the seed to itself. This compares it to the file.
+        // The canvas escapes its punctuation (`\u2019`, `\u2014`), so it is unescaped
+        // first, and a string carrying a `{slot}` is checked fragment by fragment, because
+        // the canvas holds a rendered example where the seed holds a placeholder.
+        // `import.meta.dir`, not a `URL().pathname`: the canvas' filename has a space in
+        // it, and a URL pathname percent-encodes it into a path that does not exist.
+        const raw = await Bun.file(`${import.meta.dir}/../../docs/design/Eva App.dc.html`).text();
+        const canvas = raw.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
+            String.fromCharCode(parseInt(hex, 16)),
+        );
+
+        const fragments = strings.flatMap((line) =>
+            line
+                .split(/\{\w+\}/)
+                .map((fragment) => fragment.trim())
+                .filter((fragment) => fragment.length > 3),
+        );
+        expect(fragments.length).toBeGreaterThan(80);
+        for (const fragment of fragments) expect(canvas).toContain(fragment);
+    });
+
     test("the app describes tendencies, never destiny", () => {
         // PRD §Dashboard. "you will" is the phrasing that turns a tendency into a promise.
+        // The apostrophe is normalised first: the seed writes curly ones throughout
+        // (`night’s`, `You’ve`, `haven’t`), so a straight-quote-only check would
+        // miss `You’ll` — which is the spelling this copy would actually use.
+        const flat = (line: string) => line.toLowerCase().replace(/[’ʼʹ`´]/g, "'");
         for (const line of strings) {
-            expect(line.toLowerCase()).not.toContain("you will");
-            expect(line.toLowerCase()).not.toContain("you'll");
+            expect(flat(line)).not.toContain("you will");
+            expect(flat(line)).not.toContain("you'll");
         }
+        // And the normalisation itself works, so this cannot quietly stop catching things.
+        expect(flat("You’ll feel better")).toContain("you'll");
     });
 
     test("every phase template has a hedged variant, and it is the only one at that rung", () => {
@@ -405,11 +497,187 @@ describe("the collection the API reads", () => {
         expect(template!.title).toBe("You are ahead of 80% of users");
     });
 
+    test("the parser sorts by order, then by id", () => {
+        // What the client draws top to bottom. Firestore returns array elements in stored
+        // order, so without this the rail's order would be whoever wrote the document last.
+        const items = parseItems("nudges", {
+            items: [
+                { id: "c", order: 2, status: "active" },
+                { id: "b", order: 1, status: "active" },
+                { id: "a", order: 1, status: "active" },
+            ],
+        }) as Nudge[];
+
+        expect(items.map((n) => n.id)).toEqual(["a", "b", "c"]);
+    });
+
+    test("a repeated id is served once, not twice", () => {
+        // `applyContent` dedupes on the way in; a document edited in the console can still
+        // hold the same id twice, and a card drawn twice is not something a client can
+        // unpick from "ids are permanent and opaque".
+        const items = parseItems("nudges", {
+            items: [
+                { id: "same", order: 0, status: "active", text: "First" },
+                { id: "same", order: 1, status: "active", text: "Second" },
+            ],
+        }) as Nudge[];
+
+        expect(items).toHaveLength(1);
+        expect(items[0]!.text).toBe("First");
+    });
+
+    test("a template with no confidence is read as hedged, not as fact", () => {
+        // The cautious default matters for exactly the documents this repo did not write:
+        // an unlabelled phase template read as `plain` would let D1 state an estimate as
+        // something observed.
+        const [template] = parseItems("templates", {
+            items: [{ id: "unlabelled", order: 0, status: "active", title: "A phase card" }],
+        }) as Template[];
+
+        expect(template!.confidence).toBe("hedged");
+    });
+
+    test("the served version is the hash of what was served", async () => {
+        // End to end, across the process boundary: the client's whole cache contract is
+        // that it can recompute nothing and simply trust `version` to move exactly when the
+        // words do. Written so it holds seeded or not — the real project is unseeded until
+        // a clinician signs the copy, and this must not become a test of that.
+        const body = await json<ContentBody>(await api("/content"));
+
+        expect(body.version).toBe(
+            contentVersion({
+                templates: body.templates,
+                banners: body.banners,
+                nudges: body.nudges,
+            }),
+        );
+    });
+
     test("an unseeded collection is an empty bundle, not an error", async () => {
         // The real project has no `content/` documents yet — the seed refuses until the copy
-        // is signed. `GET /content` still has to answer, so the app can launch.
+        // is signed. `GET /content` still has to answer, so the app can launch. Skipped
+        // rather than inverted once someone seeds it: the claim is about the empty case.
         const body = await json<ContentBody>(await api("/content"));
-        expect(Array.isArray(body.templates)).toBe(true);
-        expect(typeof body.version).toBe("string");
+        if (body.templates.length + body.banners.length + body.nudges.length > 0) return;
+
+        expect(body.version).toBe(contentVersion({ templates: [], banners: [], nudges: [] }));
+        expect(body.templates).toEqual([]);
+    });
+});
+
+/**
+ * The read path with something in it — **emulators only**.
+ *
+ * Every case above runs against three empty arrays, because the real project's `content/`
+ * is unseeded and stays that way until a clinician signs the copy. That left the half of
+ * the module that matters untested: the sort, the cache, "a retired item is still served",
+ * and the `ETag` a client actually revalidates against. Seeding to get that coverage is
+ * fine against an emulator, whose Firestore is a throwaway, and is not fine against the
+ * real project, where it would put copy nobody reviewed in front of whoever is looking —
+ * which is the thing this whole collection exists to prevent. CI runs `scripts/ci-api.sh`,
+ * so these are enforced on every PR; a local `bun run verify` skips them and says so.
+ *
+ * The three documents it writes are the three the API serves. It deletes them afterwards.
+ */
+// Both hosts, not either: `config.ts` refuses to boot with only one set (#67), so this is
+// belt and braces — but the thing it is bracing against is writing the three documents the
+// API serves into the real project, so it is worth the second read.
+const onEmulators = Boolean(
+    process.env.FIREBASE_AUTH_EMULATOR_HOST && process.env.FIRESTORE_EMULATOR_HOST,
+);
+
+describe.skipIf(!onEmulators)("served from a seeded collection", () => {
+    /** Retired in the seed itself, because the server caches for 60s and a test process
+     *  cannot reach into it: retiring afterwards would not be visible over the route. */
+    const RETIRED = "post_sleep";
+
+    let served: ContentBody;
+    let etag: string;
+
+    beforeAll(async () => {
+        await applyContent("templates", TEMPLATES, REVIEW, { rewrite: true });
+        await applyContent(
+            "banners",
+            BANNERS.map((b) => (b.id === RETIRED ? { ...b, status: "retired" as const } : b)),
+            REVIEW,
+            { rewrite: true },
+        );
+        await applyContent("nudges", NUDGES, REVIEW, { rewrite: true });
+
+        // The first request after seeding, and it must already have the copy: the empty
+        // bundle is deliberately the one result `getContent` does not cache, so an instance
+        // is serving real words within a request of the seed rather than a minute later.
+        const res = await api("/content");
+        served = await json<ContentBody>(res);
+        etag = res.headers.get("etag") ?? "";
+    }, 60_000);
+
+    afterAll(async () => {
+        for (const id of CONTENT_IDS) await collection().doc(id).delete().catch(() => {});
+    });
+
+    test("the seed's copy reaches the wire, all 27 items of it", () => {
+        expect(served.templates).toHaveLength(TEMPLATES.length);
+        expect(served.banners).toHaveLength(BANNERS.length);
+        expect(served.nudges).toHaveLength(NUDGES.length);
+        expect(served.templates.map((t) => t.id)).toEqual(TEMPLATES.map((t) => t.id));
+        // Not just the ids: the words, which is the only reason the collection exists.
+        expect(served.templates[0]!.title).toBe(TEMPLATES[0]!.title);
+        expect(served.nudges.find((n) => n.id === "period_due")!.text).toBe(
+            NUDGES.find((n) => n.id === "period_due")!.text,
+        );
+    });
+
+    test("a retired item is still served, flagged rather than dropped", () => {
+        // A card the device rendered yesterday still has to resolve. Retirement takes an
+        // item out of what is *offered*, not out of what exists.
+        const retired = served.banners.find((b) => b.id === RETIRED);
+        expect(retired).toBeDefined();
+        expect(retired!.status).toBe("retired");
+        expect(served.banners.filter((b) => b.status === "active")).toHaveLength(
+            BANNERS.length - 1,
+        );
+    });
+
+    test("items arrive in the order the rail draws them", () => {
+        for (const list of [served.templates, served.banners, served.nudges]) {
+            const orders = list.map((item) => item.order);
+            expect(orders).toEqual([...orders].sort((a, b) => a - b));
+        }
+    });
+
+    test("the version and the ETag are the hash of the copy that came back", () => {
+        expect(served.version).toBe(
+            contentVersion({
+                templates: served.templates,
+                banners: served.banners,
+                nudges: served.nudges,
+            }),
+        );
+        expect(etag).toBe(`"${served.version}"`);
+    });
+
+    test("and a client holding it revalidates to a 304 with no body", async () => {
+        const res = await api("/content", { headers: { "if-none-match": etag } });
+
+        expect(res.status).toBe(304);
+        expect(await res.text()).toBe("");
+        // A `?version=` carrying the same value answers identically — the two doors on the
+        // same handshake, which nothing else compares.
+        const byQuery = await api(`/content?version=${served.version}`);
+        expect(byQuery.status).toBe(304);
+    });
+
+    test("re-seeding the identical words does not move the version", async () => {
+        // The property the whole cache rests on: an idempotent re-seed must not invalidate
+        // every device's copy. Read through `getContent`'s own cache-free path rather than
+        // the route, which is holding a 60s snapshot by now.
+        await applyContent("nudges", NUDGES, REVIEW, { rewrite: true });
+        invalidateContentCache();
+
+        const nudges = (await readContent("nudges")) as Nudge[];
+        expect(
+            contentVersion({ templates: served.templates, banners: served.banners, nudges }),
+        ).toBe(served.version);
     });
 });
