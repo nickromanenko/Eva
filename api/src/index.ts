@@ -1299,7 +1299,9 @@ app.delete("/me", requireAuth, async (c) => {
     // email` — so the move this guards against is not reachable as the project is configured
     // today, whatever `identity-toolkit.ts`'s comment says. That is a console setting rather
     // than a property of this code, which is why `account-deletion.test.ts` asserts the
-    // refusal: turn it off and a suite goes red instead of this going quiet.
+    // refusal: turn it off and `bun run verify` goes red instead of this going quiet.
+    // **Not CI** — CI runs the emulators, which allow the move, so that half of the test
+    // asserts the permissive behaviour and can never fail for this reason.
     //
     // If it were reachable, the gate would still only raise the price — `/auth/password/reset`
     // re-stamps `emailVerified` from a token it resolves by uid, without checking the account

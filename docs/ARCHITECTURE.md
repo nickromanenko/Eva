@@ -1042,8 +1042,19 @@ throws when there is no credential to find), and `identity-toolkit.ts` takes its
 from `config.identityToolkitBaseUrl`, which points at `FIREBASE_AUTH_EMULATOR_HOST` when
 that is set. `firebase emulators:exec` sets both, so nothing has to remember to.
 
-All 196 tests pass under the emulators **unchanged** — no offline mode, no skips, no
-second code path — in ~28s against ~210s for the real project. The error-mapping suites
+All tests pass under the emulators, in ~28s against ~210s for the real project, and with
+**one** second code path in the whole suite (#56). It is worth knowing where, because the
+rule is otherwise "no offline mode, no skips, no branching on the environment":
+`account-deletion.test.ts` asserts that `accounts:update` cannot repoint an account at an
+unverified address. The real project refuses it — email-enumeration protection is on — and
+the **emulator allows it**, so there is no single assertion that is true of both. Each
+branch asserts the one that holds where it runs, and both are worth having: the refusal is
+why #139 and #140 are not reachable today, and the emulator's permissiveness is the premise
+`DELETE /me`'s `proven` gate gives defence in depth against.
+
+That is also the sharpest available example of the paragraph below. The emulator is the
+**more permissive** environment here, so the branch that would go red if someone turned the
+setting off is the one CI never runs. That tripwire lives in `bun run verify` alone. The error-mapping suites
 survive the swap because they already control the upstream boundary themselves rather
 than provoking real Google errors (`auth-upstream-failures.test.ts`,
 `signin-non-enumeration.test.ts`), which is the property that made the emulators viable
