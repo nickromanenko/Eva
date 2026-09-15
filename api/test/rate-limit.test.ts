@@ -14,6 +14,14 @@ import {
  * intermittently flaky on its first cold network call (#31). Nothing in this file touches
  * the network, Firestore, or the route — `signin-non-enumeration.test.ts` covers the
  * route's half, which is where the property that actually matters lives.
+ *
+ * **One exception, added by #56 and worth naming because the paragraph above would
+ * otherwise be wrong.** The "forgetting one address" block below uses the module's *real*
+ * `limiters` — the process-global singleton — rather than a hand-cranked one, because what
+ * it tests is which counters `forgetEmail` reaches, which is a property of that wiring and
+ * not of `createRateLimiter`. It still touches no network and no Firestore, and it calls
+ * `resetAuthRateLimits()` at the top of every case and again in `afterEach`, so it leaves
+ * the shared counters empty rather than spent for whatever runs next.
  */
 
 /** A hand-cranked clock. `advance` moves it; the limiter reads it through `now`. */

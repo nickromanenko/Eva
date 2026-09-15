@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { adminAuth, firestore } from "../src/firebase";
+import { mintToken } from "../src/auth";
+import { config } from "../src/config";
+import { addressOfAuthAccount } from "../src/identity-toolkit";
+import { default as server } from "../src/index";
+import { consumeAuthAttempt, resetAuthRateLimits } from "../src/rate-limit";
 import { markUserDeleted, saveQuestionnaire } from "../src/users";
 import { activateAccount, createLegacyAccount, signUpActivated } from "./support/session";
 
@@ -411,6 +416,26 @@ describe("a delete interrupted after the first step", () => {
         expect((await userDoc(uid).get()).get("deletedAt")).not.toBeNull();
     });
 
+    test("the address a delete acts on reports whether Auth considers it proven", async () => {
+        // The gate on `forgetEmail` (#56). That call is the one step of a delete that
+        // touches state keyed by an *address* rather than by this account's uid, and an
+        // idToken holder can point their own Auth account at any address no Firebase user
+        // holds. `accounts:update` clears `emailVerified` when the address moves, so
+        // `proven` is the distinction the route needs — asserted here rather than in the
+        // route, because producing a moved address means calling Identity Toolkit directly
+        // with a credential this suite has no reason to hold.
+        const seen = await addressOfAuthAccount(uid);
+        expect(seen.address).toBe(email);
+        // `createLegacyAccount` makes an Auth user the way one existed before #6: no
+        // confirmation, so nothing has proven the address and the clear must not run.
+        expect(seen.proven).toBe(false);
+
+        // And a uid with no Auth account at all answers the same, fail-closed way.
+        const gone = await addressOfAuthAccount("no-such-uid-for-issue-56");
+        expect(gone.address).toBeNull();
+        expect(gone.proven).toBe(false);
+    });
+
     test("saveQuestionnaire refuses the tombstone on its own, not only via the gate", async () => {
         // Called **directly**, with no route and no middleware in front of it (#56).
         // `requireAccount` already refuses a deleted account, so through the API this is
@@ -418,6 +443,12 @@ describe("a delete interrupted after the first step", () => {
         // read in `users.ts` refuses a tombstone itself; this one used to be safe only
         // because of where the gate happened to sit, and a second caller or a reordered
         // middleware would have made it write the profile onto a deleted account.
+        // The precondition, asserted rather than inherited from where this case sits in the
+        // file. Placed after "retrying the delete finishes it" the document would be gone,
+        // `!snapshot.exists` would return null on its own, and this would pass while
+        // proving nothing.
+        expect((await userDoc(uid).get()).get("deletedAt")).not.toBeNull();
+
         const written = await saveQuestionnaire(uid, {
             age: 30,
             weightKg: 65,
@@ -445,6 +476,73 @@ describe("a delete interrupted after the first step", () => {
             expect(await authUserExists(uid)).toBe(false);
             expect((await userDoc(uid).get()).exists).toBe(false);
             expect(await eventIds(uid)).toEqual([]);
+        },
+        SLOW,
+    );
+});
+
+/**
+ * That `DELETE /me` actually gives the address's throttle budget back (#56).
+ *
+ * The counters live in the API server's memory, so a test that drives the route over HTTP
+ * — which is how the rest of this file works — is in a different process from the counters
+ * it wants to read, and can assert nothing about them. That was offered as a reason the
+ * behaviour could not be tested end to end. It is not one: the route runs in *this* process
+ * through `server.fetch`, against the same real Firebase, and then the counters are right
+ * there. `rate-limit.test.ts` covers `forgetEmail` itself; what is missing without this is
+ * anything at all tying the route to it — delete the call from `index.ts` and every other
+ * test stays green.
+ */
+describe("deleting an account returns its address's throttle budget", () => {
+    /** The route, in-process. Never as a listening server — the default export is a plain
+     *  object until something serves it. */
+    const deleteMe = async (token: string) =>
+        server.fetch(
+            new Request("http://api.test/me", {
+                method: "DELETE",
+                headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+            }),
+        );
+
+    /** Spends an address's sign-in budget until the next attempt is refused. */
+    const exhaust = (email: string) => {
+        for (let i = 0; i < config.rateLimit.signinPerEmail + 1; i += 1) {
+            consumeAuthAttempt("signin", null, email);
+        }
+    };
+
+    test(
+        "the address is served again, and the caller's IP budget is not given back",
+        async () => {
+            const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+            // `emailVerified: true` because the route only forgets an address Auth
+            // considers proven — see the note on `forgetEmail` in the route.
+            const { uid } = await adminAuth.createUser({ email, password, emailVerified: true });
+            createdUids.push(uid);
+            await userDoc(uid).set({
+                email,
+                authProviders: ["password"],
+                questionnaireCompleted: false,
+                profile: null,
+                activatedAt: new Date(),
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            });
+
+            resetAuthRateLimits();
+            exhaust(email);
+            expect(consumeAuthAttempt("signin", null, email)).toBe(false);
+            // A second address, throttled and *not* deleted: what the clear must not reach.
+            const bystander = `e2e+bystander-${crypto.randomUUID()}@e2e.evaapp.dev`;
+            exhaust(bystander);
+            expect(consumeAuthAttempt("signin", null, bystander)).toBe(false);
+
+            const res = await deleteMe(await mintToken(uid, email));
+            expect(res.status).toBe(200);
+
+            expect(consumeAuthAttempt("signin", null, email)).toBe(true);
+            expect(consumeAuthAttempt("signin", null, bystander)).toBe(false);
+            resetAuthRateLimits();
         },
         SLOW,
     );

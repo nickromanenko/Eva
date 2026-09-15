@@ -1266,7 +1266,7 @@ app.delete("/me", requireAuth, async (c) => {
     // was no uid when it was issued. Not from `users/{uid}.email`: that copy is written once
     // at creation and can be left pointing at an address the account no longer holds (#121),
     // and as a *delete* key a stale address wipes somebody else's live links.
-    const address = await addressOfAuthAccount(sub);
+    const { address, proven } = await addressOfAuthAccount(sub);
     await markUserDeleted(sub);
     // After the tombstone, so the account is already inert whatever Apple answers, and
     // before the Auth user goes, so the ordering below is untouched. Revocation is Apple's
@@ -1284,9 +1284,19 @@ app.delete("/me", requireAuth, async (c) => {
     // address any more. Per-address only; the per-IP backstop is deliberately left alone,
     // or deleting an account would be a way to clear one's own budget.
     //
+    // **Only a `proven` address**, and this is the half that is not obvious. Unlike the two
+    // calls above, this one does not act on *this account's* rows — it clears state keyed by
+    // an address, and that budget is shared with whoever else is using it. An idToken holder
+    // can point their own Auth account at any address no Firebase user holds
+    // (`accounts:update`, public web API key), delete, and walk away with that address's
+    // sign-up and resend counters reset — which is the per-address cap on unsolicited
+    // activation mail, reset for the price of one account lifecycle. `accounts:update`
+    // clears `emailVerified` whenever the address moves, so `proven` is exactly the
+    // distinction, and skipping is the harmless direction: the counters expire on their own.
+    //
     // Last, after everything that can fail. A throw above leaves the counters standing,
-    // which is the harmless direction.
-    forgetEmail(address);
+    // which is the harmless direction there too.
+    if (proven) forgetEmail(address);
     // No count, no email, no id — a delete is exactly where a log line is tempting
     // (GUARDRAILS 12). Anything that throws above lands in `app.onError` as a 500 with a
     // `ref`, and the account is already inert by then.
