@@ -558,8 +558,49 @@ Two consequences worth knowing before tuning the numbers. The per-IP limits are 
 loose because iOS traffic arrives through carrier NAT, where one address fronts many
 unrelated users. And a per-address limit is a lockout primitive: someone who knows a user's
 address can spend that user's sign-in budget for them, which is inherent to per-identifier
-throttling rather than to this implementation, and is why the per-address limits are not
-tighter.
+throttling rather than to this implementation.
+
+**The two dimensions use different penalty shapes (#37, decided 2026-08-29.)** Per IP stays
+a fixed window, because carrier NAT means an escalating penalty there would punish
+bystanders for each other's attempts. Per address, on sign-in and sign-up, is an
+**exponential backoff**: `RATE_LIMIT_SIGNIN_PER_EMAIL` / `..._SIGNUP_PER_EMAIL` free
+attempts, then a block of `RATE_LIMIT_BACKOFF_BASE_SECONDS` that doubles each time, capped
+at `RATE_LIMIT_WINDOW_SECONDS`, and forgotten entirely after that long without a served
+attempt.
+
+The point is what a lockout costs the person causing it. Under a fixed window it is bought
+once: spend the budget on an address you know and its owner is refused for the rest of the
+window whatever they do. Under the backoff it is rent — a refused attempt is inert (it
+raises no tier and extends no block), and each expired block hands the key back **one**
+attempt, so the owner types their password once and is in while somebody guessing gets one
+guess per doubling interval. Holding an address out still costs an attacker one request per
+cycle, which is cheaper per request than the window but has to be paid forever and spends
+their per-IP budget doing it; the cap is what bounds it, and at the cap the scheme is no
+worse than the window it replaced. Per-instance like everything else here.
+
+The send-link routes (`resend`, `forgot`) keep their fixed one-per-60s. That is a cooldown
+the canvas counts down, not a defence against guessing, and backing it off would make the
+Resend button's wait vary with how often an address had been asked for — which
+`authRetryAfterSeconds` quotes as a constant precisely so it cannot.
+
+**Each dimension has its own key budget, and always did.** #37 filed this as a defect —
+"today's single shared map" — and it was not one: `createRateLimiter` allocates its `Map`
+per instance, so a flood of invented addresses fills the per-address map of one route and
+cannot evict the per-IP counters that are the backstop in that state. Verified against the
+commit that introduced the file, not just against today's, and now pinned by a test, because
+hoisting the map to module scope to "save memory" would hand an attacker exactly the
+eviction tool the issue was worried about.
+
+**Which `X-Forwarded-For` entry is the caller is configuration, not a constant.** The per-IP
+counter keys on the entry `RATE_LIMIT_TRUSTED_PROXY_HOPS` from the right — `1` today, which
+is a direct Cloud Run service, verified against the deployed API answering on its `run.app`
+host with no balancer in front of it. Everything to the left of the trusted entries is
+whatever the caller chose to send, so reading from the left would make a per-IP budget cost
+one header to reset. Put a Google external load balancer in front and there are two trusted
+hops: leave the value at `1` and the rightmost entry becomes the balancer's, collapsing
+every caller into one bucket and turning the per-IP limit into a global one. **Nothing
+detects that** — no header distinguishes the two shapes — so the value is written down where
+a topology change has to meet it, and the two-hop path is tested before anyone needs it.
 
 The throttle is applied **after** validation and **before** the Identity Toolkit call, so it
 can never see, and never depends on, whether an address is registered — that is what keeps

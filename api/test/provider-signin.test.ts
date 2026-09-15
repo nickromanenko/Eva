@@ -1655,6 +1655,68 @@ describe("the provider routes are throttled, and separately", () => {
     /** One more than the budget, so the last one must be refused. */
     const overBudget = config.rateLimit.idpPerIp + 1;
 
+    /**
+     * Which `X-Forwarded-For` entry is the caller (#37).
+     *
+     * The per-IP limit is only a per-IP limit while the right entry is read. Cloud Run
+     * appends the address it accepted the connection from; everything to its left is
+     * whatever the caller chose to send, so reading from the left would let anyone spend a
+     * fresh budget per request by inventing a prefix. `trustedProxyHops` says how far from
+     * the right to count — `1` for the direct Cloud Run service `deploy-api.yml` deploys,
+     * `2` once a load balancer appends one of its own.
+     *
+     * Driven through the route rather than by calling `clientIp`, which is not exported:
+     * two requests that differ only in the *spoofed* prefix have to land in the same
+     * bucket, and that is a property of the throttle, not of a string function.
+     */
+    test(
+        "a spoofed prefix buys nothing — the caller is counted from the right",
+        async () => {
+            expect(config.rateLimit.trustedProxyHops).toBe(1);
+            idp = () => {
+                throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
+            };
+            const real = "198.51.100.77";
+
+            let last: Answer | null = null;
+            for (let i = 0; i < overBudget; i++) {
+                // A different invented client each time, all appended to the left of the
+                // one entry Cloud Run actually wrote. Reading the leftmost would give every
+                // one of these its own budget and none would ever be refused.
+                last = await post("/auth/idp", appleBody(), {
+                    "x-forwarded-for": `10.0.0.${i % 200}, ${real}`,
+                });
+            }
+
+            expect(last!.status).toBe(429);
+            expect(last!.body.error.code).toBe("RATE_LIMITED");
+        },
+        SLOW,
+    );
+
+    test(
+        "a header with fewer hops than configured skips the dimension rather than guessing",
+        async () => {
+            // Fail-safe: bucketing every caller together because the header was not the
+            // shape we expected is an outage, and picking some other entry would be
+            // picking one the caller controls. The per-address limit still applies.
+            expect(config.rateLimit.trustedProxyHops).toBe(1);
+            idp = () => {
+                throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
+            };
+
+            // An empty header is the shortest such shape reachable through a `Request`.
+            let last: Answer | null = null;
+            for (let i = 0; i < overBudget; i++) {
+                last = await post("/auth/idp", appleBody(), { "x-forwarded-for": "" });
+            }
+
+            // Never 429: with no usable address the per-IP dimension is skipped entirely.
+            expect(last!.status).not.toBe(429);
+        },
+        SLOW,
+    );
+
     test(
         "an address that keeps trying is refused, and told how long to wait",
         async () => {

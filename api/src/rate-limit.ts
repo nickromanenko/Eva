@@ -36,7 +36,46 @@ import { config } from './config'
  * console, and nothing should start (GUARDRAILS 12).
  */
 
+/**
+ * Which `X-Forwarded-For` entry is the caller, counting from the **right** (#37).
+ *
+ * Exported and pure so the shape that does not exist yet can be tested before it does.
+ * `hops` is `config.rateLimit.trustedProxyHops`: how many rightmost entries were appended
+ * by infrastructure rather than sent by the caller.
+ *
+ *     hops = 1   "1.2.3.4, 35.191.0.7"              → 35.191.0.7   direct Cloud Run
+ *     hops = 2   "1.2.3.4, 35.191.0.7, 130.211.0.1" → 35.191.0.7   behind a balancer
+ *
+ * Never the leftmost. Everything left of the infrastructure entries is whatever the caller
+ * chose to send, so reading from the left would hand anyone a fresh per-IP budget per
+ * request for the price of a header.
+ *
+ * `null` for an absent, empty or too-short header. All three skip the per-IP dimension
+ * rather than bucketing every caller together: collapsing the world into one counter is an
+ * outage, the per-address limit still applies, and a header shorter than configured is
+ * exactly the case where choosing an entry would mean choosing one the caller controls.
+ */
+export const callerFromForwarded = (
+  forwarded: string | undefined,
+  hops: number,
+): string | null => {
+  if (!forwarded || hops < 1) return null
+  const entries = forwarded.split(',')
+  const caller = entries[entries.length - hops]?.trim() ?? ''
+  return caller === '' ? null : caller
+}
+
 export interface RateLimiter {
+  /**
+   * Which penalty shape this limiter applies — a fixed window, or the per-cycle backoff
+   * #37 gave the two routes a credential attack aims at.
+   *
+   * Named rather than inferred because the difference is invisible from `consume` alone
+   * without advancing a clock, and the routes' *wiring* is the part worth pinning: the two
+   * implementations are interchangeable at the call site, so swapping one back would
+   * restore the lockout-you-buy-once that #37 removed and nothing would fail.
+   */
+  readonly kind: 'window' | 'backoff'
   /** Counts one attempt against `key`, and says whether that attempt is allowed. */
   consume(key: string): boolean
   /** Drops `key`'s counter, if it has one. Used when the identity a key names stops
@@ -81,6 +120,7 @@ export const createRateLimiter = (
   }
 
   return {
+    kind: 'window',
     consume: (key) => {
       if (limit <= 0 || windowMs <= 0) return true
 
@@ -103,6 +143,122 @@ export const createRateLimiter = (
       buckets.delete(key)
     },
     reset: () => buckets.clear(),
+  }
+}
+
+/**
+ * The per-address limiter for sign-in and sign-up (#37, decided 2026-08-29).
+ *
+ * ## What it replaces, and why
+ *
+ * A fixed window makes a lockout something an attacker **buys once**: spend
+ * `signinPerEmail` requests on an address you know, and its owner is refused for the rest
+ * of the window whatever they do. That is the whole cost. The per-address dimension exists
+ * to stop a distributed attack on one account — every IP staying under its own limit — so
+ * dropping it was rejected; what was wrong was the shape of the penalty, not the dimension.
+ *
+ * Here the penalty is **earned per cycle and decays on its own**:
+ *
+ * - The first `free` attempts are as cheap as they are today.
+ * - The next one starts a block of `baseMs`. Each block that follows doubles, capped at
+ *   `maxMs`.
+ * - **A refused attempt changes nothing.** It does not raise the tier, does not extend the
+ *   block, and does not keep the record alive. Otherwise refusing would be free lockout
+ *   extension, which is the defect being fixed wearing different clothes.
+ * - When a block expires the key gets **one** attempt back, not `free`. That is the number
+ *   that makes both halves work: a legitimate user who was locked out by somebody else
+ *   types their password once and is in, while someone guessing gets one guess per
+ *   exponentially growing interval, which is what makes guessing pointless.
+ * - After `decayMs` with no *served* attempt the record is forgotten entirely and the key
+ *   is back to `free`. Quiet costs the owner nothing.
+ *
+ * ## The residual, stated rather than discovered later
+ *
+ * An attacker who wants to *hold* an address out can still do it, by spending the single
+ * post-block attempt each cycle. That costs them one request per cycle — cheaper per
+ * request than the fixed window, but it is a rent rather than a purchase, it has to be paid
+ * forever, and every one of those requests is also spending their per-IP budget, which is
+ * the dimension that actually bounds one attacker. Capping at `maxMs` is what keeps this
+ * from becoming unbounded: at the cap the scheme is no worse than the fixed window it
+ * replaces, and below the cap it is strictly gentler on the person being attacked.
+ *
+ * Per-instance like everything else in this file, and weakened by horizontal scaling in
+ * exactly the way ARCHITECTURE §3 records. A better limiter, not a guarantee.
+ */
+interface Penalty {
+  /** Attempts served since the current allowance began. */
+  used: number
+  /** Blocks this key has earned. 0 means it has never been blocked. */
+  tier: number
+  /** Epoch ms until which attempts are refused. */
+  blockedUntil: number
+  /** Epoch ms at which the record is dropped, taking the tier with it. */
+  forgetAt: number
+}
+
+export const createBackoffLimiter = (
+  free: number,
+  baseSeconds: number,
+  maxSeconds: number,
+  decaySeconds: number,
+  now: () => number = Date.now,
+): RateLimiter => {
+  const baseMs = baseSeconds * 1000
+  const maxMs = maxSeconds * 1000
+  const decayMs = decaySeconds * 1000
+  const penalties = new Map<string, Penalty>()
+
+  const sweepForgotten = (at: number): void => {
+    for (const [key, penalty] of penalties) if (penalty.forgetAt <= at) penalties.delete(key)
+  }
+
+  /** `baseMs × 2^(tier-1)`, capped. Computed rather than accumulated so a tier that somehow
+   *  ran away cannot produce a block longer than the cap. */
+  const blockFor = (tier: number): number =>
+    Math.min(maxMs, baseMs * 2 ** Math.min(tier - 1, 30))
+
+  return {
+    kind: 'backoff',
+    consume: (key) => {
+      if (free <= 0 || baseMs <= 0) return true
+
+      const at = now()
+      let penalty = penalties.get(key)
+      if (penalty && penalty.forgetAt <= at) {
+        penalties.delete(key)
+        penalty = undefined
+      }
+
+      if (!penalty) {
+        // Same fail-open-for-new-keys rule as `createRateLimiter`, and for the same reason:
+        // evicting a live counter is what a flood of invented addresses would be buying.
+        if (penalties.size >= MAX_KEYS) {
+          sweepForgotten(at)
+          if (penalties.size >= MAX_KEYS) return true
+        }
+        penalty = { used: 0, tier: 0, blockedUntil: 0, forgetAt: at + decayMs }
+        penalties.set(key, penalty)
+      }
+
+      // Refused, and deliberately inert: no tier, no extension, no `forgetAt` refresh.
+      if (penalty.blockedUntil > at) return false
+
+      penalty.used += 1
+      penalty.forgetAt = at + decayMs
+      // `free` before the first block; one attempt per cycle after it.
+      if (penalty.used <= (penalty.tier === 0 ? free : 1)) return true
+
+      penalty.tier += 1
+      penalty.blockedUntil = at + blockFor(penalty.tier)
+      penalty.used = 0
+      // Outlive the block, then decay from its end rather than from now.
+      penalty.forgetAt = penalty.blockedUntil + decayMs
+      return false
+    },
+    forget: (key) => {
+      penalties.delete(key)
+    },
+    reset: () => penalties.clear(),
   }
 }
 
@@ -149,14 +305,26 @@ const sendLinkLimiters = () => ({
   byEmail: createRateLimiter(1, config.rateLimit.resendPerEmailSeconds),
 })
 
+/** The per-address limiter for the two routes a credential attack aims at (#37). The
+ *  send-link routes keep their fixed one-per-60s: that is a *cooldown* the canvas counts
+ *  down, not a defence against guessing, and backing it off would make the Resend button's
+ *  wait vary with how often the address had been asked for. */
+const backoffByEmail = (free: number) =>
+  createBackoffLimiter(
+    free,
+    config.rateLimit.backoffBaseSeconds,
+    config.rateLimit.windowSeconds,
+    config.rateLimit.windowSeconds,
+  )
+
 const limiters: Record<AuthRoute, { byIp: RateLimiter; byEmail: RateLimiter }> = {
   signin: {
     byIp: createRateLimiter(config.rateLimit.signinPerIp, config.rateLimit.windowSeconds),
-    byEmail: createRateLimiter(config.rateLimit.signinPerEmail, config.rateLimit.windowSeconds),
+    byEmail: backoffByEmail(config.rateLimit.signinPerEmail),
   },
   signup: {
     byIp: createRateLimiter(config.rateLimit.signupPerIp, config.rateLimit.windowSeconds),
-    byEmail: createRateLimiter(config.rateLimit.signupPerEmail, config.rateLimit.windowSeconds),
+    byEmail: backoffByEmail(config.rateLimit.signupPerEmail),
   },
   resend: sendLinkLimiters(),
   forgot: sendLinkLimiters(),
@@ -247,6 +415,21 @@ export const forgetEmail = (email: string | null): void => {
   if (email === null) return
   for (const route of Object.values(limiters)) route.byEmail.forget(email)
 }
+
+/**
+ * Which penalty shape each auth route's two dimensions apply. Test support — nothing in
+ * `src/` calls it — and it exists because the wiring is the part a mutation can quietly
+ * undo: `createRateLimiter` and `createBackoffLimiter` satisfy the same interface, so
+ * pointing sign-in's per-address counter back at a fixed window is a one-line change that
+ * no behavioural test notices without a clock to advance.
+ */
+export const authLimiterKinds = (): Record<AuthRoute, { byIp: string; byEmail: string }> =>
+  Object.fromEntries(
+    Object.entries(limiters).map(([route, { byIp, byEmail }]) => [
+      route,
+      { byIp: byIp.kind, byEmail: byEmail.kind },
+    ]),
+  ) as Record<AuthRoute, { byIp: string; byEmail: string }>
 
 /** Drops every auth counter, link routes included. Test support — nothing in `src/`
  *  calls it. */

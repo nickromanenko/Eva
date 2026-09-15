@@ -8,6 +8,7 @@ import { EmailError, sendActivationEmail, sendPasswordResetEmail } from "./email
 import { TOKEN_LENGTH, consumeToken, deleteTokensForAccount, issueToken } from "./email-tokens";
 import {
     authRetryAfterSeconds,
+    callerFromForwarded,
     consumeAuthAttempt,
     consumeProviderAttempt,
     consumeTokenAttempt,
@@ -300,25 +301,34 @@ const passwordFailure = (password: string): string =>
 /**
  * The calling client's address, for the per-IP half of the auth throttle (issue #5).
  *
- * The **rightmost** `X-Forwarded-For` entry, not the leftmost. Cloud Run appends the
+ * Counted from the **right** of `X-Forwarded-For`, never the left. Cloud Run appends the
  * address it actually accepted the connection from, and everything to the left of that is
  * whatever the caller chose to send — trusting the left would put the per-IP limit one
- * request header away from useless. This assumes `eva-api` stays a *direct* Cloud Run
- * service, as `.github/workflows/deploy-api.yml` deploys it; put an external load balancer
- * in front and the rightmost entry becomes the balancer's, so revisit this then.
+ * request header away from useless.
  *
- * `null` when there is no header, which skips the per-IP dimension rather than bucketing
- * every caller together — collapsing the world into one counter is an outage, and the
- * per-address limit still applies. Cloud Run always sets the header, so in production this
+ * **How far from the right is `config.rateLimit.trustedProxyHops`** (#37), not a constant.
+ * `1` is a direct Cloud Run service, which is what `deploy-api.yml` deploys and what the
+ * app's base URL points at — verified against the deployed service, which answers on its
+ * `run.app` URL with no balancer in front. Add a Google external load balancer and there
+ * are two trusted hops; leave this at `1` and the rightmost entry becomes the balancer's,
+ * collapsing every caller into one bucket and turning a per-IP limit into a global one.
+ *
+ * That failure is silent — no header distinguishes the two shapes — so the knob does not
+ * *detect* a topology change. What it does is make the assumption a value somewhere rather
+ * than a sentence in a comment, so changing the topology has something to meet.
+ *
+ * `null` when the header is absent, or when it holds fewer entries than the configured
+ * hops. Both skip the per-IP dimension rather than bucketing every caller together:
+ * collapsing the world into one counter is an outage, the per-address limit still applies,
+ * and a header shorter than expected is exactly the case where guessing which entry is the
+ * client would be guessing. Cloud Run always sets the header, so in production the first
  * is unreachable; locally, and for in-process tests, it is the ordinary case.
  */
-const clientIp = (c: Context): string | null => {
-    const forwarded = c.req.header("x-forwarded-for");
-    if (!forwarded) return null;
-    const hops = forwarded.split(",");
-    const client = hops[hops.length - 1]?.trim() ?? "";
-    return client === "" ? null : client;
-};
+const clientIp = (c: Context): string | null =>
+    callerFromForwarded(
+        c.req.header("x-forwarded-for"),
+        config.rateLimit.trustedProxyHops,
+    );
 
 /**
  * Counts this attempt and, if it is over the limit, answers instead of serving it.

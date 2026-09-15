@@ -117,6 +117,31 @@ export const config = {
     signupPerIp: optionalCount('RATE_LIMIT_SIGNUP_PER_IP', 30),
     signupPerEmail: optionalCount('RATE_LIMIT_SIGNUP_PER_EMAIL', 5),
     /**
+     * The first block a sign-in or sign-up address earns after exhausting its free
+     * attempts (#37). Each block after it doubles, capped at `windowSeconds`, and the
+     * whole record decays after `windowSeconds` of quiet — so at the cap this is no worse
+     * than the fixed window it replaced, and below it is gentler on the person being
+     * attacked. `0` disables the backoff along with the per-address dimension.
+     */
+    backoffBaseSeconds: optionalCount('RATE_LIMIT_BACKOFF_BASE_SECONDS', 30),
+    /**
+     * How many rightmost `X-Forwarded-For` entries were appended by infrastructure we
+     * trust, and therefore how far from the right the caller's own address sits (#37).
+     *
+     * `1` is a **direct Cloud Run service**, which is what `deploy-api.yml` deploys and
+     * what `https://eva-api-…-uc.a.run.app` is: Cloud Run appends the address it accepted
+     * the connection from, and everything left of it is whatever the caller chose to send.
+     * Put a Google external load balancer in front and there are two trusted hops, so this
+     * becomes `2` — and if it is *not* changed, every caller collapses into one bucket and
+     * the per-IP limit silently becomes global.
+     *
+     * A knob rather than a constant because that failure is invisible: nothing in a header
+     * distinguishes "the rightmost entry is Cloud Run" from "the rightmost entry is a
+     * balancer". What this buys is that the assumption is written down somewhere a
+     * topology change has to meet, instead of in a comment.
+     */
+    trustedProxyHops: optionalCount('RATE_LIMIT_TRUSTED_PROXY_HOPS', 1),
+    /**
      * The two "send me a link" routes (#6): one per address per this many seconds — the
      * canvas' once-per-60s Resend — and a per-IP backstop over the ordinary window. Both
      * knobs serve `/auth/activation/resend` and `/auth/password/forgot`, on separate
