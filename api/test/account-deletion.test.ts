@@ -586,6 +586,37 @@ describe("deleting an account returns its address's throttle budget", () => {
     };
 
     test(
+        "an address Auth never proved is left alone",
+        async () => {
+            // The gate itself (#56). Without this, deleting `if (proven)` from the route
+            // breaks nothing: the case above creates its account `emailVerified: true`, so
+            // it passes either way, and the `proven` assertions elsewhere cover the function
+            // rather than the route's decision.
+            //
+            // `createLegacyAccount` makes an Auth user the way one existed before #6 — no
+            // confirmation, so `emailVerified` is false by construction and nothing had to
+            // be moved to get there.
+            const email = `e2e+unproven-${crypto.randomUUID()}@e2e.evaapp.dev`;
+            const uid = await createLegacyAccount(email, password);
+            createdUids.push(uid);
+            expect((await addressOfAuthAccount(uid)).proven).toBe(false);
+
+            resetAuthRateLimits();
+            exhaust(email);
+            expect(consumeAuthAttempt("signin", null, email)).toBe(false);
+
+            const res = await deleteMe(await mintToken(uid, email));
+            expect(res.status).toBe(200);
+
+            // Still spent: the delete completed, and the counters were not the delete's to
+            // give back. Skipping is the harmless direction — they expire on their own.
+            expect(consumeAuthAttempt("signin", null, email)).toBe(false);
+            resetAuthRateLimits();
+        },
+        SLOW,
+    );
+
+    test(
         "the address is served again, and the caller's IP budget is not given back",
         async () => {
             const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
