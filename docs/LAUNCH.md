@@ -25,7 +25,7 @@ consequence of one of these.
 | L1 | A legal entity, an Apple Developer Program **organisation** account, and the Paid Apps agreement (tax + banking) signed | Nick | not started |
 | L2 | Regulatory position written down: Eva is a *general wellness* product under FDA's January 2026 guidance and outside EU MDR / UK MHRA scope — with the product lines that keep it there (§1) | #26 clinician + *counsel* | #26 open; US scope not yet in it |
 | L3 | Privacy programme for consumer health data: policy, consent flow, rights handling, breach procedure, vendor DPAs, data map (§2) | *counsel* + api/mobile | nothing exists; website privacy page is a placeholder |
-| L4 | A law-enforcement / third-party request policy for reproductive-health data (§2.4) | Nick + *counsel* | not started |
+| L4 | A law-enforcement / third-party request policy for reproductive-health data (§2.4) | Nick + *counsel* | policy written (A19, #91: `docs/REQUESTS.md`, `/transparency`); its *counsel* markers unconfirmed (A24); entity placeholders until L1 |
 | L5 | App Store readiness: guideline conformance, age rating, privacy labels, subscription terms, storefront list, export compliance (§3) | mobile + Nick | partly (account deletion #8/#55 done; Sign in with Apple #7 open) |
 | L6 | Product changes the markets force: English variant, locale units, country-aware emergency guidance and appointment types, food-database coverage, vendor processor locations (§4) | product + api + mobile | decisions listed in §6 |
 | L7 | Content sign-off by clinicians credentialled for the primary market, and a claims register for everything the website and the app assert (§5) | #26 | not started |
@@ -158,12 +158,16 @@ it is what Eva can and cannot hand over:
    served on the entity; non-US requests require MLAT; users are notified unless legally
    barred; a transparency report is published. This is the one the *Flo* and *Premom*
    settlements did not cover and the one users in the US now ask about first.
+   **Written (A19, #91): `docs/REQUESTS.md`**, published at `/transparency`; the report
+   is twice a year, January and July.
 4. **Pregnancy-loss and positive-test events are the most sensitive records in the
    system.** PRD §Pregnancy loss already hides rather than deletes; the request policy
    decides whether Eva offers *permanent* deletion of the pregnancy timeline as its own
    action (the PRD says "offered separately, later").
 5. **The privacy copy** must say exactly this. A10 already settled the encryption sentence;
-   the request policy needs its own sentence in the app, not only on the website.
+   the request policy needs its own sentence in the app, not only on the website. It
+   has one: the second sentence of the canvas `privacy` footer, recorded in
+   `docs/DESIGN.md` §9a (#91).
 
 ### 2.5 What has to exist — the artefacts
 
@@ -177,7 +181,7 @@ it is what Eva can and cannot hand over:
 | Data map and DPIA | `docs/` | — |
 | DPAs: Google Cloud, Postmark (#6), the LLM vendor (A5), the food-database vendor (#25 Q10), the photo-recognition vendor (#25 Q11), Apple | legal | vendor choices |
 | EU and UK Article 27 representatives | legal | L1 |
-| Law-enforcement request policy + transparency page | website + `docs/` | L4 |
+| Law-enforcement request policy + transparency page — **exists** (#91): `docs/REQUESTS.md`, `/transparency` | website + `docs/` | L4; entity name and address for service wait on L1 |
 
 ---
 
@@ -372,7 +376,7 @@ Nothing in v1 requires a payment processor of Eva's own.
 |---|---|---|
 | A17 | English variant and clinical-role wording | US English; neutral role names ("your provider") |
 | A18 | Storefront exclusions beyond China and Russia | None in v1; rely on L4 and data minimisation, revisit with counsel |
-| A19 | Law-enforcement / third-party request policy — legal process only, user notification, transparency report | Yes to all three; write it before launch, publish it with the privacy policy |
+| A19 | Law-enforcement / third-party request policy — legal process only, user notification, transparency report | **Decided 2026-08-30: all three** (review §8, third round). Written in `docs/REQUESTS.md`, published at `/transparency`, one sentence in the app (#91). Non-US requests via MLAT are part of "legal process only"; the report is twice a year. |
 | A20 | Does the EPDS ship in v1, given §1.1? | Defer EPDS; ship the well-being check-in as a non-scored prompt until #26 rules |
 | A21 | Consent model: one consent screen with two opt-ins (WA-strict) applied worldwide | Yes — one flow, strictest rule |
 | A22 | Food database: OFF + USDA base, one metered commercial fallback | Yes, subject to ODbL check |
@@ -404,7 +408,7 @@ Nothing in v1 requires a payment processor of Eva's own.
 | Where | Change |
 |---|---|
 | PRD §Product frame → Markets and language | A16 supersedes A2 (done in #69 / PR #70) |
-| PRD §Product frame → Open | Add: English variant (A17), storefront exclusions (A18), request policy (A19), consent model (A21) |
+| PRD §Product frame → Open | Add: English variant (A17), storefront exclusions (A18), request policy (A19), consent model (A21). A19 is decided and written (#91); the PRD's Open list carries only the legal texts still unwritten |
 | `docs/GUARDRAILS.md` | Add: no third-party SDK that can see health data; no advertising SDK; no analytics event carries health data; no feature outputs a value that mimics a clinical measurement |
 | `docs/ARCHITECTURE.md` §7 | Add: single-region trade-off; no backups yet |
 | #26 | Add the US assessment (FDA 2026 wellness guidance, EPDS question); add US-credentialled reviewers |

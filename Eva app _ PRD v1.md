@@ -103,7 +103,7 @@ There is no external counsel and no retained clinician (decision A24, 2026-08-30
 
 1. English: **US English**, with neutral clinical role names — "your provider", "your doctor" — never GP / OB-GYN / midwife (A17).  
 2. Storefronts: **all except China mainland and Russia** (A18).  
-3. Third-party requests for health data: **legal process only, the user is notified unless a court forbids it, and a transparency report is published** (A19; the policy is #91).  
+3. Third-party requests for health data: **legal process only, the user is notified unless a court forbids it, and a transparency report is published** (A19). The policy is `docs/REQUESTS.md`, published at `/transparency` with the report (twice a year), and stated in one sentence in the app's Privacy & security footer (#91). Permanent deletion of the pregnancy timeline stays a separate, later action (§Pregnancy loss 4).  
 4. The Edinburgh Postnatal Depression Scale is **deferred**; the postpartum mood check is a non-scored check-in with a pointer to support resources (A20; supersedes §Phase 3 \- Postpartum, Mood screening 2).  
 5. Consent: **one screen, two separate opt-ins** — store my health entries; let trusted providers process them — neither pre-selected, no accept-all, the same everywhere (A21; #86).  
 6. Food database: **Open Food Facts + USDA FoodData Central** as the base, one metered commercial fallback; "not found" queues enrichment to Open Food Facts (A22).  
@@ -125,7 +125,7 @@ Recorded where they apply, each with its source: cycle definition and irregulari
 
 Undecided as of 2026-08-30 (after five rounds):
 
-1. The legal texts — privacy policy, consumer-health-data policy, terms, subscription terms, the request policy (A19) — written by the product owner (A24)  
+1. The legal texts — privacy policy, consumer-health-data policy, terms, subscription terms — written by the product owner (A24). The request policy (A19) is written: `docs/REQUESTS.md` (#91); its *counsel* markers are unconfirmed under A24, and the entity's name and address for service wait on the entity (`docs/LAUNCH.md` L1)  
 2. The per-country tables (emergency numbers, support lines) and the pregnancy-phase content (appointment templates, folic-acid screen)
 
 ## Requirements
@@ -1183,6 +1183,7 @@ The canvas draws 23 rows across its `settings`, `privacy` and `notifications` sc
 | Change password | Decided; flow depends on #6 | feature list; §Account |
 | Manage connected accounts — link a second sign-in provider to this account | Decided; required by #7's manual linking | #7; §Sign Up, Edge case |
 | Data export | Decided; format and delivery open | #58; §Account |
+| Requests for your data — opens the request policy and transparency report on the website (`/transparency`); the Privacy & security footer carries its one-sentence summary | Decided | A19; #91; `docs/REQUESTS.md`; `docs/DESIGN.md` §9a |
 | Manage subscription | Decided | §Product frame, Monetisation (A14) |
 | Support rows | Drawn only | §Support |
 | Log out | Decided | feature list |
