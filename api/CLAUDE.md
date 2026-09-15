@@ -102,8 +102,13 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   ARCHITECTURE §3 says why that is the point of it.
 - Validate at the route edge (`normalizeEmail`, `parseProfile`), not deeper.
 - Every behavior change gets a test in `test/`.
-- **Every file that makes a live round trip sets `setDefaultTimeout(20_000)`** (#31) — nine
-  of them do, and `email-tokens.test.ts` achieves the same with a per-case `SLOW`. The suite
+- **Every file that makes a live round trip sets `setDefaultTimeout(20_000)`** (#31) — every
+  one of them, with no count written down here to go stale. A per-case timeout is **not** a
+  substitute, because it does not reach a hook: that is how `email-tokens.test.ts` carried a
+  timeout on all seventeen cases while its `afterAll` swept Firestore on the 5000ms default.
+  A hook that times out is reported against an unrelated test *and* leaves its sweep
+  unfinished, which is rows stranded in the real project on top of an unreadable red run.
+  The suite
   runs against the real project, so a case that inherits Bun's 5000ms default is one cold
   connection away from a red run nobody can distinguish from a regression, which is how a
   suite that gates every merge teaches people to re-run instead of read. 20s is a ceiling,

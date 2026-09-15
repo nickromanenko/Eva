@@ -17,8 +17,8 @@ import { createUnactivatedAccount } from "./support/session";
 /**
  * Live round trips happen in this file, so the ceiling is chosen rather than inherited
  * (#31). 20s is what every other network-touching suite sets: high enough that no honest
- * round trip reaches it, low enough that a genuine hang still fails. It does not override
- * the per-test timeouts below, which stay where someone picked them deliberately.
+ * round trip reaches it, low enough that a genuine hang still fails. Every case here takes
+ * it; none of them had a timeout of its own to keep.
  */
 setDefaultTimeout(20_000);
 
