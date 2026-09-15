@@ -56,7 +56,7 @@ request can be checked against it. If §4 changes, this section changes in the s
 | **Calendar entries** | `users/{uid}/events/` | Every logged entry by type — `cycle` (flow), `bodySignals` (energy, mood, sleep, symptoms with severity), `sport`, `appointment` (with notes, uncapped) — each with the user's local date and time, a note, and whether the user or Eva created it. `sex`, and the pregnancy events (positive test, loss, delivery), join this list when their slices ship. An entry the user deleted stays here, marked, for up to 30 days (#28). |
 | **Link tokens** | `authTokens/` | For each activation or reset link that has not yet expired: the email address it went to, when it was issued, and whether it was used. The token itself is stored only as a hash and cannot be recovered. |
 | **Devices and notifications** *(planned, A3/A9)* | `users/{uid}/devices/`, `users/{uid}/notifications/` | A push token and the device's time zone; which reminders were scheduled, sent and read — a reference to what each pointed at, never its content. |
-| **Backups** *(A23)* | Firestore backups | Daily, kept 30 days. Anything above may persist in a backup for up to 30 days after it leaves the live database. Backups are never selectively restored, for a request or for anyone. |
+| **Backups** *(A23 — decided, not yet scheduled: #89)* | Firestore backups | **Nothing today.** `docs/ARCHITECTURE.md` §7: no Firestore backup is scheduled, so no category above survives leaving the live database. A23 decided daily backups kept 30 days; once #89 schedules them, anything above may persist for up to 30 days after it leaves the live database, and this row and §2.3 change with it. Backups are never selectively restored, for a request or for anyone. |
 | **Processors** | outside Eva's databases | See §2.4. |
 
 ### 2.2 What Eva does not hold
@@ -81,10 +81,12 @@ request can be checked against it. If §4 changes, this section changes in the s
 
 `DELETE /me` removes the account, the profile, every calendar entry including the ones
 inside their 30-day window, and every link token, immediately (#8). After it, Eva holds
-nothing on the person except what a backup still carries for up to 30 days (A23). A
-request that arrives after deletion can be answered only from a backup, and only while
-one exists. *(counsel)* — whether a preservation demand can oblige Eva to hold a backup
-past its rotation.
+nothing on the person except what a backup still carries. **Today that is nothing**: no
+backup is scheduled (#89, `docs/ARCHITECTURE.md` §7), so a request arriving after a
+deletion can be answered with nothing at all. Once A23's daily backups exist, such a
+request can be answered only from a backup, and only while one carries the account.
+*(counsel)* — whether a preservation demand can oblige Eva to hold a backup past its
+rotation.
 
 ### 2.4 Processors
 
