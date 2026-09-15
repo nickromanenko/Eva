@@ -416,6 +416,59 @@ describe("a delete interrupted after the first step", () => {
         expect((await userDoc(uid).get()).get("deletedAt")).not.toBeNull();
     });
 
+    test(
+        "moving an address makes it unproven, which is what the gate rests on",
+        async () => {
+            // The premise, **exercised** rather than asserted. The case below covers a
+            // never-confirmed account and a missing uid; neither is a *moved* address, and a
+            // moved address is the only thing the gate exists to catch. Without this, deleting
+            // `proven &&` from the route breaks nothing.
+            //
+            // Identity Toolkit is called directly, the way `provider-signin.test.ts` and
+            // `email-auth-routes.test.ts` do under GUARDRAILS 4's carve-out for `api/test/`:
+            // the public web API key plus a password this test set is exactly what an idToken
+            // holder has, which is the point.
+            const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+            const moved = `e2e+moved-${crypto.randomUUID()}@e2e.evaapp.dev`;
+            const { uid: movable } = await adminAuth.createUser({
+                email: own,
+                password,
+                emailVerified: true,
+            });
+            createdUids.push(movable);
+            expect((await addressOfAuthAccount(movable)).proven).toBe(true);
+
+            const signIn = await fetch(
+                `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+                {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ email: own, password, returnSecureToken: true }),
+                },
+            );
+            expect(signIn.ok).toBe(true);
+            const { idToken } = (await signIn.json()) as { idToken: string };
+
+            const update = await fetch(
+                `${config.identityToolkitBaseUrl}/v1/accounts:update?key=${config.firebaseWebApiKey}`,
+                {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ idToken, email: moved, returnSecureToken: false }),
+                },
+            );
+            expect(update.ok).toBe(true);
+
+            // Firebase clears `emailVerified` when the address moves. That is the whole
+            // mechanism the gate depends on — if this ever stops being true, the gate is
+            // decorative and this test is what says so.
+            const after = await addressOfAuthAccount(movable);
+            expect(after.address).toBe(moved);
+            expect(after.proven).toBe(false);
+        },
+        SLOW,
+    );
+
     test("the address a delete acts on reports whether Auth considers it proven", async () => {
         // The gate on `forgetEmail` (#56). That call is the one step of a delete that
         // touches state keyed by an *address* rather than by this account's uid, and an

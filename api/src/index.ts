@@ -1284,15 +1284,26 @@ app.delete("/me", requireAuth, async (c) => {
     // address any more. Per-address only; the per-IP backstop is deliberately left alone,
     // or deleting an account would be a way to clear one's own budget.
     //
-    // **Only a `proven` address**, and this is the half that is not obvious. Unlike the two
-    // calls above, this one does not act on *this account's* rows — it clears state keyed by
-    // an address, and that budget is shared with whoever else is using it. An idToken holder
-    // can point their own Auth account at any address no Firebase user holds
+    // **Only a `proven` address**, and this is the half that is not obvious. This call clears
+    // state keyed by an address, and that budget is shared with whoever else is using it. An
+    // idToken holder can point their own Auth account at any address no Firebase user holds
     // (`accounts:update`, public web API key), delete, and walk away with that address's
-    // sign-up and resend counters reset — which is the per-address cap on unsolicited
-    // activation mail, reset for the price of one account lifecycle. `accounts:update`
-    // clears `emailVerified` whenever the address moves, so `proven` is exactly the
-    // distinction, and skipping is the harmless direction: the counters expire on their own.
+    // sign-up and resend counters reset — the per-address cap on unsolicited activation mail,
+    // reset for the price of one account lifecycle. `accounts:update` clears `emailVerified`
+    // whenever the address moves, so `proven` is what tells the two apart, and skipping is
+    // the harmless direction: the counters expire on their own.
+    //
+    // **It raises the price rather than closing the door**, and saying so is the point.
+    // Firebase clears the flag; Eva can hand it back — `/auth/password/reset` re-stamps
+    // `emailVerified` from a token it resolves by uid, without checking that the account
+    // still holds the address the token was mailed to. So the same attacker can re-prove a
+    // moved address through their own inbox. That is #140, it is pre-existing, and it is a
+    // larger problem than this counter: fixing it there fixes this gate properly.
+    //
+    // The call above is **not** covered by this reasoning and is deliberately left as it is:
+    // `deleteTokensForAccount`'s address half deletes rows with `uid == null`, which by
+    // construction were issued before this account existed and may be someone else's. That
+    // is #139, filed rather than fixed here (GUARDRAILS 26).
     //
     // Last, after everything that can fail. A throw above leaves the counters standing,
     // which is the harmless direction there too.
