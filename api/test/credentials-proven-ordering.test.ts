@@ -111,6 +111,16 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
+    // **Restores first, sweeps second**, and the order is the whole point. The sweep's
+    // `.get()` is a live query and the only await here that can throw — every delete
+    // around it is caught. A Firestore blip there would skip the restores and leave these
+    // recorders installed process-globally for every later file, which is exactly the
+    // failure this file's header criticises in another suite (#130). Handing the modules
+    // back is not cleanup that can be deferred; it is the file's obligation to the rest of
+    // the run, so it happens before anything that can fail.
+    mock.module("../src/identity-toolkit", () => identityToolkit);
+    mock.module("../src/users", () => users);
+
     for (const uid of createdUids) {
         await adminAuth.deleteUser(uid).catch(() => {});
         await firestore.collection("users").doc(uid).delete().catch(() => {});
@@ -118,12 +128,13 @@ afterAll(async () => {
     // `authTokens/` is keyed by the token's hash and holds the address, so the rows this
     // file issues are swept by address the way auth.test.ts sweeps its own.
     for (const value of createdEmails) {
-        const rows = await firestore.collection("authTokens").where("email", "==", value).get();
-        for (const row of rows.docs) await row.ref.delete().catch(() => {});
+        const rows = await firestore
+            .collection("authTokens")
+            .where("email", "==", value)
+            .get()
+            .catch(() => null);
+        for (const row of rows?.docs ?? []) await row.ref.delete().catch(() => {});
     }
-    // Hand both modules back exactly as they were found.
-    mock.module("../src/identity-toolkit", () => identityToolkit);
-    mock.module("../src/users", () => users);
 });
 
 describe("markCredentialsProven runs after markActivated", () => {
