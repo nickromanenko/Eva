@@ -1,5 +1,6 @@
 import {
     afterAll,
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -290,6 +291,19 @@ beforeEach(() => {
     resetAuthRateLimits();
     idp = null;
     lastIdp = null;
+});
+
+/**
+ * One case below borrows `config.rateLimit.trustedProxyHops`, and `config` is a mutable
+ * singleton shared by every file in the run — `bun test` uses one process and one module
+ * registry. A `try/finally` is not enough on its own: a timed-out test never reaches its
+ * `finally`, and this file's cases are live round trips under a 20s ceiling, so leaving the
+ * restore there would mean one slow run silently reconfiguring the throttle for every file
+ * that follows. `afterEach` runs after a timeout, so the knob goes back either way.
+ */
+const DEPLOYED_HOPS = config.rateLimit.trustedProxyHops;
+afterEach(() => {
+    config.rateLimit.trustedProxyHops = DEPLOYED_HOPS;
 });
 
 afterAll(async () => {
@@ -1702,13 +1716,14 @@ describe("the provider routes are throttled, and separately", () => {
             // knob at all. At the deployed value of `1` it cannot be: a hardcoded `1`
             // behaves identically, and no header is ever shorter than one entry. Both
             // become reachable at `2`, which is what this borrows the config for.
-            const deployed = config.rateLimit.trustedProxyHops;
-            expect(deployed).toBe(1);
+            // Restored by the file's `afterEach`, which survives a timeout where a
+            // `finally` would not.
+            expect(config.rateLimit.trustedProxyHops).toBe(1);
             idp = () => {
                 throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
             };
 
-            try {
+            {
                 config.rateLimit.trustedProxyHops = 2;
                 const caller = "198.51.100.88";
 
@@ -1735,8 +1750,6 @@ describe("the provider routes are throttled, and separately", () => {
                     short = await post("/auth/idp", appleBody(), from("203.0.113.30"));
                 }
                 expect(short!.status).toBe(401);
-            } finally {
-                config.rateLimit.trustedProxyHops = deployed;
             }
         },
         SLOW,

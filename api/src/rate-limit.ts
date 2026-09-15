@@ -191,30 +191,37 @@ export const createRateLimiter = (
  * everything that matters. Simulated against this code at the defaults (`free = 10`,
  * `base = 30`, cap = window = 900), an attacker holding one address out:
  *
- *     6h of denial     backoff  67 requests   fixed window  240    3.6× cheaper
- *     24h of denial    backoff 211 requests   fixed window  960    4.5× cheaper
+ *     6h of denial     backoff  65 requests   fixed window  240    3.7× cheaper
+ *     24h of denial    backoff 209 requests   fixed window  960    4.6× cheaper
  *
  * and with `signinPerIp = 60`, one attacker IP that could hold ~6 addresses out under the
  * window can hold ~30 under this. The lockout got cheaper. What was bought with it is on
- * the other side of the ledger: guessing throughput drops about tenfold (ten guesses per
- * 900s becomes one), and a drive-by burst costs its victim 30 seconds rather than 15
- * minutes. The dimension itself was never the thing to remove — a distributed attack on
- * one account is what it exists to stop.
+ * the other side of the ledger: sustained guessing gets 6-9× fewer attempts (37 vs 240 over
+ * six hours, 109 vs 960 over a day), and a drive-by burst costs its victim 30 seconds
+ * rather than 15 minutes. In the *first* window the ramp is slightly more permissive than
+ * the limiter it replaced — 14 attempts against 10 — so the guessing win is asymptotic
+ * rather than immediate. The dimension itself was never the thing to remove: a distributed
+ * attack on one account is what it exists to stop.
  *
  * ## The residual, stated rather than discovered later
  *
  * - **Holding an address out is a rent, not a purchase.** One served request per cycle,
  *   forever, and each one also spends the attacker's per-IP budget. Cheaper than it was,
  *   as above, but it stops the moment they do.
- * - **The victim's own retries pay it.** After a block lapses the cycle gives back one
- *   attempt, and nothing says whose. An attacker who takes it leaves the owner's next
- *   keystroke to be the request that arms the next block — so under active attack she
- *   races for one slot per cycle where the window gave her ten.
+ * - **The victim's own retries pay it, and roughly halve it.** After a block lapses the
+ *   cycle gives back one attempt, and nothing says whose. An attacker who takes it leaves
+ *   the owner's next keystroke to be the request that arms the next block — so under active
+ *   attack she races for one slot per cycle where the window gave her ten, and the six-hour
+ *   figure above falls from 65 attacker requests to 38.
  * - **The tier is shed all at once, not gradually.** It survives until the whole record
  *   decays, so someone whose address was attacked and left alone gets *one* attempt back
- *   per cycle for as long as the residue lasts: one mistyped password, and the second try
- *   is refused for as long as the last block was. "Types their password once and is in"
- *   holds only if she types it correctly.
+ *   per cycle for as long as the residue lasts. The second attempt inside a cycle is
+ *   refused whatever it carries — a typo, the right password on another device, the app
+ *   retrying after a dropped connection — and it arms the *next* block, twice the last one
+ *   up to the cap. A successful sign-in does not clear the record either; every served
+ *   attempt pushes `forgetAt` out, so someone signing in more often than once per window
+ *   never sheds the tier. "Types their password once and is in" holds for the first
+ *   attempt and no further.
  * - The block always expires, and `/auth/password/forgot` is not backed off, so the reset
  *   path stays open throughout.
  *

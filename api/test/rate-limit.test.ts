@@ -318,6 +318,35 @@ describe("per-address backoff", () => {
         expect(l.consume("her@example.test")).toBe(true);
     });
 
+    test("and refusals do not move the forget clock — at the cap that would hand back the lot", () => {
+        // The clause `Penalty.forgetAt` documents, and the one a first reading gets
+        // backwards. A refusal that set `forgetAt = at + decay` would move it *earlier*
+        // than the `blockedUntil + decay` the block armed — and earlier is worse, not
+        // harmless: the record is then dropped as the block lapses, taking the tier with
+        // it, and the key is back to its full free allowance instead of the one attempt a
+        // cycle is supposed to give. Measured on the shipped defaults: 10 attempts instead
+        // of 1. Only visible at the cap, where `decay` is no longer longer than the block.
+        const time = clock();
+        const l = limiter(time);
+        for (let i = 0; i < FREE; i += 1) expect(l.consume("her@example.test")).toBe(true);
+        expect(l.consume("her@example.test")).toBe(false);
+
+        // Climb to the cap: 30, 60, 120, 240, 480, then 900.
+        for (let block = BASE; block < MAX; block *= 2) {
+            time.advance(block + 1);
+            expect(l.consume("her@example.test")).toBe(true);
+            expect(l.consume("her@example.test")).toBe(false);
+        }
+
+        // One refusal early in the capped block, then out the other side.
+        time.advance(1);
+        expect(l.consume("her@example.test")).toBe(false);
+        time.advance(MAX);
+
+        expect(l.consume("her@example.test")).toBe(true);
+        expect(l.consume("her@example.test")).toBe(false);
+    });
+
     test("the block is capped, so at worst it is the fixed window it replaced", () => {
         const time = clock();
         const l = intoFirstBlock(time);
@@ -362,15 +391,26 @@ describe("per-address backoff", () => {
         expect(l.consume("her@example.test")).toBe(true);
     });
 
-    test("and so does a window of 0, which is what sets the cap and the decay", () => {
-        // `RATE_LIMIT_WINDOW_SECONDS=0` is the documented local-work switch and it reaches
-        // this limiter as `maxSeconds` and `decaySeconds`. Without the guard it would not
-        // throw or refuse — every block would be zero-length and every record forgotten
-        // before it could be read — which is the same outcome by accident.
-        const time = clock();
-        const l = createBackoffLimiter(FREE, BASE, 0, 0, time.now);
+    test("and so does a cap or a decay of 0, each on its own", () => {
+        // `RATE_LIMIT_WINDOW_SECONDS=0` reaches this limiter as both `maxSeconds` and
+        // `decaySeconds`, and with both at zero the limiter lets everything through with or
+        // without the guard — the same outcome by accident, which is why the guard exists.
+        // Driven one at a time, because that is the pair the guard actually decides: with a
+        // cap of 0 and a live decay, a limiter without it would count, block for zero
+        // seconds, and climb a tier ladder nobody can observe.
+        for (const [maxSeconds, decaySeconds] of [
+            [0, 900],
+            [900, 0],
+            [0, 0],
+        ]) {
+            const time = clock();
+            const l = createBackoffLimiter(FREE, BASE, maxSeconds!, decaySeconds!, time.now);
 
-        for (let i = 0; i < 100; i += 1) expect(l.consume("her@example.test")).toBe(true);
+            for (let i = 0; i < 100; i += 1) {
+                time.advance(1);
+                expect(l.consume("her@example.test")).toBe(true);
+            }
+        }
     });
 
     test("a free allowance of 0 disables the dimension", () => {
@@ -432,6 +472,22 @@ describe("one dimension cannot starve another", () => {
         // The counter that mattered is still there. Under eviction it would be gone and
         // this would be `true`.
         expect(limiter.consume("her@example.test")).toBe(false);
+    });
+
+    test("and the backoff's map holds the same line", () => {
+        // The map a flood of invented sign-in addresses actually lands in, since #37 moved
+        // the two credential routes' per-address dimension onto this limiter. The case
+        // above pins `createRateLimiter`, which those addresses no longer reach.
+        const time = clock();
+        const l = createBackoffLimiter(3, 30, 900, 900, time.now);
+
+        for (let i = 0; i < 3; i += 1) expect(l.consume("her@example.test")).toBe(true);
+        expect(l.consume("her@example.test")).toBe(false);
+
+        for (let i = 0; i < 50_100; i += 1) l.consume(`invented-${i}@example.test`);
+
+        // Still blocked. Under eviction her penalty would have been the price of the flood.
+        expect(l.consume("her@example.test")).toBe(false);
     });
 });
 
@@ -596,9 +652,15 @@ describe("the routes a credential attack aims at got the backoff", () => {
 
         expect(shapes.resend.byEmail.kind).toBe("window");
         expect(shapes.forgot.byEmail.kind).toBe("window");
-        expect(shapes.resend.byEmail.settings).toEqual({
-            limit: 1,
-            windowSeconds: config.rateLimit.resendPerEmailSeconds,
-        });
+        for (const route of ["resend", "forgot"] as const) {
+            expect(shapes[route].byEmail.settings).toEqual({
+                limit: 1,
+                windowSeconds: config.rateLimit.resendPerEmailSeconds,
+            });
+            expect(shapes[route].byIp.settings).toEqual({
+                limit: config.rateLimit.resendPerIp,
+                windowSeconds: config.rateLimit.windowSeconds,
+            });
+        }
     });
 });

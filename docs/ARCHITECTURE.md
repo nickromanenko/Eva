@@ -575,29 +575,35 @@ a lockout is a purchase: spend the budget on an address you know and its owner i
 for the rest of the window whatever they do. Under the backoff it is rent — a refused
 attempt is inert (it raises no tier, extends no block and does not keep the record alive),
 and each expired block hands the key back **one** attempt, so somebody guessing gets one
-guess per doubling interval. Guessing throughput drops about tenfold, and a drive-by burst
-costs its victim 30 seconds instead of 15 minutes.
+guess per doubling interval. A drive-by burst costs its victim 30 seconds instead of 15
+minutes, and sustained guessing gets 6–9× fewer attempts (measured: 37 vs 240 over six
+hours, 109 vs 960 over a day). Note the sign in the *first* fifteen minutes, where the ramp
+hands back four extra attempts: 14 against the window's 10. The win is asymptotic.
 
 The rent is cheaper than the purchase was. Simulated against the shipped limiter at the
-defaults:
+defaults, an attacker who knows the schedule and sends only the requests that buy denial:
 
 | holding one address out | backoff | fixed window | |
 |---|---|---|---|
-| for 6 hours | 67 requests | 240 requests | 3.6× cheaper |
-| for 24 hours | 211 requests | 960 requests | 4.5× cheaper |
+| for 6 hours | 65 requests | 240 requests | 3.7× cheaper |
+| for 24 hours | 209 requests | 960 requests | 4.6× cheaper |
 
 With `RATE_LIMIT_SIGNIN_PER_IP = 60`, one attacker IP that could hold about 6 addresses out
 under the window can hold about 30 under this. Three residuals follow, none of them
 theoretical:
 
-- **The victim's own retries pay the rent.** An expired block gives back one attempt and
-  nothing says whose. An attacker who spends it leaves the owner's next keystroke to be the
-  request that arms the next block, so under active attack she races for one slot per cycle
-  where the window gave her ten.
+- **The victim's own retries pay the rent, and roughly halve it.** An expired block gives
+  back one attempt and nothing says whose. An attacker who spends it leaves the owner's next
+  keystroke to be the request that arms the next block — so under active attack she races
+  for one slot per cycle where the window gave her ten, and the six-hour figure above drops
+  from 65 attacker requests to 38.
 - **The tier is shed all at once.** It lives until the whole record decays, so after an
-  attack ends, one mistyped password and the retry four seconds later is refused for as long
-  as the last block was — up to the 15-minute cap. "Types their password once and is in"
-  holds only if she types it correctly.
+  attack ends the address still gets one attempt per cycle. A second attempt inside the
+  residue — a mistyped password, a correct one on a second device, the app's own retry after
+  a network error — is refused, and arms the *next* block: twice the last one, up to the
+  15-minute cap. Nor does signing in successfully clear it; each served attempt pushes the
+  decay out, so someone signing in more often than once per window never sheds the tier at
+  all. "Types their password once and is in" holds only for the first attempt.
 - **The gentler wait does not reach the app yet.** `Retry-After` stays the constant
   `RATE_LIMIT_WINDOW_SECONDS` on purpose — the real block length is a function of how often
   *this address* has been blocked, so quoting it would publish a per-address attack history
