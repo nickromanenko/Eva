@@ -432,6 +432,9 @@ describe("a delete interrupted after the first step", () => {
             // else's counters. That deserves a test rather than a comment, because it is a
             // **project setting** and not a property of this code: whoever turns it off
             // silently makes #139 and #140 reachable, and this is what would say so.
+            //
+            // **The Auth emulator does not implement it**, so the two environments assert
+            // different things below — each the one that is true of it, and both worth having.
             const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
             const moved = `e2e+moved-${crypto.randomUUID()}@e2e.evaapp.dev`;
             const { uid: movable } = await adminAuth.createUser({
@@ -461,12 +464,28 @@ describe("a delete interrupted after the first step", () => {
                 },
             );
 
+            if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+                // **The emulator allows it.** Found by this test going red in CI while green
+                // against the real project — the divergence `scripts/ci-api.sh` warns about in
+                // its own header: a green emulator run proves the code against Firebase's
+                // model of Firebase, not against Google. Here the model is the more permissive
+                // of the two, so the emulator can never be what tells anyone the setting is on.
+                //
+                // Asserted rather than skipped, because what it demonstrates is the half the
+                // gate actually needs: move the address, and `proven` goes false.
+                expect(update.ok).toBe(true);
+                const movedTo = await addressOfAuthAccount(movable);
+                expect(movedTo.address).toBe(moved);
+                expect(movedTo.proven).toBe(false);
+                return;
+            }
+
             expect(update.ok).toBe(false);
             expect(await update.text()).toContain("OPERATION_NOT_ALLOWED");
             // And the account still holds what it held.
-            const after = await addressOfAuthAccount(movable);
-            expect(after.address).toBe(own);
-            expect(after.proven).toBe(true);
+            const unchanged = await addressOfAuthAccount(movable);
+            expect(unchanged.address).toBe(own);
+            expect(unchanged.proven).toBe(true);
         },
         SLOW,
     );
