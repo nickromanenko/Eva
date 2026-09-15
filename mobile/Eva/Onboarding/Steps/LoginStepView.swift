@@ -33,6 +33,11 @@ struct LoginStepView: View {
     @State private var errorMessage: String?
     @State private var isRevealingPassword = false
     @State private var isLoading = false
+    /// A `429` the screen is sitting in (#38). Two pieces: *that* it was throttled shows
+    /// the banner, *when* the window ends holds the CTA. See the sign-up screen for why
+    /// they are separate.
+    @State private var isRateLimited = false
+    @State private var retryAt: Date?
 
     private enum Field: Hashable { case email, password }
     @FocusState private var focusedField: Field?
@@ -61,9 +66,19 @@ struct LoginStepView: View {
                 .padding(.vertical, EvaSpacing.lg)
 
             emailForm
+
+            if isRateLimited {
+                AuthRateLimitedBanner(identifier: "login.rateLimited", retryAt: retryAt)
+                    .padding(.top, EvaSpacing.md)
+            }
         } footer: {
-            PrimaryButton(title: "Log in", isLoading: isLoading, action: submit)
-                .disabled(!isValid)
+            AuthThrottledPrimaryButton(
+                title: "Log in",
+                isLoading: isLoading,
+                isFormValid: isValid,
+                blockedUntil: retryAt,
+                action: submit
+            )
 
             AuthSwitchPrompt(
                 question: "New to Eva?",
@@ -156,9 +171,18 @@ struct LoginStepView: View {
         focusedField = nil
         isLoading = true
         errorMessage = nil
+        isRateLimited = false
+        retryAt = nil
         Task {
             do {
                 try await onSubmit(model.email, model.password)
+            } catch let error as APIError where error.isRateLimited {
+                // Deliberately not `errorMessage`: that string sits under the password
+                // field as the combined "wrong email or password", and putting a throttle
+                // there would tell a returning user their own credentials were refused
+                // when the server never looked at them.
+                isRateLimited = true
+                retryAt = error.retryAt
             } catch {
                 errorMessage = error.localizedDescription
             }

@@ -135,7 +135,36 @@ struct APIClient: Sendable {
         if status == 401, sentToken, code == nil || code == "UNAUTHORIZED" {
             throw APIError.sessionExpired(message: message)
         }
+        // Every 429 becomes `.rateLimited`, keyed on the status rather than on the code:
+        // a throttle that answered with a body we could not decode would otherwise arrive
+        // as a generic `.server` and leave the CTA enabled, which is the one behaviour
+        // #38 exists to remove.
+        //
+        // `Retry-After` is read here, where the response is, and turned into an absolute
+        // instant immediately. #5 sets it to the whole window as a constant — deliberately,
+        // so it leaks nothing about the account — so it is safe to show and safe to trust
+        // as an upper bound. Anything unparseable, absent or non-positive becomes `nil`
+        // rather than a guess.
+        if status == 429 {
+            let header = (response as? HTTPURLResponse)?
+                .value(forHTTPHeaderField: "Retry-After")
+            throw APIError.rateLimited(message: message, retryAt: Self.retryAt(from: header))
+        }
         throw APIError.server(code: failure?.error.code ?? "UNKNOWN", message: message, status: status)
+    }
+
+    /// `Retry-After` as an instant, or `nil`.
+    ///
+    /// Only the delay-seconds form is read. RFC 9110 also allows an HTTP-date, which #5
+    /// never sends; parsing one would add a date formatter to serve a case the server
+    /// cannot produce, and `nil` here degrades to a banner that says less rather than to a
+    /// wrong deadline. A zero or negative value is `nil` for the same reason — a window
+    /// that has already passed is not a window.
+    static func retryAt(from header: String?, now: Date = Date()) -> Date? {
+        guard let header, let seconds = TimeInterval(header.trimmingCharacters(in: .whitespaces)),
+              seconds > 0
+        else { return nil }
+        return now.addingTimeInterval(seconds)
     }
 }
 

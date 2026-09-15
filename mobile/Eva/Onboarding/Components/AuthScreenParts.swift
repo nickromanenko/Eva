@@ -310,13 +310,96 @@ struct AuthSuccessNote: View {
 /// refused before anything happened.
 struct AuthRateLimitedBanner: View {
     let identifier: String
+    /// When the server said to come back (#38). `nil` keeps the original wording, which is
+    /// what the screens with a cooldown of their own still pass.
+    var retryAt: Date?
+
+    init(identifier: String, retryAt: Date? = nil) {
+        self.identifier = identifier
+        self.retryAt = retryAt
+    }
 
     var body: some View {
-        EvaInfoBanner(
-            title: "Too many attempts",
-            message: "Try again in a minute. Nothing about your account has changed."
-        )
-        .accessibilityIdentifier(identifier)
+        if let retryAt {
+            // Redrawn once a second so the wait counts down in place. `TimelineView` asks
+            // for the wall clock each time, so a minute spent in the background is a minute
+            // gone from the wait rather than a minute the countdown still owes — the trap
+            // the issue names, and the reason nothing here holds a duration.
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                banner(message: Self.message(retryAt: retryAt, at: context.date))
+            }
+        } else {
+            banner(message: Self.fallbackMessage)
+        }
+    }
+
+    private func banner(message: String) -> some View {
+        EvaInfoBanner(title: "Too many attempts", message: message)
+            .accessibilityIdentifier(identifier)
+    }
+
+    /// Said when the server gave no usable `Retry-After`.
+    static let fallbackMessage = "Try again in a minute. Nothing about your account has changed."
+
+    /// The wait, in words, plus the sentence that keeps this from reading as an accusation.
+    ///
+    /// §8: describe, do not blame. Someone throttled out of their own health data is told
+    /// what the situation is and that nothing was lost by it — never what they did wrong,
+    /// and never how many attempts they have left, which would be a number about the
+    /// account rather than about the request.
+    static func message(retryAt: Date, at now: Date) -> String {
+        let seconds = Int(retryAt.timeIntervalSince(now).rounded(.up))
+        guard seconds > 0 else {
+            return "You can try again now. Nothing about your account has changed."
+        }
+        return "You can try again in \(spelled(seconds)). Nothing about your account has changed."
+    }
+
+    /// Seconds below a minute, whole minutes above it — rounded **up**, so the banner never
+    /// invites a tap the server will still refuse.
+    private static func spelled(_ seconds: Int) -> String {
+        if seconds < 60 { return seconds == 1 ? "1 second" : "\(seconds) seconds" }
+        let minutes = Int((Double(seconds) / 60).rounded(.up))
+        return minutes == 1 ? "1 minute" : "\(minutes) minutes"
+    }
+}
+
+/// The sign-up and log-in CTA, held until a `429`'s window has passed (#38).
+///
+/// The defect this removes: the screen showed "Too many attempts" and left the button
+/// enabled, so the natural response to the message spent another attempt and — on the
+/// per-address counter — pushed the window further out. A message that describes a state
+/// while the UI still invites the action that caused it is not handling the state.
+///
+/// Wraps `PrimaryButton` rather than replacing it: the identifier stays `primary.<title>`,
+/// which every UI test and `EvaUITestCase` already looks for, and the disabled appearance
+/// is the one `EvaPrimaryButtonStyle` already draws for an invalid form.
+///
+/// `blockedUntil` is an instant, and the clock is read fresh each tick, so backgrounding
+/// the app does not owe the user the time they spent away — and the button re-enables on
+/// its own without the screen having to schedule anything.
+struct AuthThrottledPrimaryButton: View {
+    let title: String
+    var isLoading = false
+    /// The screen's own reason to allow a tap — form validity, usually.
+    var isFormValid = true
+    /// When the server's window ends, or `nil` when there is no window to wait out.
+    var blockedUntil: Date?
+    let action: () -> Void
+
+    var body: some View {
+        if let blockedUntil {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                button(isBlocked: context.date < blockedUntil)
+            }
+        } else {
+            button(isBlocked: false)
+        }
+    }
+
+    private func button(isBlocked: Bool) -> some View {
+        PrimaryButton(title: title, isLoading: isLoading, action: action)
+            .disabled(isBlocked || !isFormValid)
     }
 }
 
