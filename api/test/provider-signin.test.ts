@@ -1,4 +1,13 @@
-import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+    afterAll,
+    beforeEach,
+    describe,
+    expect,
+    mock,
+    setDefaultTimeout,
+    spyOn,
+    test,
+} from "bun:test";
 import { mintToken } from "../src/auth";
 import { config } from "../src/config";
 import { adminAuth, firestore } from "../src/firebase";
@@ -7,6 +16,15 @@ import { issueToken } from "../src/email-tokens";
 import { getUser, markActivated, markUserDeleted } from "../src/users";
 import { createUnactivatedAccount } from "./support/session";
 import type { IdpCredential } from "../src/identity-toolkit";
+
+/**
+ * Live round trips happen in this file, so the ceiling is chosen rather than inherited
+ * (#31). 20s is what every other network-touching suite sets: high enough that no honest
+ * round trip reaches it, low enough that a genuine hang still fails. It does not override
+ * the per-test timeouts below, which stay where someone picked them deliberately.
+ */
+setDefaultTimeout(20_000);
+
 
 /**
  * Sign in with Apple and Google, through the API (#7).

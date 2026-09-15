@@ -102,14 +102,21 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   ARCHITECTURE §3 says why that is the point of it.
 - Validate at the route edge (`normalizeEmail`, `parseProfile`), not deeper.
 - Every behavior change gets a test in `test/`.
-- **Every file that makes a live round trip sets `setDefaultTimeout(20_000)`** (#31). The
-  suite runs against the real project, so a case that inherits Bun's 5000ms default is one
-  cold connection away from a red run nobody can distinguish from a regression — which is
-  how a suite that gates every merge teaches people to re-run instead of read. 20s is a
-  ceiling, not a measurement: nothing honest reaches it, and a genuine hang still fails.
-  Bun names the two failures differently, and that is worth knowing before reading a red
-  run: an assertion prints `error: expect(received).toBe(expected)` with the two values, a
-  timeout prints `^ this test timed out after 20000ms.` and no assertion at all.
+- **Every file that makes a live round trip sets `setDefaultTimeout(20_000)`** (#31) — nine
+  of them do, and `email-tokens.test.ts` achieves the same with a per-case `SLOW`. The suite
+  runs against the real project, so a case that inherits Bun's 5000ms default is one cold
+  connection away from a red run nobody can distinguish from a regression, which is how a
+  suite that gates every merge teaches people to re-run instead of read. 20s is a ceiling,
+  not a measurement: nothing honest reaches it, and a genuine hang still fails.
+  `setDefaultTimeout` is file-scoped and does not override a per-test timeout, so a case
+  that needs longer still says so where it is.
+  - The one exception is `unhandled-errors.test.ts`, whose `FAST = 5_000` is deliberate:
+    the file is in-process and fully mocked. It is not quite true — since #120 every
+    `signup()` there reaches `adminAuth.getUserByEmail` for real — and that is filed, not
+    papered over with a bigger number.
+  - Bun names the two failures differently, and that is worth knowing before reading a red
+    run: an assertion prints `error: expect(received).toBe(expected)` with both values; a
+    timeout prints `^ this test timed out after 20000ms.` and no assertion at all.
 - Never log passwords, tokens, profile contents, or event payloads (health data).
 - New env var → `config.ts` + `.env.example` (placeholder only).
 - No refresh tokens in v1. Adding them is an architecture change, not a task.
