@@ -273,9 +273,22 @@ final class AppSession {
         state = .ready
     }
 
+    /// Ends the session. The local half always happens, whatever the Keychain says.
+    ///
+    /// `clear()` reports now (#64), and `false` means it could neither delete the item nor
+    /// overwrite it — a Keychain that refuses both, which is a device fault with nothing an
+    /// app can do about it. Signing out anyway is still the right answer: the user asked to
+    /// leave, this is the only exit from `.unreachable` since #61, and refusing to take it
+    /// would strand them in a degraded app to protect them from a token they already have.
+    /// The result is deliberately *used* rather than discarded, so the choice is visible to
+    /// whoever reads this next instead of being the absence of a line.
     func logOut() {
         sessionGeneration += 1
-        tokenStore.clear()
+        if !tokenStore.clear() {
+            // Nothing to show a user here, and no state to keep: a flag would not survive
+            // the relaunch that is the only moment it could matter.
+            assertionFailureInDebug("Keychain would neither clear nor neutralise the token")
+        }
         user = nil
         state = .signedOut
     }
@@ -307,8 +320,35 @@ final class AppSession {
         // session, and the first screen that signs someone in without logging them out
         // first would silently reopen the in-flight-request hole this counter closes.
         sessionGeneration += 1
-        tokenStore.save(response.token)
+        // A failed save does not fail the sign-in (#64). The user has authenticated and
+        // the server has granted a session; refusing it would strand someone whose
+        // Keychain is broken, while proceeding costs them signing in again after a
+        // relaunch — the recoverable direction, and the one they can act on.
+        if !tokenStore.save(response.token) {
+            assertionFailureInDebug("Keychain refused to store the session token")
+        }
         user = response.user
         state = response.user.questionnaireCompleted ? .ready : .needsQuestionnaire
     }
+}
+
+/// Fails loudly in a debug build and does nothing in a release one.
+///
+/// The two Keychain failures `AppSession` can hit (#64) are unactionable by the user and
+/// close to unreachable in practice, so there is no screen for them — but they must not be
+/// *silent* either, which is the defect the issue is about. A debug trap puts them in front
+/// of whoever is running the app when they happen; shipping code carries on.
+///
+/// `EVA_UITEST_RESET` is honoured because a UI test drives `logOut()` deliberately, and a
+/// simulator Keychain occasionally refuses under a fresh install — a trap there would fail
+/// the run for the harness rather than for the app.
+private func assertionFailureInDebug(
+    _ message: @autoclosure () -> String,
+    file: StaticString = #fileID,
+    line: UInt = #line
+) {
+    #if DEBUG
+    guard ProcessInfo.processInfo.environment["EVA_UITEST_RESET"] != "1" else { return }
+    assertionFailure(message(), file: file, line: line)
+    #endif
 }
