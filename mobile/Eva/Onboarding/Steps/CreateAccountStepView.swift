@@ -39,6 +39,13 @@ struct CreateAccountStepView: View {
     @State private var emailError: String?
     @State private var submissionError: String?
     @State private var isLoading = false
+    /// A `429` the screen is sitting in (#38) — set on the throttled response, cleared on
+    /// the next submit. Two pieces, because they are two facts: *that* the request was
+    /// throttled shows the banner, and *when* the window ends holds the CTA. A server that
+    /// sent no usable `Retry-After` gives the first without the second, and the screen then
+    /// says less rather than holding the button for a guess.
+    @State private var isRateLimited = false
+    @State private var retryAt: Date?
 
     private enum Field: Hashable { case email }
     @FocusState private var focusedField: Field?
@@ -71,9 +78,19 @@ struct CreateAccountStepView: View {
             }
 
             emailForm
+
+            if isRateLimited {
+                AuthRateLimitedBanner(identifier: "signup.rateLimited", retryAt: retryAt)
+                    .padding(.top, EvaSpacing.md)
+            }
         } footer: {
-            PrimaryButton(title: "Create account", isLoading: isLoading, action: submit)
-                .disabled(!model.isEmailFormValid)
+            AuthThrottledPrimaryButton(
+                title: "Create account",
+                isLoading: isLoading,
+                isFormValid: model.isEmailFormValid,
+                blockedUntil: retryAt,
+                action: submit
+            )
 
             AuthLegalNote()
                 .padding(.top, EvaSpacing.md)
@@ -164,9 +181,16 @@ struct CreateAccountStepView: View {
         focusedField = nil
         isLoading = true
         submissionError = nil
+        isRateLimited = false
+        retryAt = nil
         Task {
             do {
                 try await onSubmit(model.email)
+            } catch let error as APIError where error.isRateLimited {
+                // Not a field error: nothing typed was wrong and the server refused before
+                // it did anything, so the banner says so and the CTA waits it out.
+                isRateLimited = true
+                retryAt = error.retryAt
             } catch {
                 submissionError = error.localizedDescription
             }

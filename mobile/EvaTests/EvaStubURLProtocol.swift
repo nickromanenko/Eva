@@ -61,7 +61,11 @@ final class EvaStubURLProtocol: URLProtocol {
     enum Outcome: Sendable {
         /// An HTTP response. The body is a `String` rather than a model so a test can
         /// send a malformed or empty one — which is a case `APIClient` has to handle.
-        case response(status: Int, body: String)
+        ///
+        /// `headers` are merged over the default `Content-Type` (#38): a `429` carries
+        /// `Retry-After`, and `APIClient` reads it off the response rather than the body,
+        /// so a stub that could only send a body could not exercise that path at all.
+        case response(status: Int, body: String, headers: [String: String] = [:])
         /// The load fails before any response exists: no signal, a refused connection, a
         /// captive portal that never answers. `APIClient.send` collapses every one of
         /// these into `APIError.network`, which is the failure #61 turns on — so a test
@@ -139,8 +143,8 @@ final class EvaStubURLProtocol: URLProtocol {
     /// Also clears every previous rule and the recorded requests, so `lastAuthorization`
     /// always describes the exchange the test just set up and never a leftover from the
     /// previous one.
-    static func stub(status: Int, body: String) {
-        arm(catchAll: Rule(outcome: .response(status: status, body: body)))
+    static func stub(status: Int, body: String, headers: [String: String] = [:]) {
+        arm(catchAll: Rule(outcome: .response(status: status, body: body, headers: headers)))
     }
 
     /// Arms the next request to fail at the transport, the way an offline launch does.
@@ -341,7 +345,7 @@ final class EvaStubURLProtocol: URLProtocol {
         switch outcome {
         case .failure(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
-        case .response(let status, let body):
+        case .response(let status, let body, let headers):
             guard let url = request.url else {
                 client?.urlProtocol(self, didFailWithError: URLError(.badURL))
                 return
@@ -350,7 +354,7 @@ final class EvaStubURLProtocol: URLProtocol {
                 url: url,
                 statusCode: status,
                 httpVersion: "HTTP/1.1",
-                headerFields: ["Content-Type": "application/json"]
+                headerFields: ["Content-Type": "application/json"].merging(headers) { _, new in new }
             )!
             // `.notAllowed`: a cached 401 answering a later request would make these
             // tests depend on their own order.
