@@ -912,14 +912,40 @@ app.post("/auth/password/reset", async (c) => {
     // password and activation only proved the address, and the two could be different
     // people.
     //
+    // Proof of control of the address, whichever link it came by. A delete landing since
+    // the read above answers a dead link rather than a session for a tombstone.
+    if (!(await markActivated(uid))) return tokenFailure(c, "invalid");
+    // **Last, and in the same order as the activation route** — the invariant `api/CLAUDE.md`
+    // states, which this route used to be the one exception to (#127). `emailVerified` turns
+    // off `claimUnprovenAccount`'s address test and `activatedAt` turns off the claim itself,
+    // so any window carrying the first without the second is the one combination that claims
+    // unconditionally.
+    //
+    // It was never exploitable here: `retractUnprovenIdentities` above has already unlinked
+    // an attacker's `sub` and revoked their refresh tokens, so a fresh `signInWithIdp` with
+    // their credential resolves elsewhere and the claim's read-back refuses anyway. The
+    // reason to fix it is that two other places asserted the ordering was absolute while
+    // this one contradicted them, which is how the window gets re-introduced somewhere it
+    // *is* reachable.
+    //
     // Unconditional rather than transition-only: a long-activated user who resets has just
     // proven the password whoever they are, and a wipe on their next provider sign-in would
     // be pure loss.
-    await markCredentialsProven(uid);
-    // Proof of control of the address, whichever link it came by. Last, for the same
-    // reason as the activation route. A delete landing since the read above answers a dead
-    // link rather than a session for a tombstone.
-    if (!(await markActivated(uid))) return tokenFailure(c, "invalid");
+    //
+    // **Not allowed to fail the request, now that it is last**, for the reason the activation
+    // route gives at greater length: the password is set and the token is spent by this
+    // point, and this route also mints a session. Throwing here would show the user an error
+    // for a reset that worked and page an operator for a link that did its job. What is lost
+    // by swallowing is Firebase's `emailVerified`, which leaves the merge-wipe armed — a
+    // later provider sign-in may cost this user their password, recoverable through another
+    // reset. That is the direction to fail in, and it is the same trade the ordering is
+    // chosen for.
+    try {
+        await markCredentialsProven(uid);
+    } catch {
+        // No uid, no address, no reason string (GUARDRAILS 12).
+        console.log(JSON.stringify({ event: "credentials_unproven_after_reset" }));
+    }
     return c.json({
         token: await mintToken(uid, user.email),
         user: { ...user, activated: true },

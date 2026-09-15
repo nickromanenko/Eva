@@ -170,13 +170,19 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   **before** stamping `activatedAt`, because the stamp is what disarms the claim gate.
   Without it the `/auth/idp` claim is simply outwaited: an attacker attaches a provider to a
   reserved address and signs in the moment the real owner activates.
-- **`markCredentialsProven` runs last, after `markActivated` (#120).** `emailVerified` is
-  what turns off `claimUnprovenAccount`'s address test; `activatedAt` is what turns off the
-  claim itself. Any window in which the first is set and the second is not is the one
-  combination that claims unconditionally, so the account is created *without*
-  `emailVerified` (`createAccountWithPassword`) and the flag is set at the very end. Failing
-  the other way leaves an activated account with the merge-wipe still armed, which costs its
-  owner a password on a later provider sign-in and is recoverable through reset.
+- **`markCredentialsProven` runs last, after `markActivated` — at every call site (#120,
+  #127).** `emailVerified` is what turns off `claimUnprovenAccount`'s address test;
+  `activatedAt` is what turns off the claim itself. Any window in which the first is set and
+  the second is not is the one combination that claims unconditionally, so the account is
+  created *without* `emailVerified` (`createAccountWithPassword`) and the flag is set at the
+  very end. Failing the other way leaves an activated account with the merge-wipe still
+  armed, which costs its owner a password on a later provider sign-in and is recoverable
+  through reset. `/auth/password/reset` was the one exception until #127 — unexploitable
+  there because it retracts first, and fixed anyway, because a stated invariant with a live
+  counter-example is read as advice. Both call sites swallow a throw from this last step
+  rather than failing a request whose real work is already done; each logs its own event
+  (`credentials_unproven_after_activation`, `credentials_unproven_after_reset`) and nothing
+  else (GUARDRAILS 12).
 - **Both paths through `/auth/activate` share one set of guards.** The `email-exists` race
   and the ordinary "account already exists" branch both fall through the same
   `deleted` / `activated` refusals and the same tail. They were separate once, and the race
