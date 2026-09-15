@@ -119,11 +119,9 @@ const errorName = (err: unknown): string => {
  * for a log that cannot leak. If that proves too thin, the answer is a reviewed field
  * (an error class of ours carrying a safe code), not the message.
  *
- * One boundary, stated rather than papered over: Hono routes only a thrown **`Error`**
- * here — `#handleError` rethrows anything else at the runtime, which answers its own
- * unshaped 500. Closing that means a wildcard middleware wrapping every request, which is
- * more routing surface than this is worth while nothing in the stack throws a non-Error;
- * it is filed, not fixed.
+ * Hono routes only a thrown **`Error`** here — `#handleError` rethrows anything else at
+ * the runtime, which answers its own unshaped 500. `wrapNonErrors` below closes that, so
+ * every throw reaches this handler and `errorName` never sees a bare `typeof` any more.
  */
 app.onError((err, c) => {
     // Short enough to read out over a support call, random enough to be unique among the
@@ -140,6 +138,83 @@ app.onError((err, c) => {
     );
     return c.json(error("INTERNAL", `${INTERNAL_MESSAGE} (ref: ${ref})`), 500);
 });
+
+/**
+ * What a non-`Error` throw is called in the log line, derived from the value's *type* and
+ * never from the value (#53).
+ *
+ * This is the whole care in this function. A thrown object could be anything — an
+ * Identity Toolkit response body, a Firestore document, a request payload with a
+ * symptom log in it — so nothing here stringifies it, indexes it, or reads a property
+ * off it. `typeof` is the one question whose answer cannot contain data, and `null` is
+ * split out because `typeof null` is `"object"` and would lose the only distinction that
+ * is actually useful when reading these.
+ *
+ * The result is `NonError` + a capitalised type, which lands in the same `errorName`
+ * field an `Error` fills with its class name and passes the same `ERROR_NAME` shape. So
+ * `FirebaseError` and `NonErrorString` sit in one field, and a non-Error throw is
+ * greppable as a class of fault rather than indistinguishable from a bug of ours.
+ */
+const nonErrorName = (value: unknown): string => {
+    if (value === null) return "NonErrorNull";
+    const type = typeof value;
+    return `NonError${type.charAt(0).toUpperCase()}${type.slice(1)}`;
+};
+
+/**
+ * Every request, so that `app.onError` above is reached by **every** throw and not only
+ * by the ones that happen to be `Error`s (#53).
+ *
+ * Hono's `#handleError` calls `onError` only for `err instanceof Error` and rethrows
+ * anything else at the runtime, which answers its own unshaped 500 — no
+ * `{ error: { code, message } }`, `content-type: text/plain`, and nothing in the log.
+ * Nothing in the current stack throws a non-Error, so this is a guard against a future
+ * dependency rather than a live bug; it is three lines, and the alternative is a response
+ * shape that is true of every route except the one that surprises us.
+ *
+ * **Registered before every route and every other `app.use`**, which is what makes it
+ * wrap them: Hono runs handlers for a path in registration order, so middleware added
+ * after a route does not run for it. That is also why `webCors` and `noStore` sit above
+ * the two link routes rather than at the end of the file.
+ *
+ * **It does not disturb #5's throttle**, and the reason is worth writing down because the
+ * issue assumed otherwise: the throttle is not middleware. `throttleAuth`, `throttleToken`
+ * and `throttleProvider` are plain calls at the top of each handler, inside the route this
+ * wraps. Nothing about their order changes, and a 429 is a returned response rather than a
+ * throw, so it never touches the `catch` below.
+ *
+ * The wrapper carries **no `cause`**, deliberately. `cause` would retain the thrown value,
+ * and the next person to improve this log line would find it there — which is exactly the
+ * payload `nonErrorName` exists to keep out. The type is the whole of what is kept.
+ */
+const wrapNonErrors = createMiddleware(async (c, next) => {
+    try {
+        await next();
+    } catch (err) {
+        if (err instanceof Error) throw err;
+        const wrapped = new Error("Non-Error value thrown");
+        wrapped.name = nonErrorName(err);
+        throw wrapped;
+    }
+});
+app.use("*", wrapNonErrors);
+
+/**
+ * A path no route matched (#53). It is a *miss*, not a throw, so `app.onError` never sees
+ * it and Hono answers its own plain-text `404 Not Found` — the one response left that does
+ * not match the contract ARCHITECTURE §3 states and `APIClient` decodes.
+ *
+ * `NOT_FOUND` is the code the event routes already use for "the thing you named is not
+ * here" (GUARDRAILS 11: adding is fine, repurposing is not — this is the same meaning one
+ * level up, on the route instead of the row). The message says *route* so the two are
+ * distinguishable by a human reading a support ticket, while a client switching on `code`
+ * sees one thing.
+ *
+ * Nothing is logged: an unmatched path is a client that asked for something that does not
+ * exist, not a fault of ours, and `c.req.path` is the one field that would make the line
+ * useful — which is the field that carries ids and dates (GUARDRAILS 12).
+ */
+app.notFound((c) => c.json(error("NOT_FOUND", "No such route"), 404));
 
 /**
  * `EMAIL_MAX_LENGTH` is RFC 5321's cap on a path. It is here rather than left to the

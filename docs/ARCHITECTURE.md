@@ -96,6 +96,14 @@ stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
+**"Always" is now literal (#53).** Two answers used to escape the shape, and neither
+reached `app.onError`: a thrown value that is not an `Error`, which Hono rethrows at the
+runtime, and an unmatched path, which is a miss rather than a throw. A wildcard middleware
+registered ahead of every route re-throws non-`Error`s as `Error`s — recording the thrown
+value's *type* and never the value, because a thrown object could be a payload — and
+`app.notFound` answers `404 NOT_FOUND` as JSON. So every response the API can produce now
+carries the shape above, including the ones nobody wrote a handler for.
+
 | Route | Auth | Success |
 |---|---|---|
 | `GET /health` | — | `{ status: "ok" }` |
