@@ -1293,12 +1293,19 @@ app.delete("/me", requireAuth, async (c) => {
     // whenever the address moves, so `proven` is what tells the two apart, and skipping is
     // the harmless direction: the counters expire on their own.
     //
-    // **It raises the price rather than closing the door**, and saying so is the point.
-    // Firebase clears the flag; Eva can hand it back — `/auth/password/reset` re-stamps
-    // `emailVerified` from a token it resolves by uid, without checking that the account
-    // still holds the address the token was mailed to. So the same attacker can re-prove a
-    // moved address through their own inbox. That is #140, it is pre-existing, and it is a
-    // larger problem than this counter: fixing it there fixes this gate properly.
+    // **Defence in depth, not the thing holding the door.** Measured against the real
+    // project: `accounts:update` refuses to repoint an account at an address nobody has
+    // verified — `400 OPERATION_NOT_ALLOWED : Please verify the new email before changing
+    // email` — so the move this guards against is not reachable as the project is configured
+    // today, whatever `identity-toolkit.ts`'s comment says. That is a console setting rather
+    // than a property of this code, which is why `account-deletion.test.ts` asserts the
+    // refusal: turn it off and a suite goes red instead of this going quiet.
+    //
+    // If it were reachable, the gate would still only raise the price — `/auth/password/reset`
+    // re-stamps `emailVerified` from a token it resolves by uid, without checking the account
+    // still holds the address the token was mailed to, so a moved address can be re-proved
+    // through the attacker's own inbox. That is #140, pre-existing, and the place to fix this
+    // properly.
     //
     // The call above is **not** covered by this reasoning and is deliberately left as it is:
     // `deleteTokensForAccount`'s address half deletes rows with `uid == null`, which by

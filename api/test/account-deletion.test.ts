@@ -417,17 +417,21 @@ describe("a delete interrupted after the first step", () => {
     });
 
     test(
-        "moving an address makes it unproven, which is what the gate rests on",
+        "Firebase refuses to repoint an account at an address nobody verified",
         async () => {
-            // The premise, **exercised** rather than asserted. The case below covers a
-            // never-confirmed account and a missing uid; neither is a *moved* address, and a
-            // moved address is the only thing the gate exists to catch. Without this, deleting
-            // `proven &&` from the route breaks nothing.
+            // **The premise behind the gate, measured rather than assumed** — and it does not
+            // hold the way the code's comments say it does.
             //
-            // Identity Toolkit is called directly, the way `provider-signin.test.ts` and
-            // `email-auth-routes.test.ts` do under GUARDRAILS 4's carve-out for `api/test/`:
-            // the public web API key plus a password this test set is exactly what an idToken
-            // holder has, which is the point.
+            // `identity-toolkit.ts` states that "an idToken holder can move their own Auth
+            // address with `accounts:update` — the web API key is public", and both #139 and
+            // #140 are built on that step. Against this project it is **refused**:
+            // `400 OPERATION_NOT_ALLOWED : Please verify the new email before changing email`.
+            //
+            // So an address is not freely movable here, and the gate on `forgetEmail` is
+            // defence in depth rather than the thing standing between a caller and someone
+            // else's counters. That deserves a test rather than a comment, because it is a
+            // **project setting** and not a property of this code: whoever turns it off
+            // silently makes #139 and #140 reachable, and this is what would say so.
             const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
             const moved = `e2e+moved-${crypto.randomUUID()}@e2e.evaapp.dev`;
             const { uid: movable } = await adminAuth.createUser({
@@ -436,7 +440,6 @@ describe("a delete interrupted after the first step", () => {
                 emailVerified: true,
             });
             createdUids.push(movable);
-            expect((await addressOfAuthAccount(movable)).proven).toBe(true);
 
             const signIn = await fetch(
                 `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
@@ -457,14 +460,13 @@ describe("a delete interrupted after the first step", () => {
                     body: JSON.stringify({ idToken, email: moved, returnSecureToken: false }),
                 },
             );
-            expect(update.ok).toBe(true);
 
-            // Firebase clears `emailVerified` when the address moves. That is the whole
-            // mechanism the gate depends on — if this ever stops being true, the gate is
-            // decorative and this test is what says so.
+            expect(update.ok).toBe(false);
+            expect(await update.text()).toContain("OPERATION_NOT_ALLOWED");
+            // And the account still holds what it held.
             const after = await addressOfAuthAccount(movable);
-            expect(after.address).toBe(moved);
-            expect(after.proven).toBe(false);
+            expect(after.address).toBe(own);
+            expect(after.proven).toBe(true);
         },
         SLOW,
     );
