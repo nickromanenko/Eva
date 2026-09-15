@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import {
@@ -10,6 +10,16 @@ import {
     issueToken,
 } from "../src/email-tokens";
 import { firestore } from "../src/firebase";
+
+/**
+ * The `afterAll` below sweeps `authTokens/` with live round trips, and a **per-case timeout
+ * does not reach a hook** — so the per-case `SLOW` on every test in this file left the one
+ * piece of it that talks to Firestore on Bun's 5000ms default (#31). A hook that times out
+ * is reported against an unrelated test *and* leaves the sweep unfinished, which is rows
+ * stranded in the real project on top of an unreadable red run.
+ */
+setDefaultTimeout(20_000);
+
 
 /**
  * The token store behind activation and reset links (#6), tested directly against the

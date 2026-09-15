@@ -1,9 +1,28 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+    afterAll,
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    mock,
+    setDefaultTimeout,
+    spyOn,
+    test,
+} from "bun:test";
 import { config } from "../src/config";
 import { issueToken } from "../src/email-tokens";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, firestore } from "../src/firebase";
 import { resetAuthRateLimits } from "../src/rate-limit";
+
+/**
+ * Live round trips happen in this file, so the ceiling is chosen rather than inherited
+ * (#31). 20s is what every other network-touching suite sets: high enough that no honest
+ * round trip reaches it, low enough that a genuine hang still fails. It does not override
+ * the per-test timeouts below, which stay where someone picked them deliberately.
+ */
+setDefaultTimeout(20_000);
+
 
 /**
  * What both auth routes answer when Identity Toolkit fails for any reason other than
@@ -333,12 +352,18 @@ describe("creating the account: an upstream failure that is not EMAIL_EXISTS", (
         expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
         expect(await passwordOpens(squatted, PASSWORD)).toBe(false);
         expect(await passwordOpens(squatted, CHOSEN)).toBe(true);
-        // Its own budget. Every other case in this file is in-process against a mocked
-        // upstream and finishes in milliseconds, so the file keeps Bun's 5s default; this
-        // one makes four real round trips (create, look up, claim, read back) and blew that
-        // default against the real project while passing against the emulator — `bun test`
-        // green, `bun run verify` red, for a test that was working. 20s is the ceiling the
-        // live suites use (#31).
+        // Kept explicitly, though the file default is now the same 20s (#31). This is the
+        // case that earned the number: four real round trips (create, look up, claim, read
+        // back), and it blew Bun's 5s default against the real project while passing
+        // against the emulator — `bun test` green, `bun run verify` red, for a test that
+        // was working. Leaving it here keeps that story where the next reader meets it.
+        //
+        // The file used to justify keeping the 5s default on the grounds that "every other
+        // case is in-process against a mocked upstream and finishes in milliseconds". That
+        // was not true: `describe("createAccountWithPassword classifies the Admin SDK's own
+        // failures")` calls `realCreateAccount` — the real Admin SDK, deliberately
+        // un-mocked — with no timeout of its own, and the `afterAll` sweeps Auth and
+        // Firestore.
     }, 20_000);
 });
 

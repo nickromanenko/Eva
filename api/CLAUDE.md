@@ -102,6 +102,28 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   ARCHITECTURE §3 says why that is the point of it.
 - Validate at the route edge (`normalizeEmail`, `parseProfile`), not deeper.
 - Every behavior change gets a test in `test/`.
+- **Every file that makes a live round trip sets `setDefaultTimeout(20_000)`** (#31) — every
+  one of them, with no count written down here to go stale. A per-case timeout is **not** a
+  substitute, because it does not reach a hook: that is how `email-tokens.test.ts` carried a
+  timeout on all seventeen cases while its `afterAll` swept Firestore on the 5000ms default.
+  A hook that times out is reported against an unrelated test *and* leaves its sweep
+  unfinished, which is rows stranded in the real project on top of an unreadable red run.
+  The suite
+  runs against the real project, so a case that inherits Bun's 5000ms default is one cold
+  connection away from a red run nobody can distinguish from a regression, which is how a
+  suite that gates every merge teaches people to re-run instead of read. 20s is a ceiling,
+  not a measurement: nothing honest reaches it, and a genuine hang still fails.
+  `setDefaultTimeout` is file-scoped and does not override a per-test timeout, so a case
+  that needs longer still says so where it is.
+  - The one exception is `unhandled-errors.test.ts`, whose `FAST = 5_000` is deliberate:
+    the file is in-process and fully mocked. That is no longer true — since #120 every
+    `signup()` there reaches `adminAuth.getUserByEmail` for real, and `issueToken` writes to
+    Firestore — so it is the last live round trip in `api/test/` still on Bun's default.
+    **Filed as #142**, and to be fixed by making the claim true again rather than by raising
+    the number: the file's whole design is a seam that needs no network.
+  - Bun names the two failures differently, and that is worth knowing before reading a red
+    run: an assertion prints `error: expect(received).toBe(expected)` with both values; a
+    timeout prints `^ this test timed out after 20000ms.` and no assertion at all.
 - Never log passwords, tokens, profile contents, or event payloads (health data).
 - New env var → `config.ts` + `.env.example` (placeholder only).
 - No refresh tokens in v1. Adding them is an architecture change, not a task.

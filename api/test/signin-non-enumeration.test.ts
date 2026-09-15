@@ -1,9 +1,27 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    mock,
+    setDefaultTimeout,
+    test,
+} from "bun:test";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, firestore } from "../src/firebase";
 import { config } from "../src/config";
 import { resetAuthRateLimits } from "../src/rate-limit";
 import { createUnactivatedAccount } from "./support/session";
+
+/**
+ * Live round trips happen in this file, so the ceiling is chosen rather than inherited
+ * (#31). 20s is what every other network-touching suite sets: high enough that no honest
+ * round trip reaches it, low enough that a genuine hang still fails. Every case here takes
+ * it; none of them had a timeout of its own to keep.
+ */
+setDefaultTimeout(20_000);
+
 
 /**
  * The non-enumeration property on `POST /auth/signin` (issue #21).
