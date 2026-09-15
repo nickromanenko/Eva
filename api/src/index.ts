@@ -4,6 +4,7 @@ import { createMiddleware } from "hono/factory";
 import { routePath } from "hono/route";
 import { mintToken, requireAuth, type TokenClaims } from "./auth";
 import { config } from "./config";
+import { getContent } from "./content";
 import { EmailError, sendActivationEmail, sendPasswordResetEmail } from "./email";
 import { TOKEN_LENGTH, consumeToken, deleteTokensForAccount, issueToken } from "./email-tokens";
 import {
@@ -1507,6 +1508,26 @@ const parseProfile = (body: Record<string, unknown>): Profile | null => {
 /** Strips the weak-validator prefix and quotes: `W/"abc"` and `"abc"` are both abc. */
 const etagValue = (header: string | undefined): string | undefined =>
     header?.trim().replace(/^W\//, "").replace(/^"|"$/g, "");
+
+/**
+ * The Dashboard's words (#97). Same handshake as `/refdata` and for the same reasons: the
+ * device caches the bundle against a content-derived `version`, revalidates on every
+ * launch, and gets a `304` with no body when nothing changed — which is what makes the
+ * copy available offline (A3).
+ *
+ * It serves what the collection holds, review metadata included in neither the body nor
+ * the version: who signed the copy is an operational fact, not something a device needs,
+ * and putting it in the hash would push a new bundle to everyone each time someone
+ * re-reviewed the same words.
+ */
+app.get("/content", requireAuth, requireAccount, async (c) => {
+    const content = await getContent();
+    c.header("ETag", `"${content.version}"`);
+    c.header("Cache-Control", "private, no-cache");
+    const known = c.req.query("version") ?? etagValue(c.req.header("if-none-match"));
+    if (known === content.version) return c.body(null, 304);
+    return c.json(content);
+});
 
 app.get("/refdata", requireAuth, requireAccount, async (c) => {
     const refdata = await getRefData();
