@@ -11,6 +11,7 @@ import {
     consumeAuthAttempt,
     consumeProviderAttempt,
     consumeTokenAttempt,
+    forgetEmail,
     type ProviderRoute,
     type TokenRoute,
     type AuthRoute,
@@ -1276,6 +1277,16 @@ app.delete("/me", requireAuth, async (c) => {
     await deleteAllUserEvents(sub);
     await deleteTokensForAccount(sub, address);
     await deleteUserDocument(sub);
+    // The address's own throttle counters go with it (#56). In-memory and per-instance, so
+    // this is a small courtesy rather than a guarantee — but being refused a fresh sign-up
+    // by the attempts of the account you just deleted is confusing in a flow people reach
+    // at an emotional moment, and it protects nothing: there is no account behind that
+    // address any more. Per-address only; the per-IP backstop is deliberately left alone,
+    // or deleting an account would be a way to clear one's own budget.
+    //
+    // Last, after everything that can fail. A throw above leaves the counters standing,
+    // which is the harmless direction.
+    forgetEmail(address);
     // No count, no email, no id — a delete is exactly where a log line is tempting
     // (GUARDRAILS 12). Anything that throws above lands in `app.onError` as a 500 with a
     // `ref`, and the account is already inert by then.

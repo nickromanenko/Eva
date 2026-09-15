@@ -1,5 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { createRateLimiter } from "../src/rate-limit";
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+    consumeAuthAttempt,
+    createRateLimiter,
+    forgetEmail,
+    resetAuthRateLimits,
+} from "../src/rate-limit";
 
 /**
  * The counter underneath the `/auth/*` throttle (issue #5), tested directly.
@@ -106,5 +111,95 @@ describe("reset", () => {
         expect(limiter.consume("a")).toBe(false);
         limiter.reset();
         expect(limiter.consume("a")).toBe(true);
+    });
+});
+
+/**
+ * Forgetting one address's counters when its account is deleted (#56).
+ *
+ * The oddity being removed: counters are keyed by address and survive the account, so
+ * someone who deleted their account and registered again inside the same window could be
+ * refused by their own deleted account's attempts. It resolves itself when the window
+ * expires, which is up to fifteen minutes of a flow people reach at an emotional moment.
+ *
+ * These use the module's *real* limiters rather than a hand-cranked one, because what is
+ * being tested is which counters `forgetEmail` reaches — a property of the wiring in
+ * `limiters`, not of `createRateLimiter`. The shared counters are reset around each case.
+ */
+describe("forgetting one address", () => {
+    afterEach(() => resetAuthRateLimits());
+
+    /** Spends `count` attempts on `route` for this address, from an address-less caller so
+     *  the per-IP dimension is not touched. */
+    const spend = (route: "signin" | "signup", email: string, count: number): boolean[] =>
+        Array.from({ length: count }, () => consumeAuthAttempt(route, null, email));
+
+    test("an exhausted address is served again once it is forgotten", () => {
+        resetAuthRateLimits();
+        const email = "forgotten@example.test";
+        // `signinPerEmail` is 10; the eleventh is refused.
+        expect(spend("signin", email, 10).every(Boolean)).toBe(true);
+        expect(consumeAuthAttempt("signin", null, email)).toBe(false);
+
+        forgetEmail(email);
+
+        expect(consumeAuthAttempt("signin", null, email)).toBe(true);
+    });
+
+    test("it reaches every auth route, not only the one that was exhausted", () => {
+        resetAuthRateLimits();
+        const email = "forgotten-everywhere@example.test";
+        // Sign-up and sign-in hold separate budgets, so an account deleted after being
+        // throttled on both has both to give back.
+        spend("signin", email, 11);
+        spend("signup", email, 6);
+        expect(consumeAuthAttempt("signin", null, email)).toBe(false);
+        expect(consumeAuthAttempt("signup", null, email)).toBe(false);
+
+        forgetEmail(email);
+
+        expect(consumeAuthAttempt("signin", null, email)).toBe(true);
+        expect(consumeAuthAttempt("signup", null, email)).toBe(true);
+    });
+
+    test("another address's counters are untouched", () => {
+        resetAuthRateLimits();
+        const deleted = "deleted@example.test";
+        const bystander = "bystander@example.test";
+        spend("signin", deleted, 11);
+        spend("signin", bystander, 11);
+        expect(consumeAuthAttempt("signin", null, bystander)).toBe(false);
+
+        forgetEmail(deleted);
+
+        expect(consumeAuthAttempt("signin", null, bystander)).toBe(false);
+    });
+
+    test("the per-IP backstop is deliberately NOT cleared", () => {
+        // The whole safety argument for this feature. If deleting an account gave back the
+        // per-IP budget, creating and destroying accounts would be a way to clear one's own
+        // — which is exactly the abuse that dimension exists to bound.
+        resetAuthRateLimits();
+        const ip = "203.0.113.7";
+        const email = "ip-holder@example.test";
+        // `signupPerIp` is 30, and IP is checked first and short-circuits.
+        for (let i = 0; i < 30; i += 1) consumeAuthAttempt("signup", ip, `filler-${i}@example.test`);
+        expect(consumeAuthAttempt("signup", ip, email)).toBe(false);
+
+        forgetEmail(email);
+
+        expect(consumeAuthAttempt("signup", ip, email)).toBe(false);
+    });
+
+    test("a null address is a no-op rather than a branch at the call site", () => {
+        resetAuthRateLimits();
+        const email = "still-throttled@example.test";
+        spend("signin", email, 11);
+
+        // `addressOfAuthAccount` answers null for an Auth user with no address, and
+        // `DELETE /me` passes that straight through.
+        expect(() => forgetEmail(null)).not.toThrow();
+
+        expect(consumeAuthAttempt("signin", null, email)).toBe(false);
     });
 });

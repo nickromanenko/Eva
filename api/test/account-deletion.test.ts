@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { adminAuth, firestore } from "../src/firebase";
-import { markUserDeleted } from "../src/users";
+import { markUserDeleted, saveQuestionnaire } from "../src/users";
 import { activateAccount, createLegacyAccount, signUpActivated } from "./support/session";
 
 /**
@@ -409,6 +409,31 @@ describe("a delete interrupted after the first step", () => {
         expect((await json<ErrorResponse>(res)).error.code).toBe("INVALID_CREDENTIALS");
         // The mark is not cleared, and no token was handed out to work around it.
         expect((await userDoc(uid).get()).get("deletedAt")).not.toBeNull();
+    });
+
+    test("saveQuestionnaire refuses the tombstone on its own, not only via the gate", async () => {
+        // Called **directly**, with no route and no middleware in front of it (#56).
+        // `requireAccount` already refuses a deleted account, so through the API this is
+        // unreachable — which is precisely why it is asserted here instead. Every other
+        // read in `users.ts` refuses a tombstone itself; this one used to be safe only
+        // because of where the gate happened to sit, and a second caller or a reordered
+        // middleware would have made it write the profile onto a deleted account.
+        const written = await saveQuestionnaire(uid, {
+            age: 30,
+            weightKg: 65,
+            heightCm: 170,
+            goals: ["energy"],
+            conditions: [],
+            medications: "",
+            lifestyle: "active",
+            sports: ["running"],
+        });
+
+        expect(written).toBeNull();
+        // And it wrote nothing on the way to saying so.
+        const doc = await userDoc(uid).get();
+        expect(doc.get("profile") ?? null).toBeNull();
+        expect(doc.get("questionnaireCompleted") ?? false).toBe(false);
     });
 
     test(

@@ -39,6 +39,9 @@ import { config } from './config'
 export interface RateLimiter {
   /** Counts one attempt against `key`, and says whether that attempt is allowed. */
   consume(key: string): boolean
+  /** Drops `key`'s counter, if it has one. Used when the identity a key names stops
+   *  existing — see `forgetEmail`. */
+  forget(key: string): void
   /** Drops every counter. Test support — nothing in `src/` calls it. */
   reset(): void
 }
@@ -95,6 +98,9 @@ export const createRateLimiter = (
       }
       buckets.set(key, { count: 1, resetAt: at + windowMs })
       return true
+    },
+    forget: (key) => {
+      buckets.delete(key)
     },
     reset: () => buckets.clear(),
   }
@@ -218,6 +224,29 @@ export const authRetryAfterSeconds = (route: AuthRoute): number =>
   route === 'resend' || route === 'forgot'
     ? config.rateLimit.resendPerEmailSeconds || config.rateLimit.windowSeconds
     : config.rateLimit.windowSeconds
+
+/**
+ * Drops every **per-address** counter for one address, across all four auth routes (#56).
+ *
+ * Called when an account is deleted. Its address's attempts are counted for the length of
+ * the window whether or not the account still exists, so someone who deletes and
+ * immediately registers again could be refused by their own deleted account's attempts —
+ * confusing in a flow people reach at an emotional moment, and protecting nothing, because
+ * there is no longer an account behind that address to guess a password for.
+ *
+ * **Per-address only. The per-IP counters are untouched**, and that is the whole safety
+ * argument: those are the backstop against someone creating and destroying accounts to
+ * clear their own budget. Deleting an account gives back exactly the dimension that named
+ * the account, and nothing that names the caller.
+ *
+ * Takes the address already normalised, as the routes' counters were keyed
+ * (`normalizeEmail` at the edge). A `null` address — an Auth user with none — has nothing
+ * to forget, and the caller passes it through rather than branching.
+ */
+export const forgetEmail = (email: string | null): void => {
+  if (email === null) return
+  for (const route of Object.values(limiters)) route.byEmail.forget(email)
+}
 
 /** Drops every auth counter, link routes included. Test support — nothing in `src/`
  *  calls it. */
