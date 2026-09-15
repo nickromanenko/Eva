@@ -626,9 +626,9 @@ export const retractUnprovenIdentities = async (uid: string): Promise<void> => {
  * before. `emailVerified` is what turns off `claimUnprovenAccount`'s address test and
  * `activatedAt` is what turns off the claim itself, so an account carrying the first without
  * the second is the one state that claims unconditionally. See the tail of `activate` in
- * `index.ts`. (`/auth/password/reset` still calls it in the other order; the retraction it
- * runs first makes the window unexploitable there, and straightening it out is its own
- * issue rather than #120's.)
+ * `index.ts`. **Both** call sites obey it since #127 — `/auth/password/reset` was the one
+ * exception, and while its own `retractUnprovenIdentities` made the window unexploitable
+ * there, a rule with a live counter-example is one the next person reads as advisory.
  */
 export const markCredentialsProven = async (uid: string): Promise<void> => {
   await adminAuth.updateUser(uid, { emailVerified: true })
