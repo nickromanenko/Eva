@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { config } from "../src/config";
 import {
-    authLimiterKinds,
+    authLimiterShapes,
     callerFromForwarded,
     consumeAuthAttempt,
     createBackoffLimiter,
@@ -292,6 +292,32 @@ describe("per-address backoff", () => {
         expect(l.consume("her@example.test")).toBe(true);
     });
 
+    test("and refusals do not raise the tier — the next block is the next one, not a later one", () => {
+        // The other half of "inert", and the half the block-length test above cannot see:
+        // a refusal that raised the tier without re-arming would leave *this* block ending
+        // on time and make the *next* one exponentially longer. An attacker who can climb
+        // the ladder with refused requests reaches the 15-minute cap for free, which is
+        // the whole cost model inverted.
+        const time = clock();
+        const l = intoFirstBlock(time);
+
+        for (let i = 0; i < BASE - 1; i += 1) {
+            time.advance(1);
+            expect(l.consume("her@example.test")).toBe(false);
+        }
+
+        // Out of the first block, into the second: it is tier 2, so 60s — the doubling of
+        // 30, not of whatever 25 free refusals could have bought.
+        time.advance(2);
+        expect(l.consume("her@example.test")).toBe(true);
+        expect(l.consume("her@example.test")).toBe(false);
+
+        time.advance(2 * BASE - 1);
+        expect(l.consume("her@example.test")).toBe(false);
+        time.advance(2);
+        expect(l.consume("her@example.test")).toBe(true);
+    });
+
     test("the block is capped, so at worst it is the fixed window it replaced", () => {
         const time = clock();
         const l = intoFirstBlock(time);
@@ -336,6 +362,17 @@ describe("per-address backoff", () => {
         expect(l.consume("her@example.test")).toBe(true);
     });
 
+    test("and so does a window of 0, which is what sets the cap and the decay", () => {
+        // `RATE_LIMIT_WINDOW_SECONDS=0` is the documented local-work switch and it reaches
+        // this limiter as `maxSeconds` and `decaySeconds`. Without the guard it would not
+        // throw or refuse — every block would be zero-length and every record forgotten
+        // before it could be read — which is the same outcome by accident.
+        const time = clock();
+        const l = createBackoffLimiter(FREE, BASE, 0, 0, time.now);
+
+        for (let i = 0; i < 100; i += 1) expect(l.consume("her@example.test")).toBe(true);
+    });
+
     test("a free allowance of 0 disables the dimension", () => {
         const l = createBackoffLimiter(0, BASE, MAX, DECAY, clock().now);
         for (let i = 0; i < 100; i += 1) expect(l.consume("her@example.test")).toBe(true);
@@ -376,6 +413,25 @@ describe("one dimension cannot starve another", () => {
 
         for (let i = 0; i < 60; i += 1) expect(byIp.consume("203.0.113.9")).toBe(true);
         expect(byIp.consume("203.0.113.9")).toBe(false);
+    });
+
+    test("at the cap new keys stop being tracked — old ones are not evicted", () => {
+        // #37 considered evicting oldest-first and rejected it, because eviction is
+        // precisely what a flood of invented addresses would be buying: the attacker would
+        // pay 50,000 cheap requests to clear the counter that was actually holding them.
+        // The two tests above pass under either policy, so this is the one that pins it.
+        const time = clock();
+        const limiter = createRateLimiter(5, WINDOW, time.now);
+
+        for (let i = 0; i < 5; i += 1) expect(limiter.consume("her@example.test")).toBe(true);
+
+        // A flood far past MAX_KEYS, every key different, all within the same window so
+        // nothing is swept.
+        for (let i = 0; i < 50_100; i += 1) limiter.consume(`invented-${i}@example.test`);
+
+        // The counter that mattered is still there. Under eviction it would be gone and
+        // this would be `true`.
+        expect(limiter.consume("her@example.test")).toBe(false);
     });
 });
 
@@ -437,19 +493,98 @@ describe("which forwarded entry is the caller", () => {
  * The behavioural tests above drive `createBackoffLimiter` directly, and a mutation check
  * showed that is not enough: pointing sign-in's per-address counter back at
  * `createRateLimiter` left every one of them green, because the two satisfy the same
- * interface and the difference only shows when a clock moves. This is the test that fails.
+ * interface and the difference only shows when a clock moves. These are the tests that
+ * fail — the name *and* the numbers, because `createBackoffLimiter(free, 1, 1, 1)` is
+ * still a backoff by name and no longer a defence.
  */
+/**
+ * The one `RATE_LIMIT_*` value that is not a limit, and the one `0` that is not a quieter
+ * setting (#37).
+ *
+ * `callerFromForwarded` returns `null` below one hop, `clientIp` returns `null` for every
+ * request, and `consumeProviderAttempt`/`consumeTokenAttempt` both skip a null IP — so a
+ * zero here does not disable "the per-IP dimension for this route", it removes per-IP
+ * throttling from `/auth/idp`, `/me/auth/providers`, `/auth/activate` and
+ * `/auth/password/reset`, where it is the only dimension there is. Every other knob in
+ * this block documents `0` as a deliberate disable switch, which is exactly what makes it
+ * a plausible thing for someone to type here meaning "no proxies in front of me".
+ *
+ * A subprocess, because `config.ts` reads the environment once at import and this process
+ * has already imported it — the shape `config-emulators.test.ts` established.
+ */
+describe("a hop count below one refuses the boot", () => {
+    const BASE_ENV = {
+        FIREBASE_PROJECT_ID: "demo-eva-config-test",
+        FIREBASE_WEB_API_KEY: "not-a-real-key",
+        JWT_SECRET: "not-a-real-secret",
+        EMAIL_TRANSPORT: "log",
+        POSTMARK_FROM: "config-test@example.test",
+        PUBLIC_WEB_URL: "http://localhost:4321",
+    };
+
+    const boot = async (hops: string) => {
+        const proc = Bun.spawn(["bun", "run", "src/config.ts"], {
+            cwd: `${import.meta.dir}/..`,
+            env: {
+                PATH: process.env.PATH ?? "",
+                ...BASE_ENV,
+                NODE_ENV: "test",
+                RATE_LIMIT_TRUSTED_PROXY_HOPS: hops,
+            },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+        return { code, stderr };
+    };
+
+    test("0 is refused, and says what it expected", async () => {
+        const { code, stderr } = await boot("0");
+
+        expect(code).not.toBe(0);
+        expect(stderr).toContain("RATE_LIMIT_TRUSTED_PROXY_HOPS");
+        expect(stderr).toContain("at least 1");
+    }, 15_000);
+
+    test("1 and 2 boot", async () => {
+        for (const hops of ["1", "2"]) expect((await boot(hops)).code).toBe(0);
+    }, 15_000);
+});
+
 describe("the routes a credential attack aims at got the backoff", () => {
     test("sign-in and sign-up count addresses with backoff, and callers with a window", () => {
-        const kinds = authLimiterKinds();
+        const shapes = authLimiterShapes();
 
-        expect(kinds.signin.byEmail).toBe("backoff");
-        expect(kinds.signup.byEmail).toBe("backoff");
+        expect(shapes.signin.byEmail.kind).toBe("backoff");
+        expect(shapes.signup.byEmail.kind).toBe("backoff");
         // Per-IP stays a fixed window on purpose: carrier NAT puts many unrelated users
         // behind one address, so an escalating penalty there punishes bystanders for each
         // other's attempts. It is the loose backstop, and it should stay loose.
-        expect(kinds.signin.byIp).toBe("window");
-        expect(kinds.signup.byIp).toBe("window");
+        expect(shapes.signin.byIp.kind).toBe("window");
+        expect(shapes.signup.byIp.kind).toBe("window");
+    });
+
+    test("and with the numbers config declares, not ones that would disable it", () => {
+        // A backoff built with one-second blocks passes every test above and removes the
+        // defence. The arguments are the wiring too.
+        const shapes = authLimiterShapes();
+
+        expect(shapes.signin.byEmail.settings).toEqual({
+            free: config.rateLimit.signinPerEmail,
+            baseSeconds: config.rateLimit.backoffBaseSeconds,
+            maxSeconds: config.rateLimit.windowSeconds,
+            decaySeconds: config.rateLimit.windowSeconds,
+        });
+        expect(shapes.signup.byEmail.settings).toEqual({
+            free: config.rateLimit.signupPerEmail,
+            baseSeconds: config.rateLimit.backoffBaseSeconds,
+            maxSeconds: config.rateLimit.windowSeconds,
+            decaySeconds: config.rateLimit.windowSeconds,
+        });
+        expect(shapes.signin.byIp.settings).toEqual({
+            limit: config.rateLimit.signinPerIp,
+            windowSeconds: config.rateLimit.windowSeconds,
+        });
     });
 
     test("the send-link routes keep their fixed cooldown", () => {
@@ -457,9 +592,13 @@ describe("the routes a credential attack aims at got the backoff", () => {
         // Resend button — not a defence against guessing. Backing it off would make the
         // button's wait vary with how often the address had been asked for, and
         // `authRetryAfterSeconds` quotes that window as a constant precisely so it cannot.
-        const kinds = authLimiterKinds();
+        const shapes = authLimiterShapes();
 
-        expect(kinds.resend.byEmail).toBe("window");
-        expect(kinds.forgot.byEmail).toBe("window");
+        expect(shapes.resend.byEmail.kind).toBe("window");
+        expect(shapes.forgot.byEmail.kind).toBe("window");
+        expect(shapes.resend.byEmail.settings).toEqual({
+            limit: 1,
+            windowSeconds: config.rateLimit.resendPerEmailSeconds,
+        });
     });
 });

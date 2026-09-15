@@ -30,6 +30,11 @@ import { config } from './config'
  * victim's behaviour, not with existence — it is a much weaker signal than a response that
  * simply says so, and it is inherent to per-identifier limiting rather than to this code.
  *
+ * #37 changed its character without removing it. Under the backoff a blocked address gives
+ * back one attempt per cycle rather than `free`, so sampling "was this address used
+ * recently" costs one request instead of eleven, and the answer is a yes/no rather than a
+ * count. Cheaper to ask, less to learn, and still about *activity* rather than existence.
+ *
  * ## Never logs
  *
  * The keys are an email address and a client IP. Nothing in this file writes to the
@@ -65,17 +70,23 @@ export const callerFromForwarded = (
   return caller === '' ? null : caller
 }
 
-export interface RateLimiter {
-  /**
-   * Which penalty shape this limiter applies — a fixed window, or the per-cycle backoff
-   * #37 gave the two routes a credential attack aims at.
-   *
-   * Named rather than inferred because the difference is invisible from `consume` alone
-   * without advancing a clock, and the routes' *wiring* is the part worth pinning: the two
-   * implementations are interchangeable at the call site, so swapping one back would
-   * restore the lockout-you-buy-once that #37 removed and nothing would fail.
-   */
+/**
+ * What a limiter is, as data: which penalty shape it applies and the numbers it was built
+ * with.
+ *
+ * Reported rather than inferred because the difference is invisible from `consume` alone
+ * without advancing a clock, and the *wiring* is the part worth pinning. The two
+ * implementations are interchangeable at the call site, so pointing sign-in's per-address
+ * counter back at a fixed window is a one-line change — and `kind` alone is only a name:
+ * `createBackoffLimiter(free, 1, 1, 1)` is still a backoff, and still removes the defence.
+ * The settings are here so a test can pin both halves against `config.rateLimit`.
+ */
+export interface LimiterShape {
   readonly kind: 'window' | 'backoff'
+  readonly settings: Readonly<Record<string, number>>
+}
+
+export interface RateLimiter extends LimiterShape {
   /** Counts one attempt against `key`, and says whether that attempt is allowed. */
   consume(key: string): boolean
   /** Drops `key`'s counter, if it has one. Used when the identity a key names stops
@@ -121,6 +132,7 @@ export const createRateLimiter = (
 
   return {
     kind: 'window',
+    settings: { limit, windowSeconds },
     consume: (key) => {
       if (limit <= 0 || windowMs <= 0) return true
 
@@ -172,15 +184,39 @@ export const createRateLimiter = (
  * - After `decayMs` with no *served* attempt the record is forgotten entirely and the key
  *   is back to `free`. Quiet costs the owner nothing.
  *
+ * ## What it costs, measured rather than asserted
+ *
+ * This is a trade, and the sentence "at the cap it is no worse than the window it
+ * replaced" — which this comment used to make — is true of the *block length* and false of
+ * everything that matters. Simulated against this code at the defaults (`free = 10`,
+ * `base = 30`, cap = window = 900), an attacker holding one address out:
+ *
+ *     6h of denial     backoff  67 requests   fixed window  240    3.6× cheaper
+ *     24h of denial    backoff 211 requests   fixed window  960    4.5× cheaper
+ *
+ * and with `signinPerIp = 60`, one attacker IP that could hold ~6 addresses out under the
+ * window can hold ~30 under this. The lockout got cheaper. What was bought with it is on
+ * the other side of the ledger: guessing throughput drops about tenfold (ten guesses per
+ * 900s becomes one), and a drive-by burst costs its victim 30 seconds rather than 15
+ * minutes. The dimension itself was never the thing to remove — a distributed attack on
+ * one account is what it exists to stop.
+ *
  * ## The residual, stated rather than discovered later
  *
- * An attacker who wants to *hold* an address out can still do it, by spending the single
- * post-block attempt each cycle. That costs them one request per cycle — cheaper per
- * request than the fixed window, but it is a rent rather than a purchase, it has to be paid
- * forever, and every one of those requests is also spending their per-IP budget, which is
- * the dimension that actually bounds one attacker. Capping at `maxMs` is what keeps this
- * from becoming unbounded: at the cap the scheme is no worse than the fixed window it
- * replaces, and below the cap it is strictly gentler on the person being attacked.
+ * - **Holding an address out is a rent, not a purchase.** One served request per cycle,
+ *   forever, and each one also spends the attacker's per-IP budget. Cheaper than it was,
+ *   as above, but it stops the moment they do.
+ * - **The victim's own retries pay it.** After a block lapses the cycle gives back one
+ *   attempt, and nothing says whose. An attacker who takes it leaves the owner's next
+ *   keystroke to be the request that arms the next block — so under active attack she
+ *   races for one slot per cycle where the window gave her ten.
+ * - **The tier is shed all at once, not gradually.** It survives until the whole record
+ *   decays, so someone whose address was attacked and left alone gets *one* attempt back
+ *   per cycle for as long as the residue lasts: one mistyped password, and the second try
+ *   is refused for as long as the last block was. "Types their password once and is in"
+ *   holds only if she types it correctly.
+ * - The block always expires, and `/auth/password/forgot` is not backed off, so the reset
+ *   path stays open throughout.
  *
  * Per-instance like everything else in this file, and weakened by horizontal scaling in
  * exactly the way ARCHITECTURE §3 records. A better limiter, not a guarantee.
@@ -219,8 +255,14 @@ export const createBackoffLimiter = (
 
   return {
     kind: 'backoff',
+    settings: { free, baseSeconds, maxSeconds, decaySeconds },
     consume: (key) => {
-      if (free <= 0 || baseMs <= 0) return true
+      // The disable switch, and every value that would silently amount to one. `maxMs <= 0`
+      // makes every block zero-length and `decayMs <= 0` forgets each record before it can
+      // be read again — both are `RATE_LIMIT_WINDOW_SECONDS=0`, the documented escape hatch
+      // for local work, arriving here. Stated rather than emergent, so "the backoff is off"
+      // is one condition to read instead of three behaviours to derive.
+      if (free <= 0 || baseMs <= 0 || maxMs <= 0 || decayMs <= 0) return true
 
       const at = now()
       let penalty = penalties.get(key)
@@ -387,6 +429,14 @@ export const consumeAuthAttempt = (
  * the one exception to "never under-states", and it costs a refused request, not a leak:
  * the value still does not vary with the address.) A per-address window of `0` disables
  * that dimension, so the ordinary window is quoted instead of a zero.
+ *
+ * It is also deliberately **not** the backoff's real block (#37). A tier-1 block is 30s
+ * and this still says 900, because the real length is a function of how many times *this
+ * address* has been blocked — quoting it would turn the header into a per-address attack
+ * history readable by anyone who can send one request. The cost is real and is charged to
+ * the user rather than the attacker: #38 holds the app's CTA for exactly what this says,
+ * so the gentler wait the backoff gives a person locked out by someone else does not
+ * reach the app until a bucketed or padded value replaces this one.
  */
 export const authRetryAfterSeconds = (route: AuthRoute): number =>
   route === 'resend' || route === 'forgot'
@@ -417,19 +467,22 @@ export const forgetEmail = (email: string | null): void => {
 }
 
 /**
- * Which penalty shape each auth route's two dimensions apply. Test support — nothing in
- * `src/` calls it — and it exists because the wiring is the part a mutation can quietly
- * undo: `createRateLimiter` and `createBackoffLimiter` satisfy the same interface, so
- * pointing sign-in's per-address counter back at a fixed window is a one-line change that
- * no behavioural test notices without a clock to advance.
+ * How each auth route's two dimensions are wired — the shape and the numbers. Test
+ * support; nothing in `src/` calls it. See `LimiterShape` for why it reports both.
  */
-export const authLimiterKinds = (): Record<AuthRoute, { byIp: string; byEmail: string }> =>
+export const authLimiterShapes = (): Record<
+  AuthRoute,
+  { byIp: LimiterShape; byEmail: LimiterShape }
+> =>
   Object.fromEntries(
     Object.entries(limiters).map(([route, { byIp, byEmail }]) => [
       route,
-      { byIp: byIp.kind, byEmail: byEmail.kind },
+      {
+        byIp: { kind: byIp.kind, settings: byIp.settings },
+        byEmail: { kind: byEmail.kind, settings: byEmail.settings },
+      },
     ]),
-  ) as Record<AuthRoute, { byIp: string; byEmail: string }>
+  ) as Record<AuthRoute, { byIp: LimiterShape; byEmail: LimiterShape }>
 
 /** Drops every auth counter, link routes included. Test support — nothing in `src/`
  *  calls it. */

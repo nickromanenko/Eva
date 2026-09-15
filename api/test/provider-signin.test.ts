@@ -1695,24 +1695,49 @@ describe("the provider routes are throttled, and separately", () => {
     );
 
     test(
-        "a header with fewer hops than configured skips the dimension rather than guessing",
+        "the route reads the configured hop count, and a shorter header skips the dimension",
         async () => {
-            // Fail-safe: bucketing every caller together because the header was not the
-            // shape we expected is an outage, and picking some other entry would be
-            // picking one the caller controls. The per-address limit still applies.
-            expect(config.rateLimit.trustedProxyHops).toBe(1);
+            // The day a load balancer appears in front, `RATE_LIMIT_TRUSTED_PROXY_HOPS=2`
+            // is the whole fix — so what has to be pinned is that the route reads the
+            // knob at all. At the deployed value of `1` it cannot be: a hardcoded `1`
+            // behaves identically, and no header is ever shorter than one entry. Both
+            // become reachable at `2`, which is what this borrows the config for.
+            const deployed = config.rateLimit.trustedProxyHops;
+            expect(deployed).toBe(1);
             idp = () => {
                 throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
             };
 
-            // An empty header is the shortest such shape reachable through a `Request`.
-            let last: Answer | null = null;
-            for (let i = 0; i < overBudget; i++) {
-                last = await post("/auth/idp", appleBody(), { "x-forwarded-for": "" });
-            }
+            try {
+                config.rateLimit.trustedProxyHops = 2;
+                const caller = "198.51.100.88";
 
-            // Never 429: with no usable address the per-IP dimension is skipped entirely.
-            expect(last!.status).not.toBe(429);
+                // Three entries: an invented prefix, the caller, and the entry a balancer
+                // would append. Only the middle one is the same every time. Against a
+                // hardcoded `1` each request keys on its own rightmost entry and none of
+                // them is ever refused.
+                let last: Answer | null = null;
+                for (let i = 0; i < overBudget; i++) {
+                    last = await post("/auth/idp", appleBody(), {
+                        "x-forwarded-for": `10.0.0.${i % 200}, ${caller}, 130.211.0.${i % 200}`,
+                    });
+                }
+                expect(last!.status).toBe(429);
+                expect(last!.body.error.code).toBe("RATE_LIMITED");
+
+                // And the fail-safe: a header with fewer entries than configured skips the
+                // per-IP dimension rather than bucketing everyone together or picking an
+                // entry the caller controls. `401` rather than "not 429" — the request is
+                // answered normally, which is the claim.
+                resetAuthRateLimits();
+                let short: Answer | null = null;
+                for (let i = 0; i < overBudget; i++) {
+                    short = await post("/auth/idp", appleBody(), from("203.0.113.30"));
+                }
+                expect(short!.status).toBe(401);
+            } finally {
+                config.rateLimit.trustedProxyHops = deployed;
+            }
         },
         SLOW,
     );
