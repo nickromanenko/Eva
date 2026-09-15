@@ -121,7 +121,9 @@ const errorName = (err: unknown): string => {
  *
  * Hono routes only a thrown **`Error`** here — `#handleError` rethrows anything else at
  * the runtime, which answers its own unshaped 500. `wrapNonErrors` below closes that, so
- * every throw reaches this handler and `errorName` never sees a bare `typeof` any more.
+ * every throw now arrives here. (`errorName`'s `typeof` branch was never reached even
+ * before that, for the same reason: Hono only ever called this handler with an `Error`.
+ * It stays as a floor, not because anything changed about it.)
  */
 app.onError((err, c) => {
     // Short enough to read out over a support call, random enough to be unique among the
@@ -181,11 +183,28 @@ const nonErrorName = (value: unknown): string => {
  * issue assumed otherwise: the throttle is not middleware. `throttleAuth`, `throttleToken`
  * and `throttleProvider` are plain calls at the top of each handler, inside the route this
  * wraps. Nothing about their order changes, and a 429 is a returned response rather than a
- * throw, so it never touches the `catch` below.
+ * throw, so it never touches the `catch` below. Every shaped 4xx is likewise a *returned*
+ * response, which this never inspects or replaces.
+ *
+ * **One exception, found in review and stated rather than glossed.** `noStore` (below) sets
+ * its header *after* `await next()`, so a throw passing through it skips that line: a
+ * non-`Error` thrown inside `/auth/activate` or `/auth/password/reset` answers a shaped 500
+ * without `cache-control: no-store`. That is pre-existing — before this middleware such a
+ * throw escaped to the runtime and got no shape at all — and near-harmless, since the body
+ * is the constant `INTERNAL` message and a ref. It is filed, not fixed here, because
+ * `noStore` belongs to #6 and this issue does not touch it.
  *
  * The wrapper carries **no `cause`**, deliberately. `cause` would retain the thrown value,
  * and the next person to improve this log line would find it there — which is exactly the
- * payload `nonErrorName` exists to keep out. The type is the whole of what is kept.
+ * payload `nonErrorName` exists to keep out. The type is the whole of what is kept. Note
+ * that nothing *tests* the absence: what a test can see is the log line's exact field set,
+ * asserted in `unhandled-errors.test.ts`, which fails the moment a field is added.
+ *
+ * **Keep this block free of per-request state.** It is now the only code that runs on every
+ * request, including unmatched paths, before any authentication — so a counter, a cache or
+ * a log keyed by anything the caller controls would be an unauthenticated, unthrottled
+ * surface reachable with `/x/<random>`. A `try`/`catch` and nothing else is what makes it
+ * safe to sit there.
  */
 const wrapNonErrors = createMiddleware(async (c, next) => {
     try {

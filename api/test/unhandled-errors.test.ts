@@ -549,8 +549,16 @@ describe("a throw that is not an Error, and a path that is not a route", () => {
     /**
      * The reason the log line records a type and not a value. A thrown object can be
      * anything the throwing code had to hand, and in this codebase the things to hand are
-     * a uid, an address, and a day somebody logged a symptom on (GUARDRAILS 12). Every
-     * string in it is already in `LEAKS`, so `expectNoLeak` is what checks the claim.
+     * a uid, an address, and a day somebody logged a symptom on (GUARDRAILS 12).
+     *
+     * **`expectNoLeak` is the weaker assertion on this object, not the stronger** — worth
+     * saying, because the opposite is the natural assumption. `String({…})` is
+     * `"[object Object]"`, which leaks nothing, so a stringifying implementation slips past
+     * it; what it catches here is a `JSON.stringify`. The assertion carrying the claim is
+     * `errorName` being exactly `NonErrorObject`, together with the exact-field-set check
+     * in the first case: `ERROR_NAME` collapses anything not identifier-shaped to
+     * `"unknown"`, so an implementation that put part of the value in that field fails, and
+     * one that added a field to carry it fails the other.
      */
     const payloadObject = {
         uid: UID,
@@ -624,21 +632,34 @@ describe("a throw that is not an Error, and a path that is not a route", () => {
     );
 
     test(
-        "#5's 429 still reaches the caller with its header, through the new middleware",
+        "a refusal carries Retry-After and writes no unhandled-error line",
         async () => {
-            // The risk the wildcard middleware actually carries: it sits in front of every
-            // route, so a mistake there is a mistake everywhere, and the shaped responses
-            // #32, #5 and #48 established are what it must not swallow. A 429 is the one
-            // to pin — it is returned from inside the handler, before any Firestore call,
-            // which is the path furthest from the `catch`.
-            // Firestore stays down throughout so the five spending requests write nothing
-            // to the real project; each of them is a shaped 500, which is not what this
-            // test is about — the sixth is.
+            // **Not a regression guard for the wildcard middleware**, despite sitting in
+            // this describe — and the honest name matters, because the obvious name for it
+            // would be a claim the next reader acts on. A 429 is a *returned* response and
+            // the wrapper only has a `catch`, so there is no path by which removing the
+            // middleware could fail this: it stays green with either new line deleted.
+            //
+            // It was written to discharge the issue's "check that it does not disturb #5's
+            // throttle" criterion, and what it actually established is that the criterion's
+            // premise was wrong — the throttle is not middleware, it is a call at the top of
+            // each handler. Kept for the `Retry-After` assertion, which nothing else makes.
+            //
+            // Firestore stays down throughout, so the spending requests write nothing to the
+            // real project. Asserted rather than assumed: if the mocked `issueToken` stopped
+            // throwing they would be real sign-ups sending real mail, and this test would
+            // still have been green.
             tokenStore = firestoreUnavailable;
             const email = "e2e+unhandled-errors-throttle@e2e.evaapp.dev";
-            // `signupPerEmail` is 5; the sixth is refused before the handler does any work.
-            for (let i = 0; i < 5; i += 1) await signup(email);
+            // From config, the way the throttle test above this one reads it. The limit is
+            // env-overridable (`RATE_LIMIT_SIGNUP_PER_EMAIL`), and a hardcoded 5 would stop
+            // testing the boundary the moment anyone changed it — silently, and green.
+            const limit = config.rateLimit.signupPerEmail;
+            for (let i = 0; i < limit; i += 1) {
+                expect((await signup(email)).status).toBe(500);
+            }
             const spent = logged.length;
+            expect(spent).toBe(limit);
             const refused = await signup(email);
 
             expect(refused.status).toBe(429);
