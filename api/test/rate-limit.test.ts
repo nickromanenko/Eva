@@ -347,6 +347,29 @@ describe("per-address backoff", () => {
         expect(l.consume("her@example.test")).toBe(false);
     });
 
+    test("a served attempt pushes the decay out, so frequent use never sheds the tier", () => {
+        // The other half of the record's lifetime, and the residual ARCHITECTURE §3 now
+        // states: a tier is shed only by `decayMs` of silence, and every *served* attempt
+        // restarts that clock. Someone signing in more often than once per window keeps
+        // their tier indefinitely — which is why "the owner types their password once and
+        // is in" holds for the first attempt and no further.
+        const time = clock();
+        const l = intoFirstBlock(time);
+
+        // Out of the block, and take the one attempt the cycle gives back. That attempt is
+        // what restarts the decay: without it the record would expire `decayMs` after the
+        // block armed, one second before the assertion below.
+        time.advance(BASE + 1);
+        expect(l.consume("her@example.test")).toBe(true);
+
+        // A whole decay later, minus a second. The record is still alive and still tiered,
+        // so this is the second attempt of the cycle and it is refused. If the served
+        // branch did not refresh `forgetAt`, the record would have just been dropped and
+        // this would be the first of a fresh free allowance.
+        time.advance(DECAY - 1);
+        expect(l.consume("her@example.test")).toBe(false);
+    });
+
     test("the block is capped, so at worst it is the fixed window it replaced", () => {
         const time = clock();
         const l = intoFirstBlock(time);
@@ -391,13 +414,14 @@ describe("per-address backoff", () => {
         expect(l.consume("her@example.test")).toBe(true);
     });
 
-    test("and so does a cap or a decay of 0, each on its own", () => {
+    test("and so does a cap of 0, the shape `RATE_LIMIT_WINDOW_SECONDS=0` reaches it as", () => {
         // `RATE_LIMIT_WINDOW_SECONDS=0` reaches this limiter as both `maxSeconds` and
-        // `decaySeconds`, and with both at zero the limiter lets everything through with or
-        // without the guard — the same outcome by accident, which is why the guard exists.
-        // Driven one at a time, because that is the pair the guard actually decides: with a
-        // cap of 0 and a live decay, a limiter without it would count, block for zero
-        // seconds, and climb a tier ladder nobody can observe.
+        // `decaySeconds`. Only the `maxSeconds` half is falsifiable, and it is the pair
+        // below that carries this test: a cap of 0 with a live decay would, without the
+        // guard, count attempts, block for zero seconds, and climb a tier ladder nobody can
+        // observe. The `decaySeconds = 0` rows are documentation — a record whose
+        // `forgetAt` equals its creation instant is dropped by the next `consume` whether
+        // the guard is there or not, so nothing about them can fail.
         for (const [maxSeconds, decaySeconds] of [
             [0, 900],
             [900, 0],

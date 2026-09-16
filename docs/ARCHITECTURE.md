@@ -595,8 +595,9 @@ theoretical:
 - **The victim's own retries pay the rent, and roughly halve it.** An expired block gives
   back one attempt and nothing says whose. An attacker who spends it leaves the owner's next
   keystroke to be the request that arms the next block — so under active attack she races
-  for one slot per cycle where the window gave her ten, and the six-hour figure above drops
-  from 65 attacker requests to 38.
+  for one slot per cycle where the window gave her ten. The six-hour figure above drops
+  from 65 attacker requests to 38 — the *per-cycle* rent halves, from two requests to one,
+  while the opening burst of eleven is paid either way.
 - **The tier is shed all at once.** It lives until the whole record decays, so after an
   attack ends the address still gets one attempt per cycle. A second attempt inside the
   residue — a mistyped password, a correct one on a second device, the app's own retry after

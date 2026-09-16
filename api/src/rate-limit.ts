@@ -211,8 +211,9 @@ export const createRateLimiter = (
  * - **The victim's own retries pay it, and roughly halve it.** After a block lapses the
  *   cycle gives back one attempt, and nothing says whose. An attacker who takes it leaves
  *   the owner's next keystroke to be the request that arms the next block — so under active
- *   attack she races for one slot per cycle where the window gave her ten, and the six-hour
- *   figure above falls from 65 attacker requests to 38.
+ *   attack she races for one slot per cycle where the window gave her ten. The six-hour
+ *   figure above falls from 65 attacker requests to 38: the per-cycle rent halves, two
+ *   requests to one, while the opening burst of eleven is paid either way.
  * - **The tier is shed all at once, not gradually.** It survives until the whole record
  *   decays, so someone whose address was attacked and left alone gets *one* attempt back
  *   per cycle for as long as the residue lasts. The second attempt inside a cycle is
