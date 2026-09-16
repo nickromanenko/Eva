@@ -76,13 +76,14 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `users.ts` | The `users/{uid}` document: read, create, update, mark deleted, delete, list IDs | The only module that touches `users/` |
 | `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all | The only module that touches `events/` |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
+| `content.ts` | The `content/` collection: the Dashboard's words — card templates, banners, nudges — and the version they are cached against | The only module that touches `content/`; refuses a write carrying no reviewer |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
 
 Layering: `index.ts` → (`auth`, `identity-toolkit`, `providers`, `rate-limit`, `users`,
-`events`, `refdata`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward,
+`events`, `refdata`, `content`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward,
 never sideways along the middle row.
 
 ### Contracts
@@ -125,6 +126,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
+| `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
 
 **Sign-up hands out no session (#6).** The account exists after `201`, but the address is
 not proven, and `POST /auth/signin` refuses it with `403 NOT_ACTIVATED` until it is. The
@@ -790,7 +792,7 @@ may want to undo, deleting an account is a decision about all of it, and a recov
 inside an account that no longer exists is a promise to nobody. Nothing else is keyed to a
 uid except `authTokens/` (#6), which goes with it — by address as well as by uid, since a
 token issued before its account existed has no uid to be found by (#120), and the address
-is the sensitive thing those documents hold. `refdata/` is global, and the `/auth/*`
+is the sensitive thing those documents hold. `refdata/` and `content/` are global, and the `/auth/*`
 throttle's counters are in memory and keyed by address and IP rather than by account.
 
 The order is the design, because a partial failure has to be safe *and* resumable:
@@ -907,6 +909,74 @@ surface. Removal is deliberately not a flag on the seeder — a re-seed must nev
 to take an option away. Retired codes stay listed in the seed file carrying
 `status: 'retired'`, so a project seeded for the first time reproduces the retirements
 instead of depending on the retire script having been run against it afterwards.
+
+`content/{contentId}` — the Dashboard's words, one document per kind
+(`templates`, `banners`, `nudges`). Owned by `api/src/content.ts`, served by
+`GET /content`, seeded with `cd api && bun run seed:content`. Same shape and the same
+reasoning as `refdata/` above: copy is data, not code, and the client caches it against a
+content-derived `version` and revalidates with `?version=` or `If-None-Match` (#97).
+
+```
+items[]        templates: { id, rung, mode, state, confidence: 'hedged' | 'plain',
+                            tone?, kicker?, title, line2?, line3?, meta?, actions[],
+                            slots[], status, order }
+               banners:   { id, phase, mode, focus, title, meta, url, status, order }
+               nudges:    { id, withinDays: number | null, trigger, text, sub?,
+                            action, status, order }
+reviewedBy     string            // who signed this copy off
+reviewedAt     string            // ISO date
+source         string            // what they reviewed it against
+updatedAt      serverTimestamp   // not served, and not part of the version
+```
+
+Three things differ from `refdata/`, and each is the point of the collection:
+
+- **This repo's tooling will not write a document with no reviewer.** `applyContent`
+  throws `UnreviewedContentError` unless all three of `reviewedBy`, `reviewedAt` and
+  `source` are non-empty, and the seed ships with them blank — so seeding the real
+  project needs a person's name added in a commit, not a flag (PRD §Dashboard, Other
+  requirements 4: clinical content follows the same review requirement as the rest of
+  the product, and #26 has no retained clinician yet). There is deliberately no argument
+  or env var that gets past it; a test drives the script with the obvious candidates and
+  requires a refusal. The refusal is transitive as far as it goes: a document that
+  already holds items under a *missing* signature is refused rather than merged into and
+  re-signed. It is **not per-item provenance** — the signature is on the document, and
+  the merge is additive, so an item somebody added in the console *under an existing
+  signature* is carried forward by the next seed and written out under the next
+  reviewer's name. The record can say the wrong person reviewed a line while every
+  document in the collection is properly signed.
+
+  **Two paths still write unsigned, and the read path does not re-check.** The Firebase
+  console bypasses the module entirely — the Admin SDK is the only way in, and a person
+  with project access is one of the ways in. `retireContent` is the other: flipping an
+  item to `retired` changes what is served and takes no `Review`, so the stored signature
+  keeps covering items it no longer exactly describes. `GET /content` serves what the
+  collection holds rather than re-validating it, deliberately: a signature check on the
+  read path would blank the Dashboard on an operator's typo. So the guarantee is "the
+  supported way to change this copy makes you sign it", not "everything served is
+  signed"; a release check has to look at the collection, not only at the code.
+- **The signature is stored beside the items, never inside them, and is not hashed.**
+  Who reviewed the copy is an operational fact the device has no use for, so it is in
+  neither the body nor the `version` — re-reviewing the same words must not push a new
+  bundle to everyone.
+- **Templates may only *declare* an enumerated slot** (`SLOTS` in `content.ts`:
+  `cycleDay`, `phase`, `pregnancyWeek`, …), and the parser drops any other name from the
+  `slots` list on the way out — the string keeps whatever `{placeholder}` it was written
+  with, which is #145. What that bounds is the set of computed values a card can ever be filled
+  with: no score, streak or cross-user comparison can reach a card without adding a slot
+  in code, under review. What it does **not** bound is what a card *says* — `title`,
+  `line2` and the rest are free text and are served verbatim, so a document written in
+  the console can assert anything in prose. PRD §Dashboard's "no comparison to other
+  users, no scores for the person, no streaks" is held by both halves together: `SLOTS`
+  for the computed half, the review requirement above for the words.
+
+Ids are permanent and opaque and nothing is deleted, only retired (`retireContent`),
+exactly as for `refdata/` — a retired item is still served so an already-rendered card
+still resolves. Until someone seeds it the collection is simply empty: `GET /content`
+answers `200` with three empty arrays and warns on the server the way `refdata.ts` does,
+because a Dashboard with no copy is a deployment state, not a request error. The empty
+bundle is the one result the 60s cache does not hold, so an instance is serving the real
+copy within a request of the seed rather than a minute later.
 
 **Planned (A3, A9 — §8 and §9 below; not yet in code):**
 
@@ -1240,6 +1310,7 @@ cache of the server's shape, not a second schema:
 |---|---|---|
 | `LocalEvent` | `EvaEvent` (§4) | `serverId` (nullable until acknowledged) + `clientId` (UUID, created on device, **is** the `idempotencyKey`) |
 | `LocalRefdata` | `/refdata` catalogues + `version` | catalogue id |
+| `LocalContent` | `/content` templates, banners, nudges + `version` | content id |
 | `LocalTodayCard` | the Dashboard card (#10, when it exists) | date |
 | `PendingOperation` | the queue (§8.4) | FIFO sequence |
 
@@ -1343,7 +1414,7 @@ entry on the server. `scripts/e2e.sh` gains that flow against the real API.
 ### 8.7 What this adds to GUARDRAILS.md (in the implementation PR, not here)
 
 - Screens read the local store; only the sync engine calls `/me/events`, `/me/body-signals`
-  and `/refdata`.
+  and `/refdata` — and `/content`, which caches by the same `version` handshake (#97).
 - Every created event carries a device-generated `idempotencyKey`; the API's lookup on it is
   a pinned test.
 - The store is excluded from backups and wiped on log-out, account deletion and
