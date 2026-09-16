@@ -212,6 +212,54 @@ export const getEvent = async (uid: string, id: string): Promise<EvaEvent | null
   return toEvent(snapshot)
 }
 
+/**
+ * The newest `updatedAt` across *every* entry, soft-deleted ones included — the Today
+ * card's "has her data moved" signal (#98, D3).
+ *
+ * Soft-deleted entries are the reason this exists rather than a scan of `listEvents`:
+ * deleting an entry is exactly a change the card must be regenerated for, and a deleted
+ * entry is invisible to every other read in this file. Every write here stamps
+ * `updatedAt` — create, edit, soft delete, restore — so one ordered read answers all four.
+ *
+ * `null` for an account that has never logged anything. A *purge* can move this backwards,
+ * which cannot move a card: a purge only removes entries soft-deleted 30 days ago, and
+ * nothing that old is in today's card.
+ */
+export const lastEventChangeAt = async (uid: string): Promise<string | null> => {
+  const snapshot = await events(uid).orderBy('updatedAt', 'desc').limit(1).get()
+  return toIso(snapshot.docs[0]?.get('updatedAt'))
+}
+
+/** How many of the most recent entries `lastLoggedDate` reads before giving up. A bound
+ *  rather than a filter, because `deletedAt` cannot be combined with an ordered range on
+ *  `localDate` without a composite index — and an index is a deploy a human gates. */
+const LAST_LOG_SCAN = 50
+
+/**
+ * The most recent day on or before `onOrBefore` that carries a live entry of any kind —
+ * what D1's `daysSinceLastLog` is measured from, and what tells its cold-start card that
+ * this is a first open (#98).
+ *
+ * Capped at `LAST_LOG_SCAN` entries: a user whose last fifty entries on or before that day
+ * are *all* soft-deleted reads as "nothing logged". That direction is the safe one — it
+ * shows the card that explains what to log — and it is unreachable for anyone who has not
+ * deleted fifty entries without logging since.
+ */
+export const lastLoggedDate = async (
+  uid: string,
+  onOrBefore: string,
+): Promise<string | null> => {
+  const snapshot = await events(uid)
+    .where('localDate', '<=', onOrBefore)
+    .orderBy('localDate', 'desc')
+    .limit(LAST_LOG_SCAN)
+    .get()
+  for (const doc of snapshot.docs) {
+    if (doc.get('deletedAt') === null) return doc.get('localDate') as string
+  }
+  return null
+}
+
 export const updateEvent = async (
   uid: string,
   id: string,

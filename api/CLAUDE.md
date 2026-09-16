@@ -32,8 +32,10 @@ before a PR that touches `content.ts`.
 
 ```
 index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.ts · users.ts
-         ──► events.ts · refdata.ts · email.ts · email-tokens.ts
+         ──► events.ts · today.ts · refdata.ts · email.ts · email-tokens.ts
          ──► firebase.ts · config.ts
+
+today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts
 ```
 
 - `index.ts` — routes, validation, HTTP mapping. **No Firestore, no outbound fetch.**
@@ -100,6 +102,28 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   the irregularity band arrive as C11's own answers, so no number here can drift from the one
   the calendar draws. Its single import is an `import type` from `content.ts`, erased at
   compile time — see ARCHITECTURE §3 for why the vocabulary is shared and the module is not.
+- `today.ts` — the only module that touches `users/{uid}/today/`: the Today card, one
+  document per the user's local date (#98, slice D3 of #10). It is the *join* between the
+  three modules above it — it gathers the ladder's inputs from `events.ts` and `users.ts`,
+  asks `dashboard-rules.ts` for the subject, fills the template `content.ts` holds for that
+  id, and caches the result. It is therefore the one module that calls sideways, and it does
+  so through exported functions only; the reads it needed (`lastEventChangeAt`,
+  `lastLoggedDate`, `lastUserChangeAt`) were added to the owning modules rather than
+  performed here. ARCHITECTURE §3 says why the join has nowhere better to live.
+  - **The card's subject is not the phraser's to choose.** `Phraser` returns *text*; the
+    stored card's `templateId` and `rung` are copied from D1's `Subject`, so neither this
+    phraser nor D9's model one can name a different card (PRD §Dashboard: "the message
+    subject is never free-generated"). `TemplatePhraser` also treats confidence as a
+    **filter**, not a preference — a hedged subject cannot be rendered by plain copy — and
+    drops any line whose slot has no value rather than showing `{category}` or inventing a
+    placeholder.
+  - **A refresh is not a change.** The stored document is returned untouched unless her own
+    data moved after it was built; new copy in `content/` is deliberately not such a change.
+    The comparison is against a stored `dataChangedAt`, not against `generatedAt` — see
+    ARCHITECTURE §4 for why that distinction is the whole rule.
+  - Never log a card, a slot value or a signal, and never the template id: which card a user
+    was about to see is derived from her logs, so `late_period` in a log line is a health
+    fact about a named request (GUARDRAILS 12).
 - `firebase.ts` — Admin SDK singleton. Never initialize a second app.
 - `config.ts` — required env vars, fail-fast.
 
