@@ -209,6 +209,42 @@ layers, ours and Identity Toolkit's own collapse of both cases upstream, so a re
 ours would not be visible from outside. `api/test/signin-non-enumeration.test.ts` pins it by
 controlling the upstream boundary.
 
+**And identically in time (#34), which it did not used to.** Byte-identical was never
+time-identical: Identity Toolkit refuses an address it has no record of without verifying a
+password hash, and the difference is measurable from outside. Measured against the real
+project, one fresh address per sample so neither branch is competing with the upstream's own
+per-identifier throttle:
+
+| branch | p50 | p95 |
+|---|---|---|
+| registered, wrong password | 196.5ms | 277.3ms |
+| never registered | 166.9ms | 265.3ms |
+| **difference** | **mean 21.3ms, median 29.6ms, z = 3.01** | ~70 samples per branch for 80% power |
+
+So the channel is real, and `/auth/signin` now answers no sooner than `SIGNIN_FLOOR_MS`
+(350ms) whichever branch it took. It costs the person the route exists for nothing: a
+*successful* sign-in additionally reads and writes `users/{uid}` and mints a token, which
+measured min 464.9ms and p50 866.2ms — already past the floor. Someone who mistyped their
+password waits an extra tenth of a second on a request that was going to fail.
+
+Three things about that, stated rather than discovered later:
+
+- **It is a floor, not a constant delay.** When the upstream is slower than the floor
+  nothing is added, and the residue is the upstream's own variance rather than the
+  difference between doing the work and not doing it. Under enough load to push both
+  branches past 350ms the channel comes back, which is why the number has headroom rather
+  than sitting just above the measured p95.
+- **The throttle's own answers are outside the floor.** A `400 VALIDATION` and a
+  `429 RATE_LIMITED` return immediately. Neither depends on whether the address has an
+  account, and padding a refusal would mean paying a held connection for every attempt an
+  attacker makes.
+- **It is worth far less than it looks**, and that is the honest scale: `POST /auth/signup`
+  hands out the same fact flatly, in one request, as `409` against `201` — which the
+  paragraph below argues for on its own terms. Before the floor, deciding one address
+  through the clock took ~70 samples, which under the per-address backoff (#37) is roughly
+  fourteen hours. The floor was still worth adding because it is nearly free; it is not what
+  stands between an attacker and that question.
+
 `POST /auth/signup` deliberately does the **opposite** and returns `EMAIL_EXISTS` — the
 caller already holds the address, and the canvas' account-linking banner depends on knowing.
 The asymmetry is intended; do not "fix" it.

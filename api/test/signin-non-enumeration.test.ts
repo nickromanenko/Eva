@@ -71,6 +71,16 @@ const { default: server } = await import("../src/index");
 // Both addresses follow the e2e+*@e2e.evaapp.dev sweep pattern (GUARDRAILS 16) out of
 // habit only — the upstream is mocked, so neither account is ever created. The local
 // parts are distinctive so a leak of the address is findable by substring.
+/**
+ * `SIGNIN_FLOOR_MS` in `src/index.ts`, restated here rather than exported.
+ *
+ * Exporting it would let the route and its test drift together — the constant could be
+ * lowered to nothing and the assertion would follow it down. A second copy is the thing
+ * that has to be changed deliberately, in the same commit, by somebody who then has to
+ * say why.
+ */
+const SIGNIN_FLOOR_MS = 350;
+
 const REGISTERED = "e2e+registered-account@e2e.evaapp.dev";
 const UNKNOWN = "e2e+never-registered@e2e.evaapp.dev";
 const PASSWORD = "correct-horse-8";
@@ -129,6 +139,32 @@ describe("signin does not reveal whether an address is registered", () => {
         // field this test does not know to look at — shows up as a difference here.
         expect(wrongPassword.text).toBe(unknownAddress.text);
         expect(wrongPassword.headers).toBe(unknownAddress.headers);
+    });
+
+    test("and both answers take at least as long as the floor (#34)", async () => {
+        // Byte-identical was never time-identical: Identity Toolkit refuses an address it
+        // has no record of without verifying a password hash, which measured 21.3ms faster
+        // (median 29.6ms, z = 3.01) across 40 fresh addresses per branch against the real
+        // project. `SIGNIN_FLOOR_MS` holds both above that difference.
+        //
+        // Asserted as a floor on each branch rather than as a difference between them,
+        // because a difference is a measurement and would flake: what the route promises is
+        // that neither branch can answer sooner than the floor, and that is what makes them
+        // indistinguishable below it. `timed` returns the wall clock around one request.
+        const timed = async (email: string, password: string): Promise<number> => {
+            const started = Date.now();
+            expect((await post("/auth/signin", { email, password })).status).toBe(401);
+            return Date.now() - started;
+        };
+
+        const wrongPassword = await timed(REGISTERED, "wrong-password-2");
+        const unknownAddress = await timed(UNKNOWN, PASSWORD);
+
+        // The number is one below the constant, not the constant: `Date.now()` is measured
+        // around the call and `setTimeout` is allowed to fire a millisecond early.
+        for (const elapsed of [wrongPassword, unknownAddress]) {
+            expect(elapsed).toBeGreaterThanOrEqual(SIGNIN_FLOOR_MS - 1);
+        }
     });
 
     test("neither answer carries the upstream reason, the address, or the password", async () => {
@@ -444,7 +480,10 @@ describe("the /auth/* throttle", () => {
             { "x-forwarded-for": "198.51.100.4" },
         );
         expect(elsewhere.status).toBe(401);
-    });
+        // 60 sequential sign-ins, each held to `SIGNIN_FLOOR_MS` by the route (#34), so
+        // this case cannot finish inside the file's 20s default any more. The cost is the
+        // floor's, not this test's: it is the same 60 requests it always made.
+    }, 60_000);
 
     test("a forged X-Forwarded-For prefix does not buy a fresh per-IP budget", async () => {
         // Cloud Run appends the address it accepted the connection from, so the rightmost
@@ -466,5 +505,6 @@ describe("the /auth/* throttle", () => {
             { "x-forwarded-for": "10.0.0.1, 203.0.113.7" },
         );
         expect(forged.status).toBe(429);
-    });
+        // Same 61 sequential requests, same reason for the raised ceiling as above.
+    }, 60_000);
 });
