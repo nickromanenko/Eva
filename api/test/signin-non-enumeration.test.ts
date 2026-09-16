@@ -71,6 +71,29 @@ const { default: server } = await import("../src/index");
 // Both addresses follow the e2e+*@e2e.evaapp.dev sweep pattern (GUARDRAILS 16) out of
 // habit only — the upstream is mocked, so neither account is ever created. The local
 // parts are distinctive so a leak of the address is findable by substring.
+/**
+ * `SIGNIN_FLOOR_MS` in `src/index.ts`, restated here rather than exported.
+ *
+ * Exporting it would let the route and its test drift together — the constant could be
+ * lowered to nothing and the assertion would follow it down. A second copy is the thing
+ * that has to be changed deliberately, in the same commit, by somebody who then has to
+ * say why.
+ */
+const SIGNIN_FLOOR_MS = 350;
+
+/**
+ * The ceiling for the two cases that sweep a whole per-IP budget.
+ *
+ * Derived rather than written down, because the cost it covers is
+ * `signinPerIp × SIGNIN_FLOOR_MS` and both of those move: raise the budget or the floor and
+ * a literal would fail with a timeout naming neither. Three times the floored cost, which is
+ * the same slack 60s gave when this was written.
+ */
+const SWEEP_TIMEOUT_MS = Math.max(
+    60_000,
+    (config.rateLimit.signinPerIp + 2) * SIGNIN_FLOOR_MS * 3,
+);
+
 const REGISTERED = "e2e+registered-account@e2e.evaapp.dev";
 const UNKNOWN = "e2e+never-registered@e2e.evaapp.dev";
 const PASSWORD = "correct-horse-8";
@@ -106,6 +129,12 @@ const post = async (
 };
 
 describe("signin does not reveal whether an address is registered", () => {
+    // The floor cases below spend real budget — eleven requests for the throttled one —
+    // against a per-IP counter this describe used to share across every case without ever
+    // clearing it. Harmless at the default 60, and a lowered `RATE_LIMIT_SIGNIN_PER_IP`
+    // would otherwise start answering these with 429s that some of them do not check for.
+    beforeEach(() => resetAuthRateLimits());
+
     test("a wrong password and an unknown address get the same answer", async () => {
         const wrongPassword = await post("/auth/signin", {
             email: REGISTERED,
@@ -130,6 +159,80 @@ describe("signin does not reveal whether an address is registered", () => {
         expect(wrongPassword.text).toBe(unknownAddress.text);
         expect(wrongPassword.headers).toBe(unknownAddress.headers);
     });
+
+    test("and both answers take at least as long as the floor (#34)", async () => {
+        // Byte-identical was never time-identical: Identity Toolkit refuses an address it
+        // has no record of without verifying a password hash, which measured 21.3ms faster
+        // (median 29.6ms, z = 3.01) across 40 fresh addresses per branch against the real
+        // project. `SIGNIN_FLOOR_MS` holds both above that difference.
+        //
+        // Asserted as a floor on each branch rather than as a difference between them,
+        // because a difference is a measurement and would flake: what the route promises is
+        // that neither branch can answer sooner than the floor, and that is what makes them
+        // indistinguishable below it. `timed` returns the wall clock around one request.
+        const timed = async (email: string, password: string): Promise<number> => {
+            // `performance.now()`, not `Date.now()`: the wall clock can step under NTP, and
+            // a backwards step would flake this while a forwards one could pass a run where
+            // the floor had been removed.
+            const started = performance.now();
+            expect((await post("/auth/signin", { email, password })).status).toBe(401);
+            return performance.now() - started;
+        };
+
+        const wrongPassword = await timed(REGISTERED, "wrong-password-2");
+        const unknownAddress = await timed(UNKNOWN, PASSWORD);
+
+        // The number is one below the constant, not the constant: the clock is read around
+        // the call and `setTimeout` is allowed to fire a millisecond early.
+        for (const elapsed of [wrongPassword, unknownAddress]) {
+            expect(elapsed).toBeGreaterThanOrEqual(SIGNIN_FLOOR_MS - 1);
+        }
+
+        // Both directions on the constant itself, from the measurements in ARCHITECTURE §3.
+        // Below the failing branches' p95 the floor stops covering them; above the fastest
+        // successful sign-in it starts charging the person the route exists for. Lowering it
+        // in `index.ts` alone fails the assertions above; lowering it in both fails these.
+        expect(SIGNIN_FLOOR_MS).toBeGreaterThanOrEqual(280);
+        expect(SIGNIN_FLOOR_MS).toBeLessThan(465);
+
+        // And an upper bound on what the route actually did, not only on the test's copy
+        // of the constant: raising `SIGNIN_FLOOR_MS` in `index.ts` alone is the direction
+        // that starts charging successful sign-ins, and the assertions above are one-sided.
+        // Loose enough that only a wildly raised floor trips it.
+        for (const elapsed of [wrongPassword, unknownAddress]) {
+            expect(elapsed).toBeLessThan(2_000);
+        }
+
+        // Both samples above leave through the *same* `return`, because this file's mock
+        // makes every sign-in fail upstream — so this pins the floor, not its width. That
+        // `atLeast` wraps the whole handler rather than one branch is pinned in
+        // `auth-upstream-failures.test.ts`, on a stubbed-outage `503`: every other non-401
+        // branch does real upstream and Firestore work and already exceeds the floor, which
+        // is why wrapping them is free and also why they cannot see the difference.
+    });
+
+    test("but a throttled answer is not floored, so refusing stays cheap", async () => {
+        // Deliberately outside the floor, and stated as a decision in ARCHITECTURE §3: the
+        // budget is spent on arrival, keyed by the *submitted* address, before Identity
+        // Toolkit is asked anything — so a 429 is a function of the caller's own history,
+        // which they already know. Padding it would buy nothing and would make every
+        // refused attempt cost a held connection, which is what an attacker's traffic
+        // becomes. Moving `throttleAuth` inside `atLeast` is the mutation this catches.
+        const email = `e2e+floor-429-${crypto.randomUUID()}@e2e.evaapp.dev`;
+
+        let refused: Answer | null = null;
+        let elapsed = 0;
+        for (let i = 0; i <= SIGNIN_PER_EMAIL; i++) {
+            const started = performance.now();
+            refused = await post("/auth/signin", { email, password: PASSWORD });
+            elapsed = performance.now() - started;
+        }
+
+        expect(refused!.status).toBe(429);
+        // Comfortably inside the floor rather than merely under it: a refusal is a map
+        // lookup and a constant response, and half the floor is generous for that.
+        expect(elapsed).toBeLessThan(SIGNIN_FLOOR_MS / 2);
+    }, (config.rateLimit.signinPerEmail + 2) * SIGNIN_FLOOR_MS * 3);
 
     test("neither answer carries the upstream reason, the address, or the password", async () => {
         // Equality alone would not catch a leak that is identical in both branches, e.g.
@@ -444,7 +547,10 @@ describe("the /auth/* throttle", () => {
             { "x-forwarded-for": "198.51.100.4" },
         );
         expect(elsewhere.status).toBe(401);
-    });
+        // 62 requests, 61 of them held to `SIGNIN_FLOOR_MS` by the route (#34) — only the
+        // 429 is free — so this case cannot finish inside the file's 20s default any more. The cost is the floor's,
+        // not this test's: it is the same requests it always made.
+    }, SWEEP_TIMEOUT_MS);
 
     test("a forged X-Forwarded-For prefix does not buy a fresh per-IP budget", async () => {
         // Cloud Run appends the address it accepted the connection from, so the rightmost
@@ -466,5 +572,6 @@ describe("the /auth/* throttle", () => {
             { "x-forwarded-for": "10.0.0.1, 203.0.113.7" },
         );
         expect(forged.status).toBe(429);
-    });
+        // Same shape, 60 of them reaching the floor, same reason for the raised ceiling.
+    }, SWEEP_TIMEOUT_MS);
 });

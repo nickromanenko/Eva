@@ -496,52 +496,62 @@ app.post("/auth/signin", async (c) => {
     const throttled = throttleAuth(c, "signin", email);
     if (throttled) return throttled;
 
-    try {
-        const { localId } = await signInWithPassword(email, password);
-        // Self-healing: also the attach point for future providers (same uid → same doc).
-        const user = await ensureUser(localId, email, "password");
-        // `null` means the account is being deleted. The credentials are real, and that is
-        // exactly why this must not mint a token: signing in is the one path that could
-        // otherwise walk an account back out of its own deletion. Answered as a failed
-        // sign-in — the same answer a wrong password gets, which is also the honest one,
-        // because the account those credentials named is gone.
-        if (!user) {
-            return c.json(
-                error("INVALID_CREDENTIALS", "Wrong email or password"),
-                401,
-            );
+    // Everything below answers no sooner than `SIGNIN_FLOOR_MS` (#34), so the branch that
+    // does less work cannot be told from the one that does more. Deliberately wrapping the
+    // whole handler rather than only the two 401s: a branch added later would otherwise
+    // have to remember to opt in, and the success path is slower than the floor anyway.
+    //
+    // The validation 400 and the throttled 429 above are outside it on purpose. Neither
+    // depends on whether the address has an account, and padding a refused request would
+    // hold a connection open for every attempt an attacker makes — paying to be throttled.
+    return atLeast(SIGNIN_FLOOR_MS, async () => {
+        try {
+            const { localId } = await signInWithPassword(email, password);
+            // Self-healing: also the attach point for future providers (same uid → same doc).
+            const user = await ensureUser(localId, email, "password");
+            // `null` means the account is being deleted. The credentials are real, and that is
+            // exactly why this must not mint a token: signing in is the one path that could
+            // otherwise walk an account back out of its own deletion. Answered as a failed
+            // sign-in — the same answer a wrong password gets, which is also the honest one,
+            // because the account those credentials named is gone.
+            if (!user) {
+                return c.json(
+                    error("INVALID_CREDENTIALS", "Wrong email or password"),
+                    401,
+                );
+            }
+            // The activation gate (#6), and *where* it sits is the design: after Identity
+            // Toolkit has verified the password. Answering "not activated" for an unverified
+            // password would tell anyone holding an address that an account exists behind it,
+            // which is the question the 401 below refuses to answer. So the only caller who
+            // can ever see this 403 already knows the password.
+            // test/auth.test.ts pins the ordering, against the real upstream.
+            if (!isActivated(user)) {
+                return c.json(
+                    error("NOT_ACTIVATED", "Confirm your email address first"),
+                    403,
+                );
+            }
+            return c.json({ token: await mintToken(localId, email), user });
+        } catch (err) {
+            if (err instanceof IdentityToolkitError) {
+                if (err.kind === "unavailable") return upstreamUnavailable(c, "signin", err);
+                // Everything else collapses into one answer — a wrong password, an address
+                // that was never registered, an address upstream considers malformed. The
+                // branch is chosen from `kind`, which is derived from the upstream *status*
+                // and a fixed list of reasons, never from anything that varies with the
+                // address: that is what keeps the non-enumeration property (ARCHITECTURE §3)
+                // true of our layer and not merely of Google's. Signin has no 400 branch on
+                // purpose — "that address is malformed" would answer the question the 401
+                // refuses to. test/signin-non-enumeration.test.ts pins both halves.
+                return c.json(
+                    error("INVALID_CREDENTIALS", "Wrong email or password"),
+                    401,
+                );
+            }
+            throw err;
         }
-        // The activation gate (#6), and *where* it sits is the design: after Identity
-        // Toolkit has verified the password. Answering "not activated" for an unverified
-        // password would tell anyone holding an address that an account exists behind it,
-        // which is the question the 401 below refuses to answer. So the only caller who
-        // can ever see this 403 already knows the password.
-        // test/auth.test.ts pins the ordering, against the real upstream.
-        if (!isActivated(user)) {
-            return c.json(
-                error("NOT_ACTIVATED", "Confirm your email address first"),
-                403,
-            );
-        }
-        return c.json({ token: await mintToken(localId, email), user });
-    } catch (err) {
-        if (err instanceof IdentityToolkitError) {
-            if (err.kind === "unavailable") return upstreamUnavailable(c, "signin", err);
-            // Everything else collapses into one answer — a wrong password, an address
-            // that was never registered, an address upstream considers malformed. The
-            // branch is chosen from `kind`, which is derived from the upstream *status*
-            // and a fixed list of reasons, never from anything that varies with the
-            // address: that is what keeps the non-enumeration property (ARCHITECTURE §3)
-            // true of our layer and not merely of Google's. Signin has no 400 branch on
-            // purpose — "that address is malformed" would answer the question the 401
-            // refuses to. test/signin-non-enumeration.test.ts pins both halves.
-            return c.json(
-                error("INVALID_CREDENTIALS", "Wrong email or password"),
-                401,
-            );
-        }
-        throw err;
-    }
+    });
 });
 
 // ── Activation and password reset (#6) ─────────────────────────────────────────
@@ -586,18 +596,48 @@ const TOKEN_SHAPE = new RegExp(`^[A-Za-z0-9_-]{${TOKEN_LENGTH}}$`);
  */
 const SEND_LINK_FLOOR_MS = 800;
 
+/**
+ * The floor `/auth/signin` answers against (#34).
+ *
+ * #21 made the two failing branches byte-identical; they were never *time*-identical,
+ * because Identity Toolkit refuses an address it has no record of without verifying a
+ * password hash. Measured against the real project, 40 fresh addresses per branch:
+ *
+ *     registered, wrong password   p50 196.5ms   p95 277.3ms
+ *     never registered             p50 166.9ms   p95 265.3ms
+ *     difference                   mean 21.3ms, median 29.6ms, z = 3.01
+ *
+ * Real, and ~70 samples per branch to call it with 80% power. So it is equalised rather
+ * than argued away. This number is above both failing branches and below what a *successful*
+ * sign-in costs anyway — measured min 464.9ms, p50 866.2ms, because success additionally
+ * reads and writes `users/{uid}` and mints a token — so the person this route exists for
+ * pays nothing for it, and the person who mistyped their password waits an extra tenth of
+ * a second on a request that was going to fail.
+ *
+ * A floor, not a constant delay: when Identity Toolkit is slower than this, nothing is
+ * added and the residue is its own variance rather than the difference between the two
+ * branches. Under enough load to push both branches past the floor the channel returns,
+ * which is the honest limit of this approach and the reason the number has headroom.
+ */
+const SIGNIN_FLOOR_MS = 350;
+
 /** Runs `work` and does not return before `floor` milliseconds have passed, whichever
  *  takes longer. A failure inside `work` still waits, or the floor would only apply to
- *  the branch that succeeded. */
-const atLeast = async (floor: number, work: () => Promise<void>): Promise<void> => {
+ *  the branch that succeeded — and a thrown error is a branch like any other. */
+const atLeast = async <T>(floor: number, work: () => Promise<T>): Promise<T> => {
     const [outcome] = await Promise.all([
-        work().then(
-            () => null,
-            (err: unknown) => err,
+        // `Promise.resolve().then(work)`, not `work()`: a `work` that throws *synchronously*
+        // would otherwise escape before the floor was armed, returning in no time at all —
+        // the one input that defeats the whole helper. Unreachable from the three `async`
+        // arrows that call it today, and the helper is generic now.
+        Promise.resolve().then(work).then(
+            (value) => ({ ok: true as const, value }),
+            (err: unknown) => ({ ok: false as const, err }),
         ),
         new Promise((resolve) => setTimeout(resolve, floor)),
     ]);
-    if (outcome !== null) throw outcome;
+    if (!outcome.ok) throw outcome.err;
+    return outcome.value;
 };
 
 /**

@@ -209,6 +209,92 @@ layers, ours and Identity Toolkit's own collapse of both cases upstream, so a re
 ours would not be visible from outside. `api/test/signin-non-enumeration.test.ts` pins it by
 controlling the upstream boundary.
 
+**And identically in time (#34), which it did not used to.** Byte-identical was never
+time-identical: Identity Toolkit refuses an address it has no record of without verifying a
+password hash, and the difference is measurable from outside. Measured against the real
+project, one fresh address per sample so neither branch is competing with the upstream's own
+per-identifier throttle:
+
+| branch | p50 | p95 |
+|---|---|---|
+| registered, wrong password | 196.5ms | 277.3ms |
+| never registered | 166.9ms | 265.3ms |
+| **difference** | **mean 21.3ms** | **median 29.6ms, z = 3.01** |
+
+Samples alternate between the branches within each iteration, so drift across the run —
+cold TLS, a warming Cloud Run instance — lands on both rather than on one. What is not
+controlled is account age: the registered addresses are created immediately before they are
+sampled, so this is "just-created account" against "never existed".
+
+A two-sample test needs about 35 samples per branch for 80% power at α=0.05 (pooled sd
+31.65, Cohen's *d* = 0.673). An attacker does not need one: both reference distributions
+are buildable for free from addresses they own, so classifying a *target* is a one-sample
+question, and at ten samples its mean already sits 2.1 standard errors from the reference.
+Ten is exactly `RATE_LIMIT_SIGNIN_PER_EMAIL`, so that read fit inside the free-attempt
+budget at no wait at all — which is to say the throttle, not the floor, was what bounded
+this before, and it bounded it at one usable read per address per cycle rather than none.
+
+So the channel is real, and `/auth/signin` now answers no sooner than `SIGNIN_FLOOR_MS`
+(350ms) whichever branch it took. It costs the person the route exists for nothing: a
+*successful* sign-in additionally reads and writes `users/{uid}` and mints a token, which
+measured min 464.9ms and p50 866.2ms — already past the floor. Someone who mistyped their
+password waits an extra tenth of a second on a request that was going to fail.
+
+Three things about that, stated rather than discovered later:
+
+- **A floor, and not the "do the same work on both branches" #34 asked for first.** That
+  remedy is the right one in general and loses here on cost, not on principle. The differing
+  work is not ours — the ~21ms is Identity Toolkit verifying a password hash — so the only
+  way to make the unknown branch do it is a *second* upstream call against an address known
+  to exist, with any password: the verification happens either way. Two constructions, both
+  priced against the same measurements:
+
+  Sent **after** the real call, the decoy costs what the real one costs (p50 ~175ms), so it
+  does not equalise the branches, it inverts them. Sent **concurrently**, the wall clock is
+  `max(real, decoy)` — no inversion and no added latency, which is the strongest form of the
+  idea and the one worth beating properly.
+
+  Both fail on the same two things. Every sign-in would make **two** Identity Toolkit
+  requests, forever, on the API's busiest auth route — double the upstream bill for a
+  21ms channel. And Identity Toolkit throttles per identifier at around six attempts, so a
+  single decoy address is throttled almost immediately and its latency stops resembling the
+  real branch's under exactly the load where equalisation matters most. The concurrent form
+  does not even win on security: a `max()` leaves the real branch's signal in the tail
+  whenever it is the slower draw, where the floor truncates it to nothing below 350ms. It
+  would also mean a permanent production Auth user whose only purpose is timing padding —
+  a human decision, though not a secret one: the decoy needs an identifier, not a password.
+
+  A floor buys a strictly better residual for one `setTimeout` and no upstream call.
+- **It is a floor, not a constant delay.** When the upstream is slower than the floor
+  nothing is added, and the residue is the upstream's own variance rather than the
+  difference between doing the work and not doing it. Under enough load to push both
+  branches past 350ms the channel comes back — load an attacker can also induce, though the
+  variance they add costs them more signal than it uncovers. 350ms is 1.26× the slower
+  branch's measured p95, which is margin rather than comfort, and the 465ms upper bound it
+  sits under is a minimum of thirty samples, the noisiest statistic in the set. Both are
+  the numbers available; neither is a guarantee. It also assumes Cloud Run concurrency
+  above 1: at `--concurrency 1` a 350ms floor is a per-request instance lock, and
+  `deploy-api.yml` sets no concurrency today.
+- **Every failed sign-in now holds a request slot about twice as long** — ~350ms against
+  the ~180ms it measured. That is the same held-connection cost the `429` carve-out below
+  refuses to pay, accepted here because the number of unthrottled failures is what `#5`
+  and `#37` bound.
+- **The throttle's own answers are outside the floor.** A `400 VALIDATION` and a
+  `429 RATE_LIMITED` return immediately. Neither depends on whether the address has an
+  account — the budget is spent on arrival, keyed by the *submitted* address, before
+  Identity Toolkit is asked anything — so a `429` is a function of the caller's own history,
+  which they already know. Padding a refusal would buy nothing and would make every refused
+  attempt cost a held connection.
+- **How much it was worth, without flattering the fix.** `POST /auth/signup` also discloses
+  registration, as `409` against `201` — which the paragraph below argues for on its own
+  terms. But it answers the *narrower* question, whether an address is **activated**
+  (`existing.user?.activated`), where the clock answered whether any Identity Toolkit record
+  exists at all; and it answers **loudly**, because the `201` branch mails the address it
+  was asked about, so bulk enumeration through signup is visible to its victims. The timing
+  channel was silent, and a usable read of one address fit inside the free-attempt budget
+  (above) rather than costing the ~5 hours a full two-sample test would under #37's backoff.
+  So this was worth closing on its own, not merely because it was cheap to close.
+
 `POST /auth/signup` deliberately does the **opposite** and returns `EMAIL_EXISTS` — the
 caller already holds the address, and the canvas' account-linking banner depends on knowing.
 The asymmetry is intended; do not "fix" it.
