@@ -1723,34 +1723,32 @@ describe("the provider routes are throttled, and separately", () => {
                 throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
             };
 
-            {
-                config.rateLimit.trustedProxyHops = 2;
-                const caller = "198.51.100.88";
+            config.rateLimit.trustedProxyHops = 2;
+            const caller = "198.51.100.88";
 
-                // Three entries: an invented prefix, the caller, and the entry a balancer
-                // would append. Only the middle one is the same every time. Against a
-                // hardcoded `1` each request keys on its own rightmost entry and none of
-                // them is ever refused.
-                let last: Answer | null = null;
-                for (let i = 0; i < overBudget; i++) {
-                    last = await post("/auth/idp", appleBody(), {
-                        "x-forwarded-for": `10.0.0.${i % 200}, ${caller}, 130.211.0.${i % 200}`,
-                    });
-                }
-                expect(last!.status).toBe(429);
-                expect(last!.body.error.code).toBe("RATE_LIMITED");
-
-                // And the fail-safe: a header with fewer entries than configured skips the
-                // per-IP dimension rather than bucketing everyone together or picking an
-                // entry the caller controls. `401` rather than "not 429" — the request is
-                // answered normally, which is the claim.
-                resetAuthRateLimits();
-                let short: Answer | null = null;
-                for (let i = 0; i < overBudget; i++) {
-                    short = await post("/auth/idp", appleBody(), from("203.0.113.30"));
-                }
-                expect(short!.status).toBe(401);
+            // Three entries: an invented prefix, the caller, and the entry a balancer
+            // would append. Only the middle one is the same every time. Against a
+            // hardcoded `1` each request keys on its own rightmost entry and none of them
+            // is ever refused.
+            let last: Answer | null = null;
+            for (let i = 0; i < overBudget; i++) {
+                last = await post("/auth/idp", appleBody(), {
+                    "x-forwarded-for": `10.0.0.${i % 200}, ${caller}, 130.211.0.${i % 200}`,
+                });
             }
+            expect(last!.status).toBe(429);
+            expect(last!.body.error.code).toBe("RATE_LIMITED");
+
+            // And the fail-safe: a header with fewer entries than configured skips the
+            // per-IP dimension rather than bucketing everyone together or picking an entry
+            // the caller controls. `401` rather than "not 429" — the request is answered
+            // normally, which is the claim.
+            resetAuthRateLimits();
+            let short: Answer | null = null;
+            for (let i = 0; i < overBudget; i++) {
+                short = await post("/auth/idp", appleBody(), from("203.0.113.30"));
+            }
+            expect(short!.status).toBe(401);
         },
         SLOW,
     );
