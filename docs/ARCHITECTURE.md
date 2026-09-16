@@ -1117,7 +1117,15 @@ adding it to the delete is the way health-adjacent identifiers outlive their own
 | `Session/Providers/` | Sign in with Apple and Google: the two controllers, the PKCE/nonce derivations, and the buttons that run them (#7) |
 | `Onboarding/` | `OnboardingModel` (flow state machine) + `Steps/` + `Components/` |
 | `Profile/` | `ProfileView` (identity, connected accounts, log out, danger zone) and `DeleteAccountModal` |
+| `Navigation/` | `EvaTabView` and `EvaTabBar` — the signed-in shell — and `EvaTabRouter`, which holds the tab selection and the one request a tab makes of another |
+| `Home/` | The Dashboard's Home tab (#99, D4): `HomeModel` and its `TodayCardSource`, `EvaTodayCard` (the `GET /me/today` wire types), `TodayCardView` in its four tones, the header and the offline bar |
 | `Theme/` | Colors, gradients, `PrimaryButton`, progress style — see [DESIGN.md](DESIGN.md) |
+
+**The Home tab reads through a protocol, not through `AppSession` directly.**
+`TodayCardSource` is the seam §8.1 describes — "screens read the store; only the sync
+engine talks to the API" — with `AppSession` standing in as its only implementation until
+#78 builds the store. `LocalTodayCard` (§8.2) is what replaces it, and nothing in
+`HomeModel` changes when it does. The same shape `CalendarEventSource` has.
 
 `AppSession.State` (`loading → signedOut | needsQuestionnaire | ready | unreachable`)
 drives the root view. **The server is the source of truth for `questionnaireCompleted`** — never

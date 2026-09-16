@@ -315,6 +315,31 @@ final class AppSession {
         }
     }
 
+    // MARK: - Reading the Dashboard (#99)
+
+    /// The Home tab's card for the user's local date. `GET /me/today?timeZone=` (#98, D3).
+    ///
+    /// **The route does not exist yet.** This is the client half of the contract #98
+    /// specifies, written now so that D4 could be built against it and so that wiring the
+    /// real route up is this one method answering rather than a rewrite — see
+    /// `TodayCardSource`, and `EvaTodayCard` for what is assumed about the body.
+    ///
+    /// The zone identifier, never a date: the server resolves "today" from it the way the
+    /// events routes do, and a device that sent its own date would be asserting the answer
+    /// rather than asking the question.
+    ///
+    /// Nothing here logs the response. A filled card is a sentence about the user's cycle
+    /// and symptoms, which is health data under GUARDRAILS 12 exactly as an event payload is.
+    func todayCard(timeZone: TimeZone) async throws -> EvaTodayResponse {
+        try await authorized {
+            try await client.get(
+                "/me/today",
+                query: [URLQueryItem(name: "timeZone", value: timeZone.identifier)],
+                authorized: true
+            )
+        }
+    }
+
     // MARK: - Writing the calendar (#160)
     //
     // Five routes, one rule: each returns the **server's** copy of the entry, and the

@@ -11,16 +11,19 @@ import SwiftUI
 /// look like, and a tab that opens an apology is worse than a tab that is not there yet.
 /// They arrive with their screens.
 ///
-/// ## Calendar is the landing tab
+/// ## Home is the landing tab again (#99)
 ///
-/// Home is the canvas' first tab and the Dashboard is unbuilt (#159 keeps its placeholder
-/// as a stub), so landing there would put a placeholder in front of the one real screen.
-/// Calendar is the app's landing surface until the Dashboard slices land.
+/// #159 landed on Calendar, and said why: "Home is the canvas' first tab and the Dashboard
+/// is unbuilt, so landing there would put a placeholder in front of the one real screen."
+/// D4 builds the Dashboard, so the reason is spent and the canvas' own tab order stands —
+/// Home is the screen a user sees first.
 struct EvaTabView: View {
 
     let session: AppSession
 
-    @State private var selection: EvaTab = .calendar
+    /// Tab selection, plus the one request a tab can make of another: the Today card's
+    /// `Log now` opens the calendar's picker. See `EvaTabRouter`.
+    @State private var router = EvaTabRouter()
 
     var body: some View {
         ZStack {
@@ -32,13 +35,14 @@ struct EvaTabView: View {
             // one on screen and VoiceOver would read three screens at once.
             ForEach(EvaTab.allCases, id: \.self) { tab in
                 screen(tab)
-                    .opacity(selection == tab ? 1 : 0)
-                    .allowsHitTesting(selection == tab)
-                    .accessibilityHidden(selection != tab)
+                    .opacity(router.selection == tab ? 1 : 0)
+                    .allowsHitTesting(router.selection == tab)
+                    .accessibilityHidden(router.selection != tab)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            EvaTabBar(selection: $selection)
+            @Bindable var router = router
+            EvaTabBar(selection: $router.selection)
         }
         .tint(Color.evaActionPinkTop)
     }
@@ -47,9 +51,9 @@ struct EvaTabView: View {
     private func screen(_ tab: EvaTab) -> some View {
         switch tab {
         case .home:
-            HomeStubView(session: session)
+            HomeView(session: session, router: router)
         case .calendar:
-            CalendarView(session: session)
+            CalendarView(session: session, router: router)
         case .profile:
             // A stack of its own, so #19's settings detail screens push inside the tab
             // the way the canvas draws them.
