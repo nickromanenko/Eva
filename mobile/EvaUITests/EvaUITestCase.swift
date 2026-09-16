@@ -248,7 +248,7 @@ class EvaUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        tap(element, in: app)
+        focusAtEnd(element, in: app, file: file, line: line)
         let placeholder = element.placeholderValue ?? ""
 
         var passes = 0
@@ -266,12 +266,18 @@ class EvaUITestCase: XCTestCase {
             if current == previous { break }
             previous = current
 
-            // **Put the caret at the end first, every pass.** A tap places it where the
-            // finger landed, and backspace only deletes what is to its left — which is why
-            // the old one-burst version removed the 18 characters before the caret, left the
-            // 37 after it, and then stopped: every further delete was a no-op at position 0.
-            // Tapping the field's right edge lands past the last glyph.
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+            // **The caret has to be at the end before every burst.** Backspace only deletes
+            // what is to its left — which is why the old one-burst version removed the 18
+            // characters before the caret, left the 37 after it, and then stopped: every
+            // further delete was a no-op at position 0.
+            //
+            // The first pass already has it there, from `focusAtEnd` above. A later pass does
+            // not: the burst it follows ran the caret down to position 0 with the overflow
+            // still to its right, so the field has to be tapped again. Skipping it on the
+            // first pass is not just economy — a second tap landing on the same field within
+            // the double-tap interval selects a word, and `typeText` would then replace the
+            // selection instead of inserting at a caret.
+            if passes > 0 { caretToEnd(element) }
             element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
             passes += 1
         }
@@ -414,17 +420,41 @@ class EvaUITestCase: XCTestCase {
     /// `testSignUpRejectsABadEmail` builds a valid address out of an invalid one — and it
     /// was also the defect, silently, in a helper whose name said nothing about it. A caller
     /// that means to append now has to say so.
-    func append(_ text: String, into element: XCUIElement, in app: XCUIApplication) {
-        tap(element, in: app)
+    func append(
+        _ text: String,
+        into element: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         // The same caret placement `clearAndType` needs, and for the same reason: `typeText`
         // inserts wherever the caret is, so without this a centre tap would put the new text
-        // *inside* the old — which is the defect this whole change is about, and it would
-        // have been reintroduced by the helper named after doing the opposite.
-        element.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        // *inside* the old — which is the defect #135 is about, and it would have been
+        // reintroduced by the helper named after doing the opposite.
+        focusAtEnd(element, in: app, file: file, line: line)
+
+        let placeholder = element.placeholderValue ?? ""
+        // A field showing its placeholder holds nothing, the same reading `type` takes.
+        // `nil` stays `nil`: a value that cannot be read is not an empty one, and the
+        // assertion below is the right place for it to fail.
+        let existing = (element.value as? String).map { $0 == placeholder ? "" : $0 }
         element.typeText(text)
+
+        // The pin `clearAndType` has carried since #135, now here too. Everything above is
+        // mechanism, and #166 was that mechanism tapping a different screen's cross-link
+        // and typing into whatever it landed on. This says, in one line, that the text went
+        // onto the end of this field — instead of the test failing three assertions later
+        // on a validation result that makes no sense.
+        XCTAssertEqual(
+            element.value as? String,
+            existing.map { $0 + text },
+            "\(element.identifier) does not hold what was appended to it",
+            file: file, line: line
+        )
     }
 
-    /// Waits for the element, scrolls it into view if it is below the fold, and taps it.
+    /// Waits for the element and scrolls it into view if it is below the fold. Touches
+    /// nothing.
     ///
     /// The scrolling column overflows the frame by about 37 points at the default content
     /// size (DESIGN.md §9a), so a field low on the screen can start just out of reach.
@@ -443,7 +473,7 @@ class EvaUITestCase: XCTestCase {
     /// nothing here can dismiss a keyboard and quietly turn an unreachable footer into a
     /// reachable one. That the footer needs neither is asserted directly, in
     /// `testTheFooterStaysReachableWithTheKeyboardUp`.
-    func tap(
+    func scrollIntoView(
         _ element: XCUIElement,
         in app: XCUIApplication,
         timeout: TimeInterval = 10,
@@ -474,6 +504,87 @@ class EvaUITestCase: XCTestCase {
             """,
             file: file, line: line
         )
+    }
+
+    /// Scrolls the element into view and taps its centre.
+    func tap(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 10,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        scrollIntoView(element, in: app, timeout: timeout, file: file, line: line)
         element.tap()
+    }
+
+    /// Focuses a text field and leaves the caret after its last character — in **one** tap.
+    ///
+    /// `typeText` inserts at the caret, and a tap puts the caret where the finger landed, so
+    /// anything that means to add to a field has to land past its last glyph. The field's
+    /// trailing edge does that, and — because a tap on an unfocused field also focuses it —
+    /// one tap is enough for both.
+    ///
+    /// **One tap is the fix for #166, not an economy.** This used to tap the centre and then
+    /// the trailing edge. The first tap raises the keyboard, and the two halves of the screen
+    /// answer that at different speeds: `AuthScreenLayout`'s footer is outside the scroll view
+    /// and is re-laid out immediately, while the field is inside it and is *animated* into
+    /// view over about 280ms. XCUITest's wait-for-idle returns in the middle of that — measured
+    /// at 547ms after the tap, with the field still reported at its old y — so the second tap's
+    /// coordinates were resolved against a frame with 189 points of travel left in it. By the
+    /// time the touch landed, the footer had moved into the band the field was leaving, and the
+    /// tap went to the sign-up screen's "Log in" cross-link. `testSignUpRejectsABadEmail` then
+    /// typed into a log-in screen and failed 7 runs in 9.
+    ///
+    /// So: settle, tap once, settle. `stillFrame` is what makes it safe — a coordinate is only
+    /// ever computed from a frame that has stopped moving, and the reflow this tap causes
+    /// happens after it has landed rather than under it.
+    func focusAtEnd(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 10,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        scrollIntoView(element, in: app, timeout: timeout, file: file, line: line)
+        caretToEnd(element)
+    }
+
+    /// Puts the caret after the last character of an **already focused** field.
+    ///
+    /// Split out of `focusAtEnd` for `clearAndType`, which has to come back to the end
+    /// between delete bursts. On a field whose text overflows, the trailing edge is the last
+    /// *visible* glyph rather than the last one — which is why that loop re-reads and repeats
+    /// rather than trusting one burst (#135).
+    func caretToEnd(_ element: XCUIElement) {
+        stillFrame(of: element)
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        // And again afterwards, so the reflow this tap causes is over before the caller
+        // types into it or reads it back.
+        stillFrame(of: element)
+    }
+
+    /// `element.frame`, once three consecutive reads agree on it.
+    ///
+    /// Each read is a fresh accessibility snapshot, which on the iOS 26 simulator costs about
+    /// 35ms — so agreement across three of them is roughly 100ms of a screen that is holding
+    /// still, and a keyboard-driven reflow moves 17 to 46 points between two of them.
+    ///
+    /// This is the guard #166 needed: XCUITest's own wait-for-idle does not cover a SwiftUI
+    /// scroll animation, so "the app is idle" and "the element is where it will be" are not
+    /// the same claim. Returns the last frame it saw if the screen never settles, and leaves
+    /// the caller's own assertion to report that — a helper that waits for stillness should
+    /// not also decide that stillness was mandatory.
+    @discardableResult
+    func stillFrame(of element: XCUIElement, timeout: TimeInterval = 5) -> CGRect {
+        let deadline = Date().addingTimeInterval(timeout)
+        var frame = element.frame
+        var agreements = 0
+        while agreements < 2 && Date() < deadline {
+            let next = element.frame
+            agreements = next == frame ? agreements + 1 : 0
+            frame = next
+        }
+        return frame
     }
 }
