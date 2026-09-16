@@ -226,7 +226,7 @@ struct EvaEvent: Identifiable, Hashable, Sendable, Decodable {
             guard let mark = payload.mark else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .payload, in: container,
-                    debugDescription: "cycle payload has neither spotting nor flow"
+                    debugDescription: "cycle payload is neither spotting nor a flow level"
                 )
             }
             detail = .cycle(mark)
@@ -249,19 +249,61 @@ struct EvaEvent: Identifiable, Hashable, Sendable, Decodable {
 
     /// The wire shape of `CyclePayload`, collapsed into `EvaCycleMark` at the boundary so
     /// nothing downstream ever sees the two-optionals form the API refuses to have.
+    ///
+    /// **Total, and loud.** Every combination the API's `never` arms make unrepresentable
+    /// answers `nil`, and `nil` fails the event — it does not pick one. An earlier version
+    /// preferred `flow` whenever it was present, which meant
+    /// `{"spotting":true,"flow":"heavy"}` was read as a heavy period day and the spotting
+    /// marker vanished without trace. Guessing which half of a contradiction to believe is
+    /// how a calendar comes to show a period the user never logged.
     private struct CycleWire: Decodable {
         let spotting: Bool?
         let flow: EvaFlowLevel?
 
         var mark: EvaCycleMark? {
-            if let flow { return .flow(flow) }
-            if spotting == true { return .spotting }
-            return nil
+            switch (spotting, flow) {
+            // The two shapes the API can actually produce.
+            case (nil, .some(let flow)), (false, .some(let flow)): .flow(flow)
+            case (true, nil): .spotting
+            // Both at once, `spotting: false` alone, and neither. None is a day.
+            case (true, .some), (false, nil), (nil, nil): nil
+            }
         }
     }
 }
 
 /// `GET /me/events` → `{ "events": [...] }`.
+///
+/// **A row this build cannot read is skipped, not fatal.** One unrecognised `type`, one
+/// unknown flow level, one malformed `localDate` would otherwise take the whole array with
+/// it and blank the calendar — every entry gone because of one the server added after this
+/// build shipped. Today's API refuses both at write time so it is not reachable now; it
+/// becomes reachable the first time the API grows a type, which is C10's `sex`, and the
+/// failure would land on the app's landing screen.
+///
+/// Dropping one entry is not free either — it is health data the user logged and cannot
+/// see — but it is strictly better than dropping all of them, and it is the only one of the
+/// two that degrades rather than breaks.
 struct EvaEventsResponse: Decodable, Sendable {
     let events: [EvaEvent]
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        events = try container.decode([Row].self, forKey: .events).compactMap(\.event)
+    }
+
+    private enum CodingKeys: String, CodingKey { case events }
+
+    /// One element of the array, which always decodes.
+    ///
+    /// A wrapper rather than a loop over an `UnkeyedDecodingContainer`: a `decode` that
+    /// throws does not advance that container's index, so the obvious version of this
+    /// spins forever on the first bad row.
+    private struct Row: Decodable {
+        let event: EvaEvent?
+
+        init(from decoder: any Decoder) throws {
+            event = try? EvaEvent(from: decoder)
+        }
+    }
 }

@@ -71,10 +71,18 @@ final class CalendarModel {
     private var loadedMonths: Set<EvaMonth> = []
 
     private let source: any CalendarEventSource
-    /// Bumped by every fetch, so a slow response for a month the user has paged away from
-    /// cannot overwrite the one they are looking at.
-    private var fetchGeneration = 0
+
+    /// True from the first request of a run until the last one lands — including the
+    /// reloads queued behind it. It is what makes `fetch` single-flight.
     private var isFetching = false
+
+    /// Set when a load was asked for while one was already running. The run that is in
+    /// flight picks it up when it lands; see `fetch`.
+    ///
+    /// A flag rather than a queued range, because the only thing worth reloading is
+    /// whatever the *current* visible month needs by the time the network answers — the
+    /// month the user paged through on the way there is not on screen any more.
+    private var reloadRequested = false
 
     init(source: any CalendarEventSource, today: EvaDay = .today()) {
         self.source = source
@@ -114,6 +122,17 @@ final class CalendarModel {
 
     func select(_ day: EvaDay) {
         selectedDay = day
+    }
+
+    /// Re-reads what day it is.
+    ///
+    /// `today` is captured at init and the calendar is kept alive across tab switches, so
+    /// without this the app rings yesterday's cell — and announces it as "Today" — from
+    /// midnight until the process restarts. The same call covers a time-zone change, which
+    /// moves the user's wall clock for exactly the same reason.
+    func refreshToday(_ day: EvaDay = .today()) {
+        guard day != today else { return }
+        today = day
     }
 
     /// Pages to a month and loads whatever it needs. Selecting follows the page so the
@@ -169,33 +188,67 @@ final class CalendarModel {
         await fetch(from: from, to: to, answersHistory: true)
     }
 
-    /// Whatever months the current page needs and the cache has not got.
+    /// Whatever months the current page needs and the cache has not got, or `nil` when
+    /// it already has all of them.
     ///
     /// The month either side as well as the month itself, which is a superset of what the
     /// grid draws (a 42-cell grid reaches at most one month each way) and makes paging
-    /// back over ground already walked cost nothing. One request for all of them: three
+    /// back over ground already walked cost nothing. One range for all of them: three
     /// adjacent months are contiguous by construction, so their union is a single range.
-    private func loadVisibleRange() async {
+    private func missingVisibleRange() -> (from: EvaDay, to: EvaDay)? {
         let wanted = [visibleMonth.previous, visibleMonth, visibleMonth.next]
         let missing = wanted.filter { !loadedMonths.contains($0) }
-        guard let first = missing.min(), let last = missing.max() else { return }
-        await fetch(from: first.firstDay, to: last.lastDay, answersHistory: false)
+        guard let first = missing.min(), let last = missing.max() else { return nil }
+        return (first.firstDay, last.lastDay)
     }
 
+    private func loadVisibleRange() async {
+        guard let range = missingVisibleRange() else { return }
+        await fetch(from: range.from, to: range.to, answersHistory: false)
+    }
+
+    /// Single-flight, and it **finishes what was asked for while it was in flight**.
+    ///
+    /// Two concurrent fetches would race to write the same days, so only one runs at a
+    /// time. The version of this that only had the guard *dropped* the second ask: one tap
+    /// on the month picker during the 400-day first load left that month with zero
+    /// requests, ever — no spinner, no error, nothing to retry, and a blank calendar on the
+    /// app's landing screen until the user happened to page away and back. The comment that
+    /// used to sit here claimed the opposite and nothing implemented it.
+    ///
+    /// So the second ask sets `reloadRequested`, and the run that is holding the flight
+    /// re-reads what the *now* visible month needs and goes again. A `while`, not an `if`:
+    /// paging three more times during the reload has to be picked up too. It terminates
+    /// because each pass either fetches months it then marks loaded, or finds nothing
+    /// missing and falls straight out.
+    ///
+    /// There is no generation counter any more. There was one, and it was dead: only this
+    /// method bumped it and `isFetching` already serialised every bump, so the guards could
+    /// never be false. Nothing here needs one — a response is applied by the day it belongs
+    /// to, so it is correct for whatever month the user is now looking at.
     private func fetch(from: EvaDay, to: EvaDay, answersHistory: Bool) async {
-        // Two overlapping fetches would race to write the same days. The second caller
-        // simply returns: `show(_:)` is the only way to reach here twice in a row, and it
-        // re-runs from the new month as soon as the first finishes.
-        guard !isFetching else { return }
+        if isFetching {
+            reloadRequested = true
+            return
+        }
         isFetching = true
-        fetchGeneration += 1
-        let generation = fetchGeneration
-        loadState = .loading
         defer { isFetching = false }
 
+        await perform(from: from, to: to, answersHistory: answersHistory)
+
+        while reloadRequested {
+            reloadRequested = false
+            guard let range = missingVisibleRange() else { continue }
+            await perform(from: range.from, to: range.to, answersHistory: false)
+        }
+    }
+
+    /// One request, and what it does to the screen's state. Only `fetch` calls this, and
+    /// only ever one call at a time.
+    private func perform(from: EvaDay, to: EvaDay, answersHistory: Bool) async {
+        loadState = .loading
         do {
             let events = try await source.events(from: from, through: to)
-            guard generation == fetchGeneration else { return }
             apply(events, coveringFrom: from, to: to)
             if answersHistory {
                 hasHistory = !events.isEmpty
@@ -205,7 +258,6 @@ final class CalendarModel {
             }
             loadState = .idle
         } catch let error as APIError {
-            guard generation == fetchGeneration else { return }
             // A dead session is already being handled: `AppSession.authorized` has logged
             // out and the root view has switched away from this screen. Showing an error
             // card on the way out would flash a failure at someone who is being signed
@@ -218,7 +270,6 @@ final class CalendarModel {
             }
             loadState = .failed(error.localizedDescription)
         } catch {
-            guard generation == fetchGeneration else { return }
             loadState = .failed(APIError.decoding.localizedDescription)
         }
     }

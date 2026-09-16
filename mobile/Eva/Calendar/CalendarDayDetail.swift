@@ -127,7 +127,7 @@ struct CalendarEntryRow: View {
                 .strokeBorder(EvaCalendarMetrics.surfaceHairline, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("calendar.entry.\(presentation.typeName)")
+        .accessibilityIdentifier("calendar.entry.\(presentation.id)")
     }
 
     /// The same shape the grid draws for this type, so a mark learned in one place reads

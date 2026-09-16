@@ -186,6 +186,33 @@ struct EvaEventGlyphMark: View {
     }
 }
 
+/// The marks layer of a day cell: every glyph in its own corner, over whatever the cell
+/// drew.
+///
+/// Its own view rather than a private member of `CalendarDayCell` so the corner each mark
+/// lands in can be asserted on the pixels. That is the property #159 calls an accessibility
+/// one — two marks must never share a corner — and it lives in the composition of
+/// `EvaCalendarMetrics.inset(for:)` with `alignment(for:)`, which nothing reaches from the
+/// enum values alone.
+struct CalendarDayMarks: View {
+    let glyphs: [EvaEventGlyph]
+
+    var body: some View {
+        ZStack {
+            ForEach(glyphs, id: \.self) { glyph in
+                EvaEventGlyphMark(glyph: glyph)
+                    .padding(EvaCalendarMetrics.inset(for: glyph))
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: EvaCalendarMetrics.alignment(for: glyph)
+                    )
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 #Preview("Event glyphs") {
     VStack(spacing: EvaSpacing.lg) {
         HStack(spacing: EvaSpacing.lg) {

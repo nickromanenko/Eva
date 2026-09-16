@@ -14,6 +14,7 @@ struct CalendarView: View {
     @State private var model: CalendarModel
     @State private var isPickerOpen = false
     @State private var pickerYear: Int
+    @Environment(\.scenePhase) private var scenePhase
 
     init(session: AppSession, today: EvaDay = .today()) {
         self.session = session
@@ -78,6 +79,19 @@ struct CalendarView: View {
             logButton
         }
         .task { await model.start() }
+        // `today` is read once when the model is built and this view is kept alive across
+        // tab switches, so nothing else would move it: past midnight the grid would ring
+        // yesterday and announce it as "Today". `significantTimeChangeNotification` is the
+        // system's own midnight-and-time-zone signal; the scene phase covers a device that
+        // was asleep through it and is woken straight back onto this screen.
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UIApplication.significantTimeChangeNotification
+            )
+        ) { _ in model.refreshToday() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.refreshToday() }
+        }
     }
 
     // MARK: - Grid

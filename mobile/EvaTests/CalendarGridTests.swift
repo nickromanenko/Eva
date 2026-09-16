@@ -125,20 +125,71 @@ struct CalendarGridTests {
         #expect(EvaMonth(year: 2026, month: -11) == EvaMonth(year: 2025, month: 1))
         #expect(EvaMonth(year: 2026, month: 25) == EvaMonth(year: 2028, month: 1))
         #expect(EvaMonth(year: 2026, month: 6).adding(months: -18) == EvaMonth(year: 2024, month: 12))
+        #expect(EvaMonth(year: 2026, month: 6).adding(months: 18) == EvaMonth(year: 2027, month: 12))
     }
 
     // MARK: - Daylight saving
 
-    /// The grids for the months in which the clocks actually change, in the zones where
-    /// they change at a time that breaks the naive implementation.
+    /// **The whole of the DST guarantee, and the only test that can fail for it.**
     ///
-    /// A grid built by adding 86_400 seconds to a local midnight repeats a day in the
-    /// autumn and skips one in the spring; Brazil used to move its clocks *at* midnight,
-    /// which is why "midnight on the 15th" is a date that has not always existed. Nothing
-    /// here can produce either, because nothing here adds a duration to a local time —
-    /// the assertion is that all 42 days are distinct and consecutive regardless.
+    /// `EvaCalendarDate.swift` warns against stepping a day by adding 86_400 seconds. That
+    /// is a real bug — but only against a *local* anchor, and this file's anchor is midday
+    /// UTC, where calendar arithmetic and second arithmetic are identical by construction.
+    /// A test that walked dates across a clock change was written first and was decorative:
+    /// substituting `utcNoon.addingTimeInterval(Double(days) * 86_400)` for
+    /// `EvaDay.adding(days:)` passed every one of its assertions in UTC, New_York, Berlin,
+    /// Sao_Paulo, Kiritimati, Lord_Howe and Beirut. It was replaced by this.
+    ///
+    /// So the anchor is what gets pinned, in both halves. Swap `secondsFromGMT: 0` for
+    /// `.current` and the offset assertions fail in every zone that has ever moved its
+    /// clocks; swap `.gregorian` for `.current` and the identifier assertion fails wherever
+    /// the device calendar is not Gregorian.
+    ///
+    /// The one machine this cannot catch a `TimeZone.current` mutation on is one whose own
+    /// zone is fixed at UTC — where the mutation is also harmless. Nothing pins `TZ` in
+    /// `verify-mobile.sh` or `test-mobile.yml`, so that is stated rather than assumed.
+    @Test("The calendar every date step runs through has no time zone in it")
+    func theCalendarUsedForArithmeticHasNoTimeZoneInIt() {
+        #expect(
+            evaGregorianUTC.identifier == .gregorian,
+            """
+            Date arithmetic is running through \(evaGregorianUTC.identifier), whose year \
+            and month numbers are not the ones `localDate` is written in
+            """
+        )
+
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = .gmt
+        // Both sides of both hemispheres' clock changes, plus an instant far from either.
+        let instants = [
+            utc.date(from: DateComponents(year: 2026, month: 1, day: 15))!,
+            utc.date(from: DateComponents(year: 2026, month: 7, day: 15))!,
+            Date(timeIntervalSince1970: 0)
+        ]
+        for instant in instants {
+            #expect(
+                evaGregorianUTC.timeZone.secondsFromGMT(for: instant) == 0,
+                """
+                The arithmetic calendar is offset from UTC at \(instant), so a day step \
+                can land on the wrong date
+                """
+            )
+            #expect(
+                !evaGregorianUTC.timeZone.isDaylightSavingTime(for: instant),
+                """
+                The arithmetic calendar observes daylight saving, which is the one thing \
+                it exists not to do
+                """
+            )
+        }
+    }
+
+    /// A shape regression net over months that contain a clock change — **not** a DST test;
+    /// see the one above for why a date walk cannot be one. What it does catch is an
+    /// off-by-one anywhere in `EvaMonthGrid`, on months chosen because they are the ones a
+    /// reader would reach for.
     @Test(
-        "A clock change neither repeats nor skips a cell",
+        "Every month produces 42 distinct consecutive days and its own day count",
         arguments: [
             // US spring forward, 8 March 2026, 02:00 local.
             EvaMonth(year: 2026, month: 3),
@@ -151,7 +202,7 @@ struct CalendarGridTests {
             EvaMonth(year: 2018, month: 2)
         ]
     )
-    func daylightSavingDoesNotDisturbTheGrid(month: EvaMonth) {
+    func gridShapeHoldsOnEveryMonth(month: EvaMonth) {
         let grid = EvaMonthGrid(month: month)
         #expect(Set(grid.cells.map(\.date)).count == 42)
         for (earlier, later) in zip(grid.cells, grid.cells.dropFirst()) {

@@ -9,11 +9,19 @@ import Foundation
 // instant unrepresentable here: a day is three integers, and nothing in this file adds a
 // duration to anything.
 //
-// That is what makes the grid DST-proof rather than DST-tested. "The day after
-// 2026-10-25" is 24 hours later in most of the world and 25 in Europe that night, so a
-// grid built by adding 86_400 seconds repeats a cell in the autumn and skips one in the
-// spring — in one time zone, twice a year, for one user in a region nobody develops in.
-// There is no arithmetic of that shape below to get wrong.
+// That is what makes the grid DST-proof. "The day after 2026-10-25" is 24 hours later in
+// most of the world and 25 in Europe that night, so a grid built by adding 86_400 seconds
+// to a *local* midnight repeats a cell in the autumn and skips one in the spring — in one
+// time zone, twice a year, for one user in a region nobody develops in.
+//
+// **The guarantee is the anchor, and only the anchor.** Every step below runs through
+// `evaGregorianUTC` from `EvaDay.utcNoon`, where a day is always 86_400 seconds — so
+// calendar arithmetic and second arithmetic give identical answers here, and a test that
+// walks dates across a clock change cannot tell the two apart. One was written, and it
+// passed with the seconds version substituted in every zone tried. It was replaced by
+// `CalendarGridTests.theCalendarUsedForArithmeticHasNoTimeZoneInIt`, which asserts the
+// anchor itself: swap `secondsFromGMT: 0` for `.current`, or `.gregorian` for `.current`,
+// and that test is what fails.
 
 /// The Gregorian calendar with **no time zone in it**.
 ///
@@ -25,7 +33,11 @@ import Foundation
 ///
 /// `TimeZone.current` appears exactly once, in `EvaDay.today(in:now:)`, which is the one
 /// question that genuinely has a location in it.
-private let evaGregorianUTC: Calendar = {
+///
+/// Not `private`, so `CalendarGridTests` can assert both halves of that — the identifier
+/// and the zone. They are the whole of the DST guarantee and nothing else can pin them:
+/// a date walk gives the same answers either way (see the note at the top of this file).
+let evaGregorianUTC: Calendar = {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
     return calendar
@@ -156,8 +168,6 @@ struct EvaMonth: Hashable, Comparable, Sendable, CustomStringConvertible {
         self.month = zeroBased - yearShift * 12 + 1
     }
 
-    static func containing(_ day: EvaDay) -> EvaMonth { day.evaMonth }
-
     var firstDay: EvaDay { EvaDay(year: year, month: month, day: 1) }
     var lastDay: EvaDay { EvaDay(year: year, month: month, day: dayCount) }
 
@@ -174,12 +184,6 @@ struct EvaMonth: Hashable, Comparable, Sendable, CustomStringConvertible {
 
     var next: EvaMonth { adding(months: 1) }
     var previous: EvaMonth { adding(months: -1) }
-
-    /// Whole months from `other` to `self`. Used to decide whether two months are
-    /// adjacent enough to fetch in one range.
-    func months(since other: EvaMonth) -> Int {
-        (year - other.year) * 12 + (month - other.month)
-    }
 
     /// Whether every day of this month falls inside `from…to` inclusive. A month only
     /// enters the cache as *loaded* when this is true — a range that clipped it would

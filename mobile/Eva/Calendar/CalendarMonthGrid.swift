@@ -157,18 +157,7 @@ struct CalendarDayCell: View {
     }
 
     private var marks: some View {
-        ZStack {
-            ForEach(glyphs, id: \.self) { glyph in
-                EvaEventGlyphMark(glyph: glyph)
-                    .padding(EvaCalendarMetrics.inset(for: glyph))
-                    .frame(
-                        maxWidth: .infinity,
-                        maxHeight: .infinity,
-                        alignment: EvaCalendarMetrics.alignment(for: glyph)
-                    )
-            }
-        }
-        .allowsHitTesting(false)
+        CalendarDayMarks(glyphs: glyphs)
     }
 
     @ViewBuilder

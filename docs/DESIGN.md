@@ -438,7 +438,8 @@ which is C2 — but the empty state's pointer has to point at something, and the
 visibly unfinished without it. Disabled rather than silently inert: a button that takes a
 tap and does nothing reads as a broken app. **This one is a decision awaiting a human**, not
 a settled deviation — the alternative is to omit both the FAB and the `calEmpty` pointer
-until C2.
+until C2. `CalendarUITests` asserts the button is disabled, so enabling it in C2 has to come
+past a failing test and past this note.
 
 **A spotting day has no cell treatment.** The artboard's `mkCell` branches on flow 1–3 only
 and a spotting day falls through to an ordinary cell, so it is announced ("Spotting logged")

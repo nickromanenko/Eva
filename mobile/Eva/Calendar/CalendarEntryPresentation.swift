@@ -7,6 +7,13 @@ import Foundation
 /// — describe, never diagnose, never score — and they are easier to hold to the rule when
 /// they are in one place that can be read and tested on its own.
 struct CalendarEntryPresentation: Equatable, Sendable {
+    /// The entry's own id, which is what its row is addressed by.
+    ///
+    /// Not the type name: two sport entries or two appointments on one day are both legal
+    /// (only `cycle` and `bodySignals` are one-per-day on the server), so a row keyed on
+    /// the type would collide — and `typeName` is user-facing copy, so keying on it would
+    /// have made localising the day detail break the UI tests.
+    let id: String
     /// The entry's kind, in the canvas' own words.
     let typeName: String
     /// Local wall-clock time, or `nil` if `loggedAt` was not a time this could read.
@@ -23,6 +30,7 @@ struct CalendarEntryPresentation: Equatable, Sendable {
     let cycleMark: EvaCycleMark?
 
     init(event: EvaEvent, refData: EvaRefData?) {
+        id = event.id
         time = EvaWallClock.time(from: event.loggedAt)
         note = event.note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         glyph = event.type.glyph

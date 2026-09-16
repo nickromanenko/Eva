@@ -13,9 +13,16 @@ import Testing
 @MainActor
 struct CalendarModelTests {
 
-    /// Records what was asked for. Not a stubbed `URLSession`: the claim under test is
-    /// about *requests*, and the global URL-protocol stub is shared with every other suite
-    /// in this target, so a count read through it would be a count of everybody's traffic.
+    /// Records what was asked for, and — when asked to — **holds the call open**.
+    ///
+    /// Not a stubbed `URLSession`: the claim under test is about *requests*, and the global
+    /// URL-protocol stub is shared with every other suite in this target, so a count read
+    /// through it would be a count of everybody's traffic.
+    ///
+    /// `suspends` is the half that matters for the single-flight path. Without it this
+    /// source returns without ever suspending, so `isFetching` is never true when a second
+    /// call arrives and the whole queue-and-re-run branch is unreachable from a test — which
+    /// is how the dropped-fetch defect shipped with a green suite.
     @MainActor
     final class RecordingSource: CalendarEventSource {
         private(set) var ranges: [ClosedRange<EvaDay>] = []
@@ -23,8 +30,17 @@ struct CalendarModelTests {
         var events: [EvaEvent] = []
         var failure: (any Error)?
 
+        /// While true, every `events(from:through:)` parks until `release()` lets it go.
+        var suspends = false
+        private var parked: [CheckedContinuation<Void, Never>] = []
+
+        var isParked: Bool { !parked.isEmpty }
+
         func events(from: EvaDay, through to: EvaDay) async throws -> [EvaEvent] {
             ranges.append(from...to)
+            if suspends {
+                await withCheckedContinuation { parked.append($0) }
+            }
             if let failure { throw failure }
             return events.filter { (from...to).contains($0.localDate) }
         }
@@ -32,6 +48,33 @@ struct CalendarModelTests {
         func refData() async throws -> EvaRefData {
             refDataCalls += 1
             return EvaRefData(version: "v1", catalogues: EvaRefData.Catalogues())
+        }
+
+        /// Lets every held call return, then yields so they actually run.
+        func release() async {
+            let waiting = parked
+            parked = []
+            for continuation in waiting { continuation.resume() }
+            for _ in 0..<8 { await Task.yield() }
+        }
+
+        /// Suspends until request number `count` has arrived **and is parked at the
+        /// network**, so the test acts during a request rather than hoping to.
+        ///
+        /// Records an issue instead of hanging: a request that never arrives is a broken
+        /// test, not a slow one.
+        func waitUntilParked(
+            afterRequests count: Int,
+            sourceLocation: SourceLocation = #_sourceLocation
+        ) async {
+            for _ in 0..<2_000 {
+                if ranges.count >= count && isParked { return }
+                await Task.yield()
+            }
+            Issue.record(
+                "Only \(ranges.count) request(s) arrived, parked: \(isParked)",
+                sourceLocation: sourceLocation
+            )
         }
     }
 
@@ -61,7 +104,14 @@ struct CalendarModelTests {
         #expect(range.contains(grid.visibleRange.lowerBound))
         #expect(range.contains(grid.visibleRange.upperBound))
         // …and it is inside the API's own cap, which rejects anything wider.
-        #expect(range.upperBound.days(since: range.lowerBound) <= CalendarModel.historyWindowDays)
+        //
+        // The literal, not the constant. `MAX_RANGE_DAYS` lives in `api/src/index.ts` and
+        // nothing links the two numbers, so comparing the client's constant to itself
+        // proved only that arithmetic works. Written out, a change to either side has to
+        // come past this line.
+        #expect(CalendarModel.historyWindowDays == 400,
+                "The API caps a range at 400 days (MAX_RANGE_DAYS in api/src/index.ts)")
+        #expect(range.upperBound.days(since: range.lowerBound) <= 400)
     }
 
     @Test("Paging inside what is already cached asks for nothing")
@@ -96,36 +146,137 @@ struct CalendarModelTests {
         #expect(gap.contains(grid.visibleRange.lowerBound))
         #expect(gap.contains(grid.visibleRange.upperBound))
 
-        // Arriving at the same month a second time asks for nothing.
+        // One step back needs the month before *that*, which nothing has asked for yet.
         await model.show(EvaMonth(year: 2027, month: 5))
+        #expect(source.ranges.count == 3,
+                "Paging back off the edge of the cache should cost exactly one request")
+
+        // Arriving back at a month already fetched asks for nothing at all.
         await model.show(EvaMonth(year: 2027, month: 6))
-        #expect(source.ranges.count <= 3, "Re-visiting a fetched month re-fetched it")
-        #expect(source.ranges.last == gap || source.ranges.count == 3)
+        #expect(source.ranges.count == 3, "Re-visiting a fetched month re-fetched it")
     }
 
-    /// The failure this suite exists to prevent, stated as a bound rather than as a shape:
-    /// forty-two cells must never cost forty-two requests.
-    @Test("A year of paging never costs a request per day")
-    func pagingNeverDegradesToPerDay() async {
+    /// Two claims a cache-less or per-day model both fail.
+    ///
+    /// The first bound used to be "at most one request per page", which is exactly what a
+    /// model with no cache at all makes — it passed for the wrong reason. Paging *back*
+    /// over the same two years is the assertion with a cache in it: twenty-four more pages
+    /// over ground already walked, and not one more request.
+    @Test("Paging asks for months, and never asks twice for the same one")
+    func pagingFetchesMonthsAndUsesTheCache() async {
         let source = RecordingSource()
         let model = CalendarModel(source: source, today: Self.today)
         await model.start()
 
         for _ in 0..<24 { await model.showNextMonth() }
+        let afterGoingOut = source.ranges.count
+        #expect(model.visibleMonth == EvaMonth(year: 2028, month: 8))
 
-        // At most one request per page, never one per cell. The bound is the shape of the
-        // claim: a month is fetched, not a day.
-        #expect(source.ranges.count <= 25,
-                "24 months of paging took \(source.ranges.count) requests")
+        for _ in 0..<24 { await model.showPreviousMonth() }
+
+        #expect(model.visibleMonth == Self.today.evaMonth)
+        #expect(source.ranges.count == afterGoingOut,
+                """
+                Paging back over months already fetched cost \
+                \(source.ranges.count - afterGoingOut) more requests
+                """)
+
+        // And every request was for a month or more of days, never for one day.
         for range in source.ranges {
             #expect(range.lowerBound <= range.upperBound,
                     "A range was sent with from after to, which the API rejects")
             #expect(range.upperBound.days(since: range.lowerBound) >= 27,
                     "A request covered \(range), which is narrower than a month")
-            #expect(range.upperBound.days(since: range.lowerBound)
-                    <= CalendarModel.historyWindowDays,
+            #expect(range.upperBound.days(since: range.lowerBound) <= 400,
                     "A request covered \(range), which the API rejects as too wide")
         }
+    }
+
+    // MARK: - A load that is still in the air
+
+    /// **The defect this whole section exists for.** One tap on the month picker during the
+    /// 400-day first load used to leave that month with zero requests, ever: the second
+    /// `fetch` saw `isFetching` and returned, nothing re-ran, and the user got a silently
+    /// empty calendar on the app's landing screen with no spinner and nothing to retry.
+    ///
+    /// It needs a source that actually suspends — see `RecordingSource.suspends`. With one
+    /// that returns immediately, `isFetching` is never true at the second call and this
+    /// path cannot be reached at all, which is how it shipped green.
+    @Test("A month change during an in-flight load is finished, not dropped")
+    func pagingDuringAnInFlightLoadIsNotLost() async {
+        let november = EvaMonth(year: 2026, month: 11)
+        let source = RecordingSource()
+        source.suspends = true
+        source.events = [Self.event("a", on: EvaDay(year: 2026, month: 11, day: 4))]
+        let model = CalendarModel(source: source, today: Self.today)
+
+        let firstLoad = Task { await model.start() }
+        await source.waitUntilParked(afterRequests: 1)
+
+        // The tap, while the first request is provably still open.
+        await model.show(november)
+        #expect(model.visibleMonth == november)
+        #expect(source.ranges.count == 1, "A second request started while the first was open")
+
+        // The first lands. The second has to follow it without anyone asking again.
+        await source.release()
+        await source.waitUntilParked(afterRequests: 2)
+        await source.release()
+        await firstLoad.value
+
+        #expect(source.ranges.count == 2,
+                "The month tapped during the load was never requested")
+        #expect(source.ranges.last?.contains(november.firstDay) == true)
+        #expect(model.events(on: EvaDay(year: 2026, month: 11, day: 4)).count == 1,
+                "The calendar is empty for the month the user actually paged to")
+        #expect(model.loadState == .idle)
+    }
+
+    /// Paging three times during one load leaves the user somewhere, and that somewhere is
+    /// what gets fetched — not each month on the way. The re-run reads the month that is
+    /// visible when the network answers, so the two the user passed through cost nothing.
+    @Test("Only where the user ended up is fetched, not every month passed through")
+    func onlyTheFinalMonthIsFetchedAfterAnInFlightLoad() async {
+        let source = RecordingSource()
+        source.suspends = true
+        let model = CalendarModel(source: source, today: Self.today)
+
+        let firstLoad = Task { await model.start() }
+        await source.waitUntilParked(afterRequests: 1)
+
+        await model.show(EvaMonth(year: 2027, month: 4))
+        await model.show(EvaMonth(year: 2027, month: 5))
+        await model.show(EvaMonth(year: 2027, month: 6))
+        #expect(source.ranges.count == 1)
+
+        await source.release()
+        await source.waitUntilParked(afterRequests: 2)
+        await source.release()
+        await firstLoad.value
+
+        #expect(source.ranges.count == 2, "Each month paged through was fetched separately")
+        let caught = try? #require(source.ranges.last)
+        #expect(caught?.contains(EvaDay(year: 2027, month: 6, day: 1)) == true)
+        #expect(model.loadState == .idle)
+    }
+
+    /// The re-run is skipped, not retried forever, when the month the user landed on was
+    /// already cached — otherwise a page-during-load into cached ground would spin.
+    @Test("A change into already-cached months during a load asks for nothing extra")
+    func pagingIntoTheCacheDuringALoadAsksForNothing() async {
+        let source = RecordingSource()
+        source.suspends = true
+        let model = CalendarModel(source: source, today: Self.today)
+
+        let firstLoad = Task { await model.start() }
+        await source.waitUntilParked(afterRequests: 1)
+        // Inside the 400-day window the first load is already asking for.
+        await model.show(EvaMonth(year: 2026, month: 5))
+        await source.release()
+        await firstLoad.value
+
+        #expect(source.ranges.count == 1)
+        #expect(model.loadState == .idle, "The reload loop left the screen loading")
     }
 
     @Test("The catalogue is fetched once, not once per page")
@@ -303,6 +454,47 @@ struct CalendarModelTests {
         await model.start()
 
         #expect(model.loadState == .idle)
+    }
+
+    // MARK: - The day it is
+
+    /// `today` is read once when the model is built, and `EvaTabView` keeps the calendar
+    /// alive across tab switches — so without a way to move it the app rings yesterday's
+    /// cell, and announces it as "Today", from midnight until the process restarts.
+    ///
+    /// This pins the model's half. The view's half — `significantTimeChangeNotification`
+    /// and the scene phase in `CalendarView` — is not reachable from a unit test and is
+    /// stated as untested on #159.
+    @Test("Today moves when the day does, and the grid follows it")
+    func todayCanBeRefreshed() async {
+        let source = RecordingSource()
+        let model = CalendarModel(source: source, today: Self.today)
+        await model.start()
+        #expect(model.today == Self.today)
+
+        let tomorrow = Self.today.adding(days: 1)
+        model.refreshToday(tomorrow)
+
+        #expect(model.today == tomorrow)
+        // Nothing else moves with it: the user's selection and the month they were looking
+        // at are theirs, and a date rollover must not take them somewhere else.
+        #expect(model.selectedDay == Self.today)
+        #expect(model.visibleMonth == Self.today.evaMonth)
+        #expect(source.ranges.count == 1, "A date rollover triggered a refetch")
+    }
+
+    /// Midnight at the end of a month moves the grid's idea of today into the next one.
+    @Test("Today can cross a month boundary")
+    func todayCrossesAMonthBoundary() async {
+        let lastOfAugust = EvaDay(year: 2026, month: 8, day: 31)
+        let model = CalendarModel(source: RecordingSource(), today: lastOfAugust)
+
+        model.refreshToday(EvaDay(year: 2026, month: 9, day: 1))
+
+        #expect(model.today == EvaDay(year: 2026, month: 9, day: 1))
+        // The grid stays where the user left it — September's "today" is simply not drawn
+        // on an August page, which is correct.
+        #expect(model.visibleMonth == EvaMonth(year: 2026, month: 8))
     }
 
     // MARK: - Selection

@@ -197,6 +197,85 @@ struct CalendarEventTests {
         #expect(response.events.count == 1)
     }
 
+    /// **One row this build cannot read must not take the calendar with it.**
+    ///
+    /// Not reachable against today's API, which refuses every one of these at write time.
+    /// It becomes reachable the first time the API grows a type or a value this build
+    /// predates — C10's `sex` is the next one — and the failure would land on the app's
+    /// landing screen: every entry gone because of one.
+    @Test(
+        "A row that cannot be read is dropped, and the rest of the month survives",
+        arguments: [
+            // A type this build has never heard of.
+            #"{"id":"x","type":"somethingNew","localDate":"2026-08-06","loggedAt":"2026-08-06T09:00:00","payload":{}}"#,
+            // A flow level this build has never heard of.
+            #"{"id":"x","type":"cycle","localDate":"2026-08-06","loggedAt":"2026-08-06T09:00:00","payload":{"flow":"torrential"}}"#,
+            // A day that is not a day.
+            #"{"id":"x","type":"cycle","localDate":"2026-02-30","loggedAt":"2026-02-30T09:00:00","payload":{"flow":"light"}}"#,
+            // A cycle entry that is both spotting and a flow — see below.
+            #"{"id":"x","type":"cycle","localDate":"2026-08-06","loggedAt":"2026-08-06T09:00:00","payload":{"spotting":true,"flow":"heavy"}}"#,
+            // Not an object at all.
+            "42"
+        ]
+    )
+    func anUnreadableRowIsSkippedNotFatal(unreadable: String) throws {
+        let first = Self.cycleRow(id: "good")
+        let second = Self.cycleRow(id: "good2")
+        let response = try JSONDecoder().decode(
+            EvaEventsResponse.self,
+            from: Data(#"{"events":[\#(first),\#(unreadable),\#(second)]}"#.utf8)
+        )
+
+        #expect(
+            response.events.map(\.id) == ["good", "good2"],
+            "A row that could not be read took the others with it"
+        )
+    }
+
+    static func cycleRow(id: String) -> String {
+        #"""
+        {"id":"\#(id)","type":"cycle","localDate":"2026-08-05","loggedAt":"2026-08-05T07:10:00",
+         "note":null,"source":"user","idempotencyKey":null,"payload":{"flow":"light"}}
+        """#
+    }
+
+    /// `{"spotting":true,"flow":"heavy"}` is unrepresentable on the wire — the API's `never`
+    /// arms see to that — and if one ever arrives, refusing it is the only honest answer.
+    ///
+    /// The version before this preferred `flow` whenever it was present, so the spotting
+    /// marker vanished without trace and the day was drawn as a heavy period. Guessing
+    /// which half of a contradiction to believe is how a calendar comes to show a period
+    /// the user never logged.
+    @Test(
+        "A cycle payload the API cannot produce is refused, never half-believed",
+        arguments: [
+            #"{"spotting":true,"flow":"heavy"}"#,
+            #"{"spotting":true,"flow":"light"}"#,
+            #"{"spotting":false}"#,
+            "{}"
+        ]
+    )
+    func contradictoryCyclePayloadsAreRefused(payload: String) {
+        #expect(throws: (any Error).self) {
+            try Self.decode(#"""
+            {"id":"e","type":"cycle","localDate":"2026-08-02","loggedAt":"2026-08-02T09:00:00",
+             "note":null,"source":"user","idempotencyKey":null,"payload":\#(payload)}
+            """#)
+        }
+    }
+
+    /// The shapes the API *can* produce still decode, including `spotting: false` beside a
+    /// flow, which is how a TypeScript `never` arm serialises if anything ever emits one.
+    @Test("A flow day with an explicit spotting:false is still a flow day")
+    func explicitFalseSpottingIsStillAFlowDay() throws {
+        let event = try Self.decode(#"""
+        {"id":"e","type":"cycle","localDate":"2026-08-02","loggedAt":"2026-08-02T09:00:00",
+         "note":null,"source":"user","idempotencyKey":null,
+         "payload":{"spotting":false,"flow":"medium"}}
+        """#)
+        #expect(event.detail == .cycle(.flow(.medium)))
+    }
+
     // MARK: - The words a day detail shows
 
     @Test("A cycle entry says what was logged, and never scores it")
