@@ -129,6 +129,12 @@ const post = async (
 };
 
 describe("signin does not reveal whether an address is registered", () => {
+    // The floor cases below spend real budget — eleven requests for the throttled one —
+    // against a per-IP counter this describe used to share across every case without ever
+    // clearing it. Harmless at the default 60, and a lowered `RATE_LIMIT_SIGNIN_PER_IP`
+    // would otherwise start answering these with 429s that some of them do not check for.
+    beforeEach(() => resetAuthRateLimits());
+
     test("a wrong password and an unknown address get the same answer", async () => {
         const wrongPassword = await post("/auth/signin", {
             email: REGISTERED,
@@ -189,11 +195,20 @@ describe("signin does not reveal whether an address is registered", () => {
         expect(SIGNIN_FLOOR_MS).toBeGreaterThanOrEqual(280);
         expect(SIGNIN_FLOOR_MS).toBeLessThan(465);
 
+        // And an upper bound on what the route actually did, not only on the test's copy
+        // of the constant: raising `SIGNIN_FLOOR_MS` in `index.ts` alone is the direction
+        // that starts charging successful sign-ins, and the assertions above are one-sided.
+        // Loose enough that only a wildly raised floor trips it.
+        for (const elapsed of [wrongPassword, unknownAddress]) {
+            expect(elapsed).toBeLessThan(2_000);
+        }
+
         // Both samples above leave through the *same* `return`, because this file's mock
         // makes every sign-in fail upstream — so this pins the floor, not its width. That
         // `atLeast` wraps the whole handler rather than one branch is pinned in
-        // `auth.test.ts`, on the `403 NOT_ACTIVATED` branch, which only a real upstream
-        // reaches.
+        // `auth-upstream-failures.test.ts`, on a stubbed-outage `503`: every other non-401
+        // branch does real upstream and Firestore work and already exceeds the floor, which
+        // is why wrapping them is free and also why they cannot see the difference.
     });
 
     test("but a throttled answer is not floored, so refusing stays cheap", async () => {
@@ -217,7 +232,7 @@ describe("signin does not reveal whether an address is registered", () => {
         // Comfortably inside the floor rather than merely under it: a refusal is a map
         // lookup and a constant response, and half the floor is generous for that.
         expect(elapsed).toBeLessThan(SIGNIN_FLOOR_MS / 2);
-    }, 30_000);
+    }, (config.rateLimit.signinPerEmail + 2) * SIGNIN_FLOOR_MS * 3);
 
     test("neither answer carries the upstream reason, the address, or the password", async () => {
         // Equality alone would not catch a leak that is identical in both branches, e.g.
@@ -532,9 +547,8 @@ describe("the /auth/* throttle", () => {
             { "x-forwarded-for": "198.51.100.4" },
         );
         expect(elsewhere.status).toBe(401);
-        // 61 sequential sign-ins reach the floor here — the 429 and the sweep's last two
-        // are free — and each is held to `SIGNIN_FLOOR_MS` by the route (#34), so this case
-        // cannot finish inside the file's 20s default any more. The cost is the floor's,
+        // 62 requests, 61 of them held to `SIGNIN_FLOOR_MS` by the route (#34) — only the
+        // 429 is free — so this case cannot finish inside the file's 20s default any more. The cost is the floor's,
         // not this test's: it is the same requests it always made.
     }, SWEEP_TIMEOUT_MS);
 

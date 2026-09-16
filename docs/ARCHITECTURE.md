@@ -229,8 +229,10 @@ sampled, so this is "just-created account" against "never existed".
 A two-sample test needs about 35 samples per branch for 80% power at α=0.05 (pooled sd
 31.65, Cohen's *d* = 0.673). An attacker does not need one: both reference distributions
 are buildable for free from addresses they own, so classifying a *target* is a one-sample
-question, and at ten samples its mean already sits 2.2 standard errors from the reference —
-inside the free-attempt budget, at no wait at all.
+question, and at ten samples its mean already sits 2.1 standard errors from the reference.
+Ten is exactly `RATE_LIMIT_SIGNIN_PER_EMAIL`, so that read fit inside the free-attempt
+budget at no wait at all — which is to say the throttle, not the floor, was what bounded
+this before, and it bounded it at one usable read per address per cycle rather than none.
 
 So the channel is real, and `/auth/signin` now answers no sooner than `SIGNIN_FLOOR_MS`
 (350ms) whichever branch it took. It costs the person the route exists for nothing: a
@@ -241,18 +243,28 @@ password waits an extra tenth of a second on a request that was going to fail.
 Three things about that, stated rather than discovered later:
 
 - **A floor, and not the "do the same work on both branches" #34 asked for first.** That
-  remedy is the right one in general and is wrong here, because the differing work is not
-  ours: the ~21ms is Identity Toolkit verifying a password hash, and the only way to make
-  the unknown branch do it is to send a *second* upstream call against an address we know
-  exists. Priced against the same measurements: that call costs what the first one costs
-  (p50 ~175ms), so it does not equalise the branches — it inverts them, leaving the unknown
-  branch slower unless the registered branch also gets a decoy call, at which point every
-  sign-in makes two Identity Toolkit requests, doubling the latency and the bill on the
-  API's hottest auth route. It would also need a real account with a known password living
-  in production purely as a timing decoy — a standing credential, therefore Secret Manager,
-  therefore always-human — and Identity Toolkit throttles per identifier at around six
-  attempts, so under the load where equalisation matters most the decoy's own latency
-  changes and the equalisation breaks. A floor buys the same property for one `setTimeout`.
+  remedy is the right one in general and loses here on cost, not on principle. The differing
+  work is not ours — the ~21ms is Identity Toolkit verifying a password hash — so the only
+  way to make the unknown branch do it is a *second* upstream call against an address known
+  to exist, with any password: the verification happens either way. Two constructions, both
+  priced against the same measurements:
+
+  Sent **after** the real call, the decoy costs what the real one costs (p50 ~175ms), so it
+  does not equalise the branches, it inverts them. Sent **concurrently**, the wall clock is
+  `max(real, decoy)` — no inversion and no added latency, which is the strongest form of the
+  idea and the one worth beating properly.
+
+  Both fail on the same two things. Every sign-in would make **two** Identity Toolkit
+  requests, forever, on the API's busiest auth route — double the upstream bill for a
+  21ms channel. And Identity Toolkit throttles per identifier at around six attempts, so a
+  single decoy address is throttled almost immediately and its latency stops resembling the
+  real branch's under exactly the load where equalisation matters most. The concurrent form
+  does not even win on security: a `max()` leaves the real branch's signal in the tail
+  whenever it is the slower draw, where the floor truncates it to nothing below 350ms. It
+  would also mean a permanent production Auth user whose only purpose is timing padding —
+  a human decision, though not a secret one: the decoy needs an identifier, not a password.
+
+  A floor buys a strictly better residual for one `setTimeout` and no upstream call.
 - **It is a floor, not a constant delay.** When the upstream is slower than the floor
   nothing is added, and the residue is the upstream's own variance rather than the
   difference between doing the work and not doing it. Under enough load to push both
