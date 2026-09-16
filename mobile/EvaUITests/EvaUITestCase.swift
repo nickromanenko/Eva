@@ -181,6 +181,12 @@ class EvaUITestCase: XCTestCase {
         // silently make the address wrong and the failure look like a bad password.
         clearAndType(email, into: app.textFields["login.email"], in: app)
         revealAndTypePassword(password, prefix: "login", in: app)
+
+        // Read back what the form is actually about to send, before it is sent. The server
+        // answers a wrong address and a wrong password with the same sentence on purpose
+        // (ARCHITECTURE §3), so without this a typing bug in the harness and a real auth
+        // regression are the same failure message and take a second run to tell apart.
+        let submitted = formContents(app)
         tap(app.buttons["primary.Log in"], in: app)
 
         let failure = app.staticTexts["login.error"]
@@ -188,20 +194,110 @@ class EvaUITestCase: XCTestCase {
             failure.waitForExistence(timeout: 8),
             // The label, not just the fact: "wrong password" and "confirm your email
             // first" are different bugs, and a bare failure cannot tell them apart.
-            "Signing in after activation failed for \(email): \(failure.exists ? failure.label : "no error shown")",
+            """
+            Signing in after activation failed for \(email): \
+            \(failure.exists ? failure.label : "no error shown")
+            The form held \(submitted), expected email \(email.debugDescription) and a \
+            \(password.count)-character password.
+            """,
             file: file, line: line
         )
     }
 
-    /// Taps a field, empties it, then types. XCUITest has no clear, so this deletes as many
-    /// characters as the field currently reports.
-    func clearAndType(_ text: String, into element: XCUIElement, in app: XCUIApplication) {
+    /// What the log-in form is holding, for a failure message.
+    ///
+    /// The password is reported by length, never by value: it is a fixed test constant
+    /// today, and a habit of printing password fields is the wrong one to build (GUARDRAILS
+    /// 12). Length is enough to separate "appended to a pre-filled field" from "typed into
+    /// an empty one", which is the question these failures actually pose.
+    func formContents(_ app: XCUIApplication) -> String {
+        let email = (app.textFields["login.email"].value as? String)?.debugDescription
+            ?? "<unreadable>"
+        let password = (app.textFields["login.password"].value as? String)
+            .map { "a \($0.count)-character password" }
+            // Not "0 characters": a field that cannot be read and one that is empty are
+            // different findings, and this string exists to tell findings apart.
+            ?? "a password that could not be read"
+        return "email \(email), \(password)"
+    }
+
+    /// Taps a field, empties it, then types.
+    ///
+    /// **Not for password fields.** The assertions below put the field's contents in their
+    /// failure messages, and `XCTAssertEqual` prints both operands — so clearing a revealed
+    /// password field would write a plaintext password into a failure log (GUARDRAILS 12).
+    /// The value is load-bearing here: seeing the mangled address is how #135 was diagnosed.
+    /// A password field that ever needs clearing wants its own helper that reports lengths,
+    /// the way `type` and `formContents` do.
+    ///
+    /// XCUITest has no clear, so this deletes — but it does **not** trust one pass to work.
+    /// The previous version sent `value.count` deletes once and typed; on iOS 26 a long
+    /// address lost only 18 of its 55 characters to that burst, and the new text was
+    /// appended to the remaining 37. The address went to the server malformed, `/auth/signin`
+    /// answered "Wrong email or password" — which is what it answers for everything (#21) —
+    /// and eight UI tests reported a credential bug that did not exist (#135).
+    ///
+    /// So: delete what the field says it holds, read it again, repeat. Re-reading is the
+    /// whole point; a burst that under-delivers is absorbed by the next pass. Then assert,
+    /// so the next iOS change that breaks clearing fails here, loudly, instead of silently
+    /// typing into a half-cleared field.
+    func clearAndType(
+        _ text: String,
+        into element: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         tap(element, in: app)
-        let existing = (element.value as? String) ?? ""
-        if !existing.isEmpty {
-            element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
+        let placeholder = element.placeholderValue ?? ""
+
+        var passes = 0
+        var previous: String?
+        while passes < 10 {
+            // **`nil` is not empty.** A value that cannot be read is the one case this whole
+            // helper exists for, and coalescing it to `""` would say "already clear", skip
+            // the loop, pass the assertion below, and type into a field still holding 37
+            // characters — #135 again, silently. So an unreadable field falls out of the
+            // loop and fails the assertion instead.
+            guard let current = element.value as? String else { break }
+            if current.isEmpty || current == placeholder { break }
+            // Stop as soon as a pass achieves nothing, rather than repeating an identical
+            // no-op nine more times before failing.
+            if current == previous { break }
+            previous = current
+
+            // **Put the caret at the end first, every pass.** A tap places it where the
+            // finger landed, and backspace only deletes what is to its left — which is why
+            // the old one-burst version removed the 18 characters before the caret, left the
+            // 37 after it, and then stopped: every further delete was a no-op at position 0.
+            // Tapping the field's right edge lands past the last glyph.
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+            element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+            passes += 1
         }
+
+        let cleared = element.value as? String
+        XCTAssertTrue(
+            cleared.map { $0.isEmpty || $0 == placeholder } ?? false,
+            """
+            Could not clear \(element.identifier) in \(passes) passes — it still holds \
+            \(cleared?.debugDescription ?? "a value that could not be read at all"). Typing \
+            now would insert at the caret, and the request would fail as a wrong credential \
+            rather than as this.
+            """,
+            file: file, line: line
+        )
         element.typeText(text)
+
+        // The pin the helper was missing: what it typed is what the field holds. Everything
+        // above is mechanism, and mechanism can be wrong in a way the mechanism cannot see —
+        // this is the assertion that would have caught #135 here, in one line, instead of as
+        // eight tests reporting a credential failure.
+        XCTAssertEqual(
+            element.value as? String, text,
+            "\(element.identifier) does not hold what was typed into it",
+            file: file, line: line
+        )
     }
 
     @discardableResult
@@ -281,8 +377,50 @@ class EvaUITestCase: XCTestCase {
         type(password, into: app.textFields["\(prefix).password"], in: app)
     }
 
-    func type(_ text: String, into element: XCUIElement, in app: XCUIApplication) {
+    /// Types into a field that is expected to be empty, and says so if it is not.
+    ///
+    /// `typeText` appends. Every caller here means "put this in the field", so a field that
+    /// arrives carrying something makes the request wrong in a way the server reports as a
+    /// bad credential — the #135 failure, one helper over. Callers that know a field is
+    /// dirty use `clearAndType`; this one refuses to guess.
+    func type(
+        _ text: String,
+        into element: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         tap(element, in: app)
+        let placeholder = element.placeholderValue ?? ""
+        let existing = element.value as? String
+        XCTAssertTrue(
+            // `nil` is not empty here either — an unreadable field is one this helper
+            // cannot promise anything about, so it fails rather than types.
+            existing.map { $0.isEmpty || $0 == placeholder } ?? false,
+            """
+            \(element.identifier) already held \
+            \(existing.map { "\($0.count) characters" } ?? "a value that could not be read") \
+            — typing would insert at the caret. Use `clearAndType` if the caller expects it \
+            to arrive dirty, or `append` if it means to add to it.
+            """,
+            file: file, line: line
+        )
+        element.typeText(text)
+    }
+
+    /// Types onto the end of whatever a field already holds, on purpose.
+    ///
+    /// The distinction from `type` is the whole point of #135: appending is legitimate —
+    /// `testSignUpRejectsABadEmail` builds a valid address out of an invalid one — and it
+    /// was also the defect, silently, in a helper whose name said nothing about it. A caller
+    /// that means to append now has to say so.
+    func append(_ text: String, into element: XCUIElement, in app: XCUIApplication) {
+        tap(element, in: app)
+        // The same caret placement `clearAndType` needs, and for the same reason: `typeText`
+        // inserts wherever the caret is, so without this a centre tap would put the new text
+        // *inside* the old — which is the defect this whole change is about, and it would
+        // have been reintroduced by the helper named after doing the opposite.
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         element.typeText(text)
     }
 
