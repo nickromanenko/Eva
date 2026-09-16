@@ -280,8 +280,14 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         // Asserted as the *absence* of the destination, with a wait that is actually spent.
         // `waitForExistence` on the gate's own title returns the instant it is found — which
         // it is, immediately — so it would have passed whether or not the screen advanced.
-        // A spurious advance needs a network round trip to become visible, and this is the
-        // form that can still be there to see it.
+        //
+        // What this pins is "the gate does not advance on returning to the foreground", not
+        // the `!model.password.isEmpty` guard itself: delete that guard and the retry still
+        // fails, because the *server* refuses the empty password with a 401 and
+        // `try? await onRetrySignIn()` swallows it. The guard is a unit-test subject, not a
+        // UI one. What this does catch is anything that advances the gate without a
+        // credential at all — treating `eva://activated` or a foreground as proof of
+        // session — and sign-up starting to capture a password again.
         XCTAssertFalse(
             app.staticTexts["A little about you"].waitForExistence(timeout: 5),
             "The gate advanced by itself, which would need a password the app is not given"

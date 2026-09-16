@@ -223,6 +223,13 @@ class EvaUITestCase: XCTestCase {
 
     /// Taps a field, empties it, then types.
     ///
+    /// **Not for password fields.** The assertions below put the field's contents in their
+    /// failure messages, and `XCTAssertEqual` prints both operands — so clearing a revealed
+    /// password field would write a plaintext password into a failure log (GUARDRAILS 12).
+    /// The value is load-bearing here: seeing the mangled address is how #135 was diagnosed.
+    /// A password field that ever needs clearing wants its own helper that reports lengths,
+    /// the way `type` and `formContents` do.
+    ///
     /// XCUITest has no clear, so this deletes — but it does **not** trust one pass to work.
     /// The previous version sent `value.count` deletes once and typed; on iOS 26 a long
     /// address lost only 18 of its 55 characters to that burst, and the new text was
