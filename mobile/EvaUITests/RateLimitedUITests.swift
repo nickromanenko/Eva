@@ -79,9 +79,12 @@ final class RateLimitedUITests: EvaUITestCase {
         // combine its children, so the modifier reaches the title and the message
         // separately and which one `.firstMatch` returns is a detail of how the banner
         // happens to be composed today — not something this test should depend on.
+        // `.map { $0.label }`, not `.map(\.label)`: `XCUIElement.label` is main-actor
+        // isolated, and Swift 6 refuses to form a key path to it — an error, where reading
+        // it inside a closure from this already-isolated test is fine.
         let text = app.staticTexts.matching(identifier: "login.rateLimited")
             .allElementsBoundByIndex
-            .map(\.label)
+            .map { $0.label }
             .joined(separator: " ")
         XCTAssertTrue(
             text.contains("minute") || text.contains("second"),

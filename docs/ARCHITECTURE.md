@@ -1328,6 +1328,19 @@ something a person ran by hand on one machine, and nothing catches the PR where 
 not. Sign in with Apple could not be driven in CI regardless — it cannot be completed in
 a simulator.
 
+**What that cost, once, measured (#135).** The UI suite sat red across at least two
+changes and nobody was told. When it was finally run, it held three separate breakages
+that had accumulated independently: a Swift 6 key-path error in a file added by #38, which
+meant the target did not even compile; a `clearAndType` helper whose one-burst delete left
+37 characters of an address behind on iOS 26, so the app sent a malformed address and
+`/auth/signin` answered "Wrong email or password" — the same sentence it answers for
+everything (§3), which made a harness bug look like an auth regression for eight tests; and
+two assertions in `testSignUpLandsOnTheActivationGateWithResendOnCooldown` whose setup #120
+had removed, one of them requiring the same screen to be in the opposite state to an
+assertion twenty lines above it. Each was invisible to the others until the one in front of
+it was fixed. That is the shape of the risk this section describes, and the reason to
+reconsider the cost trade rather than a reason to re-litigate it here.
+
 One consequence worth naming: **`docs/AUTONOMY.md`'s ratchet rule can now legitimately
 advance for `api/` and `website/`, and still cannot for `mobile/`.** The rule requires a
 surface's verify command to have caught a real regression a human would have missed, and

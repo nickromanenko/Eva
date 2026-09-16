@@ -205,21 +205,23 @@ final class OnboardingSignUpUITests: EvaUITestCase {
 
     // MARK: - The activation gate (#6)
 
-    /// The gate as a user meets it after a *log in*, which is the path the sign-up flow
-    /// does not cover: an account exists, the password is right, and the address has
-    /// never been confirmed.
+    /// The gate as a user meets it after **sign-up**: the link has just gone out, Resend
+    /// is on cooldown, and the screen names the address it was sent to. Then the same
+    /// screen is driven the rest of the way — activate out of band, come back to the
+    /// foreground, and the account is through, without anything touching the app to tell
+    /// it so.
     ///
-    /// Two things are asserted, and the second is the one that matters. The obvious one
-    /// is that log in does not get in. The load-bearing one is **where the refusal is
-    /// shown**: on the activation screen, not as an error under the password field. A
-    /// `login.error` here would mean the app had turned "confirm your email" into
-    /// "something you typed is wrong" — and, worse, would have to be a message that
-    /// differs from the wrong-password one, which is the enumeration leak
-    /// `testAFailedLogInSaysTheSameThingWhetherTheAccountExistsOrNot` exists to prevent.
+    /// **It used to arrive here from a refused log in instead**, and that is what broke it
+    /// (#135). #120 removed the log-in half — an account that never opened its link has no
+    /// password, so there is nothing to type — but left two of its assertions behind. One
+    /// of them required Resend to be *enabled*, because on that path nothing had been sent;
+    /// on this path sign-up has just sent the link, so the cooldown is running and the same
+    /// screen was being asked to be in two states at once, twenty lines apart. The test
+    /// could not pass, and had not since #120.
     ///
-    /// Then the same screen is driven the rest of the way: activate out of band, come
-    /// back to the foreground, and the account is through — without anything touching the
-    /// app to tell it so.
+    /// Where the log-in path's own property is covered now: `api/test/auth.test.ts`,
+    /// "signin is refused until the address is confirmed", which builds the shape this can
+    /// no longer reach.
     func testSignUpLandsOnTheActivationGateWithResendOnCooldown() throws {
         let app = launch()
         let email = Self.freshEmail()
@@ -249,6 +251,9 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         //
         // What is still worth checking here is the half above: sign-up lands on the gate
         // screen with Resend on cooldown.
+        // Vacuous on this path — there is no log-in screen in it — and kept anyway, because
+        // what it guards is the gate ever rendering itself as a field error. Cheap, and the
+        // day the gate is reachable from log in again it stops being vacuous.
         XCTAssertFalse(
             app.staticTexts["login.error"].exists,
             "The activation gate was shown as a log-in field error as well"
@@ -256,13 +261,6 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         XCTAssertEqual(
             app.staticTexts["activation.email"].label, email,
             "The gate does not show the address the link was sent to"
-        )
-        // Reached from a refused log in, **nothing was sent** — so Resend has to be
-        // available immediately. The cooldown only starts when this screen is the one
-        // that just caused an email to go out, which is the sign-up path below.
-        XCTAssertTrue(
-            app.buttons["activation.resend"].isEnabled,
-            "Resend started on a cooldown after a log in that sent no email"
         )
         XCTAssertFalse(
             app.staticTexts["dashboard.title"].exists,
@@ -273,9 +271,25 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         XCUIDevice.shared.press(.home)
         app.activate()
 
+        // **Still on the gate, and that is correct.** This assertion used to be its
+        // opposite — the third thing #120 orphaned here. `ActivationStepView.retrySignIn`
+        // needs `model.password`, and since #120 sign-up never asks for one: the password is
+        // chosen on the activation page, in a browser, which this app never sees. So coming
+        // back to the foreground has nothing to retry with, and the screen cannot advance on
+        // its own. Before #120 it could, and the old assertion was right then.
+        XCTAssertTrue(
+            app.staticTexts["Check your inbox"].waitForExistence(timeout: 10),
+            "The gate advanced by itself, which would need a password the app is not given"
+        )
+
+        // The way through is the one a person takes: back out to log in, and type the
+        // password they chose on the activation page. That the account is *through* — the
+        // link really did work — is what the rest of this case was for, so it is still
+        // asserted, just via the path that exists.
+        signIn(app, email: email, password: Self.password)
         XCTAssertTrue(
             app.staticTexts["A little about you"].waitForExistence(timeout: 20),
-            "The gate did not let the account through once the link had been opened"
+            "The account did not get in after the link was opened and the password typed"
         )
     }
 
@@ -403,8 +417,10 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         )
         XCTAssertFalse(submit.isEnabled, "The CTA is enabled for an invalid address")
 
-        // A valid address is all the form needs now.
-        type("@e2e.evaapp.dev", into: app.textFields["signup.email"], in: app)
+        // A valid address is all the form needs now. `append`, not `type`: this deliberately
+        // completes the invalid address above rather than replacing it, and since #135 a
+        // helper that appends has to be asked for by name.
+        append("@e2e.evaapp.dev", into: app.textFields["signup.email"], in: app)
         XCTAssertTrue(
             submit.isEnabled,
             "A valid address did not enable the CTA — sign-up asks for nothing else"
