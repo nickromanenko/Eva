@@ -361,6 +361,12 @@ describe("events: date policy", () => {
 });
 
 describe("events: cycle", () => {
+    /** The day's cycle entry as the range read returns it, or `undefined` when the day has
+     *  none. That third state is the point of half of what follows: "nothing logged" is not
+     *  the same fact as "logged, not marked as the end". */
+    const cycleOn = async (date: string): Promise<EvaEventBody | undefined> =>
+        (await range(date, date)).find((e) => e.type === "cycle");
+
     test("spotting and flow cannot both be set, and one of them must be", async () => {
         const date = shiftDays(todayIn("UTC"), -30);
         const both = await post({
@@ -417,6 +423,150 @@ describe("events: cycle", () => {
 
         const onThatDay = (await range(date, date)).filter((e) => e.type === "cycle");
         expect(onThatDay).toHaveLength(1);
+        expect(onThatDay[0]!.payload).toEqual({ flow: "medium" });
+    });
+
+    // #75. The mark is a stored fact and nothing reads it, so the only thing these can
+    // check is that it survives the trip — in both directions, and without leaking onto
+    // days that never claimed it.
+    test("the explicit period-end mark round-trips, and an unmarked flow day stays unmarked", async () => {
+        const marked = shiftDays(todayIn("UTC"), -41);
+        const unmarked = shiftDays(todayIn("UTC"), -42);
+        const nulled = shiftDays(todayIn("UTC"), -43);
+        const empty = shiftDays(todayIn("UTC"), -44);
+
+        const created = await post({
+            type: "cycle",
+            localDate: marked,
+            timeZone: "UTC",
+            payload: { flow: "heavy", periodEnd: true },
+        });
+        expect(created.status).toBe(201);
+        expect((await json<EventResponse>(created)).event.payload).toEqual({
+            flow: "heavy",
+            periodEnd: true,
+        });
+
+        const plainCreated = await post({
+            type: "cycle",
+            localDate: unmarked,
+            timeZone: "UTC",
+            payload: { flow: "heavy" },
+        });
+        expect((await json<EventResponse>(plainCreated)).event.payload).toEqual({ flow: "heavy" });
+
+        // `null` is "not marked", exactly as absent is — never a stored null, which would
+        // come back as a field that is present and says nothing.
+        const nullCreated = await post({
+            type: "cycle",
+            localDate: nulled,
+            timeZone: "UTC",
+            payload: { flow: "medium", periodEnd: null },
+        });
+        expect((await json<EventResponse>(nullCreated)).event.payload).toEqual({ flow: "medium" });
+
+        // The read is the half that is easy to lose: a field that writes but does not come
+        // back is invisible until something downstream tries to use it.
+        expect((await cycleOn(marked))!.payload).toEqual({ flow: "heavy", periodEnd: true });
+        const plain = (await cycleOn(unmarked))!.payload;
+        expect(plain).toEqual({ flow: "heavy" });
+        expect(Object.hasOwn(plain, "periodEnd")).toBe(false);
+        expect((await cycleOn(nulled))!.payload).toEqual({ flow: "medium" });
+        expect(await cycleOn(empty)).toBeUndefined();
+    });
+
+    test("the end mark needs a flow level on its own entry, and refuses a spotting day", async () => {
+        const date = shiftDays(todayIn("UTC"), -45);
+
+        const onSpotting = await post({
+            type: "cycle",
+            localDate: date,
+            timeZone: "UTC",
+            payload: { spotting: true, periodEnd: true },
+        });
+        expect(onSpotting.status).toBe(400);
+        const refusal = (await json<ErrorResponse>(onSpotting)).error;
+        expect(refusal.code).toBe("VALIDATION");
+        // Every refusal below is also a 400 VALIDATION, so the status says almost nothing
+        // about *which* rule fired — and the two rules cover each other's bodies. Delete
+        // the spotting rule and this body is still refused, by the no-flow rule, for a
+        // different reason. Both names have to be in the message or that deletion is
+        // invisible here.
+        expect(refusal.message).toContain("periodEnd");
+        expect(refusal.message).toContain("spotting");
+
+        // Same again from the other side: the catch-all ("a cycle entry needs either
+        // spotting or a flow level") refuses this one too, so a status assertion alone
+        // would pass with the no-flow rule deleted. Only its message names the mark.
+        const alone = await post({
+            type: "cycle",
+            localDate: date,
+            timeZone: "UTC",
+            payload: { periodEnd: true },
+        });
+        expect(alone.status).toBe(400);
+        expect((await json<ErrorResponse>(alone)).error.message).toContain("periodEnd");
+
+        // The mark is only ever `true`. A `false` is a client that thinks it can clear it
+        // in place; it clears by sending the payload without it.
+        for (const periodEnd of [false, "true", 1]) {
+            const res = await post({
+                type: "cycle",
+                localDate: date,
+                timeZone: "UTC",
+                payload: { flow: "heavy", periodEnd },
+            });
+            expect(res.status).toBe(400);
+            expect((await json<ErrorResponse>(res)).error.code).toBe("VALIDATION");
+        }
+
+        // None of the above took the day: a refused entry writes nothing.
+        expect(await cycleOn(date)).toBeUndefined();
+    });
+
+    test("PATCH sets and clears the mark without moving the day", async () => {
+        const date = shiftDays(todayIn("UTC"), -46);
+        const event = (
+            await json<EventResponse>(
+                await post({
+                    type: "cycle",
+                    localDate: date,
+                    timeZone: "UTC",
+                    payload: { flow: "medium" },
+                }),
+            )
+        ).event;
+
+        const patch = (payload: Record<string, unknown>) =>
+            api(`/me/events/${event.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ type: "cycle", localDate: date, timeZone: "UTC", payload }),
+            });
+
+        const set = await patch({ flow: "medium", periodEnd: true });
+        expect(set.status).toBe(200);
+        const edited = (await json<EventResponse>(set)).event;
+        expect(edited.id).toBe(event.id);
+        expect(edited.localDate).toBe(date);
+        expect(edited.payload).toEqual({ flow: "medium", periodEnd: true });
+        expect((await cycleOn(date))!.payload).toEqual({ flow: "medium", periodEnd: true });
+
+        // Cleared by sending the day's payload without it: PATCH replaces `payload` whole,
+        // so there is no separate clear to send.
+        const cleared = await patch({ flow: "medium" });
+        expect(cleared.status).toBe(200);
+        expect((await json<EventResponse>(cleared)).event.payload).toEqual({ flow: "medium" });
+        const stored = (await cycleOn(date))!.payload;
+        expect(stored).toEqual({ flow: "medium" });
+        expect(Object.hasOwn(stored, "periodEnd")).toBe(false);
+
+        // The same rule holds on the edit path, not only on create.
+        expect((await patch({ spotting: true, periodEnd: true })).status).toBe(400);
+
+        // Still one entry, the same document, the same date: one-per-day is untouched.
+        const onThatDay = (await range(date, date)).filter((e) => e.type === "cycle");
+        expect(onThatDay.map((e) => e.id)).toEqual([event.id]);
+        expect(onThatDay[0]!.localDate).toBe(date);
         expect(onThatDay[0]!.payload).toEqual({ flow: "medium" });
     });
 });
