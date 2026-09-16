@@ -22,9 +22,26 @@ Look up this issue's `area:` label in `docs/AUTONOMY.md` and state, in one line 
 who approves the plan, who reviews the PR, who merges. **If plan approval is human,
 present the plan and wait.** Don't proceed and mention it afterwards.
 
+**Then walk the Always-human list out loud, before writing anything.** Name each item and
+say whether this issue's plan could plausibly touch it — rules loosening, `JWT_SECRET` /
+web API key / Secret Manager, a new dependency, deleting data or a `users/{uid}` schema
+change, an existing error `code`, anything the issue didn't ask for. **If any is
+non-empty, stop and ask**, the same as if plan approval were human.
+
+This step is new since plan approval moved to `AI` on `website/`, `api/` and `mobile/`
+(2026-09-16). It exists because that was the only gate that ran *before the code existed*:
+every gate after it judges a diff, and a scope expansion that is coherent and well-tested
+is exactly what diff review is worst at catching. The checkers find defects, not
+unrequested intent. Note also that the column comes from the `area:` label chosen when the
+issue was filed — so a `firestore.rules` edit inside an `area:api` issue reads as the
+`api/` column, and this list is what catches it.
+
 ## 3. Plan
 
-Produce an ordered task table — this is the artefact a human approves:
+Produce an ordered task table. On `rules / auth / infra` this is the artefact a human
+approves; on `website/`, `api/` and `mobile/` plan approval moved to `AI` on 2026-09-16,
+so it is the artefact *you* approve — which makes the Always-human check below the thing
+standing where a human used to:
 
 | # | Task | Agent | Depends on |
 |---|---|---|---|

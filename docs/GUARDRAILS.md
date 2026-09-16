@@ -38,6 +38,16 @@ Each rule is stated so a reviewer can check it mechanically.
    and loosening them is on the Always-human list, so the change an agent presses the
    button on is one a person wrote and a person approved. The button is the last step, not
    the only one.
+6a. **What actually stops a loosened rules file reaching production is a test, not a
+   sentence.** `deploy-rules.yml`'s deploy job is `needs: test`, and `rules-tests/`'s
+   `everyAllowIsDenied()` asserts textually that every `allow …: if <cond>;` has
+   `cond === "false"`. A loosened file fails that gate and the deploy job never runs. Rules
+   6 and 7 are documentation and are enforced by whoever reads them; this one is mechanical
+   and is enforced by CI. **Relaxing `everyAllowIsDenied()` is therefore a rules loosening
+   in its own right** — the day real rules are written and that assertion has to change, it
+   gets the same supervision as the rules file itself, and the `needs: test` edge is never
+   removed.
+
 7. Rules are **never deployed automatically.**
    `.github/workflows/deploy-rules.yml` is `workflow_dispatch`-only and exists to make the
    human act auditable, not to remove it. Adding any automatic trigger to that workflow is
