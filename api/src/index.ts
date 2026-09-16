@@ -58,7 +58,6 @@ import {
 } from "./events";
 import { getRefData, getSymptomRules, type SymptomRules } from "./refdata";
 import {
-    InvalidTimeError,
     PatternRuleUnsetError,
     TemplateUnavailableError,
     deleteAllUserToday,
@@ -2151,12 +2150,11 @@ app.put("/me/body-signals/:date", requireAuth, requireAccount, async (c) => {
 /**
  * The Today card cannot be produced right now — and that is a refusal, not a bug.
  *
- * Three causes, all of them "something this card depends on has not been supplied":
- * rung 2's thresholds are unconfigured (#26 has not answered A32), the content store holds
- * no template for the chosen subject at its confidence (nobody has seeded `content/`, which
- * is the state of every environment today — #97 refuses to seed without a reviewer), or a
- * stored timestamp is not the shape the rules layer documents. Answering past any of them
- * would mean a card that looks live and is not.
+ * Two causes, both of them "something this card depends on has not been supplied": rung 2's
+ * thresholds are unconfigured (#26 has not answered A32), or the content store holds no
+ * template for the chosen subject at its confidence (nobody has seeded `content/`, which is
+ * the state of every environment today — #97 refuses to seed without a reviewer). Answering
+ * past either would mean a card that looks live and is not.
  *
  * `SERVICE_UNAVAILABLE` rather than a new code: the client contract grows by addition only
  * (GUARDRAILS 11), and this is exactly what that code already means everywhere else here —
@@ -2201,7 +2199,10 @@ app.get("/me/today", requireAuth, requireAccount, async (c) => {
         if (err instanceof TemplateUnavailableError) {
             return dashboardUnavailable(c, "template-unavailable");
         }
-        if (err instanceof InvalidTimeError) return dashboardUnavailable(c, "invalid-time");
+        // D1's `InvalidTimeError` had a third branch here and it was dead code: `date` comes
+        // from `resolveClock`, `now` from `new Date()`, and `today.ts` drops a stored wall
+        // clock it cannot parse rather than passing it down. Nothing could reach it, so
+        // nothing could test it. Re-open one of those three and it belongs back here.
         // Anything else is a bug, and `app.onError` answers it as one.
         throw err;
     }

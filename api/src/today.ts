@@ -2,7 +2,6 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { config } from './config'
 import { getContent, type Template } from './content'
 import {
-  InvalidTimeError,
   PatternRuleUnsetError,
   selectSubject,
   type DashboardInput,
@@ -28,7 +27,10 @@ import { lastUserChangeAt, getUser } from './users'
  * **It decides nothing D1 decides.** The rung and the template id on a stored card are
  * copied from the `Subject`, never from the template and never from a phraser — PRD
  * §Dashboard, "the message subject is never free-generated". `Phraser` below is handed a
- * subject and returns *text*; it has no way to name a different card.
+ * subject and returns *text*; `buildCard` writes the subject's two routing fields **after**
+ * spreading that text, so a phraser that returns them anyway is overwritten rather than
+ * obeyed. The type alone does not carry this: a dynamically-built return object — which is
+ * what a model phraser (#106) will produce — slips past the excess-property check.
  *
  * **Two kinds of time, as everywhere else (ARCHITECTURE §4).** The card's `date` is the
  * user's wall clock, resolved from the request's `timeZone` at the route edge exactly as
@@ -76,8 +78,9 @@ export interface TodayDocument {
  *
  * Deliberately missing `templateId` and `rung`: those come from D1's `Subject` and are
  * attached by `buildCard` below, so a phraser — this one, or D9's model (#106) — cannot
- * change the subject even by returning something else. That is the structural half of
- * "the message subject is never free-generated"; the test is the other half.
+ * change the subject even by returning something else. Missing from the *type* is the
+ * weaker half: it only catches an object literal. What actually holds is `buildCard`'s
+ * order, and the case that proves it returns both keys and watches them lose.
  */
 export interface PhrasedText {
   state: string
@@ -186,10 +189,13 @@ const defined = <K extends string, V>(key: K, value: V | undefined): Record<K, V
   value === undefined ? {} : ({ [key]: value } as Record<K, V>)
 
 const buildCard = (subject: Subject, text: PhrasedText): TodayCard => ({
-  // From the subject, never from the phraser or the template — see `PhrasedText`.
+  ...text,
+  // **Last, so the subject wins.** From the subject, never from the phraser or the template
+  // — see `PhrasedText`. Spread first and a phraser carrying these keys would name its own
+  // card, `flag` included, which is the one rung that must never be reachable without the
+  // ladder (PRD §Dashboard: "the message subject is never free-generated").
   templateId: subject.templateId,
   rung: subject.rung,
-  ...text,
 })
 
 // ── Time ───────────────────────────────────────────────────────────────────────────────
@@ -440,8 +446,14 @@ export interface TodayRequest {
  * a thing: an existing day keeps its filled text and its `contentVersion`, because new data
  * changes the card and new words do not.
  *
- * Throws `PatternRuleUnsetError`, `InvalidTimeError` (both D1's) and
- * `TemplateUnavailableError` — refusals the route answers `503` to, never `500`.
+ * Throws `PatternRuleUnsetError` (D1's) and `TemplateUnavailableError` — refusals the route
+ * answers `503` to, never `500`.
+ *
+ * D1 also documents `InvalidTimeError`, and this function cannot raise it: `request.date`
+ * is `resolveClock`'s output, `now` is `new Date().toISOString()`, and `toSignalEntry`
+ * drops a stored wall clock it cannot parse rather than handing it down. The route used to
+ * map it anyway; that branch was unreachable and therefore untestable, so it is gone.
+ * Changing any of those three puts it back in play, here and at the route.
  */
 export const getToday = async (
   uid: string,
@@ -497,4 +509,4 @@ export const deleteAllUserToday = async (uid: string): Promise<number> => {
   }
 }
 
-export { InvalidTimeError, PatternRuleUnsetError }
+export { PatternRuleUnsetError }
