@@ -625,6 +625,22 @@ describe("a date that is not one is refused rather than read as no data", () => 
         ).toThrow(InvalidCycleDateError);
     });
 
+    /** `Date.parse` rolls a day that does not exist *forward* — `2026-02-30` is 2 March —
+     *  so a lenient read here moves a period start two days and every cycle length around
+     *  it. The route edge already refuses one (`isCalendarDate`); this is the floor. */
+    test("a day that does not exist is refused rather than rolled forward", () => {
+        expect(() =>
+            analyzeCycles({ days: [flow("2026-02-30")], today: TODAY, profile: null }, RULES),
+        ).toThrow(InvalidCycleDateError);
+        expect(() =>
+            analyzeCycles({ days: [], today: "2026-04-31", profile: null }, RULES),
+        ).toThrow(InvalidCycleDateError);
+        // …and a real leap day is not collateral damage.
+        expect(() =>
+            analyzeCycles({ days: [flow("2028-02-29")], today: TODAY, profile: null }, RULES),
+        ).not.toThrow();
+    });
+
     test("and the message names the field, never the value", () => {
         try {
             analyzeCycles({ days: [], today: "not-a-date", profile: null }, RULES);

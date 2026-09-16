@@ -262,14 +262,21 @@ const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 /** `YYYY-MM-DD` as whole days since the epoch, in UTC so the arithmetic cannot pick up the
  *  process timezone. Local dates are calendar labels here, not instants. */
+const dateFor = (day: number): string => new Date(day * 86_400_000).toISOString().slice(0, 10)
+
 const dayNumber = (localDate: string, field: string): number => {
   if (!LOCAL_DATE.test(localDate)) throw new InvalidCycleDateError(field)
   const parsed = Date.parse(`${localDate}T00:00:00.000Z`)
   if (Number.isNaN(parsed)) throw new InvalidCycleDateError(field)
-  return Math.round(parsed / 86_400_000)
+  const day = Math.round(parsed / 86_400_000)
+  // The round trip, because `Date.parse` rolls a day that does not exist forward rather
+  // than refusing it: `2026-02-30` is 2 March, two days from where it was written, and a
+  // period start moved two days moves every cycle length around it. `isCalendarDate` at
+  // the route edge already refuses one, so nothing stored through the API reaches here —
+  // this is the floor under a hand-edited document, held to the same standard.
+  if (dateFor(day) !== localDate) throw new InvalidCycleDateError(field)
+  return day
 }
-
-const dateFor = (day: number): string => new Date(day * 86_400_000).toISOString().slice(0, 10)
 
 // ── Counted cycles (A25 item 1) ────────────────────────────────────────────────────────
 
