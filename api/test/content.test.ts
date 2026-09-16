@@ -438,6 +438,23 @@ describe("the seed carries the canvas copy", () => {
         expect(await retireContent(id as never, "here")).toBe(false);
     });
 
+    test("a re-seed does not un-retire what somebody retired", async () => {
+        // `applyContent`'s rewrite branch keeps the stored `status` on purpose, and the
+        // comment saying so had no test: dropping it leaves every other case green. The
+        // seed ships every item as `active`, so without this a routine `bun run
+        // seed:content` would quietly put a withdrawn card back in front of users.
+        const id = scratch();
+        await applyContent(id as never, [{ id: "pulled", order: 0, status: "active" }], REVIEW);
+        expect(await retireContent(id as never, "pulled")).toBe(true);
+
+        await applyContent(id as never, [{ id: "pulled", order: 0, status: "active" }], REVIEW, {
+            rewrite: true,
+        });
+
+        const items = (await readContent(id as never)) as { id: string; status: string }[];
+        expect(items.find((i) => i.id === "pulled")?.status).toBe("retired");
+    });
+
     test("nothing is deleted, only retired — a cached card still resolves", async () => {
         const id = scratch();
         await applyContent(
@@ -707,6 +724,10 @@ describe.skipIf(!onEmulators)("served from a seeded collection", () => {
     const seeded: (typeof CONTENT_IDS)[number][] = [];
 
     beforeAll(async () => {
+        // Asserted rather than assumed. `describe.skipIf` already stops this block, but the
+        // thing it stops is a write to the three documents the API serves — too large a
+        // consequence to rest on one framework's hook semantics for a skipped describe.
+        if (!onEmulators) return;
         await applyContent("templates", TEMPLATES, REVIEW, { rewrite: true });
         seeded.push("templates");
         await applyContent(
@@ -733,6 +754,7 @@ describe.skipIf(!onEmulators)("served from a seeded collection", () => {
     }, 60_000);
 
     afterAll(async () => {
+        if (!onEmulators) return;
         for (const id of seeded) await collection().doc(id).delete().catch(() => {});
     });
 
