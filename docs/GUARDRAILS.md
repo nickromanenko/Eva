@@ -60,10 +60,15 @@ Each rule is stated so a reviewer can check it mechanically.
    never key users by email.
 10. **Every Firestore collection has exactly one owning module, and nothing else touches
     it.** `users.ts` owns `users/`; `events.ts` owns `users/{uid}/events/`;
-    `refdata.ts` owns `refdata/`; `content.ts` owns `content/`; `email-tokens.ts` owns
-    `authTokens/`. Routes delegate; they don't query. (Widened from "only `users.ts`
-    touches Firestore" when the calendar needed a second collection — the intent was
-    never one file, it was no scattered database access.)
+    `today.ts` owns `users/{uid}/today/`; `refdata.ts` owns `refdata/`; `content.ts` owns
+    `content/`; `email-tokens.ts` owns `authTokens/`. Routes delegate; they don't query.
+    (Widened from "only `users.ts` touches Firestore" when the calendar needed a second
+    collection — the intent was never one file, it was no scattered database access.)
+    A module needing another's data calls that owner's exported function and never its
+    collection: `today.ts` builds a card out of events, the profile and the copy, and
+    gained `lastEventChangeAt` / `lastLoggedDate` in `events.ts` and `lastUserChangeAt` in
+    `users.ts` rather than querying either itself. Check: every `firestore.collection(…)`
+    in `api/src/` names the collection its own file owns.
 11. Error responses keep the shape `{ error: { code, message } }`. Existing codes are a
     client contract — adding is fine, renaming or repurposing is a breaking change. The
     current set lives in [ARCHITECTURE.md](ARCHITECTURE.md) §3 and grows; do not duplicate

@@ -1,4 +1,4 @@
-import { FieldValue } from 'firebase-admin/firestore'
+import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { firestore } from './firebase'
 
 export interface Profile {
@@ -145,6 +145,24 @@ export const readUser = async (
 export const getUser = async (uid: string): Promise<User | null> => {
   const snapshot = await users().doc(uid).get()
   return snapshot.exists && !isTombstone(snapshot) ? toUser(uid, snapshot.data()!) : null
+}
+
+/**
+ * When this document last changed — the profile half of the Today card's "has her data
+ * moved" signal (#98, D3).
+ *
+ * Every write in this file stamps `updatedAt`, so saving the questionnaire moves it and a
+ * card built before that is regenerated. Deliberately *not* added to `User`: this is an
+ * audit instant, and `GET /me` serves that shape to the app.
+ *
+ * `null` for a missing document or a tombstone — the same answer `getUser` gives, for the
+ * same reason. A card cannot be stale on behalf of an account that is being deleted.
+ */
+export const lastUserChangeAt = async (uid: string): Promise<string | null> => {
+  const snapshot = await users().doc(uid).get()
+  if (!snapshot.exists || isTombstone(snapshot)) return null
+  const updatedAt = snapshot.get('updatedAt')
+  return updatedAt instanceof Timestamp ? updatedAt.toDate().toISOString() : null
 }
 
 /** The activation gate's question (#6). A named seam rather than a field read, so the

@@ -58,6 +58,12 @@ import {
 } from "./events";
 import { getRefData, getSymptomRules, type SymptomRules } from "./refdata";
 import {
+    PatternRuleUnsetError,
+    TemplateUnavailableError,
+    deleteAllUserToday,
+    getToday,
+} from "./today";
+import {
     deleteUserDocument,
     ensureUser,
     getUser,
@@ -1446,6 +1452,11 @@ app.delete("/me", requireAuth, async (c) => {
     if (appleAuthorizationCode) await revokeApple(appleAuthorizationCode);
     await deleteAuthAccount(sub);
     await deleteAllUserEvents(sub);
+    // With the events, not after the document: a stored card is her own logged data written
+    // out as prose, so leaving it would make `today/` the one readable summary of an account
+    // that no longer exists. Before `deleteUserDocument` for the same reason the events are —
+    // a subcollection outlives its parent document in Firestore.
+    await deleteAllUserToday(sub);
     await deleteTokensForAccount(sub, address);
     await deleteUserDocument(sub);
     // The address's own throttle counters go with it (#56). In-memory and per-instance, so
@@ -2130,6 +2141,71 @@ app.put("/me/body-signals/:date", requireAuth, requireAccount, async (c) => {
         payload: payload.value,
     });
     return c.json({ event });
+});
+
+// ── Dashboard ──────────────────────────────────────────────────────────────────
+// Validates at the edge and delegates to today.ts, the only module allowed to touch
+// users/{uid}/today (GUARDRAILS rule 10).
+
+/**
+ * The Today card cannot be produced right now — and that is a refusal, not a bug.
+ *
+ * Two causes, both of them "something this card depends on has not been supplied": rung 2's
+ * thresholds are unconfigured (#26 has not answered A32), or the content store holds no
+ * template for the chosen subject at its confidence (nobody has seeded `content/`, which is
+ * the state of every environment today — #97 refuses to seed without a reviewer). Answering
+ * past either would mean a card that looks live and is not.
+ *
+ * `SERVICE_UNAVAILABLE` rather than a new code: the client contract grows by addition only
+ * (GUARDRAILS 11), and this is exactly what that code already means everywhere else here —
+ * a capability that is not available, not a request that was wrong.
+ *
+ * The log line is the operator's signal and carries the *kind* of refusal and nothing else.
+ * Not the template id: which card a user was about to be shown is derived from her logs, so
+ * `late_period` in a log line is a health fact about a named request (GUARDRAILS 12).
+ */
+const dashboardUnavailable = (c: Context, reason: string) => {
+    console.warn(JSON.stringify({ event: "dashboard_unavailable", reason }));
+    return c.json(
+        error(
+            "SERVICE_UNAVAILABLE",
+            "Your Today card isn't available right now. Please try again later.",
+        ),
+        503,
+    );
+};
+
+/**
+ * The day's card (#98, slice D3 of #10).
+ *
+ * `timeZone` decides which local day this is, exactly as it does for a calendar entry:
+ * optional, and without it the server falls back to UTC. The card is generated once for
+ * that date and returned unchanged on every later open — `today.ts` regenerates only when
+ * her own data has moved, never because the page was refreshed.
+ */
+app.get("/me/today", requireAuth, requireAccount, async (c) => {
+    const timeZone = c.req.query("timeZone");
+    const clock = resolveClock(timeZone);
+    if (!clock.ok) return c.json(error(clock.code, clock.message), 400);
+
+    try {
+        const today = await getToday(c.get("claims").sub, {
+            date: clock.value.today,
+            timeZone: timeZone ?? "UTC",
+        });
+        return c.json(today);
+    } catch (err) {
+        if (err instanceof PatternRuleUnsetError) return dashboardUnavailable(c, "pattern-rule-unset");
+        if (err instanceof TemplateUnavailableError) {
+            return dashboardUnavailable(c, "template-unavailable");
+        }
+        // D1's `InvalidTimeError` had a third branch here and it was dead code: `date` comes
+        // from `resolveClock`, `now` from `new Date()`, and `today.ts` drops a stored wall
+        // clock it cannot parse rather than passing it down. Nothing could reach it, so
+        // nothing could test it. Re-open one of those three and it belongs back here.
+        // Anything else is a bug, and `app.onError` answers it as one.
+        throw err;
+    }
 });
 
 export default {
