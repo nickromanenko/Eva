@@ -222,14 +222,14 @@ const SCENARIOS: Scenario[] = [
     },
     {
         state: "home_h",
-        why: "three consecutive logged days at or below the configured level (A32)",
+        why: "three consecutive logged days with mood *and* sleep at or below the level (A32)",
         input: base({
             cycle: ESTIMATED,
             daysSinceLastLog: 0,
             signals: [
-                signal({ localDate: TODAY, mood: 2 }),
-                signal({ localDate: YESTERDAY, mood: 2 }),
-                signal({ localDate: TWO_DAYS_AGO, mood: 1 }),
+                signal({ localDate: TODAY, mood: 2, sleep: 2 }),
+                signal({ localDate: YESTERDAY, mood: 2, sleep: 1 }),
+                signal({ localDate: TWO_DAYS_AGO, mood: 1, sleep: 2 }),
             ],
         }),
         rung: "pattern",
@@ -271,9 +271,9 @@ describe("priority ladder", () => {
         daysSinceLastLog: 0,
         redFlag: { code: "reduced_fetal_movement", loggedAt: `${TODAY}T07:45:00Z` },
         signals: [
-            signal({ localDate: TODAY, mood: 2 }),
-            signal({ localDate: YESTERDAY, mood: 2 }),
-            signal({ localDate: TWO_DAYS_AGO, mood: 2 }),
+            signal({ localDate: TODAY, mood: 2, sleep: 2 }),
+            signal({ localDate: YESTERDAY, mood: 2, sleep: 2 }),
+            signal({ localDate: TWO_DAYS_AGO, mood: 2, sleep: 2 }),
         ],
         upcomingAppointments: [APPOINTMENT_TOMORROW],
         profileComplete: true,
@@ -301,7 +301,7 @@ describe("priority ladder", () => {
 
         // One log today instead of a three-day run: still rung 2, but the late period is
         // the more consequential thing to say, so it leads.
-        const noRun = { ...noFlag, signals: [signal({ localDate: TODAY, mood: 2 })] };
+        const noRun = { ...noFlag, signals: [signal({ localDate: TODAY, mood: 2, sleep: 2 })] };
         expect(selectSubject(noRun, RULES).templateId).toBe(TEMPLATE.latePeriod);
 
         // Not late any more: her own log still outranks the phase.
@@ -339,12 +339,60 @@ describe("priority ladder", () => {
     });
 
     test("a mode this slice has no rules for falls back, it does not borrow cycle content", () => {
+        // `LATE` as well as `ESTIMATED`, because a fixture with neither a lateness count nor
+        // a signal only ever reaches rung 4 — which is what let rung 2's missing mode gate
+        // sit here unseen.
         for (const mode of ["planning", "pregnancy", "postpartum", "loss"] as const) {
-            const subject = selectSubject(
-                base({ mode, cycle: ESTIMATED, daysSinceLastLog: 3 }),
-                RULES,
+            for (const cycle of [ESTIMATED, LATE]) {
+                const subject = selectSubject(base({ mode, cycle, daysSinceLastLog: 3 }), RULES);
+                expect(subject.templateId).toBe(TEMPLATE.educational);
+            }
+        }
+    });
+
+    test("rung 2's two cycle-only cards are gated on mode, exactly as rung 4 is", () => {
+        // `late_period` and `signal_overrides_phase` are `mode: 'cycle'` in `content/`, and a
+        // cycle estimate is still carried in the other four modes. Ungated, a user in loss
+        // mode two days past a predicted period was shown "Your period is later than
+        // predicted", with *Log period* and *Log test* under it — days after a pregnancy
+        // loss. This is the case that fails if either gate is removed.
+        for (const mode of ["planning", "pregnancy", "postpartum", "loss"] as const) {
+            expect(
+                selectSubject(base({ mode, cycle: LATE, daysSinceLastLog: 0 }), RULES).templateId,
+            ).toBe(TEMPLATE.educational);
+
+            const logged = base({
+                mode,
+                cycle: ESTIMATED,
+                daysSinceLastLog: 0,
+                signals: [signal({ localDate: TODAY, energy: 1, sleep: 2 })],
+            });
+            const subject = selectSubject(logged, RULES);
+            expect(subject.templateId).toBe(TEMPLATE.signalsToday);
+            expect(subject.slots).toEqual({});
+        }
+    });
+
+    test("and the other two are not — `mode: 'any'` means every mode", () => {
+        // `mood_pattern` and `signals_today` describe what she logged and claim nothing
+        // beyond it, which is as true in one mode as in another. The gate above is two cards
+        // wide, not the whole rung: widening it would be silence where there is something
+        // true to say.
+        for (const mode of ["cycle", "planning", "pregnancy", "postpartum", "loss"] as const) {
+            const run = base({
+                mode,
+                cycle: LATE,
+                daysSinceLastLog: 0,
+                signals: [TODAY, YESTERDAY, TWO_DAYS_AGO].map((localDate) =>
+                    signal({ localDate, mood: 2, sleep: 2 }),
+                ),
+            });
+            expect(selectSubject(run, RULES).templateId).toBe(TEMPLATE.moodPattern);
+
+            const oneDay = { ...run, signals: [signal({ localDate: TODAY, energy: 1 })] };
+            expect(selectSubject(oneDay, RULES).templateId).toBe(
+                mode === "cycle" ? TEMPLATE.latePeriod : TEMPLATE.signalsToday,
             );
-            expect(subject.templateId).toBe(TEMPLATE.educational);
         }
     });
 });
@@ -511,13 +559,38 @@ describe("rung 2 is inert until #26's rule is configured", () => {
         }
     });
 
+    test("and so is one that cannot help but match", () => {
+        // The quieter half of the same rule, and the half the check missed. Ratings are whole
+        // numbers from 1 to 5 (`parseRating`, `index.ts`), so `lowAtOrBelow: 5` calls every
+        // answered rating low: anyone who logs a mood and a sleep three days running gets the
+        // pattern card, whatever she logged, and nothing surfaces it. It passed the
+        // positive-integer check, because nothing looked at the top of the scale.
+        const everyRatingFine = base({
+            daysSinceLastLog: 0,
+            signals: [TODAY, YESTERDAY, TWO_DAYS_AGO].map((localDate) =>
+                signal({ localDate, mood: 5, sleep: 5 }),
+            ),
+        });
+        expect(selectSubject(everyRatingFine, RULES).templateId).toBe(TEMPLATE.signalsToday);
+        expect(() =>
+            selectSubject(everyRatingFine, { pattern: { ...PATTERN_RULE, lowAtOrBelow: 5 } }),
+        ).toThrow(PatternRuleUnsetError);
+
+        // 4 is the top of the usable range and is still a rule rather than a tautology: a 5
+        // is not low at 4.
+        expect(
+            selectSubject(everyRatingFine, { pattern: { ...PATTERN_RULE, lowAtOrBelow: 4 } })
+                .templateId,
+        ).toBe(TEMPLATE.signalsToday);
+    });
+
     test("the thresholds come from the config, not from the code", () => {
         // Two consecutive low days, and nothing else applicable.
         const twoDays = base({
             daysSinceLastLog: 0,
             signals: [
-                signal({ localDate: TODAY, mood: 2 }),
-                signal({ localDate: YESTERDAY, mood: 2 }),
+                signal({ localDate: TODAY, mood: 2, sleep: 2 }),
+                signal({ localDate: YESTERDAY, mood: 2, sleep: 2 }),
             ],
         });
         expect(selectSubject(twoDays, RULES).templateId).toBe(TEMPLATE.signalsToday);
@@ -529,7 +602,7 @@ describe("rung 2 is inert until #26's rule is configured", () => {
         const threes = base({
             daysSinceLastLog: 0,
             signals: [TODAY, YESTERDAY, TWO_DAYS_AGO].map((localDate) =>
-                signal({ localDate, mood: 3 }),
+                signal({ localDate, mood: 3, sleep: 3 }),
             ),
         });
         expect(selectSubject(threes, RULES).templateId).toBe(TEMPLATE.signalsToday);
@@ -542,9 +615,9 @@ describe("rung 2 is inert until #26's rule is configured", () => {
         const gap = base({
             daysSinceLastLog: 0,
             signals: [
-                signal({ localDate: TODAY, mood: 2 }),
-                signal({ localDate: TWO_DAYS_AGO, mood: 2 }),
-                signal({ localDate: "2026-09-13", mood: 2 }),
+                signal({ localDate: TODAY, mood: 2, sleep: 2 }),
+                signal({ localDate: TWO_DAYS_AGO, mood: 2, sleep: 2 }),
+                signal({ localDate: "2026-09-13", mood: 2, sleep: 2 }),
             ],
         });
         expect(selectSubject(gap, RULES).templateId).toBe(TEMPLATE.signalsToday);
@@ -552,53 +625,112 @@ describe("rung 2 is inert until #26's rule is configured", () => {
         const endedYesterday = base({
             daysSinceLastLog: 1,
             signals: [YESTERDAY, TWO_DAYS_AGO, "2026-09-13"].map((localDate) =>
-                signal({ localDate, mood: 2 }),
+                signal({ localDate, mood: 2, sleep: 2 }),
             ),
         });
         expect(selectSubject(endedYesterday, RULES).templateId).toBe(TEMPLATE.educational);
     });
 
-    test("energy, mood and sleep each count; a mixture of them still counts", () => {
-        const mixed = base({
-            daysSinceLastLog: 0,
-            signals: [
-                signal({ localDate: TODAY, sleep: 2 }),
-                signal({ localDate: YESTERDAY, energy: 1 }),
-                signal({ localDate: TWO_DAYS_AGO, mood: 2 }),
-            ],
-        });
-        expect(selectSubject(mixed, RULES).templateId).toBe(TEMPLATE.moodPattern);
+    /**
+     * The card is a sentence about her, and the predicate has to be the same statement.
+     * `mood_pattern` reads "You've logged low mood for three consecutive days" and "Sleep has
+     * also been below your usual level during the same period" — the canvas carries that
+     * second line verbatim, so it is the specification. Every fixture below produced that
+     * card under the old any-of-energy-mood-sleep predicate, and in every one of them at
+     * least one of those two sentences was false about her own data.
+     */
+    test("the run is low mood *and* low sleep, on every day of it", () => {
+        const threeDays = (over: Partial<SignalEntry>) =>
+            base({
+                daysSinceLastLog: 0,
+                signals: [TODAY, YESTERDAY, TWO_DAYS_AGO].map((localDate) =>
+                    signal({ localDate, ...over }),
+                ),
+            });
+
+        // Low energy, mood and sleep both 5 — and she is told she logged low mood and poor
+        // sleep. Energy is in no card's words and is not in the predicate at all.
+        expect(selectSubject(threeDays({ energy: 1, mood: 5, sleep: 5 }), RULES).templateId).toBe(
+            TEMPLATE.signalsToday,
+        );
+
+        // Low mood, sleep fine: the second sentence would be false.
+        expect(selectSubject(threeDays({ mood: 2, sleep: 5 }), RULES).templateId).toBe(
+            TEMPLATE.signalsToday,
+        );
+
+        // Low sleep, mood fine: the first one would be.
+        expect(selectSubject(threeDays({ mood: 5, sleep: 2 }), RULES).templateId).toBe(
+            TEMPLATE.signalsToday,
+        );
+
+        // Not answered is not low — `events.ts` is careful that a null is not a 3.
+        expect(selectSubject(threeDays({ mood: 2 }), RULES).templateId).toBe(TEMPLATE.signalsToday);
+
+        // Both low, every day: the card is true of her, and it is the one she gets.
+        expect(selectSubject(threeDays({ mood: 2, sleep: 2 }), RULES).templateId).toBe(
+            TEMPLATE.moodPattern,
+        );
     });
 
-    test("the severe-symptom arm needs the same symptom on every day", () => {
-        const sameCode = base({
-            daysSinceLastLog: 0,
-            signals: [TODAY, YESTERDAY, TWO_DAYS_AGO].map((localDate) =>
-                signal({ localDate, symptoms: [{ code: "cramps", severity: "severe" }] }),
-            ),
-        });
-        expect(selectSubject(sameCode, RULES).templateId).toBe(TEMPLATE.moodPattern);
-
-        const differentCodes = base({
+    test("the days of the run must agree — one low signal each was not a pattern", () => {
+        // Low sleep today, low energy yesterday, low mood the day before satisfied the old
+        // `.some()`, and "for three consecutive days" then described nothing that happened.
+        const disagreeing = base({
             daysSinceLastLog: 0,
             signals: [
-                signal({ localDate: TODAY, symptoms: [{ code: "cramps", severity: "severe" }] }),
-                signal({ localDate: YESTERDAY, symptoms: [{ code: "nausea", severity: "severe" }] }),
-                signal({
-                    localDate: TWO_DAYS_AGO,
-                    symptoms: [{ code: "cramps", severity: "severe" }],
-                }),
+                signal({ localDate: TODAY, mood: 5, sleep: 2 }),
+                signal({ localDate: YESTERDAY, energy: 1, mood: 5, sleep: 5 }),
+                signal({ localDate: TWO_DAYS_AGO, mood: 2, sleep: 5 }),
             ],
         });
-        expect(selectSubject(differentCodes, RULES).templateId).toBe(TEMPLATE.signalsToday);
+        expect(selectSubject(disagreeing, RULES).templateId).toBe(TEMPLATE.signalsToday);
+    });
 
-        const notSevere = base({
+    test("a severe-symptom run selects no pattern card, because it has none to select", () => {
+        // A32's second arm fell into the same `return` as the first, so severe cramps three
+        // days running — mood 5, sleep 5 — selected "You've logged low mood for three
+        // consecutive days". The card it actually needs is `symptom_pattern`; writing it is
+        // D2's, not a rule this slice may invent. Until then the run falls through to
+        // `signals_today`, which still describes what she logged.
+        const severeRun = base({
             daysSinceLastLog: 0,
             signals: [TODAY, YESTERDAY, TWO_DAYS_AGO].map((localDate) =>
-                signal({ localDate, symptoms: [{ code: "cramps", severity: "normal" }] }),
+                signal({
+                    localDate,
+                    mood: 5,
+                    sleep: 5,
+                    symptoms: [{ code: "cramps", severity: "severe" }],
+                }),
             ),
         });
-        expect(selectSubject(notSevere, RULES).templateId).toBe(TEMPLATE.signalsToday);
+        expect(selectSubject(severeRun, RULES).templateId).toBe(TEMPLATE.signalsToday);
+
+        // Its dose is still refused when it cannot match, so the day D2 writes the card, the
+        // number behind it is already known good.
+        expect(() =>
+            selectSubject(severeRun, { pattern: { ...PATTERN_RULE, severeSymptomDays: 0 } }),
+        ).toThrow(PatternRuleUnsetError);
+    });
+
+    test("the predicted day itself is not late", () => {
+        // `0` means the prediction is *today*. "Your period is later than predicted" on the
+        // day the calendar predicts contradicts the calendar — and this is rung 2, so it
+        // outranked what she logged this morning in order to do it.
+        const onTheDay = base({
+            cycle: { ...LATE, daysPastPredictedPeriod: 0 },
+            daysSinceLastLog: 0,
+            signals: [signal({ localDate: TODAY, energy: 1 })],
+        });
+        expect(selectSubject(onTheDay, RULES).templateId).toBe(TEMPLATE.signalOverridesPhase);
+
+        // A day later it is late, and then it is the card.
+        expect(
+            selectSubject(
+                { ...onTheDay, cycle: { ...LATE, daysPastPredictedPeriod: 1 } },
+                RULES,
+            ).templateId,
+        ).toBe(TEMPLATE.latePeriod);
     });
 });
 
@@ -716,28 +848,46 @@ describe("sex events are not an input", () => {
         expect(entry).toBeDefined();
     });
 
+    /**
+     * The whole input surface, pinned — **against the type, not against this file's
+     * factories.**
+     *
+     * Enumerating `Object.keys(base())` pinned the fixture rather than the interface: an
+     * optional `sexLogged?: boolean` on `DashboardInput` left the key list, the typecheck and
+     * every case here untouched, so PRD Edge case 6 was held shut by nothing. `Record<keyof
+     * …, true>` is exhaustive in both directions — a key added to the interface is a missing
+     * property here, a key removed is an excess one — and optionality does not enter into it,
+     * because `keyof` does not care. It fails under `bun run typecheck`, not at run time,
+     * which is why the `expect`s below exist as well: they are what keeps the factories
+     * honest about the type they claim to build.
+     */
     test("the whole input surface, pinned", () => {
-        expect(Object.keys(base()).sort()).toEqual([
-            "cycle",
-            "daysSinceLastLog",
-            "mode",
-            "now",
-            "nutritionSetUp",
-            "profileComplete",
-            "redFlag",
-            "signals",
-            "today",
-            "todayTotals",
-            "upcomingAppointments",
-        ]);
-        expect(Object.keys(signal({ localDate: TODAY })).sort()).toEqual([
-            "energy",
-            "localDate",
-            "loggedAt",
-            "mood",
-            "sleep",
-            "symptoms",
-        ]);
+        const everyInput: Record<keyof DashboardInput, true> = {
+            cycle: true,
+            daysSinceLastLog: true,
+            mode: true,
+            now: true,
+            nutritionSetUp: true,
+            profileComplete: true,
+            redFlag: true,
+            signals: true,
+            today: true,
+            todayTotals: true,
+            upcomingAppointments: true,
+        };
+        const everySignalField: Record<keyof SignalEntry, true> = {
+            energy: true,
+            localDate: true,
+            loggedAt: true,
+            mood: true,
+            sleep: true,
+            symptoms: true,
+        };
+
+        expect(Object.keys(base()).sort()).toEqual(Object.keys(everyInput).sort());
+        expect(Object.keys(signal({ localDate: TODAY })).sort()).toEqual(
+            Object.keys(everySignalField).sort(),
+        );
     });
 });
 
@@ -763,9 +913,54 @@ describe("times are instants, not wall clocks", () => {
         const badToday = base({
             today: "16/09/2026",
             daysSinceLastLog: 0,
-            signals: [signal({ localDate: TODAY, mood: 2 })],
+            signals: [signal({ localDate: TODAY, mood: 2, sleep: 2 })],
         });
         expect(() => selectSubject(badToday, RULES)).toThrow(InvalidTimeError);
+
+        // The right *shape*, and still not a date. `Date.UTC(2026, 12, 45)` rolls over to
+        // 2027-02-14 rather than refusing, so the run searched days nothing can carry and
+        // rung 2 matched nothing — which is exactly the failure above, arriving past the
+        // check written to stop it.
+        expect(() => selectSubject({ ...badToday, today: "2026-13-45" }, RULES)).toThrow(
+            InvalidTimeError,
+        );
+
+        // A two-digit year rolls the same way: `Date.UTC(26, 8, 16)` is 1926.
+        expect(() => selectSubject({ ...badToday, today: "0026-09-16" }, RULES)).toThrow(
+            InvalidTimeError,
+        );
+
+        // The leap day is the pair that shows this is a check and not a wall: 2024 has a
+        // 29 February and 2026 does not, and only the round trip can tell them apart.
+        expect(selectSubject({ ...badToday, today: "2024-02-29" }, RULES)).toBeDefined();
+        expect(() => selectSubject({ ...badToday, today: "2026-02-29" }, RULES)).toThrow(
+            InvalidTimeError,
+        );
+    });
+
+    test("a malformed instant the ladder would ignore does not fail the whole card", () => {
+        // Six days old, outside every window rung 2 reads. Parsing every entry before
+        // filtering meant one bad stored row threw for the card as a whole — and `GET
+        // /me/today` then answered for that user with an error every day until the row was
+        // fixed, over an entry that could never have been selected.
+        const staleRow = base({
+            cycle: ESTIMATED,
+            daysSinceLastLog: 0,
+            signals: [
+                signal({ localDate: TODAY, energy: 1, sleep: 2 }),
+                signal({ localDate: "2026-09-10", mood: 1, loggedAt: "not-an-instant" }),
+            ],
+        });
+        expect(selectSubject(staleRow, RULES).templateId).toBe(TEMPLATE.signalOverridesPhase);
+
+        // A malformed instant on a day the window *does* cover is still loud: reading it as
+        // "nothing logged" would drop her own report, which is the failure the error is for.
+        expect(() =>
+            selectSubject(
+                { ...staleRow, signals: [signal({ localDate: TODAY, energy: 1, loggedAt: "x" })] },
+                RULES,
+            ),
+        ).toThrow(InvalidTimeError);
     });
 
     test("an offset other than Z works, and the window is measured from `now`", () => {
@@ -831,11 +1026,16 @@ describe("the module reaches nothing", () => {
         10_000,
     );
 
-    test("its only import is a type import", async () => {
+    test("its only import is a type import, and nothing in it reaches the network", async () => {
         const source = await Bun.file(`${import.meta.dir}/../src/dashboard-rules.ts`).text();
         const imports = source.match(/^import .*$/gm) ?? [];
         expect(imports).toEqual(["import type { Confidence, Slot } from './content'"]);
-        for (const forbidden of ["./firebase", "./users", "./events", "./config"]) {
+        // `fetch` and a URL are in this list because the import scan above is **import-time
+        // only**: the two cases above spawn the module and watch it load, which a call made
+        // inside `selectSubject` never reaches. A `fetch(...)` as the first line of the
+        // function left all 44 cases green — from the one module holding cycle day, phase,
+        // ratings, symptom codes and the red-flag code together (GUARDRAILS 12, 32, 34).
+        for (const forbidden of ["./firebase", "./users", "./events", "./config", "fetch(", "https://"]) {
             expect(source).not.toContain(forbidden);
         }
     });
@@ -876,5 +1076,28 @@ describe("every subject names a template the content store actually has", () => 
                 scenario.state === "home_edu" ? ["category", "readMinutes"] : [],
             );
         }
+    });
+
+    test("rung 1's mode seam: a cycle-mode red flag names a pregnancy template", async () => {
+        const { TEMPLATES } = await import("../scripts/seed-content");
+        const flag = TEMPLATES.find((template) => template.id === TEMPLATE.redFlag);
+
+        // #96 said this seam was "pinned by a test" and it was not: the ladder cases pin only
+        // that a red flag wins in cycle mode, and the content cross-check above walks
+        // `SCENARIOS`, which deliberately excludes the red-flag subject. So the half that
+        // matters — that the template rung 1 names is `mode: 'pregnancy'` — was recorded
+        // nowhere.
+        //
+        // It is not a bug today: `redFlag` is `null` in every mode until D10 supplies the
+        // trigger mapping, and narrowing rung 1 here would be this slice deciding D10's rule.
+        // It is written down so D10 cannot land that mapping without meeting it.
+        expect(flag?.state).toBe("home_flag");
+        expect(flag?.mode).toBe("pregnancy");
+        expect(
+            selectSubject(
+                base({ mode: "cycle", redFlag: { code: "severe_pain", loggedAt: NOW } }),
+                RULES,
+            ).templateId,
+        ).toBe(TEMPLATE.redFlag);
     });
 });

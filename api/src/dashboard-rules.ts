@@ -134,9 +134,15 @@ export interface CycleEstimate {
   /** The estimated phase, or `null` when C11 withheld one. A non-null estimate is still
    *  gated below: `confidence: 'none'` never reaches a card. */
   phase: PhaseEstimate | null
-  /** Days since the predicted first flow day passed, or `null` when there is no prediction
-   *  or it has not passed. A count, not a judgement: whether a prediction exists at all is
-   *  C11's gate, so lateness carries no threshold of its own here. */
+  /**
+   * Whole days since the predicted first flow day passed — `1` on the day after it — or
+   * `null` when there is no prediction. A count, not a judgement: whether a prediction
+   * exists at all is C11's gate, so lateness carries no threshold of its own here.
+   *
+   * **`0` is the predicted day itself, and is not late.** It arrives as `0` rather than as
+   * `null` because "the prediction is today" and "there is no prediction" are different
+   * facts; the rung below is where that distinction is spent.
+   */
   daysPastPredictedPeriod: number | null
 }
 
@@ -248,19 +254,39 @@ export interface DashboardInput {
  * The shape of "a pattern in her own logged data that is worth naming" — A32's rule, with
  * every number left out.
  *
- * A32 settled the rule's *form* (PR #109): consecutive logged days with mood, energy or
- * sleep at or below a level, or the same symptom marked severe on consecutive days, and a
- * card that names the pattern and points outward. It is still "a product heuristic, stated
- * as one; not a clinical instrument", so the doses stay configuration and this file holds
- * none of them. A plausible default written here would be a rule that looks live and is
- * not, which is the thing #26's process note exists to prevent.
+ * A32 settled the rule's *form* (PR #109): consecutive logged days at or below a level, or
+ * the same symptom marked severe on consecutive days, and a card that names the pattern and
+ * points outward. It is still "a product heuristic, stated as one; not a clinical
+ * instrument", so the doses stay configuration and this file holds none of them. A plausible
+ * default written here would be a rule that looks live and is not, which is the thing #26's
+ * process note exists to prevent.
+ *
+ * **Which signals count is not configurable, and must not become so**, because it is the
+ * card's own sentences: `mood_pattern` says "You've logged low mood for three consecutive
+ * days" and "Sleep has also been below your usual level during the same period". A rule
+ * that could be pointed at energy would make the card describe something she did not log.
  */
 export interface PatternRule {
-  /** Consecutive logged days carrying a low mood, energy or sleep rating. */
+  /** Consecutive logged days carrying **both** a low mood and a low sleep rating. */
   lowSignalDays: number
-  /** The rating at or below which one of those counts as low. */
+  /**
+   * The rating at or below which mood and sleep each count as low.
+   *
+   * Ratings are whole numbers from 1 to 5 (`parseRating`, `index.ts`), so the usable range
+   * is **1–4**: at 5 every answered rating is low, and the rule matches anyone who logs
+   * anything three days running. `requirePatternRule` refuses it.
+   */
   lowAtOrBelow: number
-  /** Consecutive logged days carrying the *same* symptom marked severe. */
+  /**
+   * Consecutive logged days carrying the *same* symptom marked severe — A32's second arm,
+   * **dosed but not selectable in v1**.
+   *
+   * `content/` has no `symptom_pattern` template for it to name, and the one pattern card
+   * describes low mood and sleep — so selecting that card for a severe-symptom run would
+   * tell her she logged something she did not. D2 owns writing the card; until it exists
+   * this number is validated and unused, and such a run falls through to `signals_today`,
+   * which still says something true.
+   */
   severeSymptomDays: number
 }
 
@@ -320,7 +346,15 @@ const shiftDays = (localDate: string, field: string, delta: number): string => {
   if (!LOCAL_DATE.test(localDate) || year === undefined || month === undefined || day === undefined) {
     throw new InvalidTimeError(field, 'a YYYY-MM-DD calendar date')
   }
-  return new Date(Date.UTC(year, month - 1, day) + delta * 86_400_000).toISOString().slice(0, 10)
+  const at = Date.UTC(year, month - 1, day)
+  // The shape check is not enough: `Date.UTC` *rolls over* rather than refusing, so
+  // `2026-13-45` becomes `2027-02-14` and the run below would search days nothing can
+  // carry — a rule that looks live and is not, which is what this error exists to prevent.
+  // The round trip is the only check that catches it, and it catches a two-digit year too.
+  if (Number.isNaN(at) || new Date(at).toISOString().slice(0, 10) !== localDate) {
+    throw new InvalidTimeError(field, 'a real YYYY-MM-DD calendar date')
+  }
+  return new Date(at + delta * 86_400_000).toISOString().slice(0, 10)
 }
 
 /** An entry with no rating and no symptom is a day she opened the sheet, not a day she
@@ -328,13 +362,28 @@ const shiftDays = (localDate: string, field: string, delta: number): string => {
 const hasSignal = (entry: SignalEntry): boolean =>
   entry.energy !== null || entry.mood !== null || entry.sleep !== null || entry.symptoms.length > 0
 
-/** The most recent entry she actually reported something in, inside the observed window. */
+/**
+ * The most recent entry she actually reported something in, inside the observed window.
+ *
+ * **The calendar date is checked before the instant is parsed**, and that order is the
+ * point. A 24-hour window ending on `today` can only touch `today` and the day either side
+ * of it, whatever the offset — so an entry from last week is skipped without `loggedAt`
+ * being read at all. Parsing it first meant one malformed stored row the ladder would have
+ * ignored threw for the whole card, and `GET /me/today` then failed for that user every day
+ * until the row was fixed. A malformed instant on a day the window *does* cover still
+ * throws: there, reading it as "nothing logged" would drop her own report.
+ */
 const observedSignal = (input: DashboardInput): SignalEntry | null => {
   const now = instant(input.now, 'now')
+  const reachable = new Set([
+    shiftDays(input.today, 'today', -1),
+    input.today,
+    shiftDays(input.today, 'today', 1),
+  ])
   let latest: SignalEntry | null = null
   let latestAt = Number.NEGATIVE_INFINITY
   for (const entry of input.signals) {
-    if (!hasSignal(entry)) continue
+    if (!hasSignal(entry) || !reachable.has(entry.localDate)) continue
     const at = instant(entry.loggedAt, 'loggedAt')
     if (at > now || now - at > OBSERVED_WINDOW_MS) continue
     if (at > latestAt) {
@@ -395,45 +444,75 @@ const runEndingToday = (input: DashboardInput, days: number): SignalEntry[] | nu
   return run
 }
 
+/**
+ * A day the pattern card's words are true of.
+ *
+ * **Mood and sleep, both, and both answered** — because that is what `mood_pattern` says:
+ * "You've logged low mood for three consecutive days", and "Sleep has also been below your
+ * usual level during the same period". The canvas carries that second sentence verbatim, so
+ * it is the specification rather than loose copy around a wider rule.
+ *
+ * Two narrowings from what this was, and each closes a way the card could lie about her own
+ * data — the one thing this product cannot get wrong. It was `.some()` over energy, mood and
+ * sleep: three days of low *energy* with mood 5 and sleep 5 produced the card, and `.some()`
+ * did not even require the three days to agree on which signal was low. **Energy is not in
+ * the predicate at all**, because no card mentions it.
+ *
+ * The honest cost: this fires rarely. It needs both signals present and low on every day of
+ * the run, so most days fall through to the educational card instead — which is the right
+ * trade at v1. A rare true card beats a frequent false one, and the fallback is not a bad
+ * experience. When D2 writes a single-signal card, the predicate widens to meet it.
+ */
 const isLow = (entry: SignalEntry, atOrBelow: number): boolean =>
-  [entry.energy, entry.mood, entry.sleep].some((rating) => rating !== null && rating <= atOrBelow)
-
-/** The *same* symptom, severe on every day of the run — A32's second arm. */
-const sharesASevereSymptom = (run: readonly SignalEntry[]): boolean => {
-  const [first, ...rest] = run
-  if (first === undefined) return false
-  return first.symptoms
-    .filter((symptom) => symptom.severity === 'severe')
-    .some((symptom) =>
-      rest.every((day) =>
-        day.symptoms.some((other) => other.code === symptom.code && other.severity === 'severe'),
-      ),
-    )
-}
+  entry.mood !== null &&
+  entry.mood <= atOrBelow &&
+  entry.sleep !== null &&
+  entry.sleep <= atOrBelow
 
 const requirePatternRule = (rules: DashboardRules): PatternRule => {
   const rule = rules.pattern
   if (!rule) throw new PatternRuleUnsetError()
+  // `lowAtOrBelow` is a rating rather than a count, so it is bounded at both ends. The
+  // others are day counts and have no ceiling worth asserting.
   const doses = [
-    ['lowSignalDays', rule.lowSignalDays],
-    ['lowAtOrBelow', rule.lowAtOrBelow],
-    ['severeSymptomDays', rule.severeSymptomDays],
+    ['lowSignalDays', rule.lowSignalDays, null],
+    ['lowAtOrBelow', rule.lowAtOrBelow, 4],
+    ['severeSymptomDays', rule.severeSymptomDays, null],
   ] as const
-  for (const [field, value] of doses) {
+  for (const [field, value, max] of doses) {
     // A zero or a fraction would not be a quieter rule, it would be a rule that never
     // matches — indistinguishable, from the outside, from one that is switched off.
     if (!Number.isInteger(value) || value < 1) {
       throw new PatternRuleUnsetError(`${field} must be a positive integer`)
     }
+    // And the mirror of that, which is the quieter failure: ratings are whole numbers from
+    // 1 to 5, so `lowAtOrBelow: 5` calls *every* answered rating low and the rule matches
+    // anyone who logs at all. A rule that always matches surfaces nothing and reads, from
+    // the card, as a pattern in her data. Refused for the same reason as a zero.
+    if (max !== null && value > max) {
+      throw new PatternRuleUnsetError(
+        `${field} must be at most ${max}: ratings are whole numbers from 1 to 5, so ${max + 1} would call every answered rating low`,
+      )
+    }
   }
   return rule
 }
 
+/**
+ * Whether `mood_pattern` is true of her — which is the only question this may ask, because
+ * it is the only pattern card `content/` has.
+ *
+ * **A32's severe-symptom arm is deliberately not here.** It used to fall into the same
+ * `return`, so severe cramps three days running with mood 5 and sleep 5 selected a card
+ * reading "You've logged low mood for three consecutive days". The card it needs is
+ * `symptom_pattern`, which does not exist: writing it is D2's, not a rule this slice may
+ * invent. Until it does, such a run falls through to `signals_today`, which describes what
+ * she logged and claims nothing beyond it. `severeSymptomDays` stays validated so the day
+ * the card arrives, the dose behind it is already known good.
+ */
 const matchesPattern = (input: DashboardInput, rule: PatternRule): boolean => {
   const lowRun = runEndingToday(input, rule.lowSignalDays)
-  if (lowRun !== null && lowRun.every((entry) => isLow(entry, rule.lowAtOrBelow))) return true
-  const severeRun = runEndingToday(input, rule.severeSymptomDays)
-  return severeRun !== null && sharesASevereSymptom(severeRun)
+  return lowRun !== null && lowRun.every((entry) => isLow(entry, rule.lowAtOrBelow))
 }
 
 // ── The ladder (PRD §Dashboard → Priority ladder) ──────────────────────────────────────
@@ -450,7 +529,9 @@ type LadderStep = (input: DashboardInput, rules: DashboardRules) => Subject | nu
  * `home_flag`, whose content `mode` is `pregnancy` — so a red flag raised in cycle mode
  * would name a pregnancy template. That cannot happen while `redFlag` is `null` everywhere,
  * which it is until D10 supplies the trigger mapping, and narrowing rung 1 to one mode here
- * would be this slice deciding D10's rule. Left as the seam it is, pinned by a test.
+ * would be this slice deciding D10's rule. Left as the seam it is, and now pinned by a test
+ * that reads the template's own `mode` out of the seed rather than by one that only checks
+ * a red flag wins.
  */
 const redFlagRung: LadderStep = (input) =>
   input.redFlag === null
@@ -472,6 +553,14 @@ const redFlagRung: LadderStep = (input) =>
  * nothing she reported and is the more consequential thing to say, so it goes first. The
  * named pattern (A32) goes before both — it is the rung the PRD actually lists here, and it
  * is made of her own logs across days rather than one of them.
+ *
+ * **Two of the four are cycle-mode cards, and are gated as such** — the same gate rung 4
+ * opens with, for the same reason. `late_period` and `signal_overrides_phase` are
+ * `mode: 'cycle'` in `content/`, and a cycle estimate is still carried in the other modes:
+ * without the gate, a user in loss mode two days past a predicted period was shown "Your
+ * period is later than predicted", with *Log period* and *Log test* under it, days after a
+ * pregnancy loss. `mood_pattern` and `signals_today` are `mode: 'any'` and stay mode-free:
+ * each describes only what she logged, which is as true in one mode as another.
  */
 const patternRung: LadderStep = (input, rules) => {
   const rule = requirePatternRule(rules)
@@ -480,10 +569,17 @@ const patternRung: LadderStep = (input, rules) => {
     return { rung: 'pattern', templateId: TEMPLATE.moodPattern, slots: {}, confidence: 'plain' }
   }
 
-  // A prediction only exists once C11's gates pass, so lateness needs no gate of its own.
-  // `cycleDay` is required rather than assumed: the card carries it, and this ladder never
-  // selects a template it cannot fill.
-  if (input.cycle.daysPastPredictedPeriod !== null && input.cycle.cycleDay !== null) {
+  // A prediction only exists once C11's gates pass, so lateness needs no gate of its own —
+  // beyond the two here. `> 0` because `0` is the predicted day *itself*: saying the period
+  // is later than predicted on the day the calendar predicts contradicts the calendar, and
+  // outranks what she actually logged to do it. `cycleDay` is required rather than assumed:
+  // the card carries it, and this ladder never selects a template it cannot fill.
+  if (
+    input.mode === 'cycle' &&
+    input.cycle.daysPastPredictedPeriod !== null &&
+    input.cycle.daysPastPredictedPeriod > 0 &&
+    input.cycle.cycleDay !== null
+  ) {
     return {
       rung: 'pattern',
       templateId: TEMPLATE.latePeriod,
@@ -495,28 +591,35 @@ const patternRung: LadderStep = (input, rules) => {
   const observed = observedSignal(input)
   if (observed === null) return null
 
-  // `home_e` reads her log *against* the phase, so it needs a phase it may speak. Without
-  // one — no cycle data, too few cycles, irregular, or an estimate C11 withheld — the card
-  // responds to the signals alone and never mentions a phase (`home_g`, canvas G).
-  const phase = speakablePhase(input.cycle)
-  return phase !== null && input.cycle.cycleDay !== null
-    ? {
+  // `home_e` reads her log *against* the phase, so it needs a phase it may speak — and a
+  // mode whose card that phase belongs to. Without either — another mode, no cycle data,
+  // too few cycles, irregular, or an estimate C11 withheld — the card responds to the
+  // signals alone and never mentions a phase (`home_g`, canvas G).
+  if (input.mode === 'cycle') {
+    const phase = speakablePhase(input.cycle)
+    if (phase !== null && input.cycle.cycleDay !== null) {
+      return {
         rung: 'pattern',
         templateId: TEMPLATE.signalOverridesPhase,
         slots: { cycleDay: input.cycle.cycleDay },
         confidence: 'plain',
       }
-    : { rung: 'pattern', templateId: TEMPLATE.signalsToday, slots: {}, confidence: 'plain' }
+    }
+  }
+  return { rung: 'pattern', templateId: TEMPLATE.signalsToday, slots: {}, confidence: 'plain' }
 }
 
 /**
  * Rung 3 — a mode milestone.
  *
- * Every milestone template in `content/` is mode-specific (`home_preg`, `home_post`,
- * `home_loss`) and belongs to D10; **cycle mode has none**. So an upcoming appointment is
- * not applicable here rather than skipped — there is no card to show, and inventing one
- * would be writing copy in the rules layer. D10 fills this in, and the appointment input
- * above is already the shape it needs.
+ * **Inert in all five modes, not only in cycle mode.** Every milestone template in
+ * `content/` is mode-specific (`home_preg`, `home_post`, `home_loss`) and belongs to D10;
+ * cycle mode has none — but this step returns `null` unconditionally, so pregnancy does not
+ * reach `home_preg` either, even though that card exists and the appointment input below is
+ * already wired. Selecting one is D10's, together with the rest of the mode's ladder; what
+ * this slice owns is the rung's place in the order, which is why the step is here at all.
+ * An upcoming appointment is therefore not applicable rather than skipped, and inventing a
+ * card for it would be writing copy in the rules layer.
  *
  * Whether cycle mode *should* have a milestone card is a content question for D2, not a
  * rule this slice may answer. Filed rather than fixed.
