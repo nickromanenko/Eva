@@ -1,0 +1,129 @@
+# Runs the iOS suite — `xcodegen`, the build, `EvaTests` and `EvaUITests` — against the
+# Firebase emulators (#135).
+#
+# Before this existed, nothing ran the iOS suite anywhere. `docs/ARCHITECTURE.md` §6 said so
+# plainly: "A human, when they remember". The cost of that is measured, not theoretical —
+# the suite sat red across at least two merges and accumulated three independent breakages,
+# the first of which meant the UI target did not compile at all. Nobody was told, because
+# there was nobody to tell.
+#
+# It is also what makes `docs/AUTONOMY.md`'s merge condition 1 — "CI is green on the PR,
+# which since #67 means the suites actually ran" — meetable for a `mobile/` PR. Until now no
+# workflow matched `mobile/` paths, so a mobile-only PR reported no checks at all and the
+# condition could not be satisfied by anything.
+#
+# **Two jobs, because #67 declined per-PR macOS runners on cost and that call still holds.**
+# macOS minutes bill at a 10x multiplier and the full suite is ~10 minutes of wall clock.
+# So the split is by what each catches:
+#
+#   build (pull_request) — xcodegen, the Info.plist staleness guard (#42), and a compile.
+#     Minutes, not tens of minutes. Catches the class that actually broke: a Swift 6 error
+#     in a test target, which is what #38 shipped and #135 found two merges later.
+#   suite (push to main, and nightly) — the whole thing, including XCUITests. Catches the
+#     rest before it compounds across merges, which is the part of #135 that hurt.
+#
+# Emulators only: no Workload Identity Federation, no GCP token, no contact with the real
+# project, and deliberately not granted the `id-token` permission that would let it try —
+# the same posture as test-api.yml and test-rules.yml, and for the same reason. A workflow
+# triggered by `pull_request` runs code from the branch, so it must not be able to reach
+# anything. `scripts/ci-mobile.sh` is the harness; its header carries the emulator caveat.
+name: Test Mobile
+
+on:
+  pull_request:
+    paths:
+      - "mobile/**"
+      - "scripts/ci-mobile.sh"
+      - "scripts/verify-mobile.sh"
+      - "scripts/lib/api-server.sh"
+      - "api/scripts/uitest-mailbox.ts"
+      # The UI suite drives the real API, so an api/ change can break it without touching
+      # a single file under mobile/. Kept narrow on purpose: the whole of api/** would run
+      # a 10x-billed macOS job on every backend PR.
+      - "api/src/index.ts"
+      - ".github/workflows/test-mobile.yml"
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - "scripts/ci-mobile.sh"
+      - "scripts/verify-mobile.sh"
+      - "api/src/index.ts"
+      - ".github/workflows/test-mobile.yml"
+  schedule:
+    # 04:00 UTC. The suite is the only check on a surface whose dependencies — Xcode, the
+    # simulator runtime, the Swift version — move underneath it without any commit. #135's
+    # first cause was exactly that: a key path that compiled until the toolchain changed.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+# Read-only, and no `id-token`. Nothing here needs to write to the repo or reach Google.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Every trigger. On a pull request this is the whole check; on main and the nightly it
+    # is the fast fail, so a compile break reports in minutes rather than after the suite.
+    name: Build
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      # `--build` needs no API, no emulators and no simulator boot: it regenerates the
+      # project, fails if mobile/Eva/Info.plist is stale (#42), and compiles every target.
+      - name: Build
+        run: scripts/verify-mobile.sh --build
+
+  suite:
+    # Not on pull_request — see the header. This is the 10x-billed job.
+    name: Full suite (emulators)
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: macos-15
+    # The ceiling is for a hang — a simulator that never boots, a JVM emulator that never
+    # comes up — not for a slow run. The suite is ~10 minutes locally.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # The Firestore and Auth emulators are JVM processes.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Cache emulator binaries
+        uses: actions/cache@v4
+        with:
+          # Distinct from test-api.yml's and test-rules.yml's keys: cache entries are
+          # immutable per key, so a shared one means whichever workflow writes first wins
+          # and the others never save. This one also sits on a different runner OS.
+          key: firebase-emulators-mobile-${{ runner.os }}-v1
+          path: ~/.cache/firebase/emulators
+
+      # The simulator `verify-mobile.sh` defaults to is a local UDID and will not exist on
+      # a runner. Resolve one by name from whatever runtime the image ships.
+      - name: Pick a simulator
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json \
+            | python3 -c 'import json,sys;d=json.load(sys.stdin)["devices"];print(next(x["udid"] for v in d.values() for x in v if "iPhone" in x["name"]))')
+          echo "EVA_SIMULATOR_ID=$udid" >> "$GITHUB_ENV"
+          echo "using $udid"
+
+      - name: Run mobile suite
+        env:
+          FIREBASE_CLI: bunx firebase-tools@15
+        run: scripts/ci-mobile.sh
