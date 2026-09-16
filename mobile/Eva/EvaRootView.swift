@@ -19,7 +19,7 @@ struct EvaRootView: View {
             case .signedOut, .needsQuestionnaire:
                 OnboardingFlowView(session: session)
             case .ready:
-                ContentView(session: session)
+                EvaTabView(session: session)
             case .unreachable:
                 UnreachableView(session: session)
             }

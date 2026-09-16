@@ -55,9 +55,11 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Networking/` | `APIClient` (async JSON), `APIError`, `APIModels` (wire types) |
 | `Eva/Session/` | `AppSession` (all auth/session state), `KeychainTokenStore` (only token storage) |
 | `Eva/Onboarding/` | `OnboardingModel` state machine, `Steps/`, `Components/` |
+| `Eva/Navigation/` | The tab bar (`EvaTabView`) and the Home tab's placeholder |
+| `Eva/Calendar/` | `CalendarView`, the month grid, the event model and its glyphs |
 | `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field |
 | `Eva/Theme/Specimen/` | DEBUG-only design specimen — see above |
-| `EvaUITests/` | XCUITest — sign-up → activation gate → questionnaire → dashboard |
+| `EvaUITests/` | XCUITest — sign-up → activation gate → questionnaire → the tab bar |
 
 ## Rules
 

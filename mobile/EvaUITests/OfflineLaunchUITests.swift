@@ -43,8 +43,8 @@ final class OfflineLaunchUITests: EvaUITestCase {
         )
         tap(app.buttons["primary.Enter Eva"], in: app)
         XCTAssertTrue(
-            app.staticTexts["dashboard.title"].waitForExistence(timeout: 10),
-            "Did not land on the dashboard"
+            app.buttons["tab.calendar"].waitForExistence(timeout: 10),
+            "Did not land on the tab bar"
         )
 
         // MARK: A launch with nothing to talk to
@@ -103,13 +103,13 @@ final class OfflineLaunchUITests: EvaUITestCase {
 
         relaunch(app, api: Self.apiBaseURL)
         XCTAssertTrue(
-            app.staticTexts["dashboard.title"].waitForExistence(timeout: 25),
+            app.buttons["tab.calendar"].waitForExistence(timeout: 25),
             "The session did not survive a launch that could not reach the API — "
                 + "the app came up signed out with the API available again"
         )
         XCTAssertFalse(
             app.textFields["signup.email"].exists,
-            "The app reached the dashboard but left onboarding on screen"
+            "The app reached the tab bar but left onboarding on screen"
         )
 
         // MARK: The way out of a launch that never works
@@ -131,15 +131,15 @@ final class OfflineLaunchUITests: EvaUITestCase {
         )
 
         // And it was a log out, not a screen change. Against the *live* API: if the token
-        // were still there it would validate and this launch would reach the dashboard.
+        // were still there it would validate and this launch would reach the tab bar.
         relaunch(app, api: Self.apiBaseURL)
         XCTAssertTrue(
             app.textFields["signup.email"].waitForExistence(timeout: 25),
             "Logging out of the retry screen left the token in the Keychain — the app signed itself back in"
         )
         XCTAssertFalse(
-            app.staticTexts["dashboard.title"].exists,
-            "A relaunch after logging out of the retry screen went straight to the dashboard"
+            app.buttons["tab.calendar"].exists,
+            "A relaunch after logging out of the retry screen went straight into the app"
         )
     }
 

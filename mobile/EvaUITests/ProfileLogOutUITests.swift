@@ -30,17 +30,17 @@ final class ProfileLogOutUITests: EvaUITestCase {
         )
         tap(app.buttons["primary.Enter Eva"], in: app)
         XCTAssertTrue(
-            app.staticTexts["dashboard.title"].waitForExistence(timeout: 10),
-            "Did not land on the dashboard"
+            app.buttons["tab.calendar"].waitForExistence(timeout: 10),
+            "Did not land on the tab bar"
         )
 
         // MARK: The path that got longer
 
-        tap(app.buttons["dashboard.profile"], in: app)
+        tap(app.buttons["tab.profile"], in: app)
         let profileEmail = app.staticTexts["profile.email"]
         XCTAssertTrue(
             profileEmail.waitForExistence(timeout: 10),
-            "The dashboard has no way through to Profile, which is now the only way to log out"
+            "The tab bar has no way through to Profile, which is now the only way to log out"
         )
         XCTAssertEqual(
             profileEmail.label, email,
@@ -55,8 +55,8 @@ final class ProfileLogOutUITests: EvaUITestCase {
         // Popping back to the dashboard would also leave Profile behind, and would not be
         // a log out.
         XCTAssertFalse(
-            app.staticTexts["dashboard.title"].exists,
-            "Log out dismissed Profile but left the user signed in on the dashboard"
+            app.buttons["tab.calendar"].exists,
+            "Log out dismissed Profile but left the user signed in"
         )
 
         // MARK: The Keychain half
@@ -73,8 +73,8 @@ final class ProfileLogOutUITests: EvaUITestCase {
             "The app signed itself back in after a log out — the token survived in the Keychain"
         )
         XCTAssertFalse(
-            app.staticTexts["dashboard.title"].exists,
-            "A relaunch after log out went straight to the dashboard"
+            app.buttons["tab.calendar"].exists,
+            "A relaunch after log out went straight into the app"
         )
 
         // The account itself is untouched: log out is not deletion, and a log out that
@@ -88,7 +88,7 @@ final class ProfileLogOutUITests: EvaUITestCase {
         revealAndTypePassword(Self.password, prefix: "login", in: app)
         tap(app.buttons["primary.Log in"], in: app)
         XCTAssertTrue(
-            app.staticTexts["dashboard.title"].waitForExistence(timeout: 15),
+            app.buttons["tab.calendar"].waitForExistence(timeout: 15),
             "The account could not be logged back into after logging out of it"
         )
     }
