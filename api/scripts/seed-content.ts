@@ -7,17 +7,18 @@
  * `NUDGES`, and the `banners` map in the home view. Changing a word here is changing what
  * a user reads, so it is a copy edit with a reviewer's name on it, not a refactor.
  *
- * ## It refuses to run, and that is the feature
+ * ## It refused to run until someone signed, and that was the feature
  *
- * `REVIEW` below is empty. `applyContent` throws `UnreviewedContentError` without a
- * `reviewedBy`, `reviewedAt` and `source`, so this script cannot seed the real project
- * until a person signs the copy off — PRD §Dashboard, Other requirements 4: clinical
- * content follows the same review requirement as the rest of the product, and #26 has no
- * retained clinician yet.
+ * `applyContent` throws `UnreviewedContentError` without a `reviewedBy`, `reviewedAt` and
+ * `source`, so this script could not seed anything until a person signed the copy off —
+ * PRD §Dashboard, Other requirements 4: clinical content follows the same review
+ * requirement as the rest of the product.
  *
- * **There is deliberately no `--skip-review` flag.** A flag would make the refusal a
- * speed bump. The way through is to fill in `REVIEW`, in a commit, where it is reviewable
- * — which is the point.
+ * `REVIEW` below is now filled, and the signature is the merge commit that filled it.
+ * **There is still deliberately no `--skip-review` flag**, and adding one would undo this:
+ * the refusal must stay the only door, so that the next copy change is signed the same way
+ * rather than waved through. Changing a string below without moving `reviewedAt` is the
+ * thing this guards against.
  */
 import {
   applyContent,
@@ -30,21 +31,29 @@ import {
 } from '../src/content'
 
 /**
- * Who signed this copy off. **Empty on purpose** — see the header. Fill all three in a
- * commit, together with whatever they reviewed it against, and this script will run.
+ * Who signed this copy off.
  *
- * `source` names the canvas state so a reviewer can find what they are signing:
- * `docs/design/Eva App.dc.html`, the Dashboard rail.
+ * `source` names the exact canvas state, by the commit that last changed it, so a reviewer
+ * can diff what was signed against what is drawn today rather than trusting a file name.
+ *
+ * **Not a clinical review**, and the distinction is the whole reason this field is a
+ * sentence and not a checkbox. No clinician has read these strings. What was reviewed is
+ * that every string matches the canvas verbatim, and that no card states something the
+ * rules layer has not actually observed about the user. Cards that would need a clinician
+ * to stand behind them are not in this set: the one card that speaks about a pattern
+ * reports the user's own logs and declines to interpret them, and the red-flag rung that
+ * would carry real clinical weight is inert (`redFlag` is `null` everywhere, D10).
+ * docs/LAUNCH.md L7 remains open on its own terms and this does not close it.
  *
  * Exported so `api/test/content.test.ts` can tell whether the gate is still closed. The
- * case that proves this script has no way past the refusal has to *run* the script, and on
- * the day someone fills these in that would seed whatever project the suite points at —
- * so it skips itself the moment it would stop being a test of a refusal.
+ * case that proves this script has no way past the refusal has to *run* the script, and
+ * now that these are filled that would seed whatever project the suite points at — so it
+ * skips itself, exactly as it was built to.
  */
 export const REVIEW: Review = {
-  reviewedBy: '',
-  reviewedAt: '',
-  source: '',
+  reviewedBy: 'Nick Romanenko',
+  reviewedAt: '2026-09-16',
+  source: 'docs/design/Eva App.dc.html @ 0f7cda4 — Dashboard rail (CARDS, NUDGES, banners)',
 }
 
 /** The 14 card variants the canvas' `CARDS` holds, in its order.
