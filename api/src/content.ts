@@ -397,9 +397,12 @@ export const applyContent = async (
     const unsigned = reviewProblems(stored as Partial<Review>)
     if (unsigned.length > 0) throw new UnreviewedContentError(id, unsigned)
   }
-  const byId = new Map<string, { id: string; status?: ContentStatus }>(
-    existing.map((item) => [item.id, item]),
-  )
+  // First wins on a repeated id, the same survivor `parseItems` picks. Last-wins here
+  // would mean a duplicate typed into the console is hidden by the read path — the good
+  // row keeps being served — right up until a legitimate re-seed promotes the second one
+  // and signs it. The two paths have to agree on which row is real.
+  const byId = new Map<string, { id: string; status?: ContentStatus }>()
+  for (const item of existing) if (!byId.has(item.id)) byId.set(item.id, item)
   for (const item of items) {
     const current = byId.get(item.id)
     if (!current) byId.set(item.id, item)
@@ -419,9 +422,19 @@ export const applyContent = async (
 }
 
 /** Takes an id out of what is offered while leaving it resolvable, so a card cached
- *  yesterday still renders. The supported removal. */
+ *  yesterday still renders. The supported removal.
+ *
+ *  Works on the stored rows rather than the parsed ones, for the reason `applyContent`
+ *  does: retiring one banner must not be the operation that deletes a field somebody added
+ *  to the other eight. It writes no signature — flipping a status changes what is offered,
+ *  not what the words say — so the document's existing `reviewedBy` keeps covering copy it
+ *  still describes. */
 export const retireContent = async (id: ContentId, itemId: string): Promise<boolean> => {
-  const items = (await readContent(id)) as { id: string; status: ContentStatus }[]
+  const stored = (await collection().doc(id).get()).data()
+  const items = (Array.isArray(stored?.items) ? (stored.items as unknown[]) : []).filter(
+    (row): row is { id: string; status?: ContentStatus } =>
+      typeof row === 'object' && row !== null && typeof (row as { id?: unknown }).id === 'string',
+  )
   const item = items.find((entry) => entry.id === itemId)
   if (!item || item.status === 'retired') return false
   item.status = 'retired'

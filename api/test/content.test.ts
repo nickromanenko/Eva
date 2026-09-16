@@ -159,6 +159,19 @@ describe("the version is a hash of the content", () => {
         expect(contentVersion({ ...base, templates: edited })).not.toBe(first);
     });
 
+    test("the field order a document happened to be written in does not move it", () => {
+        // Firestore preserves insertion order, and a document edited in the console comes
+        // back with its keys wherever the editor put them. Hashing that order would mean a
+        // re-seed, or somebody re-typing a line, invalidating every device's cache for a
+        // change nobody can read. `stable()` is what stops it, and nothing else asserts it.
+        const one = { id: "x", order: 0, status: "active" as const, text: "A", sub: "B" };
+        const other = { sub: "B", text: "A", status: "active" as const, order: 0, id: "x" };
+
+        expect(contentVersion({ templates: [], banners: [], nudges: [other] as never })).toBe(
+            contentVersion({ templates: [], banners: [], nudges: [one] as never }),
+        );
+    });
+
     test("re-signing the same copy is not a content change", async () => {
         // Review metadata is deliberately outside the hash: making a re-review push a new
         // bundle to every device would punish the thing the store exists to encourage.
@@ -337,6 +350,94 @@ describe("the seed carries the canvas copy", () => {
         expect(items[0].title).toBe("Two");
     });
 
+    test("a write keeps the row the read path was already serving, and its unknown fields", async () => {
+        // Two agreements that have to hold between the write path and the read path, both
+        // of them about a document somebody edited in the console.
+        //
+        // First: a duplicated id. `parseItems` serves the first row, so the merge has to
+        // keep the first row too — last-wins would mean the read path hides a bad
+        // duplicate until a legitimate re-seed promotes it and signs it.
+        //
+        // Second: a field this module does not model. The merge writes stored rows back as
+        // they were, so a client release that lands a new field ahead of the server does
+        // not lose it to the next unrelated write.
+        const id = scratch();
+        await collection().doc(id).set({
+            items: [
+                { id: "twice", order: 0, status: "active", text: "First", imageUrl: "a.png" },
+                { id: "twice", order: 1, status: "active", text: "Second" },
+            ],
+            ...REVIEW,
+        });
+
+        expect(((await readContent(id as never)) as Nudge[])[0]!.text).toBe("First");
+
+        await applyContent(id as never, [{ id: "new", order: 2, status: "active" }], REVIEW);
+
+        const rows = (await collection().doc(id).get()).data()!.items as Record<string, unknown>[];
+        const survivor = rows.filter((row) => row.id === "twice");
+        expect(survivor).toHaveLength(1);
+        expect(survivor[0]!.text).toBe("First");
+        expect(survivor[0]!.imageUrl).toBe("a.png");
+    });
+
+    test("retiring one item leaves the others' unknown fields alone", async () => {
+        // The same promise, from the other writer. Retirement is a status flip, not a
+        // normalisation pass: it must not be the operation that quietly deletes a field
+        // somebody added to the rows it did not touch.
+        const id = scratch();
+        await collection().doc(id).set({
+            items: [
+                { id: "going", order: 0, status: "active", imageUrl: "a.png" },
+                { id: "staying", order: 1, status: "active", imageUrl: "b.png" },
+            ],
+            ...REVIEW,
+        });
+
+        expect(await retireContent(id as never, "going")).toBe(true);
+
+        const rows = (await collection().doc(id).get()).data()!.items as Record<string, unknown>[];
+        expect(rows.find((row) => row.id === "going")!.status).toBe("retired");
+        expect(rows.find((row) => row.id === "going")!.imageUrl).toBe("a.png");
+        expect(rows.find((row) => row.id === "staying")!.imageUrl).toBe("b.png");
+    });
+
+    test("without `rewrite` an existing item's words are left exactly alone", async () => {
+        // The default, and the branch every other case here skips by passing `rewrite`.
+        // A re-seed that is not asking to relabel must not relabel: the canonical use is
+        // adding one new template to a document a person has since edited by hand.
+        const id = scratch();
+        await applyContent(
+            id as never,
+            [{ id: "held", order: 0, status: "active", text: "As it was" } as never],
+            REVIEW,
+        );
+
+        await applyContent(
+            id as never,
+            [
+                { id: "held", order: 0, status: "active", text: "Overwritten" } as never,
+                { id: "added", order: 1, status: "active", text: "New" } as never,
+            ],
+            REVIEW,
+        );
+
+        const items = (await readContent(id as never)) as Nudge[];
+        expect(items.map((i) => i.id)).toEqual(["held", "added"]);
+        expect(items[0]!.text).toBe("As it was");
+        expect(items[1]!.text).toBe("New");
+    });
+
+    test("retiring says whether it did anything", async () => {
+        // Both falsey answers, because the caller is a script deciding what to report.
+        const id = scratch();
+        await applyContent(id as never, [{ id: "here", order: 0, status: "active" }], REVIEW);
+
+        expect(await retireContent(id as never, "not-a-real-id")).toBe(false);
+        expect(await retireContent(id as never, "here")).toBe(true);
+        expect(await retireContent(id as never, "here")).toBe(false);
+    });
+
     test("nothing is deleted, only retired — a cached card still resolves", async () => {
         const id = scratch();
         await applyContent(
@@ -388,7 +489,9 @@ describe("tone and framing, checkable on the seed", () => {
                 .map((fragment) => fragment.trim())
                 .filter((fragment) => fragment.length > 3),
         );
-        expect(fragments.length).toBeGreaterThan(80);
+        // The exact count, not a floor: a floor with slack in it lets a dozen strings be
+        // deleted from the seed without a signal, which is the other way copy drifts.
+        expect(fragments).toHaveLength(94);
         for (const fragment of fragments) expect(canvas).toContain(fragment);
     });
 
@@ -397,13 +500,16 @@ describe("tone and framing, checkable on the seed", () => {
         // The apostrophe is normalised first: the seed writes curly ones throughout
         // (`night’s`, `You’ve`, `haven’t`), so a straight-quote-only check would
         // miss `You’ll` — which is the spelling this copy would actually use.
-        const flat = (line: string) => line.toLowerCase().replace(/[’ʼʹ`´]/g, "'");
+        const flat = (line: string) =>
+            line.toLowerCase().replace(/[‘’ʼʹ＇`´]/g, "'");
         for (const line of strings) {
             expect(flat(line)).not.toContain("you will");
             expect(flat(line)).not.toContain("you'll");
         }
         // And the normalisation itself works, so this cannot quietly stop catching things.
-        expect(flat("You’ll feel better")).toContain("you'll");
+        for (const quote of ["’", "‘", "＇", "ʼ"]) {
+            expect(flat(`You${quote}ll feel better`)).toContain("you'll");
+        }
     });
 
     test("every phase template has a hedged variant, and it is the only one at that rung", () => {
@@ -593,27 +699,41 @@ describe.skipIf(!onEmulators)("served from a seeded collection", () => {
 
     let served: ContentBody;
     let etag: string;
+    /** What `beforeAll` actually wrote. The teardown below follows this rather than
+     *  `CONTENT_IDS`, so that it deletes the three documents the API serves only if this
+     *  block is the thing that put them there. Iterating the constant instead would leave
+     *  one framework semantic — that a skipped `describe` does not run its hooks — between
+     *  a real-project `bun run verify` and deleting the live Dashboard copy. */
+    const seeded: (typeof CONTENT_IDS)[number][] = [];
 
     beforeAll(async () => {
         await applyContent("templates", TEMPLATES, REVIEW, { rewrite: true });
+        seeded.push("templates");
         await applyContent(
             "banners",
             BANNERS.map((b) => (b.id === RETIRED ? { ...b, status: "retired" as const } : b)),
             REVIEW,
             { rewrite: true },
         );
+        seeded.push("banners");
         await applyContent("nudges", NUDGES, REVIEW, { rewrite: true });
+        seeded.push("nudges");
 
         // The first request after seeding, and it must already have the copy: the empty
         // bundle is deliberately the one result `getContent` does not cache, so an instance
         // is serving real words within a request of the seed rather than a minute later.
         const res = await api("/content");
+        // Asserted here rather than left to the cases below: a 401 or a 500 would otherwise
+        // surface as five "undefined has no length" failures with nothing naming the cause.
+        expect(res.status).toBe(200);
         served = await json<ContentBody>(res);
-        etag = res.headers.get("etag") ?? "";
+        const header = res.headers.get("etag");
+        expect(header).toBeTruthy();
+        etag = header!;
     }, 60_000);
 
     afterAll(async () => {
-        for (const id of CONTENT_IDS) await collection().doc(id).delete().catch(() => {});
+        for (const id of seeded) await collection().doc(id).delete().catch(() => {});
     });
 
     test("the seed's copy reaches the wire, all 27 items of it", () => {
@@ -672,12 +792,17 @@ describe.skipIf(!onEmulators)("served from a seeded collection", () => {
         // The property the whole cache rests on: an idempotent re-seed must not invalidate
         // every device's copy. Read through `getContent`'s own cache-free path rather than
         // the route, which is holding a 60s snapshot by now.
+        await applyContent("templates", TEMPLATES, REVIEW, { rewrite: true });
         await applyContent("nudges", NUDGES, REVIEW, { rewrite: true });
-        invalidateContentCache();
 
-        const nudges = (await readContent("nudges")) as Nudge[];
-        expect(
-            contentVersion({ templates: served.templates, banners: served.banners, nudges }),
-        ).toBe(served.version);
+        // Re-read all three rather than reusing what the route returned: a write that
+        // stamped something onto every row would otherwise be invisible in the two arrays
+        // this case did not refresh.
+        const [templates, banners, nudges] = await Promise.all([
+            readContent("templates") as Promise<Template[]>,
+            readContent("banners") as Promise<Banner[]>,
+            readContent("nudges") as Promise<Nudge[]>,
+        ]);
+        expect(contentVersion({ templates, banners, nudges })).toBe(served.version);
     });
 });

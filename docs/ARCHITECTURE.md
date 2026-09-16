@@ -850,9 +850,13 @@ Three things differ from `refdata/`, and each is the point of the collection:
   requirements 4: clinical content follows the same review requirement as the rest of
   the product, and #26 has no retained clinician yet). There is deliberately no argument
   or env var that gets past it; a test drives the script with the obvious candidates and
-  requires a refusal. The refusal is transitive: a document that already holds items
-  under a missing signature is refused rather than merged into and re-signed, so a seed
-  cannot put a reviewer's name over copy they never saw.
+  requires a refusal. The refusal is transitive as far as it goes: a document that
+  already holds items under a *missing* signature is refused rather than merged into and
+  re-signed. It is **not per-item provenance** — the signature is on the document, and
+  the merge is additive, so an item somebody added in the console *under an existing
+  signature* is carried forward by the next seed and written out under the next
+  reviewer's name. The record can say the wrong person reviewed a line while every
+  document in the collection is properly signed.
 
   **Two paths still write unsigned, and the read path does not re-check.** The Firebase
   console bypasses the module entirely — the Admin SDK is the only way in, and a person
@@ -868,8 +872,9 @@ Three things differ from `refdata/`, and each is the point of the collection:
   neither the body nor the `version` — re-reviewing the same words must not push a new
   bundle to everyone.
 - **Templates may only *declare* an enumerated slot** (`SLOTS` in `content.ts`:
-  `cycleDay`, `phase`, `pregnancyWeek`, …), and the parser drops any other name on the
-  way out. What that bounds is the set of computed values a card can ever be filled
+  `cycleDay`, `phase`, `pregnancyWeek`, …), and the parser drops any other name from the
+  `slots` list on the way out — the string keeps whatever `{placeholder}` it was written
+  with, which is #145. What that bounds is the set of computed values a card can ever be filled
   with: no score, streak or cross-user comparison can reach a card without adding a slot
   in code, under review. What it does **not** bound is what a card *says* — `title`,
   `line2` and the rest are free text and are served verbatim, so a document written in
