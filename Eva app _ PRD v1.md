@@ -309,7 +309,7 @@ Only one flow level per day. Logging a second replaces the first, with a confirm
 
 Period end is marked by the first day with no flow logged. The user can also mark it explicitly from the day detail sheet.
 
-Requirement (2026-08-30, review H5): the explicit period-end mark needs its own stored field in the cycle data model. Inference from the first day with no flow logged is the default; the explicit mark from day detail is a separate, stored fact and must not be represented by the absence of a flow entry. It is not yet modelled — `CyclePayload` has no such field (engineering issue I1 in the review).
+Requirement (2026-08-30, review H5): the explicit period-end mark needs its own stored field in the cycle data model. Inference from the first day with no flow logged is the default; the explicit mark from day detail is a separate, stored fact and must not be represented by the absence of a flow entry. **Modelled 2026-09-17 (#75).** `CyclePayload`'s flow arm carries `periodEnd?: true`, on the cycle entry of the last day *with* flow; it may not sit on a spotting day or on an entry with no flow level. The field is stored and nothing reads it — what it means when it disagrees with the inferred end is still A11's (`docs/ARCHITECTURE.md` §4).
 
 ##### Sex
 
