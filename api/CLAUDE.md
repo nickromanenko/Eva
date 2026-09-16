@@ -124,8 +124,25 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts
   - Never log a card, a slot value or a signal, and never the template id: which card a user
     was about to see is derived from her logs, so `late_period` in a log line is a health
     fact about a named request (GUARDRAILS 12).
+
+- `cycle.ts` — the cycle maths (C11, #176). Logged flow days in; counted cycles, a
+  next-period date, a fertile window and a confidence band out. **Pure, like
+  `dashboard-rules.ts` and for the same reasons**: no Firestore, no clock, no `fetch`, no
+  log line — `today` is an argument, and its two imports are `import type`. Every number it
+  uses arrives in `CycleRules` from `config.ts` (A25–A27) and there is no default anywhere:
+  `analyzeCycles` throws `CycleRulesUnsetError` rather than estimating, exactly as rung 2
+  refuses without A32's thresholds. Every gate fails closed — under `minCyclesForEstimate`
+  counted cycles, over the FIGO band for her age, or with her age unknown and the variation
+  over the *tightest* band, there is no prediction and no window at all. An out-of-range
+  cycle is excluded from the estimate **and still returned, flagged** `unusual-length`;
+  dropping it from the output is the failure A25 names. Age is read in `bandForAge` and
+  nowhere else, so #81 (`profile.age` → `dateOfBirth`) changes one function.
+  `toCycleEstimate` projects the result into the `CycleEstimate` D1 already consumes.
 - `firebase.ts` — Admin SDK singleton. Never initialize a second app.
-- `config.ts` — required env vars, fail-fast.
+- `config.ts` — required env vars, fail-fast. It carries one import that points *up* this
+  list — `cycleRulesProblem` from `cycle.ts` — so the range checks the boot refuses and the
+  ones the maths refuses are one implementation rather than two copies that can drift. It
+  costs nothing at runtime: `cycle.ts` is pure and imports only types.
 
 ## Rules
 

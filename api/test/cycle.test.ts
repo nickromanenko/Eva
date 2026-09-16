@@ -1,0 +1,909 @@
+import { describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import {
+    CycleRulesUnsetError,
+    InvalidCycleDateError,
+    analyzeCycles,
+    bandForAge,
+    cycleRulesProblem,
+    toCycleEstimate,
+    type CycleDay,
+    type CycleRules,
+} from "../src/cycle";
+import { TEMPLATE, selectSubject, type DashboardInput, type DashboardRules } from "../src/dashboard-rules";
+import type { Profile } from "../src/users";
+
+/**
+ * The cycle maths (C11, #176) — counted cycles, the median prediction, the FIGO bands and
+ * the confidence gates, against fixtures.
+ *
+ * **This file makes no live round trip and therefore sets no default timeout** (api/CLAUDE.md
+ * #31), with the same caveat `dashboard-rules.test.ts` carries: if these cases ever need
+ * Firestore or a network, the module under test has stopped being pure and the fix is in
+ * `src/`. The cases that spawn a process carry their own timeout.
+ *
+ * **What the cases are written to survive.** Every behavioural claim below was checked by
+ * breaking the code and watching a case die — the gate constants, each FIGO band, the
+ * median, both halves of the 21–45 filter, the unknown-age default and the luteal offset.
+ * A case that passes with its guarantee removed is not a test of that guarantee, and this
+ * repo has shipped several. The PR body carries the table of which mutation killed which
+ * case.
+ */
+
+// ── The constants, as PRD §Predictions in Cycle mode settled them ──────────────────────
+// Written here rather than read from `config`, exactly as `dashboard-rules.test.ts` holds
+// A32's rule: these numbers exist so the maths can be *exercised*, and the "no literal in
+// the arithmetic" case below proves the module has none of its own by changing them.
+
+const RULES: CycleRules = {
+    minCycleLengthDays: 21,
+    maxCycleLengthDays: 45,
+    historyCycles: 6,
+    minCyclesForEstimate: 3,
+    narrowBandMinCycles: 6,
+    lutealPhaseDays: 14,
+    fertileDaysBeforeOvulation: 5,
+    fertileDaysAfterOvulation: 1,
+    peakDaysBeforeOvulation: 2,
+    irregularity: {
+        youngMaxAge: 25,
+        midMaxAge: 41,
+        youngVariationDays: 9,
+        midVariationDays: 7,
+        olderVariationDays: 9,
+    },
+};
+
+// ── Fixtures ───────────────────────────────────────────────────────────────────────────
+
+const TODAY = "2026-06-15";
+
+const shift = (date: string, delta: number): string =>
+    new Date(Date.parse(`${date}T00:00:00.000Z`) + delta * 86_400_000).toISOString().slice(0, 10);
+
+const flow = (localDate: string): CycleDay => ({ localDate, kind: "flow" });
+const spotting = (localDate: string): CycleDay => ({ localDate, kind: "spotting" });
+
+/**
+ * Logged flow for periods whose consecutive *starts* are `gaps` days apart, the most recent
+ * starting `daysAgo` before `TODAY`, each lasting `flowDays`.
+ *
+ * `gaps` is therefore the list of cycle lengths, oldest first, and `gaps.length + 1` periods
+ * are logged. `flowDays` stays well under the smallest gap so two periods never run into one
+ * another — a merged run would be a different fixture than the one the case is named for.
+ */
+const periods = (gaps: readonly number[], daysAgo: number, flowDays = 4): CycleDay[] => {
+    const starts = [shift(TODAY, -daysAgo)];
+    for (let i = gaps.length - 1; i >= 0; i -= 1) starts.unshift(shift(starts[0]!, -gaps[i]!));
+    return starts.flatMap((start) =>
+        Array.from({ length: flowDays }, (_, day) => flow(shift(start, day))),
+    );
+};
+
+const profileAged = (age: number): Profile => ({
+    age,
+    weightKg: 62,
+    heightCm: 168,
+    goals: [],
+    conditions: [],
+    medications: "",
+    lifestyle: "",
+    sports: [],
+});
+
+const analyze = (days: readonly CycleDay[], profile: Profile | null = profileAged(30)) =>
+    analyzeCycles({ days, today: TODAY, profile }, RULES);
+
+// ── A counted cycle (A25 item 1) ───────────────────────────────────────────────────────
+
+describe("a counted cycle runs first flow day to next first flow day", () => {
+    test("consecutive period starts become the cycle lengths, oldest first", () => {
+        const result = analyze(periods([28, 30, 27], 5));
+        expect(result.cycles.map((cycle) => cycle.lengthDays)).toEqual([28, 30, 27]);
+        expect(result.countedCycles).toBe(3);
+        expect(result.cycles.every((cycle) => cycle.counted)).toBe(true);
+    });
+
+    /**
+     * #23 gave spotting its own marker precisely so it could not start a period. A fixture
+     * where the spotting day is the *only* thing that could open a cycle: remove the
+     * distinction and the run starts a day earlier, and every length shifts by one.
+     */
+    test("a spotting day never starts a cycle", () => {
+        const start = shift(TODAY, -30);
+        const withSpotting = analyze([
+            ...periods([28], 30),
+            spotting(shift(start, -1)),
+            spotting(shift(start, -2)),
+        ]);
+        expect(withSpotting.cycles.map((cycle) => cycle.lengthDays)).toEqual([28]);
+        expect(withSpotting.lastPeriodStart).toBe(start);
+    });
+
+    /** A25 item 6, the other half: those spotting days belong to the *previous* cycle, so
+     *  cycle day counts from the flow day and not from the first day she bled at all. */
+    test("spotting before a first flow day belongs to the previous cycle, so cycle day counts from the flow", () => {
+        const start = shift(TODAY, -10);
+        const plain = analyze(periods([28], 10));
+        const spotted = analyze([...periods([28], 10), spotting(shift(start, -1))]);
+        expect(plain.cycleDay).toBe(11);
+        expect(spotted.cycleDay).toBe(11);
+        expect(spotted.lastPeriodStart).toBe(start);
+    });
+
+    test("a run of spotting with no flow in it starts nothing at all", () => {
+        const result = analyze([spotting(shift(TODAY, -3)), spotting(shift(TODAY, -2))]);
+        expect(result.lastPeriodStart).toBe(null);
+        expect(result.cycles).toEqual([]);
+        expect(result.withheld).toBe("no-flow-logged");
+    });
+});
+
+// ── "Excluded from estimates and still returned, flagged" (A25 item 1) ─────────────────
+
+describe("a cycle outside 21-45 days is excluded AND still returned, flagged", () => {
+    /**
+     * The named failure, in both halves. Excluding the short cycle from the estimate while
+     * omitting it from `cycles` passes every estimate assertion in this file and is exactly
+     * the bug "never silently dropped" forbids — so the second expectation is the point of
+     * the case, not a decoration on it.
+     */
+    test("a 20-day cycle is not counted, and is in the output marked unusual-length", () => {
+        const result = analyze(periods([28, 20, 29], 5));
+        expect(result.countedCycles).toBe(2);
+        expect(result.cycles.length).toBe(3);
+        const short = result.cycles.find((cycle) => cycle.lengthDays === 20);
+        expect(short).toBeDefined();
+        expect(short?.counted).toBe(false);
+        expect(short?.excluded).toBe("unusual-length");
+    });
+
+    test("a 46-day cycle is not counted, and is in the output marked unusual-length", () => {
+        const result = analyze(periods([28, 46, 29], 5));
+        expect(result.countedCycles).toBe(2);
+        expect(result.cycles.length).toBe(3);
+        const long = result.cycles.find((cycle) => cycle.lengthDays === 46);
+        expect(long?.counted).toBe(false);
+        expect(long?.excluded).toBe("unusual-length");
+    });
+
+    test("21 and 45 are inside the range; 20 and 46 are the first ones outside it", () => {
+        const countedAt = (length: number) =>
+            analyze(periods([length], 5)).cycles[0]?.counted ?? null;
+        expect(countedAt(20)).toBe(false);
+        expect(countedAt(21)).toBe(true);
+        expect(countedAt(45)).toBe(true);
+        expect(countedAt(46)).toBe(false);
+    });
+
+    /** PRD #176 Risks: "A user who mislogs one period start gets a long cycle that is
+     *  excluded — and if that leaves her under 3, predictions vanish with no obvious
+     *  cause… the reason must be legible in the output." */
+    test("an excluded cycle that drops her under the gate withdraws the prediction, with the reason in the output", () => {
+        const whole = analyze(periods([28, 29, 30], 5));
+        expect(whole.prediction).not.toBe(null);
+
+        const mislogged = analyze(periods([28, 29, 60], 5));
+        expect(mislogged.countedCycles).toBe(2);
+        expect(mislogged.prediction).toBe(null);
+        expect(mislogged.withheld).toBe("too-few-counted-cycles");
+        // …and the 60-day interval is still on the record for Cycle history to show.
+        expect(mislogged.cycles.map((cycle) => cycle.excluded)).toEqual([
+            null,
+            null,
+            "unusual-length",
+        ]);
+    });
+});
+
+// ── The ≥3 gate (A26, PRD Confidence and cold start 2) ─────────────────────────────────
+
+describe("under three counted cycles there is no prediction and no window", () => {
+    test("two counted cycles: nothing predicted, and the reason says which gate", () => {
+        const result = analyze(periods([28, 29], 5));
+        expect(result.countedCycles).toBe(2);
+        expect(result.enoughCountedCycles).toBe(false);
+        expect(result.prediction).toBe(null);
+        expect(result.withheld).toBe("too-few-counted-cycles");
+    });
+
+    test("three counted cycles: a prediction and a fertile window appear", () => {
+        const result = analyze(periods([28, 28, 28], 5));
+        expect(result.countedCycles).toBe(3);
+        expect(result.enoughCountedCycles).toBe(true);
+        expect(result.prediction).not.toBe(null);
+        expect(result.withheld).toBe(null);
+    });
+
+    test("one logged period and no complete cycle yet: a reason, not a null to interpret", () => {
+        const result = analyze(periods([], 3));
+        expect(result.countedCycles).toBe(0);
+        expect(result.lastPeriodStart).not.toBe(null);
+        expect(result.prediction).toBe(null);
+        // Flow *was* logged — saying "no flow" here would send C12 to explain the wrong thing.
+        expect(result.withheld).toBe("too-few-counted-cycles");
+    });
+
+    test("nothing logged at all", () => {
+        const result = analyze([]);
+        expect(result.cycleDay).toBe(null);
+        expect(result.prediction).toBe(null);
+        expect(result.withheld).toBe("no-flow-logged");
+    });
+});
+
+// ── The median (A26 item 3) ────────────────────────────────────────────────────────────
+
+describe("next period is the median of the last six counted cycles, not the mean", () => {
+    /**
+     * Six lengths, every one of them inside 21–45 so the countable range cannot be what
+     * separates the two answers, and spanning exactly 9 days so a 20-year-old's FIGO band
+     * cannot either. Sorted they are 26, 26, 26, 26, 35, 35: the median is 26 and the mean
+     * is 29. Three days between the predicted dates — a case that passed under both would
+     * not be a test of this rule at all.
+     */
+    test("two long cycles inside the range move the mean and do not move the median", () => {
+        const result = analyze(periods([26, 35, 26, 26, 35, 26], 5), profileAged(20));
+        expect(result.countedCycles).toBe(6);
+        expect(result.irregular).toBe(false);
+        expect(result.medianCycleLengthDays).toBe(26);
+        expect(result.prediction?.nextPeriodStart).toBe(shift(TODAY, -5 + 26));
+        // The mean's answer, named so the case says what it is *not*.
+        expect(result.prediction?.nextPeriodStart).not.toBe(shift(TODAY, -5 + 29));
+    });
+
+    test("an odd-sized sample takes the middle value", () => {
+        expect(analyze(periods([22, 40, 30], 5)).medianCycleLengthDays).toBe(30);
+    });
+
+    test("only the last six counted cycles are read", () => {
+        // Eight cycles; the two oldest are 45s that would drag any answer that saw them.
+        const result = analyze(periods([45, 45, 28, 28, 28, 28, 28, 28], 5));
+        expect(result.countedCycles).toBe(8);
+        expect(result.medianCycleLengthDays).toBe(28);
+        expect(result.variationDays).toBe(0);
+        expect(result.irregular).toBe(false);
+    });
+
+    test("the prediction is applied from the last first flow day", () => {
+        const result = analyze(periods([28, 28, 28], 12));
+        expect(result.lastPeriodStart).toBe(shift(TODAY, -12));
+        expect(result.prediction?.nextPeriodStart).toBe(shift(TODAY, 16));
+    });
+});
+
+// ── The FIGO bands (A25 item 2) ────────────────────────────────────────────────────────
+
+describe("irregularity uses the FIGO band for the user's age", () => {
+    /** Six cycles spanning exactly `spread` days shortest-to-longest, all inside 21–45. */
+    const spreadOf = (spread: number) => periods([28, 28, 28, 28, 28, 28 + spread], 5);
+
+    const irregularAt = (age: number | null, spread: number) =>
+        analyze(spreadOf(spread), age === null ? null : profileAged(age)).irregular;
+
+    test("18-25: more than 9 days is irregular, 9 is not", () => {
+        expect(irregularAt(18, 9)).toBe(false);
+        expect(irregularAt(18, 10)).toBe(true);
+        expect(irregularAt(25, 9)).toBe(false);
+        expect(irregularAt(25, 10)).toBe(true);
+    });
+
+    test("26-41: more than 7 days is irregular, 7 is not", () => {
+        expect(irregularAt(26, 7)).toBe(false);
+        expect(irregularAt(26, 8)).toBe(true);
+        expect(irregularAt(41, 7)).toBe(false);
+        expect(irregularAt(41, 8)).toBe(true);
+    });
+
+    test("42 and over: more than 9 days is irregular, 9 is not", () => {
+        expect(irregularAt(42, 9)).toBe(false);
+        expect(irregularAt(42, 10)).toBe(true);
+        expect(irregularAt(55, 9)).toBe(false);
+        expect(irregularAt(55, 10)).toBe(true);
+    });
+
+    /**
+     * The band edges themselves, which is where a one-off in the comparison hides: at a
+     * spread of 8 days the answer flips across 25→26 and flips back across 41→42, so all
+     * three bands are distinguished by one fixture.
+     */
+    test("the band changes at 25→26 and back at 41→42", () => {
+        expect([25, 26, 41, 42].map((age) => irregularAt(age, 8))).toEqual([
+            false,
+            true,
+            true,
+            false,
+        ]);
+    });
+
+    test("irregular means no prediction and no fertile window, with the reason stated", () => {
+        const result = analyze(spreadOf(10), profileAged(30));
+        expect(result.irregular).toBe(true);
+        expect(result.prediction).toBe(null);
+        expect(result.withheld).toBe("irregular-cycles");
+        // She still has enough cycles — D1 needs that to be true, or it would select
+        // "still learning" for a user whose problem is variation rather than volume.
+        expect(result.enoughCountedCycles).toBe(true);
+    });
+
+    test("the variation spans the last six counted cycles and ignores excluded ones", () => {
+        // A 60-day interval sits between two normal cycles; it is not a 32-day spread.
+        const result = analyze(periods([28, 60, 29, 30], 5), profileAged(30));
+        expect(result.variationDays).toBe(2);
+        expect(result.irregular).toBe(false);
+    });
+});
+
+describe("age unknown takes the tightest band", () => {
+    const spreadOf = (spread: number) => periods([28, 28, 28, 28, 28, 28 + spread], 5);
+
+    /**
+     * 7, not 9. A spread of 8 days is regular for a 20-year-old and for a 50-year-old, and
+     * irregular for someone whose age we do not know — because suppressing more is the safe
+     * direction and the permissive bands are the ones a silent fallback would reach for.
+     */
+    test("no profile: 7 days, the same answer a 26-41-year-old gets", () => {
+        expect(analyze(spreadOf(7), null).irregular).toBe(false);
+        expect(analyze(spreadOf(8), null).irregular).toBe(true);
+        expect(bandForAge(null, RULES)).toEqual({ ageYears: null, maxVariationDays: 7 });
+    });
+
+    test("it does not fall back to the youngest band, which is the permissive one", () => {
+        expect(analyze(spreadOf(8), profileAged(20)).irregular).toBe(false);
+        expect(analyze(spreadOf(8), null).irregular).toBe(true);
+        expect(bandForAge(null, RULES).maxVariationDays).not.toBe(
+            RULES.irregularity.youngVariationDays,
+        );
+    });
+
+    test("a profile carrying no usable age is the same as no profile", () => {
+        for (const age of [undefined, null, 0, -1, Number.NaN] as unknown[]) {
+            const profile = { ...profileAged(30), age } as Profile;
+            expect(bandForAge(profile, RULES).maxVariationDays).toBe(7);
+            expect(bandForAge(profile, RULES).ageYears).toBe(null);
+        }
+    });
+
+    /** The tightest band is *computed*, so re-tuning one band tighter than the others moves
+     *  the unknown-age answer with it rather than leaving it pinned to a stale winner. */
+    test("the fallback follows the configuration rather than naming a band", () => {
+        const tighterYoung: CycleRules = {
+            ...RULES,
+            irregularity: { ...RULES.irregularity, youngVariationDays: 3 },
+        };
+        expect(bandForAge(null, tighterYoung).maxVariationDays).toBe(3);
+    });
+});
+
+// ── Ovulation, the fertile window and the band (A26 item 3, A27) ───────────────────────
+
+describe("the fertile window is derived from the fixed-luteal convention", () => {
+    const predicted = () => analyze(periods([28, 28, 28], 5)).prediction;
+
+    test("ovulation is the predicted next period minus the luteal phase", () => {
+        const next = shift(TODAY, 23);
+        expect(predicted()?.nextPeriodStart).toBe(next);
+        expect(predicted()?.ovulation).toBe(shift(next, -14));
+    });
+
+    test("the window is ovulation − 5 through ovulation + 1, peak two days before through ovulation day", () => {
+        const window = predicted()!.fertileWindow;
+        const ovulation = predicted()!.ovulation;
+        expect(window.from).toBe(shift(ovulation, -5));
+        expect(window.to).toBe(shift(ovulation, 1));
+        expect(window.peakFrom).toBe(shift(ovulation, -2));
+        expect(window.peakTo).toBe(ovulation);
+    });
+
+    test("the band is wide at 3-5 counted cycles and narrow at 6 or more", () => {
+        const confidenceAt = (cycles: number) =>
+            analyze(periods(Array.from({ length: cycles }, () => 28), 5)).prediction?.confidence;
+        expect(confidenceAt(3)).toBe("wide");
+        expect(confidenceAt(5)).toBe("wide");
+        expect(confidenceAt(6)).toBe("narrow");
+        expect(confidenceAt(7)).toBe("narrow");
+    });
+});
+
+// ── Cycle day, lateness and the phase ──────────────────────────────────────────────────
+
+describe("cycle day counts from the current cycle's first flow day", () => {
+    test("day 1 is the first flow day itself", () => {
+        expect(analyze(periods([28], 0)).cycleDay).toBe(1);
+        expect(analyze(periods([28], 1)).cycleDay).toBe(2);
+        expect(analyze(periods([28], 20)).cycleDay).toBe(21);
+    });
+
+    test("a day before anything she logged has no cycle day and no phase", () => {
+        const result = analyzeCycles(
+            { days: periods([28, 28, 28], 5), today: "2020-01-01", profile: profileAged(30) },
+            RULES,
+        );
+        expect(result.cycleDay).toBe(null);
+        expect(toCycleEstimate(result).phase).toBe(null);
+    });
+});
+
+describe("lateness is counted, never judged", () => {
+    test("null until the predicted day has actually passed", () => {
+        // Periods 28 days apart, the last one 28 days ago: the prediction lands on today.
+        const onTheDay = analyze(periods([28, 28, 28], 28));
+        expect(onTheDay.prediction?.nextPeriodStart).toBe(TODAY);
+        expect(toCycleEstimate(onTheDay).daysPastPredictedPeriod).toBe(null);
+
+        const late = analyze(periods([28, 28, 28], 31));
+        expect(toCycleEstimate(late).daysPastPredictedPeriod).toBe(3);
+    });
+
+    test("no prediction means no lateness, however long ago the last period was", () => {
+        const twoCycles = analyze(periods([28, 29], 60));
+        expect(twoCycles.prediction).toBe(null);
+        expect(toCycleEstimate(twoCycles).daysPastPredictedPeriod).toBe(null);
+    });
+});
+
+describe("the phase", () => {
+    const phaseAt = (daysAgo: number) =>
+        toCycleEstimate(analyze(periods([28, 28, 28], daysAgo)))?.phase?.code ?? null;
+
+    test("menstrual while today is inside the logged period run", () => {
+        expect(phaseAt(0)).toBe("menstrual");
+        expect(phaseAt(3)).toBe("menstrual");
+        // The run is four days long, so day five is no longer menstrual.
+        expect(phaseAt(4)).not.toBe("menstrual");
+    });
+
+    test("follicular before the window, ovulation inside it, luteal after", () => {
+        // 28-day median: ovulation on cycle day 15, window days 10-16 inclusive.
+        expect(phaseAt(8)).toBe("follicular");
+        expect(phaseAt(9)).toBe("ovulation");
+        expect(phaseAt(14)).toBe("ovulation");
+        expect(phaseAt(15)).toBe("ovulation");
+        expect(phaseAt(16)).toBe("luteal");
+    });
+
+    test("a withheld prediction withholds the phase too", () => {
+        expect(toCycleEstimate(analyze(periods([28, 29], 8))).phase).toBe(null);
+        const irregular = analyze(periods([22, 28, 28, 40], 8), profileAged(30));
+        expect(irregular.irregular).toBe(true);
+        expect(toCycleEstimate(irregular).phase).toBe(null);
+    });
+});
+
+// ── Recomputed on read (A25 item 5) ────────────────────────────────────────────────────
+
+describe("an edit to a flow entry changes the answer, with nothing cached", () => {
+    test("removing the newest period moves the anchor and the prediction", () => {
+        const logged = periods([28, 28, 28], 5);
+        const before = analyze(logged);
+        const newestStart = before.lastPeriodStart!;
+        // The whole period, not only the day that opened it: deleting one day of a period
+        // leaves the rest of the run, whose next flow day simply becomes the new start.
+        const after = analyze(logged.filter((day) => day.localDate < newestStart));
+
+        expect(after.lastPeriodStart).not.toBe(before.lastPeriodStart);
+        expect(after.prediction?.nextPeriodStart).not.toBe(before.prediction?.nextPeriodStart);
+        expect(after.countedCycles).toBe(before.countedCycles - 1);
+    });
+
+    test("changing a flow day to spotting moves the cycle start", () => {
+        const start = shift(TODAY, -10);
+        const asFlow = analyze(periods([28], 10));
+        const asSpotting = analyze([
+            ...periods([28], 10).filter((day) => day.localDate !== start),
+            spotting(start),
+        ]);
+        expect(asFlow.lastPeriodStart).toBe(start);
+        expect(asSpotting.lastPeriodStart).toBe(shift(start, 1));
+    });
+
+    test("the same input always gives the same answer", () => {
+        const logged = periods([28, 29, 30], 5);
+        expect(analyze(logged)).toEqual(analyze(logged));
+    });
+});
+
+// ── The constants are configuration, not literals ──────────────────────────────────────
+
+describe("no number in the maths is written in the maths", () => {
+    test("the maths refuses to answer without constants", () => {
+        expect(() => analyzeCycles({ days: [], today: TODAY, profile: null }, null)).toThrow(
+            CycleRulesUnsetError,
+        );
+    });
+
+    test("moving the countable range moves which cycles count", () => {
+        const wider: CycleRules = { ...RULES, minCycleLengthDays: 19 };
+        const logged = periods([28, 20, 29], 5);
+        expect(analyze(logged).countedCycles).toBe(2);
+        expect(analyzeCycles({ days: logged, today: TODAY, profile: null }, wider).countedCycles).toBe(3);
+    });
+
+    test("moving the gate moves when a prediction appears", () => {
+        const logged = periods([28, 29], 5);
+        const lower: CycleRules = { ...RULES, minCyclesForEstimate: 2, narrowBandMinCycles: 2 };
+        expect(analyze(logged).prediction).toBe(null);
+        expect(
+            analyzeCycles({ days: logged, today: TODAY, profile: null }, lower).prediction,
+        ).not.toBe(null);
+    });
+
+    test("moving the luteal phase moves ovulation and the whole window with it", () => {
+        const logged = periods([28, 28, 28], 5);
+        const twelve: CycleRules = { ...RULES, lutealPhaseDays: 12 };
+        const base = analyze(logged).prediction!;
+        const moved = analyzeCycles({ days: logged, today: TODAY, profile: null }, twelve)
+            .prediction!;
+        expect(moved.nextPeriodStart).toBe(base.nextPeriodStart);
+        expect(moved.ovulation).toBe(shift(base.ovulation, 2));
+        expect(moved.fertileWindow.from).toBe(shift(base.fertileWindow.from, 2));
+        expect(moved.fertileWindow.peakTo).toBe(moved.ovulation);
+    });
+
+    test("moving the band widths moves the narrow/wide boundary", () => {
+        const logged = periods([28, 28, 28, 28], 5);
+        const earlier: CycleRules = { ...RULES, narrowBandMinCycles: 4 };
+        expect(analyze(logged).prediction?.confidence).toBe("wide");
+        expect(
+            analyzeCycles({ days: logged, today: TODAY, profile: null }, earlier).prediction
+                ?.confidence,
+        ).toBe("narrow");
+    });
+});
+
+describe("a set of constants that would produce a plausible wrong answer is refused", () => {
+    const refuse = (over: Partial<CycleRules>, field: string, range: string) => {
+        const broken = { ...RULES, ...over };
+        const problem = cycleRulesProblem(broken);
+        expect(problem?.field).toBe(field);
+        expect(problem?.message).toContain(range);
+        expect(() => analyzeCycles({ days: [], today: TODAY, profile: null }, broken)).toThrow(
+            CycleRulesUnsetError,
+        );
+    };
+
+    test("no constants at all", () => {
+        expect(cycleRulesProblem(null)?.field).toBe("rules");
+    });
+
+    test("a zero or a fraction is not a quieter setting", () => {
+        refuse({ historyCycles: 0 }, "historyCycles", "positive integer");
+        refuse({ lutealPhaseDays: 13.5 }, "lutealPhaseDays", "positive integer");
+    });
+
+    test("a luteal phase at least as long as the shortest countable cycle", () => {
+        refuse({ lutealPhaseDays: 21 }, "lutealPhaseDays", "less than minCycleLengthDays");
+    });
+
+    test("a peak window wider than the fertile window that contains it", () => {
+        refuse(
+            { peakDaysBeforeOvulation: 6 },
+            "peakDaysBeforeOvulation",
+            "at most fertileDaysBeforeOvulation",
+        );
+    });
+
+    test("an inverted countable range, which would count nothing", () => {
+        refuse({ minCycleLengthDays: 46 }, "maxCycleLengthDays", "at least minCycleLengthDays");
+    });
+
+    test("a gate below two, where a shortest-to-longest variation has no meaning", () => {
+        refuse({ minCyclesForEstimate: 1 }, "minCyclesForEstimate", "at least 2");
+    });
+
+    test("a narrow band reachable before the gate, which would make the wide band dead", () => {
+        refuse(
+            { narrowBandMinCycles: 2 },
+            "narrowBandMinCycles",
+            "at least minCyclesForEstimate",
+        );
+    });
+
+    test("inverted FIGO age edges, which would silently apply the wrong band", () => {
+        refuse(
+            { irregularity: { ...RULES.irregularity, midMaxAge: 25 } },
+            "irregularity.midMaxAge",
+            "greater than irregularity.youngMaxAge",
+        );
+    });
+
+    test("the constants the PRD settled on are accepted", () => {
+        expect(cycleRulesProblem(RULES)).toBe(null);
+    });
+});
+
+describe("a date that is not one is refused rather than read as no data", () => {
+    test("today", () => {
+        expect(() =>
+            analyzeCycles({ days: [], today: "15/06/2026", profile: null }, RULES),
+        ).toThrow(InvalidCycleDateError);
+    });
+
+    test("a logged day", () => {
+        expect(() =>
+            analyzeCycles({ days: [flow("2026-6-15")], today: TODAY, profile: null }, RULES),
+        ).toThrow(InvalidCycleDateError);
+    });
+
+    test("and the message names the field, never the value", () => {
+        try {
+            analyzeCycles({ days: [], today: "not-a-date", profile: null }, RULES);
+            expect.unreachable();
+        } catch (err) {
+            expect((err as Error).message).toContain("today");
+            expect((err as Error).message).not.toContain("not-a-date");
+        }
+    });
+});
+
+// ── The seam D1 consumes ───────────────────────────────────────────────────────────────
+
+describe("the estimate D1 already consumes", () => {
+    test("every field is C11's own answer, not a second threshold", () => {
+        const result = analyze(periods([28, 28, 28, 28, 28, 28], 9));
+        expect(toCycleEstimate(result)).toEqual({
+            countedCycles: 6,
+            enoughCyclesForEstimates: true,
+            irregular: false,
+            cycleDay: 10,
+            phase: { code: "ovulation", confidence: "narrow" },
+            daysPastPredictedPeriod: null,
+        });
+    });
+
+    test("too few cycles: the estimate says so and carries no phase", () => {
+        expect(toCycleEstimate(analyze(periods([28, 29], 9)))).toEqual({
+            countedCycles: 2,
+            enoughCyclesForEstimates: false,
+            irregular: false,
+            cycleDay: 10,
+            phase: null,
+            daysPastPredictedPeriod: null,
+        });
+    });
+
+    /**
+     * The whole point of the slice, without the route: D1's phase rung is unreachable while
+     * `today.ts` passes a no-knowledge fixture, and this is the fixture replaced. Six
+     * counted regular cycles select `home_d` — a card that states a phase.
+     */
+    test("fed into D1, six regular cycles select the phase card", () => {
+        const RULES_D1: DashboardRules = {
+            pattern: { lowSignalDays: 3, lowAtOrBelow: 2, severeSymptomDays: 3 },
+        };
+        const input: DashboardInput = {
+            mode: "cycle",
+            today: TODAY,
+            now: `${TODAY}T09:00:00Z`,
+            cycle: toCycleEstimate(analyze(periods([28, 28, 28, 28, 28, 28], 9))),
+            signals: [],
+            redFlag: null,
+            upcomingAppointments: [],
+            profileComplete: true,
+            nutritionSetUp: false,
+            todayTotals: null,
+            daysSinceLastLog: 9,
+        };
+        const subject = selectSubject(input, RULES_D1);
+        expect(subject.templateId).toBe(TEMPLATE.phaseEnergy);
+        expect(subject.rung).toBe("phase");
+        expect(subject.slots).toEqual({ cycleDay: 10, phase: "ovulation" });
+        // Hedged at every band: v1 has no confirmed-ovulation path (GUARDRAILS 35).
+        expect(subject.confidence).toBe("hedged");
+    });
+
+    test("and two cycles select the still-learning card instead, carrying the count", () => {
+        const RULES_D1: DashboardRules = {
+            pattern: { lowSignalDays: 3, lowAtOrBelow: 2, severeSymptomDays: 3 },
+        };
+        const input: DashboardInput = {
+            mode: "cycle",
+            today: TODAY,
+            now: `${TODAY}T09:00:00Z`,
+            cycle: toCycleEstimate(analyze(periods([28, 29], 9))),
+            signals: [],
+            redFlag: null,
+            upcomingAppointments: [],
+            profileComplete: true,
+            nutritionSetUp: false,
+            todayTotals: null,
+            daysSinceLastLog: 9,
+        };
+        const subject = selectSubject(input, RULES_D1);
+        expect(subject.templateId).toBe(TEMPLATE.stillLearning);
+        expect(subject.slots).toEqual({ cycleCount: 2 });
+    });
+});
+
+// ── Purity ─────────────────────────────────────────────────────────────────────────────
+
+const importInABareProcess = async (modulePath: string) => {
+    const proc = Bun.spawn(["bun", "--eval", `await import(${JSON.stringify(modulePath)})`], {
+        // Outside `api/`, so Bun does not auto-load `api/.env`: the case is a process
+        // holding no configuration and no credential at all.
+        cwd: tmpdir(),
+        env: { PATH: process.env.PATH ?? "" },
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+    return { exitCode, stderr };
+};
+
+describe("the module reaches nothing", () => {
+    test(
+        "it imports in a process with no environment and no credentials",
+        async () => {
+            const { exitCode, stderr } = await importInABareProcess(
+                `${import.meta.dir}/../src/cycle.ts`,
+            );
+            expect(stderr).toBe("");
+            expect(exitCode).toBe(0);
+        },
+        10_000,
+    );
+
+    test(
+        "and a module that does touch Firestore fails there, which is what makes that a test",
+        async () => {
+            const { exitCode, stderr } = await importInABareProcess(
+                `${import.meta.dir}/../src/content.ts`,
+            );
+            expect(exitCode).not.toBe(0);
+            expect(stderr).toContain("Missing required env var");
+        },
+        10_000,
+    );
+
+    /**
+     * The import test alone is **not enough**, and this file says so because a recent review
+     * found exactly that gap next door: a bare-process import proves only what runs at
+     * import time, so a `fetch` inside a function survives it untouched. So the source is
+     * scanned for the call as well as for the module.
+     */
+    test("its only imports are type imports, and nothing in it reaches out", async () => {
+        const source = await Bun.file(`${import.meta.dir}/../src/cycle.ts`).text();
+        const imports = source.match(/^import .*$/gm) ?? [];
+        expect(imports).toEqual([
+            "import type { CycleEstimate, PhaseCode, PhaseConfidence } from './dashboard-rules'",
+            "import type { Profile } from './users'",
+        ]);
+        for (const forbidden of [
+            "./firebase",
+            "./events",
+            "./config",
+            "./content",
+            "firebase-admin",
+            "fetch(",
+            "https://",
+            "http://",
+            "console.",
+            "process.env",
+            "Date.now",
+        ]) {
+            expect(source).not.toContain(forbidden);
+        }
+    });
+
+    /** `new Date(...)` appears twice, both times converting a whole-day number to a
+     *  `YYYY-MM-DD` label. A no-argument `new Date()` would be a clock, and a clock here
+     *  would make the answer depend on when it was asked. */
+    test("it reads no clock", async () => {
+        const source = await Bun.file(`${import.meta.dir}/../src/cycle.ts`).text();
+        expect(source).not.toContain("new Date()");
+    });
+});
+
+// ── The configuration is a boot-time refusal ───────────────────────────────────────────
+
+/**
+ * `config.ts` reads the environment once at import, so what a given set of variables does
+ * is a *boot*, and the only seam is a subprocess — the shape `config-emulators.test.ts`
+ * uses. No Firestore, so these run in every environment.
+ */
+describe("the cycle maths' configuration", () => {
+    /** Enough to get `config.ts` past every other required variable. */
+    const BASE_ENV = {
+        PATH: process.env.PATH ?? "",
+        FIREBASE_PROJECT_ID: "demo-eva-cycle-test",
+        FIREBASE_WEB_API_KEY: "not-a-real-key",
+        JWT_SECRET: "not-a-real-secret",
+        EMAIL_TRANSPORT: "log",
+        NODE_ENV: "test",
+        POSTMARK_FROM: "cycle-test@example.test",
+        PUBLIC_WEB_URL: "http://localhost:4321",
+    };
+
+    /** `RULES` as `config.ts` reads it. Kept beside the fixture above so the two cannot
+     *  disagree about what the PRD settled. */
+    const CYCLE_ENV: Record<string, string> = {
+        CYCLE_MIN_LENGTH_DAYS: String(RULES.minCycleLengthDays),
+        CYCLE_MAX_LENGTH_DAYS: String(RULES.maxCycleLengthDays),
+        CYCLE_HISTORY_CYCLES: String(RULES.historyCycles),
+        CYCLE_MIN_CYCLES_FOR_ESTIMATE: String(RULES.minCyclesForEstimate),
+        CYCLE_NARROW_BAND_MIN_CYCLES: String(RULES.narrowBandMinCycles),
+        CYCLE_LUTEAL_PHASE_DAYS: String(RULES.lutealPhaseDays),
+        CYCLE_FERTILE_DAYS_BEFORE_OVULATION: String(RULES.fertileDaysBeforeOvulation),
+        CYCLE_FERTILE_DAYS_AFTER_OVULATION: String(RULES.fertileDaysAfterOvulation),
+        CYCLE_PEAK_DAYS_BEFORE_OVULATION: String(RULES.peakDaysBeforeOvulation),
+        CYCLE_IRREGULAR_YOUNG_MAX_AGE: String(RULES.irregularity.youngMaxAge),
+        CYCLE_IRREGULAR_MID_MAX_AGE: String(RULES.irregularity.midMaxAge),
+        CYCLE_IRREGULAR_YOUNG_VARIATION_DAYS: String(RULES.irregularity.youngVariationDays),
+        CYCLE_IRREGULAR_MID_VARIATION_DAYS: String(RULES.irregularity.midVariationDays),
+        CYCLE_IRREGULAR_OLDER_VARIATION_DAYS: String(RULES.irregularity.olderVariationDays),
+    };
+
+    const bootConfig = async (over: Record<string, string>) => {
+        // A bare env, not `...process.env`: a developer with these set would decide the
+        // result, and the point is what a given set does at boot.
+        const proc = Bun.spawn(["bun", "run", "src/config.ts"], {
+            cwd: new URL("..", import.meta.url).pathname,
+            env: { ...BASE_ENV, ...over },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+        return { code, stderr };
+    };
+
+    test("the group the PRD settled boots", async () => {
+        expect((await bootConfig(CYCLE_ENV)).code).toBe(0);
+    }, 30_000);
+
+    /**
+     * Empty rather than absent, wherever a case means "unset".
+     *
+     * `config.ts` reads these with `optionalString`, which treats `''` as not supplied — and
+     * an empty value cannot be filled back in by an `api/.env` the way a deleted key can.
+     * That matters more here than it did for the pattern rung: `.env.example` now ships this
+     * group **with values**, so a developer who followed the instruction to copy it has all
+     * fourteen set, and a case that simply omitted one would be testing her `.env`.
+     */
+    const UNSET = Object.fromEntries(Object.keys(CYCLE_ENV).map((name) => [name, ""]));
+
+    test("none of them set is not a boot failure — the maths refuses instead", async () => {
+        expect((await bootConfig(UNSET)).code).toBe(0);
+    }, 30_000);
+
+    test("a partial group is refused, and the failure names what is missing", async () => {
+        const { code, stderr } = await bootConfig({
+            ...CYCLE_ENV,
+            CYCLE_LUTEAL_PHASE_DAYS: "",
+        });
+        expect(code).not.toBe(0);
+        expect(stderr).toContain("CYCLE_LUTEAL_PHASE_DAYS");
+    }, 30_000);
+
+    /**
+     * The boot-time half of `cycleRulesProblem`, which is the reason `config.ts` imports it
+     * rather than restating it: a value that passes the parse and produces a wrong window
+     * has to be refused in both places, and one implementation is what makes that true.
+     */
+    test("an out-of-range value is refused with the valid range named", async () => {
+        const { code, stderr } = await bootConfig({
+            ...CYCLE_ENV,
+            CYCLE_LUTEAL_PHASE_DAYS: "21",
+        });
+        expect(code).not.toBe(0);
+        expect(stderr).toContain("CYCLE_LUTEAL_PHASE_DAYS");
+        expect(stderr).toContain("less than minCycleLengthDays");
+    }, 30_000);
+
+    test("a value that is not a whole number of days is refused", async () => {
+        const { code, stderr } = await bootConfig({
+            ...CYCLE_ENV,
+            CYCLE_MAX_LENGTH_DAYS: "45.5",
+        });
+        expect(code).not.toBe(0);
+        expect(stderr).toContain("CYCLE_MAX_LENGTH_DAYS");
+    }, 30_000);
+
+    /** `.env.example` is the one place an operator copies from, so a group it cannot boot
+     *  is a broken instruction rather than a stale comment. */
+    test("the values in .env.example are the values this file asserts against", async () => {
+        const example = await Bun.file(`${import.meta.dir}/../.env.example`).text();
+        for (const [name, value] of Object.entries(CYCLE_ENV)) {
+            expect(example).toContain(`${name}=${value}`);
+        }
+    });
+});

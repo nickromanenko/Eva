@@ -1,3 +1,16 @@
+/**
+ * The cycle maths' own rule-checker (C11, #176), imported so the boot refusal and the
+ * refusal `analyzeCycles` raises on every evaluation cannot drift apart.
+ *
+ * It is the one edge in this file that points *up* the module diagram in `api/CLAUDE.md`,
+ * and it costs nothing at runtime: `cycle.ts` is pure and its own two imports are `import
+ * type`, erased at compile time, so loading it here loads no Firestore, no clock and no
+ * credential. The alternative is two copies of a ten-clause safety check on constants that
+ * decide whether a fertile window is drawn — see `cycleRulesProblem` for what each clause
+ * prevents, and why a second copy of it is the failure rather than the safeguard.
+ */
+import { cycleRulesProblem, type CycleRules } from './cycle'
+
 const required = (name: string): string => {
   const value = process.env[name]
   if (!value) throw new Error(`Missing required env var: ${name}`)
@@ -134,6 +147,120 @@ const patternRule = (): { lowSignalDays: number; lowAtOrBelow: number; severeSym
     lowAtOrBelow: number
     severeSymptomDays: number
   }
+}
+
+/**
+ * The cycle maths' constants (A25–A27, #176), named once: the field on `CycleRules`, the
+ * environment variable it is read from, and the value the PRD settled it at.
+ *
+ * The third column is documentation, not a default — nothing below falls back to it. It is
+ * here so `.env.example` and this file cannot disagree about what was decided, and so a
+ * reviewer can check the group against PRD §Predictions in Cycle mode without leaving the
+ * file. Sources: FIGO AUB System 1 (Munro MG et al., Int J Gynecol Obstet 2018;143:393–408)
+ * for the bands; Wilcox AJ, Dunson D, Baird DD, BMJ 2000;321:1259 for the fixed luteal
+ * phase the ovulation date and the fertile window are derived from.
+ */
+const CYCLE_VARS = [
+  ['minCycleLengthDays', 'CYCLE_MIN_LENGTH_DAYS', 21],
+  ['maxCycleLengthDays', 'CYCLE_MAX_LENGTH_DAYS', 45],
+  ['historyCycles', 'CYCLE_HISTORY_CYCLES', 6],
+  ['minCyclesForEstimate', 'CYCLE_MIN_CYCLES_FOR_ESTIMATE', 3],
+  ['narrowBandMinCycles', 'CYCLE_NARROW_BAND_MIN_CYCLES', 6],
+  ['lutealPhaseDays', 'CYCLE_LUTEAL_PHASE_DAYS', 14],
+  ['fertileDaysBeforeOvulation', 'CYCLE_FERTILE_DAYS_BEFORE_OVULATION', 5],
+  ['fertileDaysAfterOvulation', 'CYCLE_FERTILE_DAYS_AFTER_OVULATION', 1],
+  ['peakDaysBeforeOvulation', 'CYCLE_PEAK_DAYS_BEFORE_OVULATION', 2],
+] as const
+
+const CYCLE_BAND_VARS = [
+  ['youngMaxAge', 'CYCLE_IRREGULAR_YOUNG_MAX_AGE', 25],
+  ['midMaxAge', 'CYCLE_IRREGULAR_MID_MAX_AGE', 41],
+  ['youngVariationDays', 'CYCLE_IRREGULAR_YOUNG_VARIATION_DAYS', 9],
+  ['midVariationDays', 'CYCLE_IRREGULAR_MID_VARIATION_DAYS', 7],
+  ['olderVariationDays', 'CYCLE_IRREGULAR_OLDER_VARIATION_DAYS', 9],
+] as const
+
+/** The two tables above, as field → variable name. */
+const cycleVar = Object.fromEntries(CYCLE_VARS.map(([field, name]) => [field, name])) as Record<
+  (typeof CYCLE_VARS)[number][0],
+  string
+>
+const bandVar = Object.fromEntries(
+  CYCLE_BAND_VARS.map(([field, name]) => [field, name]),
+) as Record<(typeof CYCLE_BAND_VARS)[number][0], string>
+
+/** Which variable a `CycleRulesProblem` field name came from, so the boot failure names the
+ *  thing an operator can actually edit rather than the field the maths calls it. */
+const CYCLE_VAR_FOR_FIELD = new Map<string, string>([
+  ...CYCLE_VARS.map(([field, name]) => [field as string, name] as const),
+  ...CYCLE_BAND_VARS.map(([field, name]) => [`irregularity.${field}`, name] as const),
+])
+
+/**
+ * The cycle maths' constants (A25–A27, #176), or `null`.
+ *
+ * **All fourteen or none, and a partial group is a boot failure** — the shape
+ * `providers.apple` has in this file, and the one #98 gives rung 2's thresholds, for the
+ * reason each has it: a half-configured group is arithmetic running on numbers nobody
+ * chose. Unlike Apple's signing key, a missing one here cannot be read as "not provisioned
+ * yet", so it is refused rather than tolerated.
+ *
+ * **Absent altogether means the capability is unconfigured**, and `cycle.ts` refuses to
+ * answer — `analyzeCycles` throws `CycleRulesUnsetError` and `GET /me/today` answers 503,
+ * exactly as it already does for rung 2's unset thresholds. There is deliberately no
+ * default: the PRD's own sentence for this block is *"the code fails loudly if any is unset,
+ * and none is hard-coded"*, and a copy of A25's values written here as a fallback would be
+ * a clinical constant that no deployment records having chosen.
+ *
+ * Every range check lives in `cycleRulesProblem`, not here, so what the boot refuses and
+ * what the maths refuses are the same set.
+ */
+const cycleRules = (): CycleRules | null => {
+  const names = [...CYCLE_VARS, ...CYCLE_BAND_VARS].map(([, name]) => name)
+  const missing = names.filter((name) => optionalString(name) === null)
+  if (missing.length === names.length) return null
+  if (missing.length > 0) {
+    throw new Error(`Incomplete cycle maths configuration: also set ${missing.join(', ')}`)
+  }
+
+  const whole = (name: string): number => {
+    const value = Number(required(name))
+    if (!Number.isInteger(value)) {
+      throw new Error(`Invalid env var ${name}: expected a whole number of days`)
+    }
+    return value
+  }
+
+  // Written out field by field rather than assembled from the table, so the compiler
+  // checks that every member of `CycleRules` is supplied: a field added there and
+  // forgotten here is a build failure, not a variable nobody reads. The *names* still
+  // come from the table, so what is checked for presence above and what is read below
+  // cannot drift.
+  const rules: CycleRules = {
+    minCycleLengthDays: whole(cycleVar.minCycleLengthDays),
+    maxCycleLengthDays: whole(cycleVar.maxCycleLengthDays),
+    historyCycles: whole(cycleVar.historyCycles),
+    minCyclesForEstimate: whole(cycleVar.minCyclesForEstimate),
+    narrowBandMinCycles: whole(cycleVar.narrowBandMinCycles),
+    lutealPhaseDays: whole(cycleVar.lutealPhaseDays),
+    fertileDaysBeforeOvulation: whole(cycleVar.fertileDaysBeforeOvulation),
+    fertileDaysAfterOvulation: whole(cycleVar.fertileDaysAfterOvulation),
+    peakDaysBeforeOvulation: whole(cycleVar.peakDaysBeforeOvulation),
+    irregularity: {
+      youngMaxAge: whole(bandVar.youngMaxAge),
+      midMaxAge: whole(bandVar.midMaxAge),
+      youngVariationDays: whole(bandVar.youngVariationDays),
+      midVariationDays: whole(bandVar.midVariationDays),
+      olderVariationDays: whole(bandVar.olderVariationDays),
+    },
+  }
+
+  const problem = cycleRulesProblem(rules)
+  if (problem) {
+    const name = CYCLE_VAR_FOR_FIELD.get(problem.field) ?? problem.field
+    throw new Error(`Invalid env var ${name}: ${problem.message}`)
+  }
+  return rules
 }
 
 /**
@@ -319,6 +446,15 @@ export const config = {
     /** `null` until #26 answers A32. See `patternRule` above for why there is no default. */
     pattern: patternRule(),
   },
+  /**
+   * The cycle maths' constants (C11, #176). Read only in `today.ts`, which hands them to
+   * `cycle.ts` — the maths takes its configuration as an argument and reads no environment
+   * of its own, so every gate can be exercised against fixtures.
+   *
+   * `null` until the group is set, and the maths refuses rather than estimating; see
+   * `cycleRules` above for why there is no default.
+   */
+  cycle: cycleRules(),
   /** The one origin allowed to call the two routes the website's pages use (CORS). */
   publicWebOrigin: publicWebUrl.origin,
 }
