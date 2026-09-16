@@ -504,6 +504,29 @@ describe("signin: an upstream failure that is not a wrong password", () => {
         expectStandardShape(wrong, "INVALID_CREDENTIALS");
     });
 
+    test("and it waits out the signin floor, like every other branch (#34)", async () => {
+        // The floor wraps the **whole** `/auth/signin` handler rather than only the two
+        // `INVALID_CREDENTIALS` returns, so a branch added later cannot forget to opt in.
+        // This is the case that can see the difference: an outage is the one non-401 answer
+        // that costs nothing to produce — the upstream is stubbed and fails immediately —
+        // so without the floor it returns in single-digit milliseconds. Every other branch
+        // (403, 200, the deleted-account 401) does real upstream and Firestore work and
+        // already exceeds the floor, which is why wrapping them is free and also why they
+        // cannot pin the wrapper's width.
+        //
+        // Restated rather than imported, so lowering the route's constant fails here
+        // instead of dragging the assertion down with it.
+        const SIGNIN_FLOOR_MS = 350;
+        upstream = isDown;
+
+        const started = performance.now();
+        const answer = await signin();
+        const elapsed = performance.now() - started;
+
+        expect(answer.status).toBe(503);
+        expect(elapsed).toBeGreaterThanOrEqual(SIGNIN_FLOOR_MS - 1);
+    });
+
     test("a reason signin has no answer for still collapses to 401, never a 500", async () => {
         // Signin deliberately has no 400 branch: "that address is malformed" would answer
         // the question the 401 refuses to answer. An upstream rejection our route has no

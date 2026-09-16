@@ -626,7 +626,11 @@ const SIGNIN_FLOOR_MS = 350;
  *  the branch that succeeded — and a thrown error is a branch like any other. */
 const atLeast = async <T>(floor: number, work: () => Promise<T>): Promise<T> => {
     const [outcome] = await Promise.all([
-        work().then(
+        // `Promise.resolve().then(work)`, not `work()`: a `work` that throws *synchronously*
+        // would otherwise escape before the floor was armed, returning in no time at all —
+        // the one input that defeats the whole helper. Unreachable from the three `async`
+        // arrows that call it today, and the helper is generic now.
+        Promise.resolve().then(work).then(
             (value) => ({ ok: true as const, value }),
             (err: unknown) => ({ ok: false as const, err }),
         ),
