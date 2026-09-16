@@ -413,7 +413,12 @@ final class AppSession {
     /// session wherever it happens, not only at launch; the error is rethrown so the
     /// caller still gets to react. Sign-up, sign-in, resend and forgot stay outside it —
     /// they send no token, and sign-in's 401 means "wrong password".
-    private func authorized<T>(_ work: () async throws -> T) async throws -> T {
+    /// `T: Sendable` because the result crosses an isolation boundary on the way back, and
+    /// Swift 6.0 says so where 6.2 infers it — CI's Xcode 16.4 failed with "non-sendable
+    /// result type 'T' cannot be sent from nonisolated context". Every caller already
+    /// returns a value type of `Sendable` parts, so this documents what was true rather
+    /// than narrowing anything.
+    private func authorized<T: Sendable>(_ work: () async throws -> T) async throws -> T {
         // Captured before the await for the same reason `bootstrap()` captures it, and
         // guarding the same hazard one layer down: a request that started under an
         // earlier session must not act on the current one. Without this, a `/me` still

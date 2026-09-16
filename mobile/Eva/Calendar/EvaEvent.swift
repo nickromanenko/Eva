@@ -372,12 +372,17 @@ struct EvaEvent: Identifiable, Hashable, Sendable, Decodable {
         let flow: EvaFlowLevel?
 
         var mark: EvaCycleMark? {
-            switch (spotting, flow) {
-            // The two shapes the API can actually produce.
-            case (nil, .some(let flow)), (false, .some(let flow)): .flow(flow)
+            // `spotting ?? false`, so the tuple is `(Bool, EvaFlowLevel?)` — four cases a
+            // Swift 6.0 compiler can prove exhaustive, where `(Bool?, EvaFlowLevel?)`'s six
+            // needed a newer one and failed CI's Xcode 16.4 with "switch must be
+            // exhaustive". The collapse changes nothing: an absent `spotting` and an
+            // explicit `false` already mapped to the same answer in every column.
+            switch (spotting ?? false, flow) {
+            // The one shape the API can actually produce for a flow day.
+            case (false, .some(let flow)): .flow(flow)
             case (true, nil): .spotting
-            // Both at once, `spotting: false` alone, and neither. None is a day.
-            case (true, .some), (false, nil), (nil, nil): nil
+            // Both at once, and neither. Neither is a day.
+            case (true, .some), (false, nil): nil
             }
         }
     }
