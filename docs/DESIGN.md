@@ -161,14 +161,20 @@ Destructive-confirmed stays disabled until `DELETE` is typed.
   Steady · Good · High); the selected one is raised, opaque and outlined in the scale's
   ink, the rest greyed at 72%. The readout beside the label says "Low · 2 of 5" and each
   cell is announced as "Energy, 2 of 5, Low". Anchor labels at both ends. One component —
-  the App canvas' `scales` — since 2026-08-30 (C6/D2).
+  the App canvas' `scales` — since 2026-08-30 (C6/D2). **Built as `EvaRatingScale` in
+  #160**, where body signals needed it first; a scale given no glyphs falls back to the
+  artboard's graduated dots.
+- **Toggle** is still unbuilt. #160 needed a binary for an appointment reminder and used a
+  chip rather than build a second design-system component inside a feature change — see
+  §9a.
 
 ## 7. Surfaces, feedback, states
 
 Content card, settings rows (52 min-height, chevron, destructive row in `#A9524A`),
-info banner, toast (dark `rgba(40,33,38,.92)` with a pink Undo), alert dialog, bottom
-sheet (grabber, 30px top radius, L3 glass, 26px safe-area bottom padding), empty state
-(dashed border), skeleton loading, and an error card with a Retry action.
+info banner, toast (dark `rgba(40,33,38,.92)` with a pink Undo — `EvaToast`, built in
+#160), alert dialog, bottom sheet (grabber, 30px top radius, L3 glass, 26px safe-area
+bottom padding), empty state (dashed border), skeleton loading, and an error card with a
+Retry action.
 
 **Calendar cells** — every event carries a fixed position *and* shape as well as a
 colour: sex = bottom-left circle, body signals = bottom-centre square, sport =
@@ -384,7 +390,8 @@ designed, so `AuthResendButton` puts the wait in its own label ("Resend email ·
 disables itself. That satisfies §2 better than the toast did — the state is where the
 user is looking, and it says both *unavailable* and *for how long*, so it is never
 dimming alone. The resend confirmation takes the toast's copy as a line in place
-(`AuthStatusLine`). If a toast is ever built, both are candidates to move onto it.
+(`AuthStatusLine`). **The toast exists now** (#160), and both are still candidates to move
+onto it — moving them is its own change, not something to fold into a calendar slice.
 
 **"Back to log in" on Reset link sent is not on the artboard.** The canvas continues from
 that screen into an in-app "Choose a new password", which v1 does not build — the reset
@@ -429,31 +436,98 @@ disc and the white ink already say today without a weight the scale does not hav
 opens a large sheet on a day tap (`SPEC.day`), and that sheet is mostly Edit, Delete, Mark
 period end and Add entry — all C2 or C5. A sheet with a read-only list and no action is a
 surface you open to find nothing to do, and it covers the selection outline that the same
-screen's criterion pairs with the listing. The sheet arrives with the actions that justify
-it. Its dashed empty row also loses its second line ("Add flow, body signals, sport or an
-appointment"), which instructs the user to use a control C1 does not have.
+screen's criterion pairs with the listing. Its dashed empty row also lost its second line
+("Add flow, body signals, sport or an appointment"), which instructed the user to use a
+control C1 did not have.
 
-**The calendar's log FAB is drawn and disabled (#159).** What it opens is `SPEC.picker`,
-which is C2 — but the empty state's pointer has to point at something, and the screen is
-visibly unfinished without it. Disabled rather than silently inert: a button that takes a
-tap and does nothing reads as a broken app. **This one is a decision awaiting a human**, not
-a settled deviation — the alternative is to omit both the FAB and the `calEmpty` pointer
-until C2. `CalendarUITests` asserts the button is disabled, so enabling it in C2 has to come
-past a failing test and past this note.
+This note originally promised the sheet would arrive in C2 with the actions that justify
+it. **It did not, and the line below says why** — the actions arrived on the rows, and the
+empty row's second line came back with them.
 
-**A spotting day has no cell treatment.** The artboard's `mkCell` branches on flow 1–3 only
-and a spotting day falls through to an ordinary cell, so it is announced ("Spotting logged")
-and listed in the day detail but is not distinguishable in the grid by sight. Left as drawn
-rather than papered over, because the obvious fix — the lightest flow wash — would draw a
-spotting day as a period day, and spotting does not start a period. **A gap in the artboard,
-not a decision**: the canvas needs a spotting mark.
+**The calendar's log FAB is live (#160).** It was drawn and disabled in C1 because what it
+opens is `SPEC.picker`, which was this slice; C2 turns it on, and it opens the picker on
+the **selected day** rather than on today, which is why the picker's header states the
+date. The `calEmpty` pointer above it now points at something that works. C1's assertion
+that the button is disabled did its job — turning it on had to come past a failing test and
+past this note, and the assertion is now inverted rather than deleted.
 
-**The calendar's legend lists Appointment and drops three rows.** The artboard's legend
-explains period, predicted period, fertile window, sex, body signals, sport and the
-positive-test mark, and never explains the appointment badge it draws. C1 draws no
-predictions (C3) and no test mark (C2), and a legend entry for a mark the grid never draws
-is a promise — so those three arrive with the marks they describe, and the appointment
-badge gets the row the artboard omits.
+**A spotting day is a ring around the number, which the canvas has not drawn (#160).** The
+artboard's `mkCell` branches on flow 1–3 only, so a spotting day falls through to an
+ordinary cell — announced ("Spotting logged"), listed in the day detail, and invisible on
+the grid. C1 left it as drawn because nothing could log one yet. C2 can, so it is drawn,
+and three constraints decided the shape:
+
+- **not a wash**, at any strength — a fill is the grid's word for "period day", and that is
+  the one thing a spotting day must not say;
+- **not a corner mark** — all four corners are taken (dot, square, diamond, badge) and the
+  top-left is already promised to §7's positive-test mark;
+- **not dashed** — dashed and patterned are reserved for *predicted* data (§7), and this is
+  something the user logged.
+
+What is left is a solid `#C95F86` ring, 32pt, around the day's own number: shape-distinct
+from every flow cell rather than a paler one of them, concentric with the 28pt today disc
+so a day that is both shows both, and inside the selection outline so neither hides the
+other. The legend gains a row for it. **The canvas still needs to draw this** — the
+implementation is ahead of the artboard here, not reading it.
+
+The cycle sheet's own spotting swatch keeps the artboard's **dashed** ring
+(`1.5px dashed rgba(201,95,134,.6)`), which is the canvas' drawing and is unambiguous
+there: a sheet has no predictions on it to confuse a dashed outline with.
+
+**The day's entries carry Edit and Delete in place, not in a day sheet (#160).** C1's note
+above promised the sheet would arrive with the actions that justify it. It has not, and the
+promise is withdrawn: the log picker is itself a bottom sheet, so a day sheet that opens
+one would be two sheets deep before anything is logged, and the actions attach to an entry
+— moving them into a sheet moves the entries with them, off the screen where they sit under
+the day that is outlined. What the day sheet would add over this is "Add entry", and the
+FAB already is one for the selected day. The artboard draws both buttons at
+`min-height:36px; radius:11px; font:600 12.5px`, which is under §1's 44pt floor and matches
+no §5 variant; both take §5's standard 52 — the secondary glass and the outlined
+destructive — which keeps them the same height as each other. The dashed empty-day row gets
+its second line back, since there is now a control to point at.
+
+**Delete asks nothing before it happens.** It is a soft delete, reversible for thirty days,
+and the toast offers Undo immediately. A confirmation dialog in front of a reversible action
+is what teaches people to dismiss dialogs without reading them — and the one dialog in the
+app that must be read is the profile delete, which is not reversible.
+
+**The log sheet uses the platform's date and time pickers.** `SPEC.picker` asks for "an
+obvious change control" beside the target date and the artboard wires it to `noop`; the
+appointment sheet draws a Date and a Time field and specifies no control for either. The
+design system has no date or time picker, and inventing one is a design decision rather than
+a transcription — so `DatePicker` is used, tinted `evaActionPinkSolid` and bounded to what
+the route accepts (no earlier than twelve months back; forward without limit, because
+appointments are made ahead).
+
+**The appointment reminder is a chip, not §6's toggle.** §6 specifies a 52×32 pistachio
+switch and the design system has never built one. Building it inside a feature change would
+make this a design-system PR; a chip already carries a binary with fill, label colour and
+elevation moving together (§10), and the row says in words what the reminder stores and
+that nothing is scheduled yet.
+
+**Three things the artboard's log sheets draw that C2 does not.** The cycle sheet's
+"Anything else today?" chips, which are symptom chips — symptoms live on a *body signals*
+entry, so drawing them there would either write a second entry nobody asked for or give one
+concept two homes (the rule #24 settled for the catalogue). The sport sheet's "Recently
+used" row, which is a claim about the user's habits that nothing in C2 can answer. And the
+appointment sheet's two pre-written questions, which are neither reference data nor hers.
+
+**The picker draws a Sex row it cannot open.** The canvas is specific about how that row
+must look — a neutral label and a neutral dot, no imagery — and the route reserves the type
+until C10 ships it with its privacy switch. It is drawn, dimmed, and says "Not available
+yet", in the same treatment as a type the chosen day refuses: a type the calendar can
+*display* but the picker omits entirely would read as a bug rather than as a plan. The
+"Positive test" row is dropped instead of dimmed, because it is a pregnancy-mode entry and
+that whole mode is unbuilt.
+
+**The calendar's legend lists Appointment and Spotting, and drops three rows.** The
+artboard's legend explains period, predicted period, fertile window, sex, body signals,
+sport and the positive-test mark, and never explains the appointment badge it draws. The
+grid draws no predictions (C3) and no test mark (pregnancy mode), and a legend entry for a
+mark the grid never draws is a promise — so those three arrive with the marks they
+describe. Appointment gets the row the artboard omits, and spotting gets one in #160,
+because a ring and three washes that share a colour and do not share a meaning are exactly
+the pair a legend exists for.
 
 **The calendar's surfaces take the nearest named glass level and radius.** The artboard
 gives the screen its own percentages — 34% on a day cell, 50% on the legend, 60% on a month
@@ -467,8 +541,17 @@ badge's is `evaInformationInk` (`#3F5A76`) against `#4A6480`.
 
 **Tappable things on the calendar are 44pt.** The artboard's month-picker chips are 38 high;
 §1's floor is not negotiable for something you tap, so they are 44 — the same trade
-`AuthScreenParts` took for the log-in cross-link. The read-only mode chip keeps the
-artboard's 34, because §1's floor is about interactive elements and that one is a label.
+`AuthScreenParts` took for the log-in cross-link. The log sheets take the same trade twice
+more: their × is 44 against the artboard's 40, and the toast's Undo is 44 against its 32.
+The read-only mode chip keeps the artboard's 34, because §1's floor is about interactive
+elements and that one is a label.
+
+**An unavailable picker row is dimmed lightly, and its title is Secondary rather than the
+disabled ink.** Stacking `evaDisabledText` on the row's own opacity made the sentence
+explaining the refusal the least readable thing on the sheet — which defeats the point of
+drawing the row instead of hiding it. Same argument as the disabled labels on filled
+controls above, and it matters more here, because on those the label is decoration and here
+the sentence *is* the affordance.
 
 ## 9b. Where iOS cannot express the canvas
 
@@ -503,6 +586,15 @@ Real platform limits, not decisions:
 - Buttons have no loading state. The auth buttons do (`#3A3436` with a 60% white label),
   which is the house pattern if one is wanted.
 - Motion is unspecified everywhere. Input focus and error transitions are instant.
+- §6's **toggle** (52×32, pistachio when on) is specified and unbuilt. #160 wanted one and
+  used a chip instead rather than design a component inside a feature change.
+- The log picker's "Change date" control and the appointment sheet's Date and Time fields
+  are drawn with no control behind them (`noop`), and the system has no date or time
+  picker. #160 uses the platform's, tinted — see §9a.
+- The **appointment type catalogue is British where §8 says US English**: the live
+  `refdata/appointmentTypes` serves "GP" and "Gynaecologist" against §8's "Primary care"
+  and "Gynecologist". It is catalogue data, editable without an app release, so it is not
+  an app change — but the two disagree today.
 - The auth screens' two brand type rows (`authWordmark` 40, `authHero` 34) and the status
   screens' 30pt title sit between the scale's Display 46 and H1 28 and have no row. They
   now serve five screens — sign up, log in, the activation gate, forgot password and link

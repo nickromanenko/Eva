@@ -7,11 +7,13 @@ import SwiftUI
 /// share one 50pt cell, so hue is the least reliable thing about them.
 ///
 /// The artboard's legend also lists predicted period, the fertile window and the
-/// positive-test mark. None of the three is drawn by C1 — predictions are C3 and the test
-/// mark is C2 — and a legend entry for something the grid never draws is a promise, so
-/// they arrive with the marks they describe. Appointment is listed here and is *not* on
-/// the artboard's legend, which looks like an omission: it is the one drawn mark the
-/// artboard leaves unexplained.
+/// positive-test mark. None of the three is drawn yet — predictions are C3 and the test
+/// mark is a pregnancy-mode entry — and a legend entry for something the grid never draws
+/// is a promise, so they arrive with the marks they describe.
+///
+/// Two rows here are not on the artboard's legend. Appointment, which is the one drawn mark
+/// the artboard leaves unexplained; and spotting, whose ring the artboard does not draw at
+/// all (see `EvaCycleMark.spottingRing`).
 struct CalendarLegend: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), alignment: .leading), count: 2)
@@ -30,6 +32,20 @@ struct CalendarLegend: View {
                         .frame(width: 16, height: 16)
                 } label: {
                     EvaCycleMark.legendLabel
+                }
+
+                // Spotting joins the legend in C2, because C2 is what gave it a mark —
+                // and a ring beside three washes is exactly the pair of rows a legend is
+                // for: they are the same colour and they do not mean the same thing.
+                row {
+                    Circle()
+                        .strokeBorder(
+                            EvaCycleMark.spotting.spottingRing ?? .clear,
+                            lineWidth: EvaCalendarMetrics.spottingRingWidth
+                        )
+                        .frame(width: 16, height: 16)
+                } label: {
+                    EvaCycleMark.spottingLegendLabel
                 }
 
                 ForEach(EvaEventGlyph.allCases, id: \.self) { glyph in

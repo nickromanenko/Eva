@@ -74,6 +74,15 @@ struct APIClient: Sendable {
         try await send(path: path, method: "PUT", body: body, authorized: authorized)
     }
 
+    /// A partial update. `PATCH /me/events/{id}` (#160) is the first route that takes one —
+    /// it changes an entry's payload and note while leaving everything it was not sent
+    /// alone, which is what keeps an edit from moving the entry in the day's list.
+    func patch<Body: Encodable, Response: Decodable>(
+        _ path: String, body: Body, authorized: Bool = false
+    ) async throws -> Response {
+        try await send(path: path, method: "PATCH", body: body, authorized: authorized)
+    }
+
     func delete<Response: Decodable>(_ path: String, authorized: Bool = false) async throws -> Response {
         try await send(path: path, method: "DELETE", body: nil as Never?, authorized: authorized)
     }
