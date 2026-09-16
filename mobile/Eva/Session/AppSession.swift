@@ -273,6 +273,48 @@ final class AppSession {
         state = .ready
     }
 
+    // MARK: - Calendar
+
+    /// The user's entries for one visible range (#159).
+    ///
+    /// **A range, never a day.** The calendar draws six weeks at a time and the grid for
+    /// one month reaches into the two either side of it, so a request per cell would be
+    /// forty-two round trips to paint one screen — invisible at C1's read-only speed and
+    /// the thing that makes C2's logging feel broken. `CalendarModel` caches what comes
+    /// back by month and only asks for the months it has not got.
+    ///
+    /// The server caps a range at 400 days and rejects `from > to`; both are the caller's
+    /// to respect, and both arrive as `APIError.server("VALIDATION", …)` if it does not.
+    /// Soft-deleted entries are excluded server-side, so nothing here has to filter.
+    ///
+    /// Inside `authorized(_:)` like every other call that carries the token: a 401
+    /// `UNAUTHORIZED` from here ends the session wherever the user happens to be standing.
+    func events(from: EvaDay, through to: EvaDay) async throws -> [EvaEvent] {
+        let response: EvaEventsResponse = try await authorized {
+            try await client.get(
+                "/me/events",
+                query: [
+                    URLQueryItem(name: "from", value: from.isoDate),
+                    URLQueryItem(name: "to", value: to.isoDate)
+                ],
+                authorized: true
+            )
+        }
+        return response.events
+    }
+
+    /// The option catalogues that turn an event's stored codes into words.
+    ///
+    /// No `version` is sent, so this is always a `200` and never the `304` the route also
+    /// serves. Revalidating against a cached copy needs somewhere to cache it, which is
+    /// the local store in #78; until then the catalogue is fetched once per launch and
+    /// held in memory by `CalendarModel`.
+    func refData() async throws -> EvaRefData {
+        try await authorized {
+            try await client.get("/refdata", authorized: true)
+        }
+    }
+
     /// Ends the session. The local half always happens, whatever the Keychain says.
     ///
     /// `clear()` reports now (#64), and `false` means it could neither delete the item nor

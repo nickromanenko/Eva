@@ -53,8 +53,13 @@ struct APIClient: Sendable {
         return url
     }
 
-    func get<Response: Decodable>(_ path: String, authorized: Bool = false) async throws -> Response {
-        try await send(path: path, method: "GET", body: nil as Never?, authorized: authorized)
+    /// `query` is percent-encoded onto the path. `GET /me/events?from=&to=` (#159) is the
+    /// first route that takes one; appending it to `path` instead would not work, because
+    /// `URL.appending(path:)` escapes the `?` into a path character.
+    func get<Response: Decodable>(
+        _ path: String, query: [URLQueryItem] = [], authorized: Bool = false
+    ) async throws -> Response {
+        try await send(path: path, method: "GET", query: query, body: nil as Never?, authorized: authorized)
     }
 
     func post<Body: Encodable, Response: Decodable>(
@@ -84,9 +89,9 @@ struct APIClient: Sendable {
     }
 
     private func send<Body: Encodable, Response: Decodable>(
-        path: String, method: String, body: Body?, authorized: Bool
+        path: String, method: String, query: [URLQueryItem] = [], body: Body?, authorized: Bool
     ) async throws -> Response {
-        var request = URLRequest(url: baseURL.appending(path: path))
+        var request = URLRequest(url: Self.url(base: baseURL, path: path, query: query))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var sentToken = false
@@ -151,6 +156,22 @@ struct APIClient: Sendable {
             throw APIError.rateLimited(message: message, retryAt: Self.retryAt(from: header))
         }
         throw APIError.server(code: failure?.error.code ?? "UNKNOWN", message: message, status: status)
+    }
+
+    /// The request URL: `baseURL` + `path`, with `query` appended.
+    ///
+    /// Neither `URLComponents` step below can fail for a URL that is already absolute and
+    /// query items that are already strings, so the fallbacks are unreachable rather than
+    /// lenient. They return the **query-less** URL on purpose: a route that needs its
+    /// parameters answers `400 VALIDATION` without them, which is loud, where silently
+    /// substituting a default range would be a wrong calendar nobody could see was wrong.
+    static func url(base: URL, path: String, query: [URLQueryItem]) -> URL {
+        let withPath = base.appending(path: path)
+        guard !query.isEmpty,
+              var components = URLComponents(url: withPath, resolvingAgainstBaseURL: false)
+        else { return withPath }
+        components.queryItems = query
+        return components.url ?? withPath
     }
 
     /// `Retry-After` as an instant, or `nil`.

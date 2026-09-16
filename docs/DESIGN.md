@@ -397,6 +397,78 @@ means the request was refused before anything happened; nothing the user typed w
 and nothing about the account changed, so the field-error treatment would blame the wrong
 thing. `AuthRateLimitedBanner` uses `EvaInfoBanner`.
 
+**The tab bar carries three tabs, not five (#159).** The canvas draws Home · Calendar ·
+Eva Chat · Learn · Profile (A4), and says itself that two of them are undrawn: its own
+handlers answer "Eva Chat is not drawn yet — it is v1 (A1, A5); its own design phase
+follows the Dashboard", and the same for Learn. A tab whose only content is that sentence
+is worse than a tab that is not there yet, so they arrive with their screens. **Calendar is
+the landing tab** rather than Home, because the Dashboard is unbuilt and landing on a
+placeholder in front of the one real screen is not what the tab order means.
+
+**The tab bar's marks are SF Symbols.** The artboard draws an 18pt rounded outline in
+every tab — the same placeholder convention as the Google mark, whose own caption calls it
+a slot for a supplied asset. Shipping it literally would put three identical squares in the
+bar. Replaced wholesale when the canvas draws real marks.
+
+**The active tab label uses `evaActionPinkTop`, not `#C95F86`.** The same §9a action-ramp
+argument as the text button, and the same measurement: `#C95F86` on the warm background is
+3.68:1, under AA for a 10.5pt semibold label.
+
+**The calendar month header is H2, where the artboard draws 26/400 (#159).** The §3 scale
+has no 26/400 row, and it is one of several light-weight title sizes the canvas uses that
+§3 never captured — see §9c, which already reports the same gap for the auth screens' 40,
+34 and 30pt rows. H1 (28/600) was tried first as the screen-title row and **wraps to two
+lines** on "September 2026" in the width the two month steppers leave; H2 fits every month
+on one line and is the closer match in optical weight, being smaller and heavier where the
+artboard is bigger and lighter. Its day-detail heading is H2 against the artboard's 24/400
+for the same reason, and
+"today" is drawn at Body medium (15/500) against the artboard's 15/700, since the filled
+disc and the white ink already say today without a weight the scale does not have.
+
+**The day's entries are listed under the grid, not in a bottom sheet (#159).** The canvas
+opens a large sheet on a day tap (`SPEC.day`), and that sheet is mostly Edit, Delete, Mark
+period end and Add entry — all C2 or C5. A sheet with a read-only list and no action is a
+surface you open to find nothing to do, and it covers the selection outline that the same
+screen's criterion pairs with the listing. The sheet arrives with the actions that justify
+it. Its dashed empty row also loses its second line ("Add flow, body signals, sport or an
+appointment"), which instructs the user to use a control C1 does not have.
+
+**The calendar's log FAB is drawn and disabled (#159).** What it opens is `SPEC.picker`,
+which is C2 — but the empty state's pointer has to point at something, and the screen is
+visibly unfinished without it. Disabled rather than silently inert: a button that takes a
+tap and does nothing reads as a broken app. **This one is a decision awaiting a human**, not
+a settled deviation — the alternative is to omit both the FAB and the `calEmpty` pointer
+until C2.
+
+**A spotting day has no cell treatment.** The artboard's `mkCell` branches on flow 1–3 only
+and a spotting day falls through to an ordinary cell, so it is announced ("Spotting logged")
+and listed in the day detail but is not distinguishable in the grid by sight. Left as drawn
+rather than papered over, because the obvious fix — the lightest flow wash — would draw a
+spotting day as a period day, and spotting does not start a period. **A gap in the artboard,
+not a decision**: the canvas needs a spotting mark.
+
+**The calendar's legend lists Appointment and drops three rows.** The artboard's legend
+explains period, predicted period, fertile window, sex, body signals, sport and the
+positive-test mark, and never explains the appointment badge it draws. C1 draws no
+predictions (C3) and no test mark (C2), and a legend entry for a mark the grid never draws
+is a promise — so those three arrive with the marks they describe, and the appointment
+badge gets the row the artboard omits.
+
+**The calendar's surfaces take the nearest named glass level and radius.** The artboard
+gives the screen its own percentages — 34% on a day cell, 50% on the legend, 60% on a month
+stepper, 68% on the summary card, 85% on the month picker — against §4's three levels. They
+map onto L1 / L1 / L1 / L2 / L3, and the cards take `EvaRadius.card` (24) and
+`EvaRadius.banner` (20) against the artboard's 22 and 20. The white hairlines run .6–.9 on
+the artboard and all take §4's own .72. Same rule `ProfileView` set: the nearest named value,
+and the difference reported rather than tokenised for one screen. The mode chip's ink is
+`evaActionPinkSolid` (`#A94A6C`) against the artboard's `#A9436E`, and the appointment
+badge's is `evaInformationInk` (`#3F5A76`) against `#4A6480`.
+
+**Tappable things on the calendar are 44pt.** The artboard's month-picker chips are 38 high;
+§1's floor is not negotiable for something you tap, so they are 44 — the same trade
+`AuthScreenParts` took for the log-in cross-link. The read-only mode chip keeps the
+artboard's 34, because §1's floor is about interactive elements and that one is a label.
+
 ## 9b. Where iOS cannot express the canvas
 
 Real platform limits, not decisions:

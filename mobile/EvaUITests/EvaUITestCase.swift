@@ -149,7 +149,7 @@ class EvaUITestCase: XCTestCase {
     ///
     /// Both destinations are checked because callers arrive with different accounts: an
     /// account that never finished the questionnaire lands on "A little about you", one
-    /// that did lands on the dashboard.
+    /// that did lands on the tab bar.
     /// Signs in through the log-in screen and asserts it got somewhere.
     ///
     /// Needed since #120: sign-up creates no account and the app never sees a password, so
@@ -331,8 +331,8 @@ class EvaUITestCase: XCTestCase {
             file: file, line: line
         )
         XCTAssertFalse(
-            app.staticTexts["dashboard.title"].exists,
-            "A failed log in still reached the dashboard for \(email)",
+            app.buttons["tab.calendar"].exists,
+            "A failed log in still reached the app for \(email)",
             file: file, line: line
         )
         return error.label

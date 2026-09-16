@@ -38,13 +38,13 @@ final class DeleteAccountUITests: EvaUITestCase {
         )
         tap(app.buttons["primary.Enter Eva"], in: app)
         XCTAssertTrue(
-            app.staticTexts["dashboard.title"].waitForExistence(timeout: 10),
-            "Did not land on the dashboard"
+            app.buttons["tab.calendar"].waitForExistence(timeout: 10),
+            "Did not land on the tab bar"
         )
 
         // MARK: Reachable without contacting support
 
-        tap(app.buttons["dashboard.profile"], in: app)
+        tap(app.buttons["tab.profile"], in: app)
         let profileEmail = app.staticTexts["profile.email"]
         XCTAssertTrue(
             profileEmail.waitForExistence(timeout: 10),

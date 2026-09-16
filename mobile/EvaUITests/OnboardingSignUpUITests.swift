@@ -17,7 +17,7 @@ import XCTest
 /// outside it is left behind in a real project.
 ///
 /// The launch, flow and element helpers live on `EvaUITestCase`; they moved there with
-/// #55, unchanged, when a second suite needed the same route to the dashboard.
+/// #55, unchanged, when a second suite needed the same route into the app.
 final class OnboardingSignUpUITests: EvaUITestCase {
 
     /// The rule the password field states as helper text, verbatim from
@@ -38,15 +38,15 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         signUpAndActivate(app, email: email)
         completeQuestionnaire(app)
 
-        // Done screen after a successful PUT, then the dashboard.
+        // Done screen after a successful PUT, then the tab bar.
         XCTAssertTrue(
             app.staticTexts["You're all set"].waitForExistence(timeout: 15),
             "Questionnaire submission did not reach the done screen"
         )
         tap(app.buttons["primary.Enter Eva"], in: app)
         XCTAssertTrue(
-            app.staticTexts["dashboard.title"].waitForExistence(timeout: 10),
-            "Did not land on the dashboard"
+            app.buttons["tab.calendar"].waitForExistence(timeout: 10),
+            "Did not land on the tab bar"
         )
     }
 
@@ -263,7 +263,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
             "The gate does not show the address the link was sent to"
         )
         XCTAssertFalse(
-            app.staticTexts["dashboard.title"].exists,
+            app.buttons["tab.calendar"].exists,
             "An unconfirmed account reached the dashboard"
         )
 
