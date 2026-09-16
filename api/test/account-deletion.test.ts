@@ -79,6 +79,7 @@ interface ErrorResponse {
 
 const userDoc = (uid: string) => firestore.collection("users").doc(uid);
 const eventDocs = (uid: string) => userDoc(uid).collection("events");
+const todayDocs = (uid: string) => userDoc(uid).collection("today");
 
 /** Document ids rather than the `DocumentReference`s themselves, deliberately: a failing
  *  `toEqual` on a reference makes Bun serialize the whole Firestore client behind it,
@@ -86,6 +87,9 @@ const eventDocs = (uid: string) => userDoc(uid).collection("events");
  *  strings, so a break here reports as a break. */
 const eventIds = async (uid: string): Promise<string[]> =>
     (await eventDocs(uid).listDocuments()).map((doc) => doc.id);
+
+const todayIds = async (uid: string): Promise<string[]> =>
+    (await todayDocs(uid).listDocuments()).map((doc) => doc.id);
 
 /** Today in UTC — the suite passes `timeZone: "UTC"` everywhere so the date policy is
  *  decided by the same clock the assertions use. */
@@ -108,7 +112,31 @@ const seedAccount = async (): Promise<{ email: string; token: string; uid: strin
     const { token, uid } = await signUpActivated(BASE, email, password);
     createdUids.push(uid);
     await seedEvents(token);
+    await seedTodayCard(uid);
     return { email, token, uid };
+};
+
+/**
+ * A stored Today card (#98), written directly rather than through `GET /me/today`.
+ *
+ * The route needs a seeded `content/`, which is emulator-only — and this suite runs in both
+ * environments. What is under test here is the deletion order, not how the card got there,
+ * so the document is put where `today.ts` puts it and left to be swept.
+ */
+const seedTodayCard = async (uid: string) => {
+    await todayDocs(uid).doc(todayUtc()).set({
+        date: todayUtc(),
+        generatedAt: new Date().toISOString(),
+        contentVersion: "test",
+        dataChangedAt: new Date().toISOString(),
+        card: {
+            templateId: "cold_start",
+            rung: "setup",
+            state: "home_a",
+            title: "Start with your first log",
+            actions: ["Log now"],
+        },
+    });
 };
 
 const seedEvents = async (token: string) => {
@@ -242,6 +270,10 @@ const authenticatedRoutes = (): { name: string; call: (token: string) => Promise
                     body: JSON.stringify({ timeZone: "UTC", energy: 3, symptoms: [] }),
                 }),
         },
+        {
+            name: "GET /me/today",
+            call: (t) => api("/me/today?timeZone=UTC", { token: t }),
+        },
     ];
 };
 
@@ -251,6 +283,12 @@ afterAll(async () => {
             .listDocuments()
             .catch(() => []);
         await Promise.all(docs.map((doc) => doc.delete().catch(() => {})));
+        // The stored cards too: only one of the accounts below is deleted through the
+        // route, so the rest would leave a subcollection behind in the real project.
+        const cards = await todayDocs(uid)
+            .listDocuments()
+            .catch(() => []);
+        await Promise.all(cards.map((doc) => doc.delete().catch(() => {})));
         await userDoc(uid)
             .delete()
             .catch(() => {});
@@ -274,10 +312,12 @@ describe("DELETE /me removes the account and everything keyed to it", () => {
             new Set(["cycle", "appointment", "bodySignals", "sport"]),
         );
         expect(snapshot.docs.filter((d) => d.get("deletedAt") !== null).length).toBe(1);
+        // ...and a stored Today card, which is her own logged data written out as prose.
+        expect(await todayIds(uid)).toEqual([todayUtc()]);
     });
 
     test(
-        "deleting takes the Auth user, the document and every event, soft-deleted included",
+        "deleting takes the Auth user, the document, every event and every stored card",
         async () => {
             const res = await api("/me", { method: "DELETE", token });
             expect(res.status).toBe(200);
@@ -288,6 +328,8 @@ describe("DELETE /me removes the account and everything keyed to it", () => {
             // `listDocuments`, not `get`: it would also see a document that exists only as
             // a parent of something, which is exactly the orphan we are ruling out.
             expect(await eventIds(uid)).toEqual([]);
+            // `today/` is health data too — a filled card states what she logged, in words.
+            expect(await todayIds(uid)).toEqual([]);
         },
         SLOW,
     );

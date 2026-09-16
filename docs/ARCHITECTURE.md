@@ -78,14 +78,25 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
 | `content.ts` | The `content/` collection: the Dashboard's words — card templates, banners, nudges — and the version they are cached against | The only module that touches `content/`; refuses a write carrying no reviewer |
 | `dashboard-rules.ts` | The Today card's priority ladder (#96): a day's inputs in, the card's *subject* out — rung, template id, slot values, confidence wording class | Pure: no Firestore, no clock, no `fetch`; every input is passed in. Holds no text and no clinical threshold. Called by D3's card module, never by `index.ts` |
+| `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, caches the day's card, deletes them all | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
 
 Layering: `index.ts` → (`auth`, `identity-toolkit`, `providers`, `rate-limit`, `users`,
-`events`, `refdata`, `content`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward,
+`events`, `refdata`, `content`, `today`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward,
 never sideways along the middle row.
+
+**`today.ts` is the one sanctioned exception to "never sideways", and it is one by
+construction.** A Today card is a *join* — the ladder's inputs come from `events.ts` and
+`users.ts`, its words from `content.ts` — and the join has to live somewhere. Putting it in
+`index.ts` would mean the route querying Firestore, which rule 10 exists to prevent; putting
+it in `events.ts` would make the calendar's module own the Dashboard. So it reads the three
+owning modules through their public functions and never their collections: `today.ts`
+touches exactly one collection, its own. The reads it needed that did not exist yet —
+`lastEventChangeAt`, `lastLoggedDate`, `lastUserChangeAt` — were added to the owning modules
+rather than performed here, which is the test of whether the boundary held.
 
 `dashboard-rules.ts` is not in that middle row — it is a leaf *below* it. It imports nothing at
 runtime, so it cannot call anything, upward or sideways; D3's card module calls it, fills the
@@ -135,6 +146,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
 | `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days and while the entry has not been superseded (`409 DAY_ALREADY_LOGGED`) |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
+| `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card }` — the day's card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26) or `content/` is unseeded (#97) |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 | `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
 
@@ -893,8 +905,8 @@ promise that is true is worth more than a wider one that is not. The marker stay
 answer if the promise ever needs to be wide again.
 
 **Deleting an account is immediate and complete (#8).** `DELETE /me` removes the Firebase
-Auth user, `users/{uid}`, and the whole `users/{uid}/events` subcollection — **including
-soft-deleted entries still inside their 30-day window**. That is a deliberate difference
+Auth user, `users/{uid}`, the whole `users/{uid}/events` subcollection — **including
+soft-deleted entries still inside their 30-day window** — and `users/{uid}/today` with it. That is a deliberate difference
 from event retention above, not a conflict with it: deleting one entry is an edit someone
 may want to undo, deleting an account is a decision about all of it, and a recovery window
 inside an account that no longer exists is a promise to nobody. Nothing else is keyed to a
@@ -909,9 +921,17 @@ The order is the design, because a partial failure has to be safe *and* resumabl
    `401`s, sign-in refuses to revive it);
 2. delete the Firebase Auth user — the credentials open nothing and the address is free
    again;
-3. delete every event, soft-deleted ones included, a batch at a time, and every
-   activation and reset token — a token document carries the address;
+3. delete every event, soft-deleted ones included, a batch at a time, then every stored
+   Today card, and every activation and reset token — a token document carries the address;
 4. delete `users/{uid}`, the tombstone step 1 wrote.
+
+`today/` is in step 3 rather than forgotten because a filled card is her own logged data
+written out as prose: leaving it would make the Dashboard cache the one readable summary of
+an account that no longer exists. It is also a *subcollection*, which in Firestore outlives
+the parent document, so deleting it after step 4 would orphan it rather than remove it —
+the same reason the events go where they do. `api/test/account-deletion.test.ts` enumerates
+both subcollections with `listDocuments`, which is what makes a new one added without a
+sweep fail the suite rather than pass it quietly.
 
 Data goes before the tombstone, and the tombstone goes last, so that **a missing user
 document implies a missing Auth user**. There is therefore no state in which health data
@@ -1085,6 +1105,47 @@ answers `200` with three empty arrays and warns on the server the way `refdata.t
 because a Dashboard with no copy is a deployment state, not a request error. The empty
 bundle is the one result the 60s cache does not hold, so an instance is serving the real
 copy within a request of the seed rather than a minute later.
+
+`users/{uid}/today/{date}` — the Today card, one document per local day (#98, slice D3
+of #10). Owned by `api/src/today.ts`. The document id **is** the user's local date, so
+"which day is this" is answered by the request's `timeZone` and never by the server's clock
+— the same rule `localDate` follows on an event.
+
+```
+date            'YYYY-MM-DD'   // the user's local date; also the document id
+generatedAt     string          // ISO-8601 instant, system time
+contentVersion  string          // the content.ts bundle the text was filled from
+dataChangedAt   string | null   // newest change to her own data this was built from
+card            { templateId, rung, state, tone?, kicker?, title, line2?, line3?, meta?, actions }
+storedAt        serverTimestamp
+```
+
+**Generated once per day, and regenerated only when her data moves.** PRD §Dashboard, Other
+requirements 3 and Edge case 5: the card "does not change between opens. It updates on new
+data, not on refresh." So a stored document is returned *untouched* — not re-filled, not
+re-stamped — unless something it was built from changed: an event created, edited, deleted
+or restored, body signals upserted, or the profile saved. New copy in `content/` is
+deliberately **not** such a thing; an existing day keeps its filled text and its
+`contentVersion`, because new data changes the card and new words do not.
+
+The comparison is against `dataChangedAt`, not against `generatedAt`, and that is the point
+rather than an implementation detail: it is exact, it cannot be moved by server clock skew,
+and it closes the window between reading the inputs and stamping the card. Comparing a
+freshly read `now` against `generatedAt` is the shape that regenerates on every read while
+looking correct, which is the failure #98's byte-identical test exists to catch.
+
+What the card holds is the **filled text** plus the routing targets — `templateId`, `rung`
+and the canvas `state`. No raw signal value beyond what the reviewed copy already says, and
+no event of any kind: the only logged input the ladder receives is body signals, so a Sex
+entry (PRD Edge case 6) cannot reach a card by any path, and hiding one changes nothing
+because nothing here ever had it.
+
+Both of its inputs are unsupplied today, and the route says so rather than improvising: the
+pattern rung's thresholds are #26's and unconfigured, and `content/` is unseeded in every
+environment because #97 refuses to seed it without a reviewer. Either one makes
+`GET /me/today` answer `503 SERVICE_UNAVAILABLE`. The cycle maths (C11, #11) does not exist
+either, so `today.ts` passes a no-cycle-knowledge estimate and no card can state a phase —
+which is the safe direction, and the one place that changes when C11 lands.
 
 **Planned (A3, A9 — §8 and §9 below; not yet in code):**
 

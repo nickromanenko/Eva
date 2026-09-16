@@ -70,6 +70,53 @@ if (emailTransport === 'log' && process.env.NODE_ENV === 'production') {
 
 const publicWebUrl = requiredUrl('PUBLIC_WEB_URL')
 
+/** The three knobs behind the Today card's pattern rung, named once. */
+const PATTERN_VARS = [
+  ['lowSignalDays', 'DASHBOARD_PATTERN_LOW_SIGNAL_DAYS'],
+  ['lowAtOrBelow', 'DASHBOARD_PATTERN_LOW_AT_OR_BELOW'],
+  ['severeSymptomDays', 'DASHBOARD_PATTERN_SEVERE_SYMPTOM_DAYS'],
+] as const
+
+/**
+ * Rung 2's thresholds (A32, #26), or `null`.
+ *
+ * **There is no default here, and the absence is the decision.** A32 settled the rule's
+ * *form* — consecutive logged days at or below a level, or the same symptom severe on
+ * consecutive days — and routed the numbers to #26, which has not answered. A plausible
+ * default written here would be a clinical heuristic chosen by whoever typed it, running
+ * live against real logs and indistinguishable from one a reviewer signed. So
+ * `dashboard-rules.ts` refuses to evaluate that rung without them and this refuses to
+ * invent them; `GET /me/today` answers `503` until they are configured.
+ *
+ * All three or none, like `providers.apple` and for the same reason: a half-configured
+ * group is a rule that runs on numbers nobody chose. A partial group is a boot failure,
+ * because unlike an unissued signing key it cannot be read as "not provisioned yet".
+ */
+const patternRule = (): { lowSignalDays: number; lowAtOrBelow: number; severeSymptomDays: number } | null => {
+  const present = PATTERN_VARS.filter(([, name]) => optionalString(name) !== null)
+  if (present.length === 0) return null
+  if (present.length !== PATTERN_VARS.length) {
+    const missing = PATTERN_VARS.filter(([, name]) => optionalString(name) === null).map(
+      ([, name]) => name,
+    )
+    throw new Error(`Incomplete dashboard pattern rule: also set ${missing.join(', ')}`)
+  }
+  const values = PATTERN_VARS.map(([field, name]) => {
+    const value = Number(required(name))
+    // The same floor `dashboard-rules.ts` applies: a zero or a fraction is not a quieter
+    // rule, it is one that never matches — which looks identical to one switched off.
+    if (!Number.isInteger(value) || value < 1) {
+      throw new Error(`Invalid env var ${name}: expected a positive integer`)
+    }
+    return [field, value] as const
+  })
+  return Object.fromEntries(values) as {
+    lowSignalDays: number
+    lowAtOrBelow: number
+    severeSymptomDays: number
+  }
+}
+
 /**
  * The Firebase emulators, used by CI (#67) and by nothing in production.
  *
@@ -243,6 +290,15 @@ export const config = {
       keyId: optionalString('APPLE_KEY_ID'),
       signingKey: optionalString('APPLE_SIGNIN_KEY')?.replace(/\\n/g, '\n') ?? null,
     },
+  },
+  /**
+   * The Today card's rules layer (#96/#98). Read only in `today.ts`, which hands it to
+   * `dashboard-rules.ts` — the ladder takes its configuration as an argument and reads no
+   * environment of its own.
+   */
+  dashboard: {
+    /** `null` until #26 answers A32. See `patternRule` above for why there is no default. */
+    pattern: patternRule(),
   },
   /** The one origin allowed to call the two routes the website's pages use (CORS). */
   publicWebOrigin: publicWebUrl.origin,
