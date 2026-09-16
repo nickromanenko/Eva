@@ -648,7 +648,9 @@ Mood screening
 
 1. Backdating is allowed for any past date, capped at 12 months by default.  
 2. Logging on future dates is disabled. Tapping a future date shows predictions only.  
-3. Deleting an entry is a soft delete, recoverable for 30 days.  
+3. Deleting an entry is a soft delete, recoverable for 30 days &mdash; for as long as the
+   entry has not been superseded. Re-logging a day replaces the deleted entry for the types
+   that hold one per day (`cycle`, `bodySignals`), and Undo is not offered once it has.  
 4. Full logging works offline. Entries queue and sync; the calendar reads from the local store.  
 5. On timezone change an entry keeps the local date it was logged on. Nothing is shifted retroactively.  
 6. Editing a past period day recalculates predictions immediately.  
