@@ -90,6 +90,16 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
   Codes are permanent; options are retired, never deleted. Seed with
   `bun run seed:refdata` (see `scripts/seed-refdata.ts` for why a script, not a route);
   remove with `bun run retire:refdata`, which keeps the record of what went and why.
+- `dashboard-rules.ts` — the Today card's priority ladder (#96, slice D1 of #10). A day's
+  inputs in, the card's *subject* out: rung, template id, slot values, confidence wording
+  class. **No text** — `content.ts` holds the words that template id resolves to — and no
+  Firestore, no clock, no `fetch`: every input is passed in, `now` included. It is the only
+  place a rung is chosen, so D3's card module and D9's phrasing take its output and never
+  pick a different subject. Rung 2's thresholds (A32, #26) arrive as configuration and it
+  throws `PatternRuleUnsetError` rather than answering without them; the ≥3-cycle gate and
+  the irregularity band arrive as C11's own answers, so no number here can drift from the one
+  the calendar draws. Its single import is an `import type` from `content.ts`, erased at
+  compile time — see ARCHITECTURE §3 for why the vocabulary is shared and the module is not.
 - `firebase.ts` — Admin SDK singleton. Never initialize a second app.
 - `config.ts` — required env vars, fail-fast.
 
