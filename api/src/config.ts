@@ -150,34 +150,35 @@ const patternRule = (): { lowSignalDays: number; lowAtOrBelow: number; severeSym
 }
 
 /**
- * The cycle maths' constants (A25–A27, #176), named once: the field on `CycleRules`, the
- * environment variable it is read from, and the value the PRD settled it at.
+ * The cycle maths' constants (A25–A27, #176): the field on `CycleRules`, and the
+ * environment variable it is read from.
  *
- * The third column is documentation, not a default — nothing below falls back to it. It is
- * here so `.env.example` and this file cannot disagree about what was decided, and so a
- * reviewer can check the group against PRD §Predictions in Cycle mode without leaving the
- * file. Sources: FIGO AUB System 1 (Munro MG et al., Int J Gynecol Obstet 2018;143:393–408)
- * for the bands; Wilcox AJ, Dunson D, Baird DD, BMJ 2000;321:1259 for the fixed luteal
- * phase the ovulation date and the fertile window are derived from.
+ * **The values are deliberately not here.** They are in `api/.env.example`, with the
+ * decision each comes from, and a case in `cycle.test.ts` asserts the file still carries
+ * them — a second copy written in this table would be a clinical constant nothing checks,
+ * which is how one goes stale while looking authoritative. Sources: FIGO AUB System 1
+ * (Munro MG et al., Int J Gynecol Obstet 2018;143:393–408) for the bands; Wilcox AJ, Dunson
+ * D, Baird DD, BMJ 2000;321:1259 for the fixed luteal phase that ovulation and the fertile
+ * window are derived from.
  */
 const CYCLE_VARS = [
-  ['minCycleLengthDays', 'CYCLE_MIN_LENGTH_DAYS', 21],
-  ['maxCycleLengthDays', 'CYCLE_MAX_LENGTH_DAYS', 45],
-  ['historyCycles', 'CYCLE_HISTORY_CYCLES', 6],
-  ['minCyclesForEstimate', 'CYCLE_MIN_CYCLES_FOR_ESTIMATE', 3],
-  ['narrowBandMinCycles', 'CYCLE_NARROW_BAND_MIN_CYCLES', 6],
-  ['lutealPhaseDays', 'CYCLE_LUTEAL_PHASE_DAYS', 14],
-  ['fertileDaysBeforeOvulation', 'CYCLE_FERTILE_DAYS_BEFORE_OVULATION', 5],
-  ['fertileDaysAfterOvulation', 'CYCLE_FERTILE_DAYS_AFTER_OVULATION', 1],
-  ['peakDaysBeforeOvulation', 'CYCLE_PEAK_DAYS_BEFORE_OVULATION', 2],
+  ['minCycleLengthDays', 'CYCLE_MIN_LENGTH_DAYS'],
+  ['maxCycleLengthDays', 'CYCLE_MAX_LENGTH_DAYS'],
+  ['historyCycles', 'CYCLE_HISTORY_CYCLES'],
+  ['minCyclesForEstimate', 'CYCLE_MIN_CYCLES_FOR_ESTIMATE'],
+  ['narrowBandMinCycles', 'CYCLE_NARROW_BAND_MIN_CYCLES'],
+  ['lutealPhaseDays', 'CYCLE_LUTEAL_PHASE_DAYS'],
+  ['fertileDaysBeforeOvulation', 'CYCLE_FERTILE_DAYS_BEFORE_OVULATION'],
+  ['fertileDaysAfterOvulation', 'CYCLE_FERTILE_DAYS_AFTER_OVULATION'],
+  ['peakDaysBeforeOvulation', 'CYCLE_PEAK_DAYS_BEFORE_OVULATION'],
 ] as const
 
 const CYCLE_BAND_VARS = [
-  ['youngMaxAge', 'CYCLE_IRREGULAR_YOUNG_MAX_AGE', 25],
-  ['midMaxAge', 'CYCLE_IRREGULAR_MID_MAX_AGE', 41],
-  ['youngVariationDays', 'CYCLE_IRREGULAR_YOUNG_VARIATION_DAYS', 9],
-  ['midVariationDays', 'CYCLE_IRREGULAR_MID_VARIATION_DAYS', 7],
-  ['olderVariationDays', 'CYCLE_IRREGULAR_OLDER_VARIATION_DAYS', 9],
+  ['youngMaxAge', 'CYCLE_IRREGULAR_YOUNG_MAX_AGE'],
+  ['midMaxAge', 'CYCLE_IRREGULAR_MID_MAX_AGE'],
+  ['youngVariationDays', 'CYCLE_IRREGULAR_YOUNG_VARIATION_DAYS'],
+  ['midVariationDays', 'CYCLE_IRREGULAR_MID_VARIATION_DAYS'],
+  ['olderVariationDays', 'CYCLE_IRREGULAR_OLDER_VARIATION_DAYS'],
 ] as const
 
 /** The two tables above, as field → variable name. */
