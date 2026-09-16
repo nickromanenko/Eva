@@ -71,14 +71,14 @@ the ratchet below — no verify command earned it — so it is recorded here as 
 decision, revocable the same way it was made. Two carve-outs survive it, because they are
 GUARDRAILS and this file does not overrule that one.
 
-**Deploying a rules *loosening* is still human.** GUARDRAILS 6 requires human plan approval,
-human review **and human deploy** for any loosening of `firestore.rules` or
-`storage.rules`, and the Deploy cell above does not reach it. The reach of the cell is
-narrower than it looks in any case: Implementation for `rules / auth / infra` is still
-`human`, and "Loosening `firestore.rules` or `storage.rules`" is still on the Always-human
-list — so an agent cannot author the change it would be deploying. What the cell grants is
-pressing the button on a rules change **a human wrote and reviewed**, most usefully a
-tightening or a re-run of a failed one.
+**Deploying a rules loosening moved with it**, and GUARDRAILS 6 was changed in the same
+commit rather than left to contradict this table: it required human plan approval, human
+review *and human deploy*, and now requires the first two. That is a real loosening of the
+most sensitive surface in the repo, so what remains is worth stating plainly. Implementation
+for `rules / auth / infra` is still `human`. "Loosening `firestore.rules` or
+`storage.rules`" is still on the Always-human list below. So an agent still cannot *author*
+the change it is deploying, and still cannot approve or review it — the cell grants the
+button on a rules change **a human wrote and a human approved**, and nothing else.
 
 **`deploy-rules.yml` stays `workflow_dispatch`-only.** GUARDRAILS 7 forbids adding any
 automatic trigger to it, and that is untouched: what moved is *who may press the manual

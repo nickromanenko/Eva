@@ -31,8 +31,13 @@ Each rule is stated so a reviewer can check it mechanically.
 5. **`firestore.rules` and `storage.rules` stay deny-all** until a client is genuinely
    meant to reach Firebase directly. They are deny-all *by design* — the app talks to
    the API, and the Admin SDK bypasses rules. See [ARCHITECTURE.md §2](ARCHITECTURE.md).
-6. Any loosening of either file is **fully supervised**: human plan approval, human
-   review, human deploy. Never bundled into an unrelated change.
+6. Any loosening of either file is **supervised where it is written**: human plan
+   approval, human review. Never bundled into an unrelated change. *Human deploy* was
+   struck on 2026-09-16 when `docs/AUTONOMY.md`'s Deploy row moved to `AI`; what still
+   stands between a loosening and production is that Implementation for rules is `human`
+   and loosening them is on the Always-human list, so the change an agent presses the
+   button on is one a person wrote and a person approved. The button is the last step, not
+   the only one.
 7. Rules are **never deployed automatically.**
    `.github/workflows/deploy-rules.yml` is `workflow_dispatch`-only and exists to make the
    human act auditable, not to remove it. Adding any automatic trigger to that workflow is
