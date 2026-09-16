@@ -1,5 +1,6 @@
 import {
     afterAll,
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -290,6 +291,19 @@ beforeEach(() => {
     resetAuthRateLimits();
     idp = null;
     lastIdp = null;
+});
+
+/**
+ * One case below borrows `config.rateLimit.trustedProxyHops`, and `config` is a mutable
+ * singleton shared by every file in the run — `bun test` uses one process and one module
+ * registry. A `try/finally` is not enough on its own: a timed-out test never reaches its
+ * `finally`, and this file's cases are live round trips under a 20s ceiling, so leaving the
+ * restore there would mean one slow run silently reconfiguring the throttle for every file
+ * that follows. `afterEach` runs after a timeout, so the knob goes back either way.
+ */
+const DEPLOYED_HOPS = config.rateLimit.trustedProxyHops;
+afterEach(() => {
+    config.rateLimit.trustedProxyHops = DEPLOYED_HOPS;
 });
 
 afterAll(async () => {
@@ -1654,6 +1668,90 @@ describe("the provider routes are throttled, and separately", () => {
 
     /** One more than the budget, so the last one must be refused. */
     const overBudget = config.rateLimit.idpPerIp + 1;
+
+    /**
+     * Which `X-Forwarded-For` entry is the caller (#37).
+     *
+     * The per-IP limit is only a per-IP limit while the right entry is read. Cloud Run
+     * appends the address it accepted the connection from; everything to its left is
+     * whatever the caller chose to send, so reading from the left would let anyone spend a
+     * fresh budget per request by inventing a prefix. `trustedProxyHops` says how far from
+     * the right to count — `1` for the direct Cloud Run service `deploy-api.yml` deploys,
+     * `2` once a load balancer appends one of its own.
+     *
+     * Driven through the route rather than by calling `clientIp`, which is not exported:
+     * two requests that differ only in the *spoofed* prefix have to land in the same
+     * bucket, and that is a property of the throttle, not of a string function.
+     */
+    test(
+        "a spoofed prefix buys nothing — the caller is counted from the right",
+        async () => {
+            expect(config.rateLimit.trustedProxyHops).toBe(1);
+            idp = () => {
+                throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
+            };
+            const real = "198.51.100.77";
+
+            let last: Answer | null = null;
+            for (let i = 0; i < overBudget; i++) {
+                // A different invented client each time, all appended to the left of the
+                // one entry Cloud Run actually wrote. Reading the leftmost would give every
+                // one of these its own budget and none would ever be refused.
+                last = await post("/auth/idp", appleBody(), {
+                    "x-forwarded-for": `10.0.0.${i % 200}, ${real}`,
+                });
+            }
+
+            expect(last!.status).toBe(429);
+            expect(last!.body.error.code).toBe("RATE_LIMITED");
+        },
+        SLOW,
+    );
+
+    test(
+        "the route reads the configured hop count, and a shorter header skips the dimension",
+        async () => {
+            // The day a load balancer appears in front, `RATE_LIMIT_TRUSTED_PROXY_HOPS=2`
+            // is the whole fix — so what has to be pinned is that the route reads the
+            // knob at all. At the deployed value of `1` it cannot be: a hardcoded `1`
+            // behaves identically, and no header is ever shorter than one entry. Both
+            // become reachable at `2`, which is what this borrows the config for.
+            // Restored by the file's `afterEach`, which survives a timeout where a
+            // `finally` would not.
+            expect(config.rateLimit.trustedProxyHops).toBe(1);
+            idp = () => {
+                throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
+            };
+
+            config.rateLimit.trustedProxyHops = 2;
+            const caller = "198.51.100.88";
+
+            // Three entries: an invented prefix, the caller, and the entry a balancer
+            // would append. Only the middle one is the same every time. Against a
+            // hardcoded `1` each request keys on its own rightmost entry and none of them
+            // is ever refused.
+            let last: Answer | null = null;
+            for (let i = 0; i < overBudget; i++) {
+                last = await post("/auth/idp", appleBody(), {
+                    "x-forwarded-for": `10.0.0.${i % 200}, ${caller}, 130.211.0.${i % 200}`,
+                });
+            }
+            expect(last!.status).toBe(429);
+            expect(last!.body.error.code).toBe("RATE_LIMITED");
+
+            // And the fail-safe: a header with fewer entries than configured skips the
+            // per-IP dimension rather than bucketing everyone together or picking an entry
+            // the caller controls. `401` rather than "not 429" — the request is answered
+            // normally, which is the claim.
+            resetAuthRateLimits();
+            let short: Answer | null = null;
+            for (let i = 0; i < overBudget; i++) {
+                short = await post("/auth/idp", appleBody(), from("203.0.113.30"));
+            }
+            expect(short!.status).toBe(401);
+        },
+        SLOW,
+    );
 
     test(
         "an address that keeps trying is refused, and told how long to wait",

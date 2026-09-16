@@ -541,8 +541,9 @@ it is a miss rather than a throw; both are filed, not fixed here.
 **`/auth/*` is throttled, per instance only.** Both auth routes count each attempt against
 two counters — the caller's IP and the submitted address — and answer
 `429 RATE_LIMITED` with a constant `Retry-After` once either is over its limit. Limits come
-from `config.rateLimit` (`RATE_LIMIT_*`, all optional; any of them set to `0` disables that
-dimension). Sign-up and sign-in hold separate budgets.
+from `config.rateLimit` (`RATE_LIMIT_*`, all optional; any *limit* set to `0` disables that
+dimension — the two knobs that are not limits behave differently, and say so below).
+Sign-up and sign-in hold separate budgets.
 
 *What that actually buys, stated plainly:* **the counters are in each Cloud Run instance's
 memory, so the real limit is `limit × instance count`, and every deploy, scale-up, and cold
@@ -558,8 +559,95 @@ Two consequences worth knowing before tuning the numbers. The per-IP limits are 
 loose because iOS traffic arrives through carrier NAT, where one address fronts many
 unrelated users. And a per-address limit is a lockout primitive: someone who knows a user's
 address can spend that user's sign-in budget for them, which is inherent to per-identifier
-throttling rather than to this implementation, and is why the per-address limits are not
-tighter.
+throttling rather than to this implementation.
+
+**The two dimensions use different penalty shapes (#37, decided 2026-08-29.)** Per IP stays
+a fixed window, because carrier NAT means an escalating penalty there would punish
+bystanders for each other's attempts. Per address, on sign-in and sign-up, is an
+**exponential backoff**: `RATE_LIMIT_SIGNIN_PER_EMAIL` / `..._SIGNUP_PER_EMAIL` free
+attempts, then a block of `RATE_LIMIT_BACKOFF_BASE_SECONDS` that doubles each time, capped
+at `RATE_LIMIT_WINDOW_SECONDS`, and forgotten entirely after that long without a served
+attempt.
+
+The point is what a lockout costs the person causing it — but the honest summary is that
+this trade **bought guessing resistance with lockout cost**, not both. Under a fixed window
+a lockout is a purchase: spend the budget on an address you know and its owner is refused
+for the rest of the window whatever they do. Under the backoff it is rent — a refused
+attempt is inert (it raises no tier, extends no block and does not keep the record alive),
+and each expired block hands the key back **one** attempt, so somebody guessing gets one
+guess per doubling interval. A drive-by burst costs its victim 30 seconds instead of 15
+minutes, and sustained guessing gets 6–9× fewer attempts (measured: 37 vs 240 over six
+hours, 109 vs 960 over a day). Note the sign in the *first* fifteen minutes, where the ramp
+hands back four extra attempts: 14 against the window's 10. The win is asymptotic.
+
+The rent is cheaper than the purchase was. Simulated against the shipped limiter at the
+defaults, an attacker who knows the schedule and sends only the requests that buy denial:
+
+| holding one address out | backoff | fixed window | |
+|---|---|---|---|
+| for 6 hours | 65 requests | 240 requests | 3.7× cheaper |
+| for 24 hours | 209 requests | 960 requests | 4.6× cheaper |
+
+With `RATE_LIMIT_SIGNIN_PER_IP = 60`, one attacker IP that could hold about 6 addresses out
+under the window can hold about 30 under this. Three residuals follow, none of them
+theoretical:
+
+- **The victim's own retries pay the rent, and roughly halve it.** An expired block gives
+  back one attempt and nothing says whose. An attacker who spends it leaves the owner's next
+  keystroke to be the request that arms the next block — so under active attack she races
+  for one slot per cycle where the window gave her ten. The six-hour figure above drops
+  from 65 attacker requests to 38 — the *per-cycle* rent halves, from two requests to one,
+  while the opening burst of eleven is paid either way.
+- **The tier is shed all at once.** It lives until the whole record decays, so after an
+  attack ends the address still gets one attempt per cycle. A second attempt inside the
+  residue — a mistyped password, a correct one on a second device, the app's own retry after
+  a network error — is refused, and arms the *next* block: twice the last one, up to the
+  15-minute cap. Nor does signing in successfully clear it; each served attempt pushes the
+  decay out, so someone signing in more often than once per window never sheds the tier at
+  all. "Types their password once and is in" holds only for the first attempt.
+- **The gentler wait does not reach the app yet.** `Retry-After` stays the constant
+  `RATE_LIMIT_WINDOW_SECONDS` on purpose — the real block length is a function of how often
+  *this address* has been blocked, so quoting it would publish a per-address attack history
+  — and #38 holds the CTA for exactly what the header says. So a 30-second block is
+  presented to the user as 15 minutes until a bucketed or padded value replaces it.
+
+What is not in doubt is the direction of the dimension itself: per-address throttling is the
+only thing standing against a distributed attack on one account, and dropping it was
+rejected. Per-instance like everything else here.
+
+The send-link routes (`resend`, `forgot`) keep their fixed one-per-60s. That is a cooldown
+the canvas counts down, not a defence against guessing, and backing it off would make the
+Resend button's wait vary with how often an address had been asked for — which
+`authRetryAfterSeconds` quotes as a constant precisely so it cannot.
+
+**Each dimension has its own key budget, and always did.** #37 filed this as a defect —
+"today's single shared map" — and it was not one: `createRateLimiter` allocates its `Map`
+per instance, so a flood of invented addresses fills the per-address map of one route and
+cannot evict the per-IP counters that are the backstop in that state. Verified against the
+commit that introduced the file, not just against today's, and now pinned by a test, because
+hoisting the map to module scope to "save memory" would hand an attacker exactly the
+eviction tool the issue was worried about.
+
+**Which `X-Forwarded-For` entry is the caller is configuration, not a constant.** The per-IP
+counter keys on the entry `RATE_LIMIT_TRUSTED_PROXY_HOPS` from the right — `1` today, which
+is a direct Cloud Run service, verified against the deployed API answering on its `run.app`
+host with no balancer in front of it. Everything to the left of the trusted entries is
+whatever the caller chose to send, so reading from the left would make a per-IP budget cost
+one header to reset. Put a Google external load balancer in front and there are two trusted
+hops: leave the value at `1` and the rightmost entry becomes the balancer's, collapsing
+every caller into one bucket and turning the per-IP limit into a global one. **Nothing
+detects that** — no header distinguishes the two shapes — so the value is written down where
+a topology change has to meet it, and the two-hop path is tested before anyone needs it.
+
+Raising it is half a change. `deploy-api.yml` deploys with `--allow-unauthenticated` and no
+`--ingress`, so the `run.app` URL stays publicly reachable: set the value to `2` without
+also passing `--ingress=internal-and-cloud-load-balancing`, and a request sent straight to
+`run.app` carries a one-entry header, resolves to no caller, and skips the per-IP dimension
+entirely. That is the same outage as leaving it at `1`, reached from the other side. Below
+`1` the API refuses to boot — `0` would read like the per-dimension disable switch every
+other `RATE_LIMIT_*` value has, while in fact removing per-IP throttling from `/auth/idp`,
+`/me/auth/providers`, `/auth/activate` and `/auth/password/reset`, where it is the only
+dimension there is.
 
 The throttle is applied **after** validation and **before** the Identity Toolkit call, so it
 can never see, and never depends on, whether an address is registered — that is what keeps

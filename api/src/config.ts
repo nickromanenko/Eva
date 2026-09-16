@@ -15,6 +15,21 @@ const optionalCount = (name: string, fallback: number): number => {
   return value
 }
 
+/**
+ * Like `optionalCount`, but with a floor — for a knob where `0` is not a quieter setting
+ * but a different, silently broken configuration. `RATE_LIMIT_TRUSTED_PROXY_HOPS=0` is the
+ * case this exists for: every other `RATE_LIMIT_*` var documents `0` as "disable this
+ * dimension", so `0` reads like a local-dev switch, while it would in fact strip per-IP
+ * throttling from every route at once — including the ones where it is the only dimension.
+ */
+const optionalCountAtLeast = (name: string, fallback: number, min: number): number => {
+  const value = optionalCount(name, fallback)
+  if (value < min) {
+    throw new Error(`Invalid env var ${name}: expected an integer of at least ${min}`)
+  }
+  return value
+}
+
 /** Unset or empty means "not provisioned yet" — `null`, not a throw. Used by the provider
  *  block below, where a boot that refuses to start because Apple's signing key has not been
  *  issued would take email/password sign-in down with it. */
@@ -106,7 +121,10 @@ export const config = {
   /** JWT lifetime: 30 days (v1 has no refresh tokens). */
   jwtTtlSeconds: 30 * 24 * 60 * 60,
   /**
-   * Throttling for `/auth/*` (issue #5). Any limit set to `0` disables that dimension.
+   * Throttling for `/auth/*` (issue #5). Any *limit* set to `0` disables that dimension;
+   * the two knobs that are not limits are different — `RATE_LIMIT_BACKOFF_BASE_SECONDS=0`
+   * disables the whole per-address dimension, and `RATE_LIMIT_TRUSTED_PROXY_HOPS` will not
+   * accept `0` at all. Both say so below.
    * Per-IP is the loose backstop (carrier NAT puts many users behind one address);
    * per-address is the sharp one. Counters are per instance — see `rate-limit.ts`.
    */
@@ -116,6 +134,49 @@ export const config = {
     signinPerEmail: optionalCount('RATE_LIMIT_SIGNIN_PER_EMAIL', 10),
     signupPerIp: optionalCount('RATE_LIMIT_SIGNUP_PER_IP', 30),
     signupPerEmail: optionalCount('RATE_LIMIT_SIGNUP_PER_EMAIL', 5),
+    /**
+     * The first block a sign-in or sign-up address earns after exhausting its free
+     * attempts (#37). Each block after it doubles, capped at `windowSeconds`, and the
+     * whole record decays after `windowSeconds` of quiet.
+     *
+     * At the cap a block is the same length as the window it replaced, but it is not the
+     * same trade: holding an address out costs an attacker fewer requests than before, and
+     * what the change buys is on the guessing side, not the lockout side. `rate-limit.ts`
+     * and ARCHITECTURE §3 carry the measured numbers.
+     *
+     * `0` disables the **whole per-address dimension** for sign-in and sign-up — not just
+     * the escalation. That is the only defence against a distributed attack on one
+     * account, so it is a local-development setting.
+     */
+    backoffBaseSeconds: optionalCount('RATE_LIMIT_BACKOFF_BASE_SECONDS', 30),
+    /**
+     * How many rightmost `X-Forwarded-For` entries were appended by infrastructure we
+     * trust, and therefore how far from the right the caller's own address sits (#37).
+     *
+     * `1` is a **direct Cloud Run service**, which is what `deploy-api.yml` deploys and
+     * what `https://eva-api-…-uc.a.run.app` is: Cloud Run appends the address it accepted
+     * the connection from, and everything left of it is whatever the caller chose to send.
+     * Put a Google external load balancer in front and there are two trusted hops, so this
+     * becomes `2` — and if it is *not* changed, every caller collapses into one bucket and
+     * the per-IP limit silently becomes global.
+     *
+     * A knob rather than a constant because that failure is invisible: nothing in a header
+     * distinguishes "the rightmost entry is Cloud Run" from "the rightmost entry is a
+     * balancer". What this buys is that the assumption is written down somewhere a
+     * topology change has to meet, instead of in a comment.
+     *
+     * Raising it is half a change: `deploy-api.yml` deploys with `--allow-unauthenticated`
+     * and no `--ingress`, so the `run.app` URL stays reachable. Set this to `2` without
+     * also passing `--ingress=internal-and-cloud-load-balancing` and a request sent
+     * straight to `run.app` carries a one-entry header, resolves to `null`, and skips the
+     * per-IP dimension entirely — the same outage as leaving it at `1`, reached from the
+     * other side.
+     *
+     * Minimum `1`: there is no topology with zero trusted hops, and `0` would not disable
+     * "this dimension" the way the other knobs do — it would disable per-IP throttling on
+     * every route, `/auth/idp` and `/auth/activate` included, where it is the only one.
+     */
+    trustedProxyHops: optionalCountAtLeast('RATE_LIMIT_TRUSTED_PROXY_HOPS', 1, 1),
     /**
      * The two "send me a link" routes (#6): one per address per this many seconds — the
      * canvas' once-per-60s Resend — and a per-IP backstop over the ordinary window. Both
