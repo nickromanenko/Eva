@@ -1372,7 +1372,9 @@ issues and PRs discuss real user data handling.
   cost of credential stuffing, it does not bound it. A shared store is the real fix.
 - `firestore.rules` / `storage.rules` are deny-all. CI proves they still deny
   everything (`Test Rules`, `scripts/verify-rules.sh`) but never deploys them on push:
-  `Deploy Rules` is `workflow_dispatch`-only and run by a human.
+  `Deploy Rules` is `workflow_dispatch`-only. It was run by a human until 2026-09-16,
+  when AUTONOMY's Deploy row moved to `AI`; what gates it now is `needs: test` and
+  `everyAllowIsDenied()` (GUARDRAILS 6a), not who presses the button.
 - Firebase iOS SDK is not linked (commented out in `project.yml`).
 - **One region, and no backups.** Everything lives in `us-central1`; the Firestore
   location is immutable, so serving another region later is a migration, not a setting.
