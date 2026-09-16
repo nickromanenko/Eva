@@ -453,7 +453,7 @@ describe.skipIf(!onEmulators)("the daily cache", () => {
         for (const on of [shiftDays(day, -2), shiftDays(day, -1), day]) {
             const logged = await api(`/me/body-signals/${on}`, {
                 method: "PUT",
-                body: JSON.stringify({ mood: 1, timeZone: "UTC" }),
+                body: JSON.stringify({ mood: 1, sleep: 1, timeZone: "UTC" }),
             });
             expect(logged.status).toBe(200);
         }
