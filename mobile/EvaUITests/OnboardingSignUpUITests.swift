@@ -277,9 +277,18 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         // chosen on the activation page, in a browser, which this app never sees. So coming
         // back to the foreground has nothing to retry with, and the screen cannot advance on
         // its own. Before #120 it could, and the old assertion was right then.
-        XCTAssertTrue(
-            app.staticTexts["Check your inbox"].waitForExistence(timeout: 10),
+        // Asserted as the *absence* of the destination, with a wait that is actually spent.
+        // `waitForExistence` on the gate's own title returns the instant it is found — which
+        // it is, immediately — so it would have passed whether or not the screen advanced.
+        // A spurious advance needs a network round trip to become visible, and this is the
+        // form that can still be there to see it.
+        XCTAssertFalse(
+            app.staticTexts["A little about you"].waitForExistence(timeout: 5),
             "The gate advanced by itself, which would need a password the app is not given"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Check your inbox"].exists,
+            "The gate neither advanced nor stayed — the screen is somewhere unexpected"
         )
 
         // The way through is the one a person takes: back out to log in, and type the

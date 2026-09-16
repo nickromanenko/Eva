@@ -211,9 +211,14 @@ class EvaUITestCase: XCTestCase {
     /// 12). Length is enough to separate "appended to a pre-filled field" from "typed into
     /// an empty one", which is the question these failures actually pose.
     func formContents(_ app: XCUIApplication) -> String {
-        let email = (app.textFields["login.email"].value as? String) ?? "<unreadable>"
-        let password = (app.textFields["login.password"].value as? String) ?? ""
-        return "email \(email.debugDescription), a \(password.count)-character password"
+        let email = (app.textFields["login.email"].value as? String)?.debugDescription
+            ?? "<unreadable>"
+        let password = (app.textFields["login.password"].value as? String)
+            .map { "a \($0.count)-character password" }
+            // Not "0 characters": a field that cannot be read and one that is empty are
+            // different findings, and this string exists to tell findings apart.
+            ?? "a password that could not be read"
+        return "email \(email), \(password)"
     }
 
     /// Taps a field, empties it, then types.
@@ -237,38 +242,55 @@ class EvaUITestCase: XCTestCase {
         line: UInt = #line
     ) {
         tap(element, in: app)
-        // An empty SwiftUI `TextField` reports its placeholder as `value`, so "empty" is
-        // either nothing or the placeholder — not `value == ""`.
         let placeholder = element.placeholderValue ?? ""
-        let isEmpty = { () -> Bool in
-            let current = (element.value as? String) ?? ""
-            return current.isEmpty || current == placeholder
-        }
 
         var passes = 0
-        while !isEmpty() && passes < 10 {
+        var previous: String?
+        while passes < 10 {
+            // **`nil` is not empty.** A value that cannot be read is the one case this whole
+            // helper exists for, and coalescing it to `""` would say "already clear", skip
+            // the loop, pass the assertion below, and type into a field still holding 37
+            // characters — #135 again, silently. So an unreadable field falls out of the
+            // loop and fails the assertion instead.
+            guard let current = element.value as? String else { break }
+            if current.isEmpty || current == placeholder { break }
+            // Stop as soon as a pass achieves nothing, rather than repeating an identical
+            // no-op nine more times before failing.
+            if current == previous { break }
+            previous = current
+
             // **Put the caret at the end first, every pass.** A tap places it where the
             // finger landed, and backspace only deletes what is to its left — which is why
-            // the old one-burst version removed 18 characters of a 55-character address and
-            // then stopped: the caret had reached position 0 and every further delete was a
-            // no-op. Tapping the field's right edge lands past the last glyph, and a field
-            // holding more than it can show is scrolled to its end anyway.
+            // the old one-burst version removed the 18 characters before the caret, left the
+            // 37 after it, and then stopped: every further delete was a no-op at position 0.
+            // Tapping the field's right edge lands past the last glyph.
             element.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-            let current = (element.value as? String) ?? ""
             element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
             passes += 1
         }
 
+        let cleared = element.value as? String
         XCTAssertTrue(
-            isEmpty(),
+            cleared.map { $0.isEmpty || $0 == placeholder } ?? false,
             """
             Could not clear \(element.identifier) in \(passes) passes — it still holds \
-            \((element.value as? String)?.debugDescription ?? "<unreadable>"). Typing now \
-            would append, and the request would fail as a wrong credential rather than as this.
+            \(cleared?.debugDescription ?? "a value that could not be read at all"). Typing \
+            now would insert at the caret, and the request would fail as a wrong credential \
+            rather than as this.
             """,
             file: file, line: line
         )
         element.typeText(text)
+
+        // The pin the helper was missing: what it typed is what the field holds. Everything
+        // above is mechanism, and mechanism can be wrong in a way the mechanism cannot see —
+        // this is the assertion that would have caught #135 here, in one line, instead of as
+        // eight tests reporting a credential failure.
+        XCTAssertEqual(
+            element.value as? String, text,
+            "\(element.identifier) does not hold what was typed into it",
+            file: file, line: line
+        )
     }
 
     @discardableResult
@@ -362,13 +384,17 @@ class EvaUITestCase: XCTestCase {
         line: UInt = #line
     ) {
         tap(element, in: app)
-        let existing = (element.value as? String) ?? ""
         let placeholder = element.placeholderValue ?? ""
+        let existing = element.value as? String
         XCTAssertTrue(
-            existing.isEmpty || existing == placeholder,
+            // `nil` is not empty here either — an unreadable field is one this helper
+            // cannot promise anything about, so it fails rather than types.
+            existing.map { $0.isEmpty || $0 == placeholder } ?? false,
             """
-            \(element.identifier) already held \(existing.debugDescription) — typing would \
-            append to it. Use `clearAndType` if the caller expects it to arrive dirty.
+            \(element.identifier) already held \
+            \(existing.map { "\($0.count) characters" } ?? "a value that could not be read") \
+            — typing would insert at the caret. Use `clearAndType` if the caller expects it \
+            to arrive dirty, or `append` if it means to add to it.
             """,
             file: file, line: line
         )
@@ -383,6 +409,11 @@ class EvaUITestCase: XCTestCase {
     /// that means to append now has to say so.
     func append(_ text: String, into element: XCUIElement, in app: XCUIApplication) {
         tap(element, in: app)
+        // The same caret placement `clearAndType` needs, and for the same reason: `typeText`
+        // inserts wherever the caret is, so without this a centre tap would put the new text
+        // *inside* the old — which is the defect this whole change is about, and it would
+        // have been reintroduced by the helper named after doing the opposite.
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         element.typeText(text)
     }
 

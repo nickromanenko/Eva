@@ -1332,7 +1332,9 @@ a simulator.
 changes and nobody was told. When it was finally run, it held three separate breakages
 that had accumulated independently: a Swift 6 key-path error in a file added by #38, which
 meant the target did not even compile; a `clearAndType` helper whose one-burst delete left
-37 characters of an address behind on iOS 26, so the app sent a malformed address and
+37 characters of an address behind on iOS 26 — the caret landed mid-string, backspace only
+reaches what is to its left, and the new address was then inserted *before* the surviving
+tail — so the app sent a malformed address and
 `/auth/signin` answered "Wrong email or password" — the same sentence it answers for
 everything (§3), which made a harness bug look like an auth regression for eight tests; and
 two assertions in `testSignUpLandsOnTheActivationGateWithResendOnCooldown` whose setup #120

@@ -100,11 +100,10 @@ final class DeleteAccountUITests: EvaUITestCase {
 
         // Back to an empty field, then the word as the modal asks for it. Deleting is
         // unavoidable here: the check is whitespace-trimmed but not otherwise forgiving,
-        // so appending would leave `deleteDELETE` and prove nothing.
-        field.typeText(
-            String(repeating: XCUIKeyboardKey.delete.rawValue, count: Self.confirmationWord.count)
-        )
-        field.typeText(Self.confirmationWord)
+        // so appending would leave `deleteDELETE` and prove nothing — which is exactly what
+        // #135 did elsewhere, so this goes through the helper that verifies the field
+        // emptied rather than hand-rolling the delete and hoping.
+        clearAndType(Self.confirmationWord, into: field, in: app)
 
         // The button's enabled state follows a SwiftUI state update, so it is waited for
         // rather than read. A bare read can win the race and fail a working gate.
