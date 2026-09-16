@@ -10,6 +10,9 @@ import SwiftUI
 struct CalendarView: View {
 
     let session: AppSession
+    /// How another tab reaches this one. `nil` outside the tab bar — a preview and the
+    /// screenshot harness both build this screen on its own.
+    var router: EvaTabRouter?
 
     @State private var model: CalendarModel
     @State private var isPickerOpen = false
@@ -18,8 +21,9 @@ struct CalendarView: View {
     /// The log sheet, and what opened it. `nil` when it is closed.
     @State private var logging: LogSheet.Start?
 
-    init(session: AppSession, today: EvaDay = .today()) {
+    init(session: AppSession, router: EvaTabRouter? = nil, today: EvaDay = .today()) {
         self.session = session
+        self.router = router
         _model = State(initialValue: CalendarModel(source: session, today: today))
         _pickerYear = State(initialValue: today.year)
     }
@@ -105,6 +109,18 @@ struct CalendarView: View {
         ) { _ in model.refreshToday() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.refreshToday() }
+        }
+        // The Today card's `Log now` / `Log period` / `Log test` (#99). It selects this
+        // tab and bumps the counter; this opens the picker on the **selected** day, which
+        // is the same day the FAB opens it on and the same day the picker's header states.
+        //
+        // A counter rather than a flag, watched rather than read: this screen is kept
+        // alive across tab switches and is never re-initialised, so there is no `init` and
+        // no `task` for a request to arrive through.
+        .onChange(of: router?.calendarLogRequests) { _, _ in
+            guard router != nil else { return }
+            model.dismissToast()
+            logging = .picker(model.selectedDay)
         }
     }
 

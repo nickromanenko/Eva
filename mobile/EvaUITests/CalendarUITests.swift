@@ -1,6 +1,9 @@
 import XCTest
 
-/// Issue #159: **the calendar is the app's landing surface, and it shows what was logged.**
+/// Issue #159: **the calendar is one tab away, and it shows what was logged.**
+///
+/// It was the landing surface until #99 built the Dashboard and Home took the first tab
+/// back; the tap that gets here is now part of the flow rather than absent from it.
 ///
 /// One test, in the shape the other suites in this target use, because every step needs
 /// the one before it: there is no calendar without an activated account, nothing to select
@@ -98,9 +101,15 @@ final class CalendarUITests: EvaUITestCase {
         )
         XCTAssertTrue(app.buttons["tab.home"].exists, "The tab bar has no Home tab")
         XCTAssertTrue(app.buttons["tab.profile"].exists, "The tab bar has no Profile tab")
+
+        // **Home is the landing tab since #99.** C1 landed here because the Dashboard was
+        // unbuilt and a placeholder in front of the one real screen was worse than the
+        // canvas' own order; D4 built it, so the calendar is now one tap away. What this
+        // suite is about — the grid, the paging, the marks — is unchanged.
+        tap(app.buttons["tab.calendar"], in: app)
         XCTAssertTrue(
             app.otherElements["calendar.grid"].waitForExistence(timeout: 15),
-            "Calendar is not the landing tab — the month grid is not on screen"
+            "The Calendar tab does not show the month grid"
         )
 
         let today = Self.todayISO()
@@ -214,8 +223,13 @@ final class CalendarUITests: EvaUITestCase {
         // the only way to make the calendar re-read the range it has already cached.
         relaunchKeepingTheKeychain(app)
         XCTAssertTrue(
+            app.buttons["tab.calendar"].waitForExistence(timeout: 25),
+            "A relaunch with a stored session did not reach the tab bar"
+        )
+        tap(app.buttons["tab.calendar"], in: app)
+        XCTAssertTrue(
             app.otherElements["calendar.grid"].waitForExistence(timeout: 25),
-            "A relaunch with a stored session did not land on the calendar"
+            "A relaunch with a stored session did not reach the calendar"
         )
 
         let todayCell = app.buttons["calendar.day.\(today)"]

@@ -41,6 +41,25 @@ xcrun simctl io $UDID screenshot /tmp/specimen.png
 launches normally. Environment goes in the calling environment with a `SIMCTL_CHILD_`
 prefix, as above. Same for the other hooks: `SIMCTL_CHILD_EVA_ONBOARDING_STEP=2   # 0 createAccount, 1 logIn, 2 aboutYou …`.
 
+## Home tab states (DEBUG)
+
+`GET /me/today` is D3 (#98) and does not exist, and the words it will serve come from a
+`content/` collection that is not seeded until a clinician signs the copy off (#97).
+`EVA_TODAY_CARD` seeds one canvas state so the Home tab can be reviewed and tested anyway.
+It names a key of `EvaTodayCardFixtures.all` (`home_a` … `home_loss`), or `none` for the
+day-with-no-card cold start:
+
+```sh
+SIMCTL_CHILD_EVA_API_BASE_URL=http://localhost:3003 \
+SIMCTL_CHILD_EVA_TODAY_CARD=home_edu \
+  xcrun simctl launch --terminate-running-process $UDID com.evaapp.ios
+```
+
+`EVA_TODAY_REFRESH=offline` lands the first read and fails every one after it, which is the
+only way to reach the `home_off` bar: a card has to be cached before it can be a *cached*
+card, and nothing can take the network away mid-launch. Both hooks seed the **card**, never
+the session — the app has to be signed in already.
+
 `simctl` cannot scroll. To capture below the fold, drive the simulator with the
 `Claude Code iOS Simulator` MCP (`swipe` from `y: 760` to `y: 180`, ~580pt a time, then
 `screenshot`) — start more than 4pt from any edge or the swipe becomes an OS edge
@@ -55,7 +74,8 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Networking/` | `APIClient` (async JSON), `APIError`, `APIModels` (wire types) |
 | `Eva/Session/` | `AppSession` (all auth/session state), `KeychainTokenStore` (only token storage) |
 | `Eva/Onboarding/` | `OnboardingModel` state machine, `Steps/`, `Components/` |
-| `Eva/Navigation/` | The tab bar (`EvaTabView`) and the Home tab's placeholder |
+| `Eva/Navigation/` | The tab bar (`EvaTabView`) and `EvaTabRouter` — the tab selection, and the one request a tab makes of another |
+| `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar |
 | `Eva/Calendar/` | `CalendarView`, the month grid, the event model and its glyphs |
 | `Eva/Calendar/Logging/` | The log picker sheet and its four forms, the write payloads, the date policy |
 | `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field |
@@ -90,7 +110,7 @@ Adding a token or a component means adding it to the specimen too.
 - Interactive elements need a stable `accessibilityIdentifier` — UI tests and
   screenshot tooling navigate by it. `PrimaryButton` sets `primary.<title>`.
 - Keep the DEBUG hooks working: `EVA_ONBOARDING_STEP`, `EVA_UITEST_RESET`,
-  `EVA_API_BASE_URL`, `EVA_SPECIMEN`.
+  `EVA_API_BASE_URL`, `EVA_SPECIMEN`, `EVA_TODAY_CARD`, `EVA_TODAY_REFRESH`.
 - No Firebase iOS SDK. It stays commented out in `project.yml` until it's a decided
   task.
 

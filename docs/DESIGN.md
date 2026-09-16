@@ -408,9 +408,13 @@ thing. `AuthRateLimitedBanner` uses `EvaInfoBanner`.
 Eva Chat · Learn · Profile (A4), and says itself that two of them are undrawn: its own
 handlers answer "Eva Chat is not drawn yet — it is v1 (A1, A5); its own design phase
 follows the Dashboard", and the same for Learn. A tab whose only content is that sentence
-is worse than a tab that is not there yet, so they arrive with their screens. **Calendar is
-the landing tab** rather than Home, because the Dashboard is unbuilt and landing on a
-placeholder in front of the one real screen is not what the tab order means.
+is worse than a tab that is not there yet, so they arrive with their screens.
+
+**Home is the landing tab again (#99).** #159 landed on Calendar instead, and said why —
+"the Dashboard is unbuilt and landing on a placeholder in front of the one real screen is
+not what the tab order means". D4 built the Dashboard, so the reason is spent and the
+canvas' own order stands. The three-tab count is unchanged and still waiting on Eva Chat
+and Learn.
 
 **The tab bar's marks are SF Symbols.** The artboard draws an 18pt rounded outline in
 every tab — the same placeholder convention as the Google mark, whose own caption calls it
@@ -546,6 +550,76 @@ more: their × is 44 against the artboard's 40, and the toast's Undo is 44 again
 The read-only mode chip keeps the artboard's 34, because §1's floor is about interactive
 elements and that one is a label.
 
+**The Today card's fill is the artboard's, over §4's card (#99).** The canvas gives each of
+the four tones its own surface (`CARDS` → `surf`). Read against the token set they are one
+surface wearing three of §2's semantic families — §4's card supplies the radius, the white
+hairline, the inset lines and the neutral shadow, and each tone supplies a fill:
+
+| Tone | Artboard | Built as |
+|---|---|---|
+| `base` | `linear-gradient(155deg,#fff .9,#fff .74)`, `#fff .95` border | the artboard's two stops at §4's 150°, no extra border |
+| `edu` | `rgba(237,246,218,.94)` → `rgba(255,255,255,.8)`, `rgba(142,173,86,.32)` border | Light Pistachio at the artboard's alphas; `evaSuccessBorder` (exact) |
+| `flag` | `rgba(255,247,235,.97)` → `rgba(255,250,244,.92)`, `rgba(201,145,63,.55)` border 1.5px | `evaWarningTint`; `evaWarningBorder` (.30 against .55) at the artboard's 1.5pt |
+| `quiet` | `rgba(255,255,255,.86)`, `rgba(40,33,38,.08)` border | white at the artboard's alpha; `evaControlBorder` (.10 against .08) |
+
+The fills are carried rather than dropped in favour of §4's own 66% → 36%, and that is a
+*measured* decision rather than a preference: at 66% over `Material`, the material's grey
+decides the colour and the hero card of the app renders **darker than the ground it sits
+on**, where the canvas draws it brighter. That is #60 at its most visible. This is not a fix
+for #60 — it is the artboard's fill, which happens to be opaque enough that the material
+stops deciding. The card radius takes `EvaRadius.card` (24) against the artboard's 28, and
+its padding `EvaSpacing.lg` (24) against 22, on the usual rule.
+
+**The Today card's actions are §5's buttons, and the primary style is only for an action
+that works (#99).** The artboard draws them at `min-height:46px;border-radius:15px;
+font:600 13.5px`, which matches no §5 variant — the same finding #160 made about the day
+detail's Edit and Delete — so they take §5's standard 52/17. A §5 button is full width, so
+the artboard's wrapping row becomes a column, which is also the only arrangement in which
+"View contact options" and "Review what I logged" both fit unabridged.
+
+The artboard styles the **first** action as the primary (`i === 0`). In D4 that action is
+usually disabled, because every `View …` / `Review …` / `Read article` opens a screen the
+canvas has not drawn (review G7) — nine of the fourteen cards have no working action at all.
+A disabled §5 primary is a full-width 28%-pink slab, which made a dead control the loudest
+thing on the card and put a pink one on the amber `flag` surface. So the primary style is
+narrowed to an action that can be taken, and an unavailable one takes the secondary glass
+wherever it sits.
+
+**The flag tone's amber primary is unbuilt.** The artboard fills the first action `#B5822E`
+on that tone. Both of `home_flag`'s actions reach D11 screens, so it is unreachable in D4,
+and it has no token — a second primary fill is a design decision (GUARDRAILS 20), not a
+transcription. Reported rather than taken.
+
+**The Home header's greeting carries no name, and the avatar is the address's initial
+(#99).** The artboard reads "Good morning, Maria" over a letter avatar. **Eva stores no
+name** — `APIUser` is an id, an address, the activation flag, the providers and the
+questionnaire `profile`, and a given name would arrive with #19's Edit profile. Rendering
+"Good morning, e2e+4f1c…" would be worse than saying less, so the greeting is the time of
+day alone (morning before noon, afternoon before six, evening after — the artboard draws one
+greeting at one hour, beside an offline bar stamped 08:12). The avatar takes the address's
+first letter, which is the same letter for the artboard's own example. The avatar's fill is
+`LinearGradient.evaActionPink` rather than the artboard's `150deg,#F3AEC4,#C95F86`: it
+carries a white label, and that is the §9a action-ramp rule.
+
+**The notifications button has no unread dot.** The artboard puts a 7pt pink badge on it.
+Eva sends no notifications yet, a dot is a claim that something is waiting, and §8 is about
+not saying things that are not true. It arrives with §Notifications, along with the button
+becoming live.
+
+**The flag kicker's mark is a slot the canvas left empty.** `kick.flag` is an
+`inline-flex` with `gap:7px` and one child — space for a glyph that is not drawn. §2 asks
+every semantic state for a mark as well as a colour; nothing was invented to fill it,
+because the flag card's own copy ("Contact your maternity provider … Eva cannot assess
+this") is what carries the state in words. The canvas should draw the mark.
+
+**"No card for today yet" is not canvas copy (#99).** The artboard draws fourteen cards and
+no empty state for the card slot, because in the design there is always a card — `home_a` is
+the zero-data one. The built system has a second way to have none: `content/` is empty until
+a clinician signs its copy off (#97 refuses to seed without a reviewer), and a device cannot
+fill a card out of an empty store. It uses §7's information banner and states the fact
+without promising when a card will appear. Replace it with the canvas' words the moment it
+draws some.
+
 **An unavailable picker row is dimmed lightly, and its title is Secondary rather than the
 disabled ink.** Stacking `evaDisabledText` on the row's own opacity made the sentence
 explaining the refusal the least readable thing on the sheet — which defeats the point of
@@ -600,7 +674,16 @@ Real platform limits, not decisions:
   now serve five screens — sign up, log in, the activation gate, forgot password and link
   sent — which is past the point where one-off `EvaTextStyle` values in
   `AuthScreenParts.swift` are defensible. Promoting them to scale rows is a design
-  decision, so it is reported here rather than taken in a feature PR.
+  decision, so it is reported here rather than taken in a feature PR. **The Home header's
+  `eva.` lockup is a fourth** (`homeWordmark`, 22/400, in `EvaHomeMetrics.swift`) — the
+  same lockup as `authWordmark` at a different size, so the two also duplicate the
+  `Text` + `Text` composition between `AuthScreenParts` and `HomeHeader`.
+- The Today card's title is drawn `600 19.5px/1.32`, which is between H3 (17/22) and H2
+  (21/26) and is neither. It takes H2, the nearer of the two in size and the same weight —
+  the same trade the calendar's month header took for its 26/400 (§9a). Its `line2` at
+  `400 14px/1.6` and its suggestion line at `400 13.5px/1.6` both take Body (15/24): half a
+  point is below what the scale can express, and the canvas separates those two by the
+  *surface* behind the suggestion rather than by size.
 
 ## 10. Implementation conventions
 

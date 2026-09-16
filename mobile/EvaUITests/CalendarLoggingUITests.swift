@@ -107,9 +107,11 @@ final class CalendarLoggingUITests: EvaUITestCase {
             "Questionnaire submission did not reach the done screen"
         )
         tap(app.buttons["primary.Enter Eva"], in: app)
+        // Home is the landing tab since #99; the calendar is one tap away.
+        tap(app.buttons["tab.calendar"], in: app)
         XCTAssertTrue(
             app.otherElements["calendar.grid"].waitForExistence(timeout: 20),
-            "Entering the app did not reach the calendar"
+            "The Calendar tab did not reach the calendar"
         )
 
         let today = Self.todayISO()
