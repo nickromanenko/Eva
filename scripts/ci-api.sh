@@ -86,8 +86,55 @@ export APPLE_SIGNIN_KEY="$APPLE_SIGNIN_KEY_PEM"
 # adoption outright rather than hoping a different port is enough — the port scan spans
 # EVA_API_PORT..+10, so moving off 3003 narrows the window without closing it.
 unset EVA_API_URL
-export EVA_API_PORT=3103
+export EVA_API_PORT="${EVA_API_PORT:-3103}"
 export EVA_API_NO_REUSE=1
+
+# Refuse to start if anything already holds a port this run needs (#112).
+#
+# Without this the run does not fail — it produces a *green-looking script* full of red
+# tests. A second agent holding 3103 and 8080 gave 190 pass / 117 fail in 13.7s, every
+# failure `ECONNREFUSED` under a stack trace, on a tree whose typecheck was clean and
+# whose CI was green. 117 red tests on a rebase is indistinguishable from a broken
+# rebase, and the reasonable next move is to start editing code that was never broken.
+# Failing here costs one line of output instead.
+#
+# The emulator ports come from firebase.json rather than from this script, so they are
+# read back out of it rather than restated — a port changed there must not silently stop
+# being checked here.
+EMULATOR_PORTS="$(python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    emu = json.load(f).get("emulators", {})
+for name in ("auth", "firestore"):
+    port = emu.get(name, {}).get("port")
+    if port:
+        print(f"{port} {name} emulator")
+' "$ROOT/firebase.json" 2>/dev/null)"
+
+BUSY=""
+while read -r port label; do
+  [ -z "$port" ] && continue
+  if lsof -ti:"$port" >/dev/null 2>&1; then
+    BUSY="${BUSY}  port $port ($label) is already in use"$'\n'
+  fi
+done <<EOF
+$EVA_API_PORT this script's API server
+$EMULATOR_PORTS
+EOF
+
+if [ -n "$BUSY" ]; then
+  echo "✗ api CI verify FAILED before running anything:"
+  printf '%s' "$BUSY"
+  echo
+  echo "  Something else is using them — most likely another agent or terminal running"
+  echo "  scripts/ci-api.sh or scripts/verify-mobile.sh on this machine (#112, #162)."
+  echo "  Nothing was run, so nothing here says anything about your code."
+  echo
+  echo "  Wait for the other run to finish, or set EVA_API_PORT to a free port. The"
+  echo "  emulator ports come from firebase.json and are shared by every run on this"
+  echo "  machine, so two runs still cannot overlap — this only tells you which."
+  exit 1
+fi
 
 echo "▶ api tests (Auth + Firestore emulators, project $PROJECT)"
 (cd "$ROOT/api" && bun install --frozen-lockfile >/dev/null) || {
