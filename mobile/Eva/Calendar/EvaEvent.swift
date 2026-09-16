@@ -12,6 +12,21 @@ enum EvaEventType: String, Codable, Sendable, CaseIterable {
     case sport
     case appointment
     case sex
+
+    /// Whether the server keeps at most one of these per day.
+    ///
+    /// Mirrors `ONE_PER_DAY` in `api/src/events.ts`, and it is a *contract* rather than a
+    /// convenience: these two live at a deterministic document id, so logging one replaces
+    /// the day's entry instead of adding to it. Three behaviours follow from it and none of
+    /// them is optional — the picker edits the day's entry instead of offering a second,
+    /// `PATCH` refuses to move one to another day, and `restore` answers `409
+    /// DAY_ALREADY_LOGGED` once the day has been re-logged (#50).
+    var isOnePerDay: Bool {
+        switch self {
+        case .cycle, .bodySignals: true
+        case .sport, .appointment, .sex: false
+        }
+    }
 }
 
 /// Who put the entry there. `eva` is reserved for entries Eva derives; everything a user
@@ -42,7 +57,7 @@ enum EvaFlowLevel: String, Codable, Sendable, CaseIterable {
     case heavy
 }
 
-enum EvaSportIntensity: String, Codable, Sendable {
+enum EvaSportIntensity: String, Codable, Sendable, CaseIterable {
     case light
     case medium
     case hard
@@ -58,7 +73,7 @@ enum EvaSymptomSeverity: String, Codable, Sendable {
 /// `severity` and `value` are two axes and neither can express the other: severity is an
 /// intensity (the second tap on Cramps), `value` is a category the chip's own picker
 /// offers. Only chips whose `/refdata` entry declares `values` carry one.
-struct EvaSymptom: Hashable, Sendable, Decodable {
+struct EvaSymptom: Hashable, Sendable, Codable {
     /// The catalogue code. **Never shown to the user** — `/refdata` owns the label.
     let code: String
     let severity: EvaSymptomSeverity
@@ -69,9 +84,23 @@ struct EvaSymptom: Hashable, Sendable, Decodable {
         self.severity = severity
         self.value = value
     }
+
+    /// `value` is **omitted** rather than sent as null when the chip has no value axis.
+    /// The route reads both as "no value", but Firestore rejects an undefined field and
+    /// `parseSymptoms` builds the stored object by spreading the key only when it is
+    /// present — so an absent key is what an entry written by this app looks like on the
+    /// wire as well as at rest.
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(code, forKey: .code)
+        try container.encode(severity, forKey: .severity)
+        try container.encodeIfPresent(value, forKey: .value)
+    }
+
+    private enum CodingKeys: String, CodingKey { case code, severity, value }
 }
 
-struct EvaBodySignalsPayload: Hashable, Sendable, Decodable {
+struct EvaBodySignalsPayload: Hashable, Sendable, Codable {
     /// 1–5, or `nil` for "not answered" — which is not the same as a 3, so it stays
     /// optional all the way through.
     let energy: Int?
@@ -94,10 +123,23 @@ struct EvaBodySignalsPayload: Hashable, Sendable, Decodable {
         symptoms = try container.decodeIfPresent([EvaSymptom].self, forKey: .symptoms) ?? []
     }
 
+    /// An unanswered rating is **absent**, not null and not a 3.
+    ///
+    /// The route reads a null the same way, so this is not the difference between working
+    /// and not — it is the difference between the app's own writes and everybody else's
+    /// looking the same in Firestore, which is what makes a stored document readable.
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(energy, forKey: .energy)
+        try container.encodeIfPresent(mood, forKey: .mood)
+        try container.encodeIfPresent(sleep, forKey: .sleep)
+        try container.encode(symptoms, forKey: .symptoms)
+    }
+
     private enum CodingKeys: String, CodingKey { case energy, mood, sleep, symptoms }
 }
 
-struct EvaSportPayload: Hashable, Sendable, Decodable {
+struct EvaSportPayload: Hashable, Sendable, Codable {
     /// A `sportActivities` catalogue code, or free text behind the catalogue's `Other`.
     let activity: String
     let durationMin: Int
@@ -110,7 +152,7 @@ struct EvaSportPayload: Hashable, Sendable, Decodable {
     }
 }
 
-struct EvaAppointmentPayload: Hashable, Sendable, Decodable {
+struct EvaAppointmentPayload: Hashable, Sendable, Codable {
     /// Local wall clock `YYYY-MM-DDTHH:mm(:ss)`, the same day as `localDate`.
     let startAt: String
     /// An `appointmentTypes` catalogue code, or `nil`.
@@ -139,6 +181,19 @@ struct EvaAppointmentPayload: Hashable, Sendable, Decodable {
         reminderMinutesBefore = try container.decodeIfPresent(Int.self, forKey: .reminderMinutesBefore)
     }
 
+    /// `reminderMinutesBefore` is written as an explicit **null**, never omitted.
+    ///
+    /// This one is not cosmetic. The route reads an *absent* key as the PRD's default of a
+    /// day before and an explicit null as "no reminder" — so omitting it for a user who
+    /// turned the reminder off would silently give her one.
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(startAt, forKey: .startAt)
+        try container.encode(type, forKey: .type)
+        try container.encode(questions, forKey: .questions)
+        try container.encode(reminderMinutesBefore, forKey: .reminderMinutesBefore)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case startAt, type, questions, reminderMinutesBefore
     }
@@ -163,6 +218,62 @@ enum EvaEventDetail: Hashable, Sendable {
         case .sex: .sex
         }
     }
+
+    /// This entry as something that could be written back, or `nil` for a type the API
+    /// will not store. See `EvaEventPayload`.
+    var payload: EvaEventPayload? {
+        switch self {
+        case .cycle(let mark): .cycle(mark)
+        case .bodySignals(let payload): .bodySignals(payload)
+        case .sport(let payload): .sport(payload)
+        case .appointment(let payload): .appointment(payload)
+        case .sex: nil
+        }
+    }
+}
+
+/// The `payload` half of a write, in the shape the route's validator reads.
+///
+/// **There is no `sex` arm, and that is the point.** `parseEventType` refuses the type
+/// until C10 ships it with its privacy switch, so a sex write is not a request that fails
+/// — it is a request this app cannot construct. The same trick `EvaCycleMark` plays on the
+/// read side, one layer up: make the state the server refuses unrepresentable rather than
+/// checked.
+enum EvaEventPayload: Hashable, Sendable, Encodable {
+    case cycle(EvaCycleMark)
+    case bodySignals(EvaBodySignalsPayload)
+    case sport(EvaSportPayload)
+    case appointment(EvaAppointmentPayload)
+
+    var type: EvaEventType {
+        switch self {
+        case .cycle: .cycle
+        case .bodySignals: .bodySignals
+        case .sport: .sport
+        case .appointment: .appointment
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        switch self {
+        case .cycle(let mark):
+            var container = encoder.container(keyedBy: CycleKeys.self)
+            // One key or the other, never both — `parseCyclePayload` rejects a body
+            // carrying two, which is the wire's half of `EvaCycleMark`'s one-case model.
+            switch mark {
+            case .spotting: try container.encode(true, forKey: .spotting)
+            case .flow(let level): try container.encode(level, forKey: .flow)
+            }
+        case .bodySignals(let payload):
+            try payload.encode(to: encoder)
+        case .sport(let payload):
+            try payload.encode(to: encoder)
+        case .appointment(let payload):
+            try payload.encode(to: encoder)
+        }
+    }
+
+    private enum CycleKeys: String, CodingKey { case spotting, flow }
 }
 
 /// One entry from `GET /me/events`.
@@ -307,3 +418,21 @@ struct EvaEventsResponse: Decodable, Sendable {
         }
     }
 }
+
+/// What create, edit, the body-signals upsert and restore all answer: `{ "event": … }`.
+struct EvaEventResponse: Decodable, Sendable {
+    let event: EvaEvent
+}
+
+/// `DELETE /me/events/{id}` → `{ "deleted": true }`.
+///
+/// Decoded rather than ignored so a 200 carrying something else is a decoding failure
+/// rather than a silent success — the app takes the entry off the grid on the strength of
+/// this, and "the request did not fail" is a weaker claim than "the server says it is gone".
+struct EvaDeletedResponse: Decodable, Sendable {
+    let deleted: Bool
+}
+
+/// A POST that carries no fields. `restore` takes none — the id is the whole request — and
+/// `APIClient.post` needs *something* to encode.
+struct EvaEmptyBody: Encodable, Sendable {}

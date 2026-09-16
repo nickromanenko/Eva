@@ -126,14 +126,16 @@ final class CalendarUITests: EvaUITestCase {
             app.staticTexts["calendar.logPointer"].exists,
             "The empty state showed no pointer at the Log button"
         )
-        // The FAB is drawn and **disabled**: its picker is C2 (#160). Asserted rather than
-        // left to the prose in `CalendarView.isLogEnabled`, so turning it on has to come
-        // past a failing test — which is the point at which someone reads why it was off.
+        // The FAB is drawn and **live** since C2 (#160) wired its picker. It was asserted
+        // as disabled in C1 so that turning it on had to come past a failing test, which
+        // is what happened; the assertion is inverted rather than deleted, so the pointer
+        // never again points at something inert. What it opens is covered by
+        // `CalendarLoggingUITests`.
         XCTAssertTrue(app.buttons["calendar.log"].exists, "The empty state has no Log button to point at")
-        XCTAssertFalse(
+        XCTAssertTrue(
             app.buttons["calendar.log"].isEnabled,
-            "The log button is enabled — if C2 has wired the picker, update this assertion "
-                + "and the empty-state note in DESIGN §9a with it"
+            "The log button is disabled — the empty state is pointing at a control that "
+                + "does nothing"
         )
         // …and nothing is in the way of exploring. A modal would make the grid unhittable.
         XCTAssertTrue(

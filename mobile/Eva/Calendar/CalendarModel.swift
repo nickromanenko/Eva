@@ -12,6 +12,14 @@ import Foundation
 protocol CalendarEventSource {
     func events(from: EvaDay, through to: EvaDay) async throws -> [EvaEvent]
     func refData() async throws -> EvaRefData
+
+    // The write half (#160). Each answers with the server's copy of the entry, which is
+    // what goes on the grid — see `AppSession`'s note on why the local draft will not do.
+    func createEvent(_ write: EvaEventWrite) async throws -> EvaEvent
+    func upsertBodySignals(_ write: EvaBodySignalsWrite) async throws -> EvaEvent
+    func updateEvent(id: String, _ write: EvaEventWrite) async throws -> EvaEvent
+    func deleteEvent(id: String) async throws
+    func restoreEvent(id: String) async throws -> EvaEvent
 }
 
 extension AppSession: CalendarEventSource {}
@@ -67,8 +75,39 @@ final class CalendarModel {
     /// a synonym for "no".
     private(set) var hasHistory: Bool?
 
+    /// The one message the calendar shows after a write (#160), and the canvas' own
+    /// affordance for undoing a delete.
+    ///
+    /// One at a time, replaced rather than queued, which is what the artboard draws — and
+    /// which is also why a save quietly retires the delete toast that preceded it.
+    struct Toast: Equatable, Identifiable {
+        let id: UUID
+        /// Describes what happened. Never congratulates, never counts (DESIGN.md §8).
+        let message: String
+        /// The soft-deleted entry Undo would bring back, when there is one.
+        ///
+        /// Holding the entry is not the same as promising the button: whether Undo is
+        /// still honest is asked of `canRestore(_:)` every time it is drawn, because the
+        /// answer changes underneath it — see `offersUndo`.
+        let restorable: EvaEvent?
+
+        init(message: String, restorable: EvaEvent? = nil) {
+            self.id = UUID()
+            self.message = message
+            self.restorable = restorable
+        }
+    }
+
+    /// How long a toast stays. Not a canvas value — the artboard specifies no motion and
+    /// no duration anywhere (DESIGN.md §9c) — so this is the platform's own convention,
+    /// stretched because the Undo inside it is the only way back from a delete.
+    static let toastDuration: Duration = .seconds(8)
+
+    private(set) var toast: Toast?
+
     private var eventsByDay: [EvaDay: [EvaEvent]] = [:]
     private var loadedMonths: Set<EvaMonth> = []
+    private var toastTask: Task<Void, Never>?
 
     private let source: any CalendarEventSource
 
@@ -117,6 +156,177 @@ final class CalendarModel {
     /// Whether the empty state should be on screen: the account has no history *and* the
     /// question has been answered.
     var showsEmptyState: Bool { hasHistory == false }
+
+    /// The day's existing entry of a one-per-day type, if it has one.
+    ///
+    /// This is what makes the picker edit instead of duplicating: the server keeps one
+    /// `cycle` and one `bodySignals` per day, so offering "log body signals" on a day that
+    /// already has them would silently replace them. The sheet opens on the entry instead.
+    func onePerDayEntry(_ type: EvaEventType, on day: EvaDay) -> EvaEvent? {
+        guard type.isOnePerDay else { return nil }
+        return events(on: day).first { $0.type == type }
+    }
+
+    // MARK: - Writing
+
+    /// Creates or edits one entry and puts the server's answer on the grid.
+    ///
+    /// `editing` is the id of the entry being replaced, or `nil` for a new one. The route
+    /// differs three ways and the caller should not have to know which: an edit is a
+    /// `PATCH`, a new body-signals entry is the day-addressed upsert, and everything else
+    /// is a create.
+    ///
+    /// Throws whatever the API threw. Nothing is written to the cache on a failure, so a
+    /// sheet that shows the error is showing it about a calendar that has not changed.
+    @discardableResult
+    func save(_ write: EvaEventWrite, editing id: String? = nil) async throws -> EvaEvent {
+        let saved: EvaEvent
+        if let id {
+            saved = try await source.updateEvent(id: id, write)
+        } else if case .bodySignals(let payload) = write.payload {
+            saved = try await source.upsertBodySignals(EvaBodySignalsWrite(
+                payload: payload,
+                localDate: write.localDate,
+                note: write.note,
+                idempotencyKey: write.idempotencyKey,
+                timeZone: write.timeZone
+            ))
+        } else {
+            saved = try await source.createEvent(write)
+        }
+        absorb(saved)
+        show(toast: Toast(message: Self.savedMessage(for: saved)))
+        return saved
+    }
+
+    /// Soft-deletes one entry and offers Undo for as long as Undo is true.
+    ///
+    /// Reports through the toast rather than by throwing, unlike `save`: the sheet that
+    /// saves is still open and still holding what the user typed, so an error belongs on
+    /// it — a delete is one tap on a row that is already gone from under the finger, and
+    /// the toast is the only surface left.
+    func delete(_ event: EvaEvent) async {
+        do {
+            try await source.deleteEvent(id: event.id)
+            remove(event.id, on: event.localDate)
+            show(toast: Toast(
+                message: "\(CalendarEntryPresentation.typeName(for: event.type)) deleted",
+                restorable: event
+            ))
+        } catch let error as APIError {
+            if case .sessionExpired = error { return }
+            show(toast: Toast(message: error.localizedDescription))
+        } catch {
+            show(toast: Toast(message: APIError.decoding.localizedDescription))
+        }
+    }
+
+    /// Whether Undo may still be offered for a soft-deleted entry (#50).
+    ///
+    /// **Asked every time, never cached.** A one-per-day entry lives at a document id
+    /// derived from its day, so logging that day again does not add a second entry — it
+    /// overwrites the deleted one. There is then nothing left to restore, and the API says
+    /// so with `409 DAY_ALREADY_LOGGED`. The rule is not "has the user tapped save since":
+    /// a re-fetch can bring in an entry another device wrote, and the button has to stop
+    /// being offered for that too.
+    func canRestore(_ event: EvaEvent) -> Bool {
+        guard event.type.isOnePerDay else { return true }
+        return !events(on: event.localDate).contains { $0.type == event.type }
+    }
+
+    /// Whether the toast on screen should be drawing its Undo button.
+    var offersUndo: Bool {
+        guard let restorable = toast?.restorable else { return false }
+        return canRestore(restorable)
+    }
+
+    /// Undo. Brings a soft-deleted entry back and puts it on the grid again.
+    ///
+    /// The `DAY_ALREADY_LOGGED` arm is not defensive noise — it is the race the button
+    /// cannot close on its own. `canRestore(_:)` answers from this device's cache, and
+    /// another device can retake the day between the toast appearing and the tap. The
+    /// server refuses, and the user is told what happened rather than left with a button
+    /// that appeared to do nothing.
+    func undoDelete() async {
+        guard let event = toast?.restorable else { return }
+        do {
+            absorb(try await source.restoreEvent(id: event.id))
+            show(toast: Toast(
+                message: "\(CalendarEntryPresentation.typeName(for: event.type)) restored"
+            ))
+        } catch let error as APIError {
+            if case .sessionExpired = error { return }
+            show(toast: Toast(message: error.localizedDescription))
+        } catch {
+            show(toast: Toast(message: APIError.decoding.localizedDescription))
+        }
+    }
+
+    func dismissToast() {
+        toastTask?.cancel()
+        toastTask = nil
+        toast = nil
+    }
+
+    /// Puts a message on screen and takes it off again after `toastDuration`.
+    ///
+    /// The id is compared before clearing, so a toast that has already been replaced by a
+    /// newer one cannot be dismissed by the older one's timer.
+    private func show(toast newToast: Toast) {
+        toastTask?.cancel()
+        toast = newToast
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.toastDuration)
+            guard !Task.isCancelled, let self, self.toast?.id == newToast.id else { return }
+            self.toast = nil
+        }
+    }
+
+    /// What the toast says after a save. The canvas' own shape — what was logged, and the
+    /// day it landed on — because a save that silently succeeds on the *wrong* day is the
+    /// mistake this sentence exists to catch.
+    private static func savedMessage(for event: EvaEvent) -> String {
+        let day = event.localDate.formattingDate.formatted(
+            EvaDay.formatStyle.day().month(.wide)
+        )
+        return "\(CalendarEntryPresentation.typeName(for: event.type)) saved to \(day)"
+    }
+
+    /// Files a server-returned entry into the day index, replacing whatever it supersedes.
+    ///
+    /// Three things are replaced, and each is a real case rather than a precaution:
+    /// the same id anywhere (an edit, which for a sport or an appointment may also have
+    /// moved the day); the day's existing entry of a one-per-day type (a re-log, which the
+    /// server has already overwritten at rest); and nothing else. The day is then re-sorted
+    /// by `loggedAt`, so the list reads in the order a fresh `GET /me/events` would return.
+    private func absorb(_ event: EvaEvent) {
+        for (day, entries) in eventsByDay where entries.contains(where: { $0.id == event.id }) {
+            eventsByDay[day] = entries.filter { $0.id != event.id }
+        }
+        var day = eventsByDay[event.localDate] ?? []
+        if event.type.isOnePerDay {
+            day.removeAll { $0.type == event.type }
+        }
+        day.append(event)
+        eventsByDay[event.localDate] = day.sorted {
+            ($0.loggedAt, $0.id) < ($1.loggedAt, $1.id)
+        }
+
+        // The account demonstrably has history now, whatever the first range said. Without
+        // this the first entry a brand-new user logs would appear on a grid still telling
+        // her to log her first period.
+        hasHistory = true
+        // The day detail follows what was just written, so the entry is on screen the
+        // moment the sheet closes. The month is deliberately left alone: everything is
+        // logged to the selected day, the selection always follows the page, and adjacent
+        // months' cells are not tappable — so a write can never land outside the month
+        // being drawn, and paging here would only be able to page somewhere unloaded.
+        selectedDay = event.localDate
+    }
+
+    private func remove(_ id: String, on day: EvaDay) {
+        eventsByDay[day] = (eventsByDay[day] ?? []).filter { $0.id != id }
+    }
 
     // MARK: - Navigation
 

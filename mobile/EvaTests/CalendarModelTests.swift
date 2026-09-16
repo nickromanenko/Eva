@@ -13,70 +13,11 @@ import Testing
 @MainActor
 struct CalendarModelTests {
 
-    /// Records what was asked for, and — when asked to — **holds the call open**.
-    ///
-    /// Not a stubbed `URLSession`: the claim under test is about *requests*, and the global
-    /// URL-protocol stub is shared with every other suite in this target, so a count read
-    /// through it would be a count of everybody's traffic.
-    ///
-    /// `suspends` is the half that matters for the single-flight path. Without it this
-    /// source returns without ever suspending, so `isFetching` is never true when a second
-    /// call arrives and the whole queue-and-re-run branch is unreachable from a test — which
-    /// is how the dropped-fetch defect shipped with a green suite.
-    @MainActor
-    final class RecordingSource: CalendarEventSource {
-        private(set) var ranges: [ClosedRange<EvaDay>] = []
-        private(set) var refDataCalls = 0
-        var events: [EvaEvent] = []
-        var failure: (any Error)?
-
-        /// While true, every `events(from:through:)` parks until `release()` lets it go.
-        var suspends = false
-        private var parked: [CheckedContinuation<Void, Never>] = []
-
-        var isParked: Bool { !parked.isEmpty }
-
-        func events(from: EvaDay, through to: EvaDay) async throws -> [EvaEvent] {
-            ranges.append(from...to)
-            if suspends {
-                await withCheckedContinuation { parked.append($0) }
-            }
-            if let failure { throw failure }
-            return events.filter { (from...to).contains($0.localDate) }
-        }
-
-        func refData() async throws -> EvaRefData {
-            refDataCalls += 1
-            return EvaRefData(version: "v1", catalogues: EvaRefData.Catalogues())
-        }
-
-        /// Lets every held call return, then yields so they actually run.
-        func release() async {
-            let waiting = parked
-            parked = []
-            for continuation in waiting { continuation.resume() }
-            for _ in 0..<8 { await Task.yield() }
-        }
-
-        /// Suspends until request number `count` has arrived **and is parked at the
-        /// network**, so the test acts during a request rather than hoping to.
-        ///
-        /// Records an issue instead of hanging: a request that never arrives is a broken
-        /// test, not a slow one.
-        func waitUntilParked(
-            afterRequests count: Int,
-            sourceLocation: SourceLocation = #_sourceLocation
-        ) async {
-            for _ in 0..<2_000 {
-                if ranges.count >= count && isParked { return }
-                await Task.yield()
-            }
-            Issue.record(
-                "Only \(ranges.count) request(s) arrived, parked: \(isParked)",
-                sourceLocation: sourceLocation
-            )
-        }
-    }
+    /// The shared in-memory source — see `RecordingCalendarSource` for why these suites
+    /// inject one rather than stubbing `URLSession`. It moved out of this file when #160
+    /// gave `CalendarEventSource` a write half; the suspend-and-park machinery C1 needed
+    /// for the single-flight path moved with it, unchanged.
+    typealias RecordingSource = RecordingCalendarSource
 
     static let today = EvaDay(year: 2026, month: 8, day: 18)
 

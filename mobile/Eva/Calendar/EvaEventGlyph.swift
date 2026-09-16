@@ -113,16 +113,11 @@ extension EvaEventType {
 
 extension EvaCycleMark {
 
-    /// The cell wash for a logged flow, or `nil` when the artboard draws none.
+    /// The cell wash for a logged flow, or `nil` for spotting, which is not a flow.
     ///
-    /// `.spotting` answers `nil`, which is what the artboard does: its `mkCell` branches
-    /// on `d.flow` 1–3 only, and a spotting day falls through to the ordinary cell. The
-    /// day is still announced ("Spotting logged") and still listed in the day detail, but
-    /// it is **not distinguishable in the grid by sight**. That is a gap in the artboard
-    /// rather than a decision taken here — see the report on #159 — and it is left as
-    /// drawn rather than papered over, because the obvious fix (reusing the lightest flow
-    /// wash) would draw a spotting day as a period day, and a spotting day does not start
-    /// a period.
+    /// `.spotting` answers `nil` on purpose and always will: the three washes say "period
+    /// day", and a spotting day does not start a period. It is drawn instead by
+    /// `spottingRing` — see there for why the artboard has nothing to copy.
     var cellFill: Color? {
         switch self {
         case .spotting: nil
@@ -145,8 +140,38 @@ extension EvaCycleMark {
         }
     }
 
+    /// Whether this day draws the spotting ring.
+    ///
+    /// ## A mark the canvas has not drawn (#160)
+    ///
+    /// The artboard's `mkCell` branches on flow 1–3 only, so a spotting day falls through
+    /// to an ordinary cell — announced, listed, and **invisible on the grid**. C1 left that
+    /// alone because nothing could log a spotting day yet (#159). C2 can, so invisible is
+    /// now wrong, and there is nothing on the canvas to copy.
+    ///
+    /// Three constraints decided the shape, and each rules something out:
+    ///
+    /// * **Not a wash.** A fill of any strength is the grid's word for "period day", which
+    ///   is the one thing a spotting day must not say.
+    /// * **Not a corner mark.** All four corners are taken — dot, square, diamond, badge —
+    ///   and the top-left is already promised to the positive-test mark in DESIGN.md §7.
+    /// * **Not dashed.** Dashed and patterned are reserved for *predicted* data (§7), and
+    ///   a spotting entry is something the user logged.
+    ///
+    /// What is left is a solid ring around the day's own number: shape-distinct from every
+    /// flow cell rather than a paler one of them, concentric with the today disc so a day
+    /// that is both still shows both, and inside the selection outline so neither hides the
+    /// other. Recorded in DESIGN.md §9a as a deviation, not as a transcription — the canvas
+    /// still needs to draw this.
+    var spottingRing: Color? {
+        self == .spotting ? .evaDeepPink : nil
+    }
+
     /// The legend swatch's words.
     static let legendLabel = "Logged period · flow strength"
+
+    /// The legend's own row for the ring, naming the shape as every other row does.
+    static let spottingLegendLabel = "Spotting · ring, not a period day"
 }
 
 // MARK: - Drawing

@@ -104,6 +104,7 @@ struct CalendarDayCell: View {
         }
         .frame(height: EvaCalendarMetrics.cellHeight)
         .frame(maxWidth: .infinity)
+        .overlay { spottingRing }
         .overlay { marks }
         .overlay { selectionRing }
         .contentShape(RoundedRectangle(cornerRadius: EvaCalendarMetrics.cellRadius, style: .continuous))
@@ -154,6 +155,22 @@ struct CalendarDayCell: View {
 
     private var numberColor: Color {
         cell.placement.isInMonth ? .evaPrimaryText : .evaDisabledText
+    }
+
+    /// A spotting day, which is not a flow day and is not drawn as one — see
+    /// `EvaCycleMark.spottingRing`. Around the number, so it is a shape where every flow
+    /// level is a fill.
+    @ViewBuilder
+    private var spottingRing: some View {
+        if let ring = cycleMark?.spottingRing {
+            Circle()
+                .strokeBorder(ring, lineWidth: EvaCalendarMetrics.spottingRingWidth)
+                .frame(
+                    width: EvaCalendarMetrics.spottingRingSize,
+                    height: EvaCalendarMetrics.spottingRingSize
+                )
+                .allowsHitTesting(false)
+        }
     }
 
     private var marks: some View {

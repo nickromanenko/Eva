@@ -3,10 +3,10 @@ import SwiftUI
 /// The calendar — the app's landing surface, and the screen every later calendar slice
 /// builds on.
 ///
-/// Read and navigate only. Logging is C2 (#160); predictions, phases and the fertile
-/// window are C3, which is why nothing here is dashed or patterned — the artboard reserves
-/// those two treatments for predicted data, and drawing one now would mean drawing a
-/// prediction Eva has not made.
+/// Reads, navigates and, since C2 (#160), logs. Predictions, phases and the fertile window
+/// are C3, which is why nothing here is dashed or patterned — the artboard reserves those
+/// two treatments for predicted data, and drawing one now would mean drawing a prediction
+/// Eva has not made.
 struct CalendarView: View {
 
     let session: AppSession
@@ -15,6 +15,8 @@ struct CalendarView: View {
     @State private var isPickerOpen = false
     @State private var pickerYear: Int
     @Environment(\.scenePhase) private var scenePhase
+    /// The log sheet, and what opened it. `nil` when it is closed.
+    @State private var logging: LogSheet.Start?
 
     init(session: AppSession, today: EvaDay = .today()) {
         self.session = session
@@ -65,18 +67,30 @@ struct CalendarView: View {
                     CalendarDayDetail(
                         day: model.selectedDay,
                         entries: model.events(on: model.selectedDay),
-                        refData: model.refData
+                        refData: model.refData,
+                        edit: { logging = .edit($0) },
+                        delete: { entry in Task { await model.delete(entry) } }
                     )
 
                     CalendarLegend()
                 }
                 .padding(.horizontal, EvaSpacing.lg)
                 .padding(.top, EvaSpacing.xs)
-                // Room for the log button to float over without covering the legend.
-                .padding(.bottom, EvaCalendarMetrics.fabSize + EvaSpacing.xl)
+                // Room for the log button and a toast to float over without covering the
+                // legend.
+                .padding(.bottom, EvaCalendarMetrics.fabSize + EvaSpacing.xxl)
             }
 
-            logButton
+            VStack(alignment: .trailing, spacing: EvaSpacing.sm) {
+                if let toast = model.toast {
+                    toastBar(toast)
+                }
+                logButton
+            }
+            .padding(.bottom, EvaCalendarMetrics.fabBottomInset)
+        }
+        .sheet(item: $logging) { start in
+            LogSheet(model: model, start: start)
         }
         .task { await model.start() }
         // `today` is read once when the model is built and this view is kept alive across
@@ -187,20 +201,39 @@ struct CalendarView: View {
         .accessibilityIdentifier("calendar.loadError")
     }
 
-    // MARK: - Log button
+    // MARK: - Toast
 
-    /// C2 (#160) turns this on. One line, and it is the only thing standing between the
-    /// button below and the log picker.
-    private var isLogEnabled: Bool { false }
+    /// The one message the calendar shows after a write, over the grid rather than in it.
+    ///
+    /// Its Undo is asked of the model every time it is drawn (`offersUndo`), never stored
+    /// with the toast: re-logging a one-per-day type overwrites the very document the
+    /// delete soft-deleted, and from that moment there is nothing to restore — the API
+    /// answers `409 DAY_ALREADY_LOGGED` and the button must already be gone (#50).
+    private func toastBar(_ toast: CalendarModel.Toast) -> some View {
+        EvaToast(message: toast.message) {
+            if model.offersUndo {
+                EvaToastButton(title: "Undo") {
+                    Task { await model.undoDelete() }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, EvaSpacing.md)
+        .accessibilityIdentifier("calendar.toast")
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .animation(.easeOut(duration: 0.2), value: toast.id)
+    }
+
+    // MARK: - Log button
 
     /// The artboard's 60pt FAB, and the empty state's pointer at it.
     ///
-    /// **Disabled in C1, deliberately.** What it opens is the log picker (`SPEC.picker`),
-    /// which is C2 (#160) — so the button is drawn, because the screen is incomplete
-    /// without it and the empty state's pointer has to point at something, and it is
-    /// `.disabled` rather than silently inert, because a button that takes a tap and does
-    /// nothing reads as a broken app while a dimmed one reads as not yet. One line in C2
-    /// turns it on. Flagged on #159 rather than decided here.
+    /// It was drawn and `.disabled` in C1, because what it opens is the log picker
+    /// (`SPEC.picker`) and that was this slice. C2 turns it on: it opens the picker on
+    /// **the selected day**, which is the day the detail below the grid is describing, and
+    /// which is why the picker's header states the date rather than assuming today.
+    private var isLogEnabled: Bool { true }
+
     private var logButton: some View {
         VStack(alignment: .trailing, spacing: EvaSpacing.xs) {
             if model.showsEmptyState {
@@ -218,7 +251,8 @@ struct CalendarView: View {
             }
 
             Button {
-                // C2 (#160) opens the log picker here.
+                model.dismissToast()
+                logging = .picker(model.selectedDay)
             } label: {
                 Image(systemName: "plus")
                     .font(.evaH2)
@@ -240,7 +274,6 @@ struct CalendarView: View {
             .accessibilityIdentifier("calendar.log")
         }
         .padding(.trailing, EvaSpacing.lg)
-        .padding(.bottom, EvaCalendarMetrics.fabBottomInset)
     }
 }
 

@@ -315,6 +315,79 @@ final class AppSession {
         }
     }
 
+    // MARK: - Writing the calendar (#160)
+    //
+    // Five routes, one rule: each returns the **server's** copy of the entry, and the
+    // caller puts that on the grid rather than the draft it just built. The two are not
+    // interchangeable — the server assigns the id, resolves `loggedAt` from the zone that
+    // was sent, and for a one-per-day type may have replaced a document that was already
+    // there. Echoing the local draft would draw a calendar that is nearly right and
+    // impossible to tell apart from one that is.
+    //
+    // None of these logs anything. An event payload is health data (GUARDRAILS 12), and a
+    // failure here surfaces as `APIError`'s own message on the sheet.
+
+    /// Creates one entry. `POST /me/events`.
+    ///
+    /// For `cycle` this is also how a day is **re-logged**: the route stores one-per-day
+    /// types at a deterministic id, so a second write replaces the day's entry rather than
+    /// adding to it — and clears a previous soft delete in the process, which is the
+    /// supersession `restore` then refuses (#50).
+    func createEvent(_ write: EvaEventWrite) async throws -> EvaEvent {
+        let response: EvaEventResponse = try await authorized {
+            try await client.post("/me/events", body: write, authorized: true)
+        }
+        return response.event
+    }
+
+    /// The one-per-day upsert. `PUT /me/body-signals/{date}`.
+    func upsertBodySignals(_ write: EvaBodySignalsWrite) async throws -> EvaEvent {
+        let response: EvaEventResponse = try await authorized {
+            try await client.put(
+                "/me/body-signals/\(write.localDate.isoDate)", body: write, authorized: true
+            )
+        }
+        return response.event
+    }
+
+    /// Edits one entry. `PATCH /me/events/{id}`.
+    ///
+    /// The body carries `type` and `localDate` because the route requires both — with them
+    /// it can validate the payload at its edge instead of reading Firestore first. Moving a
+    /// one-per-day entry to another day is refused there, which is why nothing in the app
+    /// offers it: the day is part of that entry's identity.
+    func updateEvent(id: String, _ write: EvaEventWrite) async throws -> EvaEvent {
+        let response: EvaEventResponse = try await authorized {
+            try await client.patch("/me/events/\(id)", body: write, authorized: true)
+        }
+        return response.event
+    }
+
+    /// Soft-deletes one entry. `DELETE /me/events/{id}`.
+    ///
+    /// Recoverable for thirty days by `restoreEvent(id:)` — *unless* the day has been
+    /// logged again in between.
+    func deleteEvent(id: String) async throws {
+        let _: EvaDeletedResponse = try await authorized {
+            try await client.delete("/me/events/\(id)", authorized: true)
+        }
+    }
+
+    /// Undo. `POST /me/events/{id}/restore`.
+    ///
+    /// Throws `APIError.server(code: "DAY_ALREADY_LOGGED", …)` with a 409 when the day has
+    /// been retaken since the delete. That is not a failure to retry and not a missing
+    /// entry: restoring would have to overwrite something newer, so the server refuses and
+    /// the caller has to stop offering Undo (#50).
+    func restoreEvent(id: String) async throws -> EvaEvent {
+        let response: EvaEventResponse = try await authorized {
+            try await client.post(
+                "/me/events/\(id)/restore", body: EvaEmptyBody(), authorized: true
+            )
+        }
+        return response.event
+    }
+
     /// Ends the session. The local half always happens, whatever the Keychain says.
     ///
     /// `clear()` reports now (#64), and `false` means it could neither delete the item nor

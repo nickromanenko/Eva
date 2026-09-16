@@ -43,6 +43,15 @@ enum EvaCalendarMetrics {
     /// `border-radius:2px` on the body-signals square — rounded enough to read as drawn
     /// rather than aliased, square enough not to read as the dot.
     static let squareRadius: CGFloat = 2
+    /// The spotting ring, which the artboard does not draw — see `EvaCycleMark.spottingRing`.
+    ///
+    /// Sized to clear the 28pt today disc so that a day which is both still shows both, and
+    /// drawn around the number rather than in a corner because all four corners are spoken
+    /// for: dot, square, diamond, badge, and the top-left is reserved for the positive-test
+    /// mark DESIGN.md §7 already specifies.
+    static let spottingRingSize: CGFloat = 32
+    static let spottingRingWidth: CGFloat = 1.5
+
     /// The appointment badge: `width:13px;height:13px`.
     static let badgeSize: CGFloat = 13
     /// `border-radius:4px`.

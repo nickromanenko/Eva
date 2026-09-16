@@ -11,14 +11,28 @@ import SwiftUI
 /// pairs with the listing ("a tapped day is outlined **and** lists that day's entries")
 /// would be hidden behind it.
 ///
-/// So C1 lists the day in place, under the grid, where the outline stays visible. The
-/// sheet arrives with the actions that justify it. Reported on #159 as a deviation rather
-/// than taken quietly.
+/// So C1 lists the day in place, under the grid, where the outline stays visible.
+///
+/// ## C2 puts the actions on the rows, not in a sheet
+///
+/// C1's note here promised the sheet would arrive with Edit and Delete. #160 builds those
+/// and keeps them in place instead, for two reasons that only became clear once the log
+/// flow existed. The picker is already a bottom sheet, so a day sheet that opens a log
+/// sheet is two sheets deep before anything is logged. And the actions attach to *an
+/// entry*, which is drawn here — moving them into a sheet would move the rows with them
+/// and take the day's contents off a screen where they sit under the day that is outlined.
+///
+/// What the day sheet would have added over this is "Add entry", and the calendar already
+/// has one: the Log button targets the selected day, which is the day this is describing.
+/// Recorded in DESIGN.md §9a; the canvas has not drawn this arrangement.
 struct CalendarDayDetail: View {
 
     let day: EvaDay
     let entries: [EvaEvent]
     let refData: EvaRefData?
+    /// Opens the log sheet on an existing entry. `nil` while the calendar is read-only.
+    var edit: ((EvaEvent) -> Void)?
+    var delete: ((EvaEvent) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: EvaSpacing.sm) {
@@ -29,7 +43,9 @@ struct CalendarDayDetail: View {
             } else {
                 ForEach(entries) { entry in
                     CalendarEntryRow(
-                        presentation: CalendarEntryPresentation(event: entry, refData: refData)
+                        presentation: CalendarEntryPresentation(event: entry, refData: refData),
+                        edit: edit.map { edit in { edit(entry) } },
+                        delete: delete.map { delete in { delete(entry) } }
                     )
                 }
             }
@@ -57,15 +73,25 @@ struct CalendarDayDetail: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The artboard's dashed empty row, minus its second line.
+    /// The artboard's dashed empty row.
     ///
-    /// That line reads "Add flow, body signals, sport or an appointment" — an instruction
-    /// for a control C1 does not have. Telling someone to do something the build cannot do
-    /// is the same defect as an inert button, one sentence smaller.
+    /// Its second line came back in C2. C1 dropped it because it reads "Add flow, body
+    /// signals, sport or an appointment" and there was nothing to add it with — an
+    /// instruction for a control the build did not have. There is one now, so the line is
+    /// restored, pointing at it by name rather than describing a gesture.
     private var emptyDay: some View {
-        Text("Nothing logged on this day")
-            .evaTextStyle(.h3)
-            .foregroundStyle(Color.evaPrimaryText)
+        VStack(spacing: EvaSpacing.xxs) {
+            Text("Nothing logged on this day")
+                .evaTextStyle(.h3)
+                .foregroundStyle(Color.evaPrimaryText)
+            if edit != nil {
+                Text("Use the Log button to add flow, body signals, sport or an appointment.")
+                    .evaTextStyle(.caption)
+                    .foregroundStyle(Color.evaSecondaryText)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
             .frame(maxWidth: .infinity)
             .padding(.vertical, EvaSpacing.lg)
             .padding(.horizontal, EvaSpacing.md)
@@ -86,10 +112,13 @@ struct CalendarDayDetail: View {
     }
 }
 
-/// One entry: its mark, the time it was logged, what it is, and what it said.
+/// One entry: its mark, the time it was logged, what it is, what it said, and what can be
+/// done to it.
 struct CalendarEntryRow: View {
 
     let presentation: CalendarEntryPresentation
+    var edit: (() -> Void)?
+    var delete: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: EvaSpacing.xxs) {
@@ -118,6 +147,8 @@ struct CalendarEntryRow: View {
                     .foregroundStyle(Color.evaSecondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            actions
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(EvaSpacing.md)
@@ -126,8 +157,49 @@ struct CalendarEntryRow: View {
             RoundedRectangle(cornerRadius: EvaRadius.banner, style: .continuous)
                 .strokeBorder(EvaCalendarMetrics.surfaceHairline, lineWidth: 1)
         }
-        .accessibilityElement(children: .combine)
+        // `.contain`, not `.combine`: the row now holds two buttons, and combining would
+        // fold their labels into one unreachable sentence. The label is assembled instead,
+        // so the row still announces as one sentence.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("calendar.entry.\(presentation.id)")
+        .accessibilityLabel(presentation.announcement)
+    }
+
+    /// Edit and Delete, side by side.
+    ///
+    /// The artboard draws both at `min-height:36px; border-radius:11px; font:600 12.5px`,
+    /// which is under §1's 44pt floor for something you tap and matches no §5 variant. Both
+    /// take §5's standard 52 instead — the secondary glass and the outlined destructive —
+    /// which is the nearest named pair and keeps them the same height as each other.
+    /// Recorded in DESIGN.md §9a.
+    ///
+    /// **Delete asks nothing first.** It is soft, it is reversible for thirty days, and the
+    /// toast offers Undo the moment it happens; a confirmation dialog in front of a
+    /// reversible action is what teaches people to dismiss dialogs without reading them.
+    @ViewBuilder
+    private var actions: some View {
+        if edit != nil || delete != nil {
+            HStack(spacing: EvaSpacing.xs) {
+                // Keyed on the **entry's id**, for the reason C1 keyed the row on it: two
+                // sport entries on one day are legal, and a day would otherwise carry two
+                // elements answering to `calendar.delete.Sport`. That is also why the §5
+                // styles are used directly rather than `SecondaryButton` /
+                // `DestructiveButton`, which set `secondary.Edit` and `destructive.Delete`
+                // on themselves — the identifier has to name the row, so it has to be the
+                // only one applied.
+                if let edit {
+                    Button("Edit", action: edit)
+                        .buttonStyle(EvaSecondaryButtonStyle())
+                        .accessibilityIdentifier("calendar.edit.\(presentation.id)")
+                }
+                if let delete {
+                    Button("Delete", action: delete)
+                        .buttonStyle(EvaDestructiveButtonStyle(kind: .outlined))
+                        .accessibilityIdentifier("calendar.delete.\(presentation.id)")
+                }
+            }
+            .padding(.top, EvaSpacing.xs)
+        }
     }
 
     /// The same shape the grid draws for this type, so a mark learned in one place reads

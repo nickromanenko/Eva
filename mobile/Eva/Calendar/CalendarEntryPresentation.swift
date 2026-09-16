@@ -35,36 +35,65 @@ struct CalendarEntryPresentation: Equatable, Sendable {
         note = event.note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         glyph = event.type.glyph
 
+        typeName = Self.typeName(for: event.type)
+
         switch event.detail {
         case .cycle(let mark):
-            typeName = "Menstrual cycle"
             summary = Self.summary(for: mark)
             cycleMark = mark
         case .bodySignals(let payload):
-            typeName = "Body signals"
             summary = Self.summary(for: payload, refData: refData)
             cycleMark = nil
         case .sport(let payload):
-            typeName = "Sport"
             summary = Self.summary(for: payload, refData: refData)
             cycleMark = nil
         case .appointment(let payload):
-            typeName = "Doctor appointment"
             summary = Self.summary(for: payload, refData: refData)
             cycleMark = nil
         case .sex:
             // The canvas is explicit: "a neutral dot with no label". Nothing else is
             // shown here and nothing else is stored here (DESIGN.md §8 — sensitive events
             // stay neutral in language *and* in indicators).
-            typeName = "Sex"
             summary = ""
             cycleMark = nil
         }
     }
 
+    /// The whole row as one sentence, for the container element the row became when C2 put
+    /// two buttons in it.
+    ///
+    /// Before that the row was `children: .combine` and VoiceOver built this itself. A
+    /// container with buttons in it cannot combine — the buttons would stop being reachable
+    /// — so the sentence is assembled here instead, and it is the same sentence.
+    var announcement: String {
+        [time, typeName, summary.isEmpty ? nil : summary, note]
+            .compactMap { $0 }
+            .joined(separator: ". ")
+    }
+
+    /// What Eva calls this kind of entry, in the canvas' own words.
+    ///
+    /// One place, because it is said in four now: the day list, the log picker's rows, the
+    /// title of the sheet that logs it, and the toast that confirms it. Four literals would
+    /// drift, and the first one to drift would be the one a user reads twice in a row.
+    static func typeName(for type: EvaEventType) -> String {
+        switch type {
+        case .cycle: "Menstrual cycle"
+        case .bodySignals: "Body signals"
+        case .sport: "Sport"
+        case .appointment: "Doctor appointment"
+        case .sex: "Sex"
+        }
+    }
+
     // MARK: - Per type
 
-    private static func summary(for mark: EvaCycleMark) -> String {
+    /// What a cycle marker is called — the artboard's four `flowOptions` labels, which are
+    /// also the whole of a cycle entry's summary in the day list.
+    ///
+    /// Spotting is not "flow, lightest". The API models it as a separate marker because a
+    /// spotting day does not start a period, and the word follows the model.
+    static func summary(for mark: EvaCycleMark) -> String {
         switch mark {
         case .spotting: "Spotting"
         case .flow(.light): "Light flow"
