@@ -77,6 +77,7 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all | The only module that touches `events/` |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
 | `content.ts` | The `content/` collection: the Dashboard's words — card templates, banners, nudges — and the version they are cached against | The only module that touches `content/`; refuses a write carrying no reviewer |
+| `dashboard-rules.ts` | The Today card's priority ladder (#96): a day's inputs in, the card's *subject* out — rung, template id, slot values, confidence wording class | Pure: no Firestore, no clock, no `fetch`; every input is passed in. Holds no text and no clinical threshold. Called by D3's card module, never by `index.ts` |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
@@ -85,6 +86,15 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 Layering: `index.ts` → (`auth`, `identity-toolkit`, `providers`, `rate-limit`, `users`,
 `events`, `refdata`, `content`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward,
 never sideways along the middle row.
+
+`dashboard-rules.ts` is not in that middle row — it is a leaf *below* it. It imports nothing at
+runtime, so it cannot call anything, upward or sideways; D3's card module calls it, fills the
+template it names from `content.ts`, and caches the result. The one import it does carry is an
+`import type` from `content.ts`, which `verbatimModuleSyntax` erases at compile time. That is
+deliberate rather than convenient: sharing `Slot` instead of restating it is what makes "no
+comparison to other users, no scores for the person, no streaks" structural, because the card's
+slot vocabulary then has exactly one definition and a score cannot be introduced by editing a
+Firestore document.
 
 ### Contracts
 
