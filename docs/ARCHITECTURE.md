@@ -1346,7 +1346,10 @@ reconsider the cost trade rather than a reason to re-litigate it here.
 One consequence worth naming: **`docs/AUTONOMY.md`'s ratchet rule can now legitimately
 advance for `api/` and `website/`, and still cannot for `mobile/`.** The rule requires a
 surface's verify command to have caught a real regression a human would have missed, and
-a command nobody runs automatically cannot do that.
+a command nobody runs automatically cannot do that. (`mobile/`'s Plan approval and Deploy
+cells did move to `AI` on 2026-09-16 — by direct instruction, not by the ratchet, which is
+recorded as such in that file. The gap this paragraph describes is unchanged: it is why
+they could not have been *earned*.)
 
 **A red suite does not block the merge**, only the deploy. That half of #67 is not
 implementable from this repository: required status checks are branch protection or a

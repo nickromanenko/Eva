@@ -9,11 +9,19 @@ only deliberately — never mid-task to unblock yourself.
 |---|---|---|---|---|
 | Issue refinement | AI | AI | AI | AI |
 | Question resolution | AI | AI | AI | **human** |
-| Plan approval | AI | **human** | **human** | **human** |
+| Plan approval | AI | AI | AI | **human** |
 | Implementation | AI | AI | AI | **human** |
 | PR review | AI† | AI† | AI† | **human** |
 | Merge | AI† | AI† | AI† | **human** |
-| Deploy | AI (on merge) | AI‡ | **human** | **human** |
+| Deploy | AI (on merge) | AI‡ | AI‡ | AI‡ |
+
+**Plan approval moved to `AI` for `api/` and `mobile/` on 2026-09-16**, on Nick's direct
+instruction — like the Deploy row below, a decision rather than a ratchet advance. What it
+changes in practice: `/goal` no longer stops to have a plan approved before implementing a
+`state:ready` issue on those surfaces. What it does not change: `state:ready` still means
+no Question is open, the Always-human list below still stops a plan that lands on it, and
+the four merge conditions still gate the PR that comes out the other end. A plan nobody
+approved still cannot merge itself.
 
 † **Review and merge without a human, and what it is conditional on.** Granted
 2026-09-05. Both cells move together deliberately: merging without waiting for Nick *is*
@@ -41,7 +49,7 @@ bug was correct. Green suites did not catch any of it and would have merged all 
 So the thing that earned this cell is the maker/checker step, not the test count. Dropping
 condition 2 or 3 does not make merging faster; it makes it mean something different.
 
-‡ **Deploying the API, including re-running a failed deploy.** Granted 2026-09-05, after a
+‡ **Deploying, including re-running a failed deploy.** Granted for `api/` on 2026-09-05, after a
 `Deploy API` run failed on a missing Secret Manager entry and sat failed for three days —
 taking #6's password reset and activation with it. Production ran a revision from 2026-08-29
 the whole time. Nobody decided that; it happened because the person who could press the
@@ -58,13 +66,29 @@ operation that was missing. Cloud Run keeps the previous revision serving until 
 healthy, and a failed deploy changes nothing — so the downside of trying is a red run, and
 the downside of not trying is what happened above.
 
-Still human, and deliberately not covered by this: `mobile/` — a deploy there is a
-TestFlight or App Store submission, which is public, slow to retract, and nothing about
-re-running an API deploy implies it. And `rules / auth / infra`, which is not merely
-withheld but **forbidden**: GUARDRAILS 7 makes `deploy-rules.yml` `workflow_dispatch`-only
-and says adding any automatic trigger is a guardrail violation, and GUARDRAILS 6 makes
-loosening rules fully supervised. That cell cannot move without changing a guardrail
-first, which is a separate decision made deliberately and not in passing.
+**The whole Deploy row moved to `AI` on 2026-09-16, on Nick's direct instruction.** Not by
+the ratchet below — no verify command earned it — so it is recorded here as what it is: a
+decision, revocable the same way it was made. Two carve-outs survive it, because they are
+GUARDRAILS and this file does not overrule that one.
+
+**Deploying a rules loosening moved with it**, and GUARDRAILS 6 was changed in the same
+commit rather than left to contradict this table: it required human plan approval, human
+review *and human deploy*, and now requires the first two. That is a real loosening of the
+most sensitive surface in the repo, so what remains is worth stating plainly. Implementation
+for `rules / auth / infra` is still `human`. "Loosening `firestore.rules` or
+`storage.rules`" is still on the Always-human list below. So an agent still cannot *author*
+the change it is deploying, and still cannot approve or review it — the cell grants the
+button on a rules change **a human wrote and a human approved**, and nothing else.
+
+**`deploy-rules.yml` stays `workflow_dispatch`-only.** GUARDRAILS 7 forbids adding any
+automatic trigger to it, and that is untouched: what moved is *who may press the manual
+button*, not whether the button can be replaced by a push. Reading the `AI` in that cell as
+licence to add a trigger is a guardrail violation, and the workflow's own header says so.
+
+**`mobile/` has no deploy mechanism yet.** There is no `deploy-mobile.yml`; a deploy there
+is a TestFlight or App Store submission, made by hand. The cell is a statement of intent
+until one exists. When it does, note that submission is public and slow to retract — the
+Deploy ratchet below is the thing that judges it, and it is the row's only real brake.
 
 **Secret Manager stays on the Always-human list below.** Creating `eva-postmark-key` on
 2026-09-05 was done on an explicit instruction for that one secret, not under a standing
@@ -78,6 +102,12 @@ manual-approval environment on the deploy job, not a line in this file.
 A cell moves from **human** to **AI** only after that surface's verify command has
 caught a real regression that a human would otherwise have missed. Coverage earns
 autonomy; confidence doesn't.
+
+**Two rows were moved outside this rule on 2026-09-16** — Plan approval and Deploy, both on
+Nick's direct instruction. The rule is not suspended and it is not rewritten to make those
+moves look earned; it simply did not apply, because the owner of the control panel changed
+it directly. It still governs every cell that moves for a reason other than being told to,
+and it still governs all of them on the way back.
 
 Move it back the moment an agent PR ships a defect that verification should have caught.
 
