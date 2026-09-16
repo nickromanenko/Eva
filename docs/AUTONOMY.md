@@ -73,7 +73,19 @@ GUARDRAILS and this file does not overrule that one.
 
 **Deploying a rules loosening moved with it**, and GUARDRAILS 6 was changed in the same
 commit rather than left to contradict this table: it required human plan approval, human
-review *and human deploy*, and now requires the first two. That is a real loosening of the
+review *and human deploy*, and now requires the first two.
+
+**Do not read the paragraph above as the reason.** "Cloud Run keeps the previous revision
+serving until a new one is healthy" is a property of Cloud Run, and this cell was granted
+by extending that footnote to a surface where it is false: `firebase deploy --only
+firestore:rules` is live the instant the command returns, and data read in the window is
+gone for good. Reviewed 2026-09-16 and kept anyway, deliberately, on a different basis —
+**the protection here is mechanical, not procedural.** `deploy-rules.yml`'s deploy job is
+`needs: test`, and `everyAllowIsDenied()` fails any file whose `allow` clauses are not
+`if false`, so a loosened file cannot reach the deploy step at all (GUARDRAILS 6a, which
+also makes relaxing that assertion a rules loosening in its own right). For the record on
+demand: that workflow has never run, and both rules files are already `if false`, so the
+cell grants a button with nothing to press it for yet. That is a real loosening of the
 most sensitive surface in the repo, so what remains is worth stating plainly. Implementation
 for `rules / auth / infra` is still `human`. "Loosening `firestore.rules` or
 `storage.rules`" is still on the Always-human list below. So an agent still cannot *author*
