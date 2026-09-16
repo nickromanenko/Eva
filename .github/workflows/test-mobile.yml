@@ -74,8 +74,42 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      # `verify-mobile.sh` defaults to a UDID that exists on one developer's machine, so
+      # every job here has to resolve one that exists on the runner. **Deterministic on
+      # purpose**: the image ships several runtimes (18.5 through 26.2 at the time of
+      # writing), and taking whatever comes first would silently change what "the suite
+      # passed" means between runs. Newest runtime, preferred model, and the choice is
+      # printed — the same reason the API's URL is printed by api-server.sh.
+      - name: Pick a simulator
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          def runtime_key(name):
+              part = name.rsplit(".", 1)[-1].replace("iOS-", "")
+              return [int(n) for n in part.split("-")]
+          best = None
+          for runtime, entries in devices.items():
+              if "iOS" not in runtime:
+                  continue
+              for d in entries:
+                  if "iPhone" not in d["name"]:
+                      continue
+                  # Prefer the Pro, then any iPhone, then newest runtime.
+                  rank = (runtime_key(runtime), "Pro" in d["name"], d["name"])
+                  if best is None or rank > best[0]:
+                      best = (rank, d)
+          if best is None:
+              sys.exit("no iPhone simulator available on this runner")
+          print(best[1]["udid"], best[1]["name"], sep="\t")
+          ')
+          echo "EVA_SIMULATOR_ID=${udid%%$'\t'*}" >> "$GITHUB_ENV"
+          echo "simulator: $udid"
+
       # `--build` needs no API, no emulators and no simulator boot: it regenerates the
       # project, fails if mobile/Eva/Info.plist is stale (#42), and compiles every target.
+      # It does still need a destination that exists, which is what the step above resolves.
       - name: Build
         run: scripts/verify-mobile.sh --build
 
@@ -113,15 +147,38 @@ jobs:
           key: firebase-emulators-mobile-${{ runner.os }}-v1
           path: ~/.cache/firebase/emulators
 
-      # The simulator `verify-mobile.sh` defaults to is a local UDID and will not exist on
-      # a runner. Resolve one by name from whatever runtime the image ships.
+      # `verify-mobile.sh` defaults to a UDID that exists on one developer's machine, so
+      # every job here has to resolve one that exists on the runner. **Deterministic on
+      # purpose**: the image ships several runtimes (18.5 through 26.2 at the time of
+      # writing), and taking whatever comes first would silently change what "the suite
+      # passed" means between runs. Newest runtime, preferred model, and the choice is
+      # printed — the same reason the API's URL is printed by api-server.sh.
       - name: Pick a simulator
         run: |
           set -euo pipefail
-          udid=$(xcrun simctl list devices available --json \
-            | python3 -c 'import json,sys;d=json.load(sys.stdin)["devices"];print(next(x["udid"] for v in d.values() for x in v if "iPhone" in x["name"]))')
-          echo "EVA_SIMULATOR_ID=$udid" >> "$GITHUB_ENV"
-          echo "using $udid"
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          def runtime_key(name):
+              part = name.rsplit(".", 1)[-1].replace("iOS-", "")
+              return [int(n) for n in part.split("-")]
+          best = None
+          for runtime, entries in devices.items():
+              if "iOS" not in runtime:
+                  continue
+              for d in entries:
+                  if "iPhone" not in d["name"]:
+                      continue
+                  # Prefer the Pro, then any iPhone, then newest runtime.
+                  rank = (runtime_key(runtime), "Pro" in d["name"], d["name"])
+                  if best is None or rank > best[0]:
+                      best = (rank, d)
+          if best is None:
+              sys.exit("no iPhone simulator available on this runner")
+          print(best[1]["udid"], best[1]["name"], sep="\t")
+          ')
+          echo "EVA_SIMULATOR_ID=${udid%%$'\t'*}" >> "$GITHUB_ENV"
+          echo "simulator: $udid"
 
       - name: Run mobile suite
         env:
