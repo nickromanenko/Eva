@@ -123,7 +123,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `POST /me/events` | Bearer | `201 { event }` |
 | `PATCH /me/events/{id}` | Bearer | `{ event }` — body must carry `type` and `localDate` |
 | `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
-| `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days |
+| `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days and while the entry has not been superseded (`409 DAY_ALREADY_LOGGED`) |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 | `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
@@ -869,6 +869,18 @@ at a one-per-day ID cannot distinguish "the day was retaken" from "this was neve
 — replacing keeps the ID and `createdAt` and leaves no trace of the delete — so both
 answer `409`. That is the price of the deterministic ID, and it is paid here rather than
 by keeping a second copy of every deleted day.
+
+**The promise was narrowed to match, rather than the storage widened (#50, decided
+2026-09-16.)** "Recoverable for 30 days" was written flatly in the PRD, in the route table
+above, in `REQUESTS.md`'s data map and on the public `/transparency` page, and for a
+one-per-day type it is not true once the day is re-logged. Two other options were on the
+table — moving one-per-day enforcement off the document ID to a query plus a transaction,
+which restores full recoverability and gives up the structural guarantee #23 chose; and a
+supersession marker letting restore tell "retaken" from "never deleted", which keeps the ID
+design and adds a write-path record. Both were declined for now: the behaviour the code
+already has is defensible, the UI already withdraws Undo once a day is retaken, and a
+promise that is true is worth more than a wider one that is not. The marker stays the right
+answer if the promise ever needs to be wide again.
 
 **Deleting an account is immediate and complete (#8).** `DELETE /me` removes the Firebase
 Auth user, `users/{uid}`, and the whole `users/{uid}/events` subcollection — **including
