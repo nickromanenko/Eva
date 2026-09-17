@@ -12,7 +12,12 @@ import Testing
 ///
 /// A pure static function, so it is worth pinning here rather than waiting 60 seconds in
 /// a UI test.
+/// `@MainActor` because `AuthResendButton` is a `View`, which makes the whole type —
+/// `secondsRemaining` included — main-actor isolated. CI's Xcode 16.4 enforces that where
+/// 26.2 only warns, so without this the target does not compile there; see
+/// `EvaUITests/EvaUITestCase.swift` for the same split one target over.
 @Suite("Issue #6 · the resend cooldown never reads 0s while it is still counting")
+@MainActor
 struct AuthResendCooldownTests {
 
     private static let now = Date(timeIntervalSinceReferenceDate: 1_000_000)

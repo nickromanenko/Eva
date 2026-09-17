@@ -16,9 +16,15 @@
 # macOS minutes bill at a 10x multiplier and the full suite is ~10 minutes of wall clock.
 # So the split is by what each catches:
 #
-#   build (pull_request) — xcodegen, the Info.plist staleness guard (#42), and a compile.
-#     Minutes, not tens of minutes. Catches the class that actually broke: a Swift 6 error
-#     in a test target, which is what #38 shipped and #135 found two merges later.
+#   build (pull_request) — xcodegen, the Info.plist staleness guard (#42), and a compile
+#     of every target, `EvaTests` and `EvaUITests` included. Minutes, not tens of minutes.
+#     Catches the class that actually broke: a Swift 6 error in a test target, which is
+#     what #38 shipped and #135 found two merges later.
+#
+#     It compiles the test targets only since `verify-mobile.sh --build` was moved to
+#     `build-for-testing`. Written against plain `build`, it compiled the app alone and
+#     caught none of that class — which is how `EvaUITests` came to sit on `main` for nine
+#     files without ever compiling under CI's Xcode, behind green pull requests.
 #   suite (push to main, and nightly) — the whole thing, including XCUITests. Catches the
 #     rest before it compounds across merges, which is the part of #135 that hurt.
 #
@@ -110,6 +116,13 @@ jobs:
       # `--build` needs no API, no emulators and no simulator boot: it regenerates the
       # project, fails if mobile/Eva/Info.plist is stale (#42), and compiles every target.
       # It does still need a destination that exists, which is what the step above resolves.
+      #
+      # "Every target" became true later than this comment claimed it. Until
+      # `verify-mobile.sh` was switched to `build-for-testing`, this compiled the app
+      # alone — the scheme lists the test targets under `test:`, not `build:` — so the one
+      # class of breakage the job was written to catch, "a Swift 6 error in a test target",
+      # was the one class it could not see. `EvaUITests` sat uncompilable on `main` for
+      # nine files and several merges, each of them merged green.
       - name: Build
         run: scripts/verify-mobile.sh --build
 
