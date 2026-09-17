@@ -117,7 +117,10 @@ them in, which is what makes "recomputed on every edit to a flow entry, never a 
 batch" a property of the design rather than a job. Producing D1's shape rather than a parallel
 one is the same mechanism as sharing `Slot`: the ≥3-cycle gate and the irregularity band have
 exactly one definition, so the number the Today card speaks from cannot drift from the number
-the calendar draws.
+the calendar draws. `today.ts` carries one *value* import from it — `CycleRulesUnsetError`,
+re-exported so the route can map that refusal to a 503 rather than letting it fall through to
+`app.onError` as a 500. It is a downward call to a leaf, the same shape as
+`today.ts → dashboard-rules.ts`, and it costs nothing at runtime.
 
 **There is one import that points the other way**, and it is worth stating because the rule
 above forbids it in general: `config.ts` imports `cycleRulesProblem` from `cycle.ts`. Those
@@ -165,7 +168,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
 | `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days and while the entry has not been superseded (`409 DAY_ALREADY_LOGGED`) |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
-| `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card }` — the day's card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26) or `content/` is unseeded (#97) |
+| `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card }` — the day's card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26), the cycle maths' constants are unconfigured (#176), or `content/` is unseeded (#97) |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 | `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
 
@@ -1162,9 +1165,11 @@ because nothing here ever had it.
 Both of its inputs are unsupplied today, and the route says so rather than improvising: the
 pattern rung's thresholds are #26's and unconfigured, and `content/` is unseeded in every
 environment because #97 refuses to seed it without a reviewer. Either one makes
-`GET /me/today` answer `503 SERVICE_UNAVAILABLE`. The cycle maths (C11, #11) does not exist
-either, so `today.ts` passes a no-cycle-knowledge estimate and no card can state a phase —
-which is the safe direction, and the one place that changes when C11 lands.
+`GET /me/today` answer `503 SERVICE_UNAVAILABLE`, and so does an unset `CYCLE_*` group once
+anything on this route asks the maths for an answer. The cycle maths (C11, #176) now exists
+in `cycle.ts` but is **not wired in**: `today.ts` still passes a no-cycle-knowledge estimate
+and no card can state a phase — which is the safe direction, and #179 is the change that
+replaces it.
 
 **Planned (A3, A9 — §8 and §9 below; not yet in code):**
 

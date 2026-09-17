@@ -256,6 +256,27 @@ describe("next period is the median of the last six counted cycles, not the mean
         expect(analyze(periods([22, 40, 30], 5)).medianCycleLengthDays).toBe(30);
     });
 
+    /**
+     * An even-sized sample whose two middle values *differ*, which no other case in this
+     * file has: 27 and 28 average to 27.5, and half a day is not a date. Every other median
+     * fixture is odd-sized or has equal middles, so nothing reached the rounding at all and
+     * `Math.floor` passed the whole file.
+     *
+     * It kills `floor` and cannot kill `ceil`: two integers average to a whole number or to
+     * an exact half, and `Math.round` and `Math.ceil` agree on every exact half. `ceil` is
+     * an equivalent mutant here rather than an untested branch — which is worth saying,
+     * because the two look identical from a mutation table.
+     */
+    test("an even-sized sample rounds the half-day up to a whole one", () => {
+        const result = analyze(periods([25, 26, 27, 28, 29, 30], 5), profileAged(20));
+        expect(result.countedCycles).toBe(6);
+        expect(result.irregular).toBe(false);
+        expect(result.medianCycleLengthDays).toBe(28);
+        // …and the rounded value is what the date is built from, not a display-only number.
+        expect(result.prediction?.nextPeriodStart).toBe(shift(TODAY, -5 + 28));
+        expect(result.prediction?.nextPeriodStart).not.toBe(shift(TODAY, -5 + 27));
+    });
+
     test("only the last six counted cycles are read", () => {
         // Eight cycles; the two oldest are 45s that would drag any answer that saw them.
         const result = analyze(periods([45, 45, 28, 28, 28, 28, 28, 28], 5));
@@ -326,11 +347,121 @@ describe("irregularity uses the FIGO band for the user's age", () => {
         expect(result.enoughCountedCycles).toBe(true);
     });
 
-    test("the variation spans the last six counted cycles and ignores excluded ones", () => {
-        // A 60-day interval sits between two normal cycles; it is not a 32-day spread.
-        const result = analyze(periods([28, 60, 29, 30], 5), profileAged(30));
+});
+
+// ── The variation reads every interval, the median only the counted ones ───────────────
+
+/**
+ * **The gate sees an out-of-range interval; the estimate still does not.**
+ *
+ * A25 item 2 says "over the last 6 *counted* cycles", and taken literally that makes the
+ * gate fail open on the shape this product is for: intervals alternating 28 and 60 days
+ * leave three counted cycles, every one of them 28, so the spread is zero and an
+ * oligomenorrhoeic user is handed a fertile window, a confidence band and a phase. §Phase 1
+ * rules 4 and 5 and #176's own Risks all say the opposite, and they are the same
+ * requirement stated three more times. So the median keeps reading counted cycles only —
+ * that is what the range filter is for — and the variation reads every interval between
+ * them.
+ *
+ * Each case below dies if the variation is computed over the counted cycles again.
+ */
+describe("the variation reads every interval in the window, not only the counted ones", () => {
+    /** The measured case: alternating 28 and 60 gave variation 0, a window, and a phase. */
+    test("alternating 28 and 60 days is irregular, not a run of perfect 28s", () => {
+        const result = analyze(periods([28, 60, 28, 60, 28, 60], 5), profileAged(30));
+        expect(result.countedCycles).toBe(3);
+        expect(result.variationDays).toBe(32);
+        expect(result.irregular).toBe(true);
+        expect(result.prediction).toBe(null);
+        expect(result.withheld).toBe("irregular-cycles");
+        // No phase either: a phase without a prediction is an estimate with no band behind it.
+        expect(toCycleEstimate(result).phase).toBe(null);
+    });
+
+    /**
+     * The same shape at the short end — 20 days is under the 21-day floor.
+     *
+     * **And the band still decides, which this case says out loud.** The spread is 8 days,
+     * so it is over the 26–41 band and under the 18–25 one, and a 20-year-old with these
+     * intervals keeps her window. That is A25 item 2 answering, not a gap left by this
+     * change: what the change fixes is that the 20-day intervals are *seen* at all. Whether
+     * an out-of-range interval should close the gate on its own — regardless of spread — is
+     * a rule the PRD has not written, and inventing one here would be inventing a constant.
+     */
+    test("alternating 28 and 20 days is irregular at the 7-day band", () => {
+        const result = analyze(periods([28, 20, 28, 20, 28, 20], 5), profileAged(30));
+        expect(result.countedCycles).toBe(3);
+        expect(result.variationDays).toBe(8);
+        expect(result.irregular).toBe(true);
+        expect(result.withheld).toBe("irregular-cycles");
+        // Unknown age lands on the tightest band and gets the same answer.
+        expect(analyze(periods([28, 20, 28, 20, 28, 20], 5), null).irregular).toBe(true);
+        // …and the 9-day band does not, because 8 is not more than 9.
+        expect(analyze(periods([28, 20, 28, 20, 28, 20], 5), profileAged(20)).irregular).toBe(
+            false,
+        );
+    });
+
+    /** One long interval among otherwise regular cycles is enough on its own. */
+    test("a single 50-day interval among 28s withholds the window", () => {
+        const result = analyze(periods([28, 28, 50, 28, 28], 5), profileAged(30));
+        expect(result.variationDays).toBe(22);
+        expect(result.irregular).toBe(true);
+        expect(result.prediction).toBe(null);
+    });
+
+    /**
+     * Both halves in one case, which is the point: the 60-day interval is loud enough to
+     * close the gate and invisible to the median. A mean over the same seven intervals is
+     * 33; the median over the six counted ones is 28.
+     */
+    test("the median still ignores the interval the gate acts on", () => {
+        const result = analyze(periods([28, 60, 28, 28, 28, 28, 28], 5), profileAged(30));
+        expect(result.countedCycles).toBe(6);
+        expect(result.medianCycleLengthDays).toBe(28);
+        expect(result.variationDays).toBe(32);
+        expect(result.irregular).toBe(true);
+        expect(result.withheld).toBe("irregular-cycles");
+    });
+
+    /**
+     * The window still ends where A25 says it ends. An out-of-range interval older than the
+     * oldest counted cycle the median reads is outside the six-cycle window and stays
+     * outside it — this change widens *which intervals inside the window* count, not how
+     * far back the window reaches.
+     */
+    test("an interval older than the window is still out of it", () => {
+        const result = analyze(periods([60, 28, 28, 28, 28, 28, 28], 5), profileAged(30));
+        expect(result.countedCycles).toBe(6);
+        expect(result.variationDays).toBe(0);
+        expect(result.irregular).toBe(false);
+        expect(result.prediction).not.toBe(null);
+    });
+
+    /**
+     * The other tempting arithmetic — "the last six *intervals*, counted or not" — and why
+     * it is not what this does. Six regular cycles followed by six 60-day ones is a history
+     * that has changed: the median is still 28 because only the old cycles are countable,
+     * and the last six intervals are all 60, so a spread over *them* is zero. She would be
+     * told to expect a period in 28 days on the strength of data that stopped applying six
+     * cycles ago. The window runs from the oldest cycle the median reads, so it sees both.
+     */
+    test("cycles that have lengthened are irregular, not a new run of regular 60s", () => {
+        const lengthened = [28, 28, 28, 28, 28, 28, 60, 60, 60, 60, 60, 60];
+        const result = analyze(periods(lengthened, 5), profileAged(30));
+        expect(result.countedCycles).toBe(6);
+        expect(result.medianCycleLengthDays).toBe(28);
+        expect(result.variationDays).toBe(32);
+        expect(result.irregular).toBe(true);
+        expect(result.prediction).toBe(null);
+    });
+
+    /** And a genuinely regular history is untouched: nothing here suppresses a real window. */
+    test("six regular cycles still get their window", () => {
+        const result = analyze(periods([27, 28, 29, 28, 27, 28], 5), profileAged(30));
         expect(result.variationDays).toBe(2);
         expect(result.irregular).toBe(false);
+        expect(result.prediction?.confidence).toBe("narrow");
     });
 });
 
@@ -356,12 +487,58 @@ describe("age unknown takes the tightest band", () => {
         );
     });
 
+    /**
+     * **A corrupted age must not be trusted more than a missing one**, which is what the
+     * second half of this list is about. `200`, `1e9`, `2.5` and `5` used to fall through
+     * to a real band, and the bands at both ends of the range are the *permissive* ones —
+     * so a nonsense age bought a 9-day tolerance while an absent one got 7. That is the
+     * inverse of the rule this describe block is named for.
+     *
+     * The route already refuses anything outside 13–99 (`parseProfile`), so reaching these
+     * takes a hand-edited document — the same threat model `dayNumber`'s round-trip check
+     * and `firstFlowDays`' both-markers rule are floors under.
+     */
     test("a profile carrying no usable age is the same as no profile", () => {
-        for (const age of [undefined, null, 0, -1, Number.NaN] as unknown[]) {
+        const notAnAge: unknown[] = [
+            undefined,
+            null,
+            0,
+            -1,
+            Number.NaN,
+            "30",
+            true,
+            Number.POSITIVE_INFINITY,
+            200,
+            1e9,
+            2.5,
+            5,
+            12, // one under the route's floor
+            100, // one over its ceiling
+        ];
+        for (const age of notAnAge) {
             const profile = { ...profileAged(30), age } as Profile;
             expect(bandForAge(profile, RULES).maxVariationDays).toBe(7);
             expect(bandForAge(profile, RULES).ageYears).toBe(null);
         }
+    });
+
+    /** The edges themselves, so "implausible" cannot quietly grow to swallow a real user. */
+    test("the ages the route accepts still get their own band", () => {
+        expect(bandForAge(profileAged(13), RULES)).toEqual({ ageYears: 13, maxVariationDays: 9 });
+        expect(bandForAge(profileAged(99), RULES)).toEqual({ ageYears: 99, maxVariationDays: 9 });
+        expect(bandForAge(profileAged(30), RULES)).toEqual({ ageYears: 30, maxVariationDays: 7 });
+    });
+
+    /** And it reaches the gate, not only the band: an implausible age suppresses a window
+     *  a permissive band would have drawn. */
+    test("an implausible age withholds a window the permissive band would have drawn", () => {
+        const spread8 = spreadOf(8);
+        expect(analyze(spread8, profileAged(20)).prediction).not.toBe(null);
+        const corrupted = { ...profileAged(20), age: 200 } as Profile;
+        const result = analyze(spread8, corrupted);
+        expect(result.irregular).toBe(true);
+        expect(result.prediction).toBe(null);
+        expect(result.withheld).toBe("irregular-cycles");
     });
 
     /** The tightest band is *computed*, so re-tuning one band tighter than the others moves

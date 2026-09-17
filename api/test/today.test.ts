@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { Timestamp } from "firebase-admin/firestore";
 import { applyContent, contentVersion, invalidateContentCache, type Review } from "../src/content";
+import * as todayModule from "../src/today";
 import { PatternRuleUnsetError, TemplatePhraser, TemplateUnavailableError, getToday, type Phraser, type PhrasedText } from "../src/today";
+import { CycleRulesUnsetError } from "../src/cycle";
 import type { Subject } from "../src/dashboard-rules";
 import type { Template } from "../src/content";
 import type { DashboardRules } from "../src/dashboard-rules";
@@ -788,6 +790,59 @@ describe.skipIf(!onEmulators)("GET /me/today refuses rather than failing", () =>
             invalidateContentCache();
         }
     }, 60_000);
+});
+
+/**
+ * **Every refusal this module exports is mapped, including the one nothing can throw yet.**
+ *
+ * The two cases above boot a server each and prove their own `instanceof` arm end to end.
+ * `CycleRulesUnsetError` cannot be proved that way: `getToday` still hands D1 a
+ * no-knowledge `CycleEstimate` and #179 is the change that calls `analyzeCycles`, so no
+ * request can reach the arm. The day it can is the day a deployment without the `CYCLE_*`
+ * group — which is every deployment today, deliberately (#176) — answers 500 instead of
+ * 503 for an unset configuration. So the arm ships with the error, and these two cases are
+ * what hold it there:
+ *
+ *  - the class the route branches on is the *same object* the maths constructs, so the
+ *    `instanceof` will match rather than silently falling through to `app.onError`;
+ *  - and the route's catch has an arm for every refusal `today.ts` exports, so the next
+ *    refusal added below it fails here until it is mapped too.
+ *
+ * Neither needs Firestore or a server, so both run in every environment.
+ */
+describe("every refusal today.ts exports is a 503 at the route", () => {
+    test("the re-exported class is the one the maths throws, not a second copy", () => {
+        expect(todayModule.CycleRulesUnsetError).toBe(CycleRulesUnsetError);
+        expect(new CycleRulesUnsetError() instanceof todayModule.CycleRulesUnsetError).toBe(true);
+    });
+
+    test("the /me/today catch has an arm for each of them", async () => {
+        const source = await Bun.file(`${import.meta.dir}/../src/index.ts`).text();
+        const route = source.slice(source.indexOf('app.get("/me/today"'));
+        // Comments are stripped before matching: a branch named only in prose is a comment
+        // about a mapping, not a mapping.
+        const body = route
+            .slice(0, route.indexOf("\n});"))
+            .split("\n")
+            .filter((line) => !line.trimStart().startsWith("//"))
+            .join("\n");
+        expect(body).toContain("catch (err)");
+
+        const refusals = Object.entries(todayModule)
+            .filter(
+                ([, value]) => typeof value === "function" && value.prototype instanceof Error,
+            )
+            .map(([name]) => name);
+        // The list is derived, so this assertion is what stops it being derived as empty.
+        expect(refusals.sort()).toEqual([
+            "CycleRulesUnsetError",
+            "PatternRuleUnsetError",
+            "TemplateUnavailableError",
+        ]);
+        for (const name of refusals) {
+            expect(body).toContain(`err instanceof ${name}`);
+        }
+    });
 });
 
 /**

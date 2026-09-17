@@ -21,7 +21,10 @@ import type { Profile } from './users'
  * **Every gate fails closed** (#176 Risks). A bug that suppresses a window is acceptable;
  * one that draws a window over irregular data is not. So there is no prediction below
  * `minCyclesForEstimate` counted cycles, none when the variation is over the user's FIGO
- * band, and none when her age is unknown and the variation is over the *tightest* band.
+ * band, and none when her age is unknown or implausible and the variation is over the
+ * *tightest* band. The same principle decides which intervals the variation reads: the
+ * median's sample is the counted cycles, and the gate's window is every interval between
+ * them — see `analyzeCycles`, where the divergence from A25's literal wording is argued.
  *
  * **Nothing here is a measurement.** The 14-day luteal phase is a calendar convention
  * (Wilcox AJ, Dunson D, Baird DD, BMJ 2000;321:1259), not an observation, and v1 has no
@@ -390,6 +393,19 @@ const median = (lengths: readonly number[]): number | null => {
 }
 
 /**
+ * The ages this function will read a band for. Outside it, the stored value is not an age
+ * and is treated as absent.
+ *
+ * It is `parseProfile`'s own range (`index.ts`, `inRange(age, 13, 99)`) rather than a
+ * second opinion about it, and it is a floor under a hand-edited document exactly as the
+ * date round-trip in `dayNumber` is: nothing stored through the API can be outside it, and
+ * an `age` of 200 that arrived some other way must not be *trusted more* than a missing
+ * one. It is not a clinical constant — it decides nothing about the maths, only whether
+ * the field is an age at all — which is why it is not in `CycleRules`.
+ */
+const PLAUSIBLE_AGE_YEARS = { min: 13, max: 99 }
+
+/**
  * The FIGO band for an age, and the age it was chosen for.
  *
  * **The one place age is read** (#176 Risks; #81 replaces `profile.age` with `dateOfBirth`
@@ -400,6 +416,11 @@ const median = (lengths: readonly number[]): number | null => {
  * draw a window over data the same user's known age would have refused. The tightest is
  * computed from the configured bands rather than named, so it cannot drift if a band is
  * re-tuned to be tighter than the one written down here.
+ *
+ * **And an age that is not one counts as unknown**, for the same reason and in the same
+ * direction. A stored `200`, `1e9`, `2.5` or `5` used to fall through to a real band — and
+ * the bands at both ends are the permissive ones, so a corrupted age was trusted *more*
+ * than an absent one. That is the inverse of the rule this paragraph is named for.
  */
 export const bandForAge = (
   profile: Profile | null,
@@ -407,7 +428,13 @@ export const bandForAge = (
 ): { ageYears: number | null; maxVariationDays: number } => {
   const bands = rules.irregularity
   const raw = profile?.age
-  const ageYears = typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null
+  const ageYears =
+    typeof raw === 'number' &&
+    Number.isFinite(raw) &&
+    raw >= PLAUSIBLE_AGE_YEARS.min &&
+    raw <= PLAUSIBLE_AGE_YEARS.max
+      ? raw
+      : null
   if (ageYears === null) {
     return {
       ageYears: null,
@@ -471,7 +498,10 @@ export interface CycleAnalysis {
   enoughCountedCycles: boolean
   /** Median length of the last `historyCycles` counted cycles, or `null`. */
   medianCycleLengthDays: number | null
-  /** Shortest-to-longest spread over the same cycles, or `null` below two of them. */
+  /** Shortest-to-longest spread over *every* interval spanned by those cycles — the
+   *  out-of-range ones included — or `null` below two intervals. Wider than the median's
+   *  sample on purpose: `analyzeCycles` says why, and it is what keeps the gate closed for
+   *  a user whose intervals alternate short and long. */
   variationDays: number | null
   /** Whether that spread is over this user's FIGO band. */
   irregular: boolean
@@ -509,12 +539,34 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
 
   const starts = firstFlowDays(input.days)
   const cycles = toCycles(starts, settings)
-  const counted = cycles.filter((cycle) => cycle.counted)
-  const recent = counted.slice(-settings.historyCycles).map((cycle) => cycle.lengthDays)
-
+  const countedAt = cycles.flatMap((cycle, index) => (cycle.counted ? [index] : []))
+  const countedCycles = countedAt.length
+  // The median's sample: the last `historyCycles` *counted* cycles, so a 60-day interval
+  // cannot drag the predicted date (A26 item 3, and the point of the range filter).
+  const recentAt = countedAt.slice(-settings.historyCycles)
+  const recent = recentAt.map((index) => cycles[index]!.lengthDays)
   const medianCycleLengthDays = median(recent)
+
+  // **The variation's window is wider than the median's sample, on purpose.** It runs from
+  // the oldest cycle the median reads through the newest interval and takes *every*
+  // interval in between — the out-of-range ones included.
+  //
+  // A25's own wording is "over the last 6 counted cycles", and reading it literally makes
+  // the gate fail *open* on the shape this product exists for: intervals alternating 28 and
+  // 60 days leave three counted cycles, all of them 28, so the variation is 0, nothing is
+  // irregular, and an oligomenorrhoeic user is handed a fertile window and a phase. That
+  // contradicts §Phase 1 rules 4 ("if cycle length varies by more than 7-9 days, no window
+  // is shown" — hers varies by 32) and 5 ("a confident window must never be drawn over
+  // irregular data"), and it is the one fail-open path #176's Risks name as unacceptable.
+  //
+  // So an interval the range filter rejected is not an absence of evidence about
+  // regularity — it *is* evidence of irregularity: FIGO's own AUB System 1, the source
+  // behind these bands, classifies a cycle of 38 days or more as infrequent menstruation.
+  // The estimate still ignores it; the gate does not.
+  const windowFrom = recentAt[0] ?? Math.max(0, cycles.length - settings.historyCycles)
+  const spanned = cycles.slice(windowFrom).map((cycle) => cycle.lengthDays)
   const variationDays =
-    recent.length >= 2 ? Math.max(...recent) - Math.min(...recent) : null
+    spanned.length >= 2 ? Math.max(...spanned) - Math.min(...spanned) : null
   const irregular = variationDays !== null && variationDays > band.maxVariationDays
 
   const lastStart = starts.at(-1) ?? null
@@ -528,8 +580,8 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
   const base = {
     today: input.today,
     cycles,
-    countedCycles: counted.length,
-    enoughCountedCycles: counted.length >= settings.minCyclesForEstimate,
+    countedCycles,
+    enoughCountedCycles: countedCycles >= settings.minCyclesForEstimate,
     medianCycleLengthDays,
     variationDays,
     irregular,
@@ -565,7 +617,7 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
         peakFrom: dateFor(ovulation - settings.peakDaysBeforeOvulation),
         peakTo: dateFor(ovulation),
       },
-      confidence: counted.length >= settings.narrowBandMinCycles ? 'narrow' : 'wide',
+      confidence: countedCycles >= settings.narrowBandMinCycles ? 'narrow' : 'wide',
     },
     withheld: null,
   }
