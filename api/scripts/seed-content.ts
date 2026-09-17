@@ -69,10 +69,12 @@ import {
  * the fix for every one of them is a card the canvas has not drawn, and a seed file is not
  * where product copy is authored.
  *
- * **Three more sit in `NOTED`, beside it**, because no generated input can falsify them: a
+ * **Four more sit in `NOTED`, beside it**, because no generated input can falsify them: a
  * sentence implying a personal baseline the rule does not hold, one offering rest to everyone
- * who logged anything, and a fixed article headline nobody chose. They are not mismatches the
- * audit can demonstrate, and they are not nothing. Read both lists.
+ * who logged anything, a fixed article headline nobody chose, and a card that hard-codes the
+ * ≥3-cycle gate C11 reads from configuration (`CYCLE_MIN_CYCLES_FOR_ESTIMATE`, since #181).
+ * They are not mismatches the audit can demonstrate, and they are not nothing. Read both
+ * lists.
  *
  * And read what that file says it does **not** catch, written above `UNTRUE`: it is a ledger,
  * not a gate. It goes red when the list changes, and stays green when a mismatch already on

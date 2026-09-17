@@ -533,8 +533,10 @@ const AUDIT: Record<TemplateId, Audited> = {
             actions: ["Open Calendar"],
         },
         claims: {
+            // The card names the gate; this claim can only ask C11's own answer about it.
+            // Why "3" itself is not checkable here is in `NOTED`.
             kicker: {
-                says: "she is short of the three counted cycles C11's gate asks for",
+                says: "she is short of the counted cycles C11's gate asks for, which the card says is three",
                 holds: (c) => c.input.cycle.countedCycles < 3,
             },
             title: {
@@ -848,7 +850,7 @@ const UNTRUE: KnownUntrue[] = [
         field: "line2",
         examples: ["0 counted cycles, one period logged"],
         canvasMustDraw:
-            "home_b at zero, one or two counted cycles — the card says 'Log two more periods' and the ladder selects it at all three. Zero is the commonest of them and the furthest from the words: `phaseRung` asks only for a known `cycleDay`, which one logged period sets, while a counted cycle needs two first-flow days. So the first card a cycle-mode user sees after logging her first period reads '0 of 3 cycles' and asks her for two more when she needs three.",
+            "home_b at zero, one or two counted cycles — the card says 'Log two more periods' and the ladder selects it at all three. Zero is the commonest of them and the furthest from the words: `phaseRung` asks only for a known `cycleDay`, which one logged period sets, while a counted cycle needs two first-flow days. So the first card a cycle-mode user sees after logging her first period reads '0 of 3 cycles' and asks her for two more when she needs three. Draw the count as a slot while you are there — see `NOTED` on this card's kicker, which hard-codes the gate #181 made configurable.",
     },
     // **Both `phase_energy` rows are gated on #184, and #184 removes them rather than making
     // them true.** It narrows rung 4 to the one phase this copy describes — exactly what #175
@@ -983,6 +985,11 @@ const NOTED: Noted[] = [
         template: TEMPLATE.signalsToday,
         field: "line2",
         note: "'A slower pace or additional rest may feel more appropriate' is offered rather than asserted, so it claims nothing about her and its claim above is `null`. But it rides along with the card, and the card is selected for *every* logged day in the four non-cycle modes — so a pregnant user logging energy 5 and sleep 5 is advised to rest. Whoever draws the general home_g needs this next to the title, not only in a PR body.",
+    },
+    {
+        template: TEMPLATE.stillLearning,
+        field: "kicker",
+        note: "'{cycleCount} of 3 cycles' hard-codes the gate it is counting towards, and `dashboard-rules.ts` is explicit that it holds C11's *answer* and never the number ('A11 routed that constant to #26 and C11 reads it from configuration'). Since #181 it is literally `CYCLE_MIN_CYCLES_FOR_ESTIMATE`, an env var an operator can set to anything. This is the same mismatch as `mood_pattern`'s kicker, which is in `UNTRUE` — the only difference is where the number lives: `lowSignalDays` arrives inside `DashboardRules`, so `RULE_SETS` can vary it and demonstrate the gap, while `minCyclesForEstimate` never reaches this module at all, so no generated input can falsify the '3'. home_b's canvas request should carry the count as a slot, the way home_h's kicker does.",
     },
     {
         template: TEMPLATE.educational,
