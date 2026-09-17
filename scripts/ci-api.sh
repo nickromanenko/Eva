@@ -86,10 +86,13 @@ export APPLE_SIGNIN_KEY="$APPLE_SIGNIN_KEY_PEM"
 # Left unset, `config.cycle` is `null`, `analyzeCycles` refuses, and every cycle path in the
 # suite takes its refusal branch — so a defect that only exists once the constants are
 # present would pass this gate. These are not secrets and not placeholders: they are the
-# values PRD §Predictions in Cycle mode settled on 2026-08-30 (A25–A27), the same ones
-# `api/.env.example` carries, so CI runs the configuration production is meant to run.
+# values PRD §Predictions in Cycle mode settled on 2026-08-30 (A25–A27) and the period gap
+# #186 decided, the same ones `api/.env.example` carries, so CI runs the configuration
+# production is meant to run. The group is all-or-nothing at boot, so a variable missing
+# here fails every suite that loads `config.ts` rather than quietly skipping the maths.
 export CYCLE_MIN_LENGTH_DAYS=21
 export CYCLE_MAX_LENGTH_DAYS=45
+export CYCLE_MIN_PERIOD_GAP_DAYS=2
 export CYCLE_HISTORY_CYCLES=6
 export CYCLE_MIN_CYCLES_FOR_ESTIMATE=3
 export CYCLE_NARROW_BAND_MIN_CYCLES=6

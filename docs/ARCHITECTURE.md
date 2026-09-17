@@ -80,7 +80,7 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `dashboard-rules.ts` | The Today card's priority ladder (#96): a day's inputs in, the card's *subject* out — rung, template id, slot values, confidence wording class | Pure: no Firestore, no clock, no `fetch`; every input is passed in. Holds no text and no clinical threshold. Called by D3's card module, never by `index.ts` |
 | `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, caches the day's card, deletes them all | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser |
 
-| `cycle.ts` | The cycle maths (C11, #176): logged flow days in — counted cycles, the median next-period date, the fertile window, the FIGO irregularity band and the confidence class out | Pure: no Firestore, no clock, no `fetch`, no log line. Holds no constant of its own — every number arrives from `config.ts` and it refuses to answer without them. Every gate fails closed |
+| `cycle.ts` | The cycle maths (C11, #176): logged flow days in — the periods they group into (#186), counted cycles, the median next-period date, the fertile window, the FIGO irregularity band and the confidence class out | Pure: no Firestore, no clock, no `fetch`, no log line. Holds no constant of its own — every number arrives from `config.ts` and it refuses to answer without them. Every gate fails closed. The one reader of `periodEnd`, for one decision (§4) |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
@@ -919,9 +919,19 @@ untouched.
 **Inference and the explicit mark are two different facts, and only the second is stored.**
 The period end the PRD infers — the first day with no flow logged — is unchanged and still
 inferred; the mark exists because "the user said so" must not be represented by the absence
-of a flow entry. Nothing in `api/src/` reads `periodEnd`. The two can disagree, once a flow
-day is logged after a marked one, and which of them wins is the cycle maths' question
-(A11 / C11): #75 stores the fact and deliberately resolves nothing.
+of a flow entry. The two can disagree, once a flow day is logged after a marked one, and #75
+stored the fact and deliberately resolved nothing.
+
+**#186 resolves it, and is the field's one reader.** Flow logged within
+`CYCLE_MIN_PERIOD_GAP_DAYS` of a mark means the period had not ended — the mark is stale
+data rather than a contradiction to arbitrate — and flow at or beyond it opens a new period,
+with the mark standing. That is the same grouping rule `cycle.ts` applies to every history,
+so marked days get no rule of their own; what the mark changes is that a *spotting* day
+after it no longer carries the period forward to a later flow day, because she has said the
+period is over. It is read for that decision and for nothing else — not an end date, not a
+period length, not a cycle length — which is #75's scope line kept rather than lifted. The
+stored field reaches the maths through the event mapping #179 adds to `today.ts`; until
+then nothing running consumes it.
 
 **Retention — the 30 days are a clock, not a wish (#28).** `DELETE /me/events/{id}` is
 soft: it stamps `deletedAt` and range reads skip the entry. For the next 30 days

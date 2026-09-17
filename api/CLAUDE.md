@@ -133,8 +133,17 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
     unset in every environment today. `today.test.ts` pins that every exported refusal has
     an arm, so the next one added fails the suite until it is mapped.
 
-- `cycle.ts` — the cycle maths (C11, #176). Logged flow days in; counted cycles, a
-  next-period date, a fertile window and a confidence band out. **Pure, like
+- `cycle.ts` — the cycle maths (C11, #176). Logged flow days in; the periods they group
+  into, counted cycles, a next-period date, a fertile window and a confidence band out.
+  **What one period is comes from `minPeriodGapDays` (#186)**: a run of logged days ends
+  where that many days in a row carry nothing, so one missed tap is no longer two periods.
+  It used to be — a period logged 1, 2, 4, 5 moved the anchor, the cycle day, the predicted
+  date and the phase, and after #181 withheld the prediction outright behind a reason that
+  was false (#180, #190). A logged spotting day still keeps a run open; only days with
+  nothing logged are a gap. This is also the **one reader of #75's `periodEnd`**, for one
+  decision: whether a later flow day continues the period she marked as ended — within the
+  gap the mark is stale and the period continues, at or beyond it a new period starts and
+  the mark stands. Never an end date, a period length or a cycle length. **Pure, like
   `dashboard-rules.ts` and for the same reasons**: no Firestore, no clock, no `fetch`, no
   log line — `today` is an argument, and its two imports are `import type`. Every number it
   uses arrives in `CycleRules` from `config.ts` (A25–A27) and there is no default anywhere:

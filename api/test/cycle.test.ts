@@ -45,6 +45,7 @@ import type { Profile } from "../src/users";
 const RULES: CycleRules = {
     minCycleLengthDays: 21,
     maxCycleLengthDays: 45,
+    minPeriodGapDays: 2,
     historyCycles: 6,
     minCyclesForEstimate: 3,
     narrowBandMinCycles: 6,
@@ -70,6 +71,11 @@ const shift = (date: string, delta: number): string =>
 
 const flow = (localDate: string): CycleDay => ({ localDate, kind: "flow" });
 const spotting = (localDate: string): CycleDay => ({ localDate, kind: "spotting" });
+/** A flow day she marked as the end of her period (#75). */
+const flowEnded = (localDate: string): CycleDay => ({ localDate, kind: "flow", periodEnd: true });
+/** The same days with every period-end mark taken off. */
+const unmarked = (days: readonly CycleDay[]): CycleDay[] =>
+    days.map((day) => (day.kind === "flow" ? flow(day.localDate) : spotting(day.localDate)));
 
 /**
  * Logged flow for periods whose consecutive *starts* are `gaps` days apart, the most recent
@@ -143,6 +149,272 @@ describe("a counted cycle runs first flow day to next first flow day", () => {
         expect(result.lastPeriodStart).toBe(null);
         expect(result.cycles).toEqual([]);
         expect(result.withheld).toBe("no-flow-logged");
+    });
+});
+
+// ── What one period is (#186) ──────────────────────────────────────────────────────────
+
+/**
+ * #180's measured history: six periods 28 days apart, each logged for five days, the most
+ * recent starting on 2026-06-05, ten days before `TODAY`. The first five are fixed; the
+ * cases below say how the most recent one was logged, as offsets from its first day.
+ */
+const LATEST_START = "2026-06-05";
+const on = (offset: number): string => shift(LATEST_START, offset);
+const history = (...latest: CycleDay[]): CycleDay[] => [
+    ...periods([28, 28, 28, 28], 38, 5),
+    ...latest,
+];
+const loggedDaily = (from: number, to: number): CycleDay[] =>
+    Array.from({ length: to - from + 1 }, (_, index) => flow(on(from + index)));
+
+/**
+ * **Grouping is upstream of every number the maths returns**, so these cases assert what she
+ * would see — the anchor, cycle day, the predicted date and the phase — and not only which
+ * days were put together. #180's table is the model: one missed tap moved all four.
+ */
+describe("a missed day inside a period does not split it (#186)", () => {
+    /**
+     * The exact case #180 measured. On `main` before this change the missed day made day 4 a
+     * new period: `lastPeriodStart` 2026-06-08, cycle day 8, and — since #181 reads every
+     * interval — a phantom 3-day cycle that withheld the prediction and the phase outright.
+     */
+    test("#180: a period logged on days 1, 2, 4 and 5 reads exactly as one logged 1-5", () => {
+        const clean = analyze(history(...loggedDaily(0, 4)));
+        const missed = analyze(history(flow(on(0)), flow(on(1)), flow(on(3)), flow(on(4))));
+
+        // #180's four rows, and the clean column is now the answer for both.
+        for (const result of [clean, missed]) {
+            expect(result.lastPeriodStart).toBe("2026-06-05");
+            expect(result.cycleDay).toBe(11);
+            expect(result.prediction?.nextPeriodStart).toBe("2026-07-03");
+            expect(toCycleEstimate(result).phase?.code).toBe("ovulation");
+        }
+        // No phantom row in her history…
+        expect(missed.cycles.map((cycle) => cycle.lengthDays)).toEqual([28, 28, 28, 28, 28]);
+        // …and nothing else moved either: counted cycles, the median, the variation, the
+        // window, the band and the period's own end are all the clean history's.
+        expect(missed).toEqual(clean);
+    });
+
+    /** The boundary, from both sides, with what each side does to her estimate. */
+    test("two days in a row with nothing logged separate two periods; one does not", () => {
+        const oneMissed = analyze(history(flow(on(0)), flow(on(2))));
+        expect(oneMissed.lastPeriodStart).toBe(on(0));
+        expect(oneMissed.currentPeriodEnd).toBe(on(2));
+        expect(oneMissed.cycles.map((cycle) => cycle.lengthDays)).toEqual([28, 28, 28, 28, 28]);
+        expect(oneMissed.cycleDay).toBe(11);
+        expect(oneMissed.prediction?.nextPeriodStart).toBe("2026-07-03");
+        expect(toCycleEstimate(oneMissed).phase?.code).toBe("ovulation");
+
+        const twoMissed = analyze(history(flow(on(0)), flow(on(3))));
+        expect(twoMissed.lastPeriodStart).toBe(on(3));
+        expect(twoMissed.currentPeriodEnd).toBe(on(3));
+        // A split is not a relabelling: it is a short interval on her record, flagged, and an
+        // estimate withheld because of it.
+        expect(twoMissed.cycles.at(-1)).toEqual({
+            startDate: on(0),
+            endDate: on(3),
+            lengthDays: 3,
+            counted: false,
+            excluded: "unusual-length",
+        });
+        expect(twoMissed.cycleDay).toBe(8);
+        expect(twoMissed.prediction).toBe(null);
+        expect(twoMissed.withheld).toBe("irregular-cycles");
+        expect(toCycleEstimate(twoMissed).phase).toBe(null);
+    });
+
+    /** The same fix seen on the day it matters: the morning she logs again. */
+    test("the day she logs again after a missed one is day 4 of her period, not day 1 of another", () => {
+        const days = history(flow(on(0)), flow(on(1)), flow(on(3)));
+        const result = analyzeCycles({ days, today: on(3), profile: profileAged(30) }, RULES);
+        expect(result.lastPeriodStart).toBe(on(0));
+        expect(result.cycleDay).toBe(4);
+        expect(result.currentPeriodEnd).toBe(on(3));
+        expect(toCycleEstimate(result).phase?.code).toBe("menstrual");
+        expect(result.prediction?.nextPeriodStart).toBe(shift(on(0), 28));
+    });
+
+    /**
+     * **The gap counts days with nothing logged, not days without flow**, which is the one
+     * place this reads the decision's wording rather than repeating it: a logged spotting day
+     * keeps the run open, as #181 built it. Counting spotting as a dry day would make the
+     * first fixture two periods four days apart — the quiet split #186 was written to stop.
+     */
+    test("a logged spotting day keeps a period open; only days with nothing logged are a gap", () => {
+        const spottedMiddle = analyze(
+            history(flow(on(0)), flow(on(1)), spotting(on(2)), spotting(on(3)), flow(on(4))),
+        );
+        expect(spottedMiddle.lastPeriodStart).toBe(on(0));
+        expect(spottedMiddle.currentPeriodEnd).toBe(on(4));
+
+        // One missed day beside a spotting day is still one missed day…
+        const besideSpotting = history(flow(on(0)), spotting(on(1)), flow(on(3)));
+        expect(analyze(besideSpotting).lastPeriodStart).toBe(on(0));
+        // …and spotting on either side does not bridge two of them.
+        const twoBetweenSpotting = history(flow(on(0)), spotting(on(1)), spotting(on(4)), flow(on(5)));
+        expect(analyze(twoBetweenSpotting).lastPeriodStart).toBe(on(5));
+    });
+
+    /**
+     * #181's case, which the parent issue requires stays closed: the gap rule must not turn a
+     * history that genuinely varies into a regular one. Missing a day in every period changes
+     * nothing about it — the answer is the clean history's, and the clean history is withheld.
+     */
+    test("alternating 28 and 60 days stays withheld, with a day missed in every period or not", () => {
+        const alternating = periods([28, 60, 28, 60, 28, 60], 5, 5);
+        // `periods` writes five days per period in order, so index 2 of each five is day 3.
+        const missedEach = alternating.filter((_, index) => index % 5 !== 2);
+        for (const days of [alternating, missedEach]) {
+            const result = analyze(days, profileAged(30));
+            expect(result.countedCycles).toBe(3);
+            expect(result.variationDays).toBe(32);
+            expect(result.irregular).toBe(true);
+            expect(result.prediction).toBe(null);
+            expect(result.withheld).toBe("irregular-cycles");
+            expect(toCycleEstimate(result).phase).toBe(null);
+        }
+        expect(analyze(missedEach, profileAged(30))).toEqual(analyze(alternating, profileAged(30)));
+    });
+});
+
+// ── The period-end mark (#75, #186) ────────────────────────────────────────────────────
+
+/**
+ * **What the mark decides, and the only thing it decides**: whether a later flow day
+ * continues the period she marked as ended. Within the gap it does — the mark was premature
+ * and changes nothing. At or beyond the gap it opens a new period and the mark stands.
+ *
+ * The mark is only *observable* where it disagrees with the unmarked rule, and that is a
+ * logged spotting day after it: unmarked, spotting keeps a period open; after she said the
+ * period ended, it does not. So the cases that prove the mark is read at all are the
+ * spotting ones — with only missed days between, marked and unmarked agree by design.
+ */
+describe("a period-end mark decides only whether later flow continues that period", () => {
+    test("flow within the gap after a mark: the period had not ended, and the mark changes nothing", () => {
+        const afterTheMark: { after: CycleDay[]; end: string }[] = [
+            { after: [flow(on(3))], end: on(3) }, // flow the very next day
+            { after: [flow(on(4))], end: on(4) }, // one day missed
+            { after: [spotting(on(3)), flow(on(4))], end: on(4) }, // one spotting day
+        ];
+        for (const { after, end } of afterTheMark) {
+            const days = history(flow(on(0)), flow(on(1)), flowEnded(on(2)), ...after);
+            const marked = analyze(days);
+            expect(marked.lastPeriodStart).toBe(LATEST_START);
+            expect(marked.currentPeriodEnd).toBe(end);
+            expect(marked.cycleDay).toBe(11);
+            expect(marked.prediction?.nextPeriodStart).toBe("2026-07-03");
+            expect(toCycleEstimate(marked).phase?.code).toBe("ovulation");
+            expect(marked).toEqual(analyze(unmarked(days)));
+        }
+    });
+
+    test("flow at the gap or beyond it after a mark is a new period, and the mark stands", () => {
+        // Two missed days: a new period whether she marked it or not — the mark and the gap agree.
+        const missed = history(flow(on(0)), flow(on(1)), flowEnded(on(2)), flow(on(5)));
+        expect(analyze(missed).lastPeriodStart).toBe(on(5));
+        expect(analyze(unmarked(missed)).lastPeriodStart).toBe(on(5));
+
+        // Two spotting days. Unmarked, spotting keeps the period open and this is one period,
+        // with the clean history's estimate…
+        const spotted = history(
+            flow(on(0)),
+            flow(on(1)),
+            flowEnded(on(2)),
+            spotting(on(3)),
+            spotting(on(4)),
+            flow(on(5)),
+        );
+        const withoutMark = analyze(unmarked(spotted));
+        expect(withoutMark.lastPeriodStart).toBe(LATEST_START);
+        expect(withoutMark.cycleDay).toBe(11);
+        expect(withoutMark.prediction?.nextPeriodStart).toBe("2026-07-03");
+        expect(toCycleEstimate(withoutMark).phase?.code).toBe("ovulation");
+
+        // …but she said it ended on day 3 and two days without flow followed, so day 6 opens a
+        // new period, and everything downstream of the anchor follows from that.
+        const withMark = analyze(spotted);
+        expect(withMark.lastPeriodStart).toBe(on(5));
+        expect(withMark.cycleDay).toBe(6);
+        expect(withMark.cycles.at(-1)).toEqual({
+            startDate: LATEST_START,
+            endDate: on(5),
+            lengthDays: 5,
+            counted: false,
+            excluded: "unusual-length",
+        });
+        expect(withMark.prediction).toBe(null);
+        expect(withMark.withheld).toBe("irregular-cycles");
+        expect(toCycleEstimate(withMark).phase).toBe(null);
+    });
+
+    /** "Stale" is a property of the mark once flow has continued past it, not of the run. */
+    test("a mark that flow has already continued past is stale, and decides nothing later", () => {
+        // Marked on day 2, flow again on day 3: the mark was premature. Two spotting days after
+        // day 3 then keep the period open as they would for anyone, because day 3 is unmarked.
+        const days = history(
+            flow(on(0)),
+            flowEnded(on(1)),
+            flow(on(2)),
+            spotting(on(3)),
+            spotting(on(4)),
+            flow(on(5)),
+        );
+        expect(analyze(days).lastPeriodStart).toBe(LATEST_START);
+        expect(analyze(days)).toEqual(analyze(unmarked(days)));
+    });
+
+    /**
+     * #75's scope line, which #186 keeps: the mark is not an end date, a period length or a
+     * cycle length. With no flow after it, nothing it could decide arises, so the answer is
+     * the unmarked one exactly — including the period's end, which still runs through the
+     * spotting she logged after the mark. Three spotting days, so the last is past the gap:
+     * the mark may not end the run on a day that is not flow either.
+     */
+    test("with no flow after it, the mark is read for nothing: the answer is the unmarked one", () => {
+        const trailing = history(
+            flow(on(0)),
+            flow(on(1)),
+            flowEnded(on(2)),
+            spotting(on(3)),
+            spotting(on(4)),
+            spotting(on(5)),
+        );
+        const at = (days: CycleDay[]) =>
+            analyzeCycles({ days, today: on(5), profile: profileAged(30) }, RULES);
+        expect(at(trailing)).toEqual(at(unmarked(trailing)));
+        expect(at(trailing).currentPeriodEnd).toBe(on(5));
+        expect(toCycleEstimate(at(trailing)).phase?.code).toBe("menstrual");
+
+        // A user who marks the end of every period gets exactly the answer of one who marks none.
+        // `periods` writes five days per period in order, so index 4 of each five is the last.
+        const everyEndMarked = periods([28, 28, 28, 28, 28], 10, 5).map((day, index) =>
+            index % 5 === 4 ? flowEnded(day.localDate) : day,
+        );
+        expect(everyEndMarked.filter((day) => day.periodEnd === true)).toHaveLength(6);
+        expect(analyze(everyEndMarked)).toEqual(analyze(unmarked(everyEndMarked)));
+    });
+
+    test("the same days in any order give the same answer, marks included", () => {
+        const days = history(
+            flow(on(0)),
+            flowEnded(on(1)),
+            spotting(on(2)),
+            spotting(on(3)),
+            flow(on(4)),
+        );
+        expect(analyze(days).lastPeriodStart).toBe(on(4));
+        expect(analyze([...days].reverse())).toEqual(analyze(days));
+
+        // Two flow entries on one day only come from a hand-edited document (`events.ts` keys
+        // an entry by its day). The mark then holds only if both carry it, whichever is read
+        // first — the direction that merges rather than splits.
+        const doubledFirst = [flow(on(1)), ...days];
+        const doubledLast = [...days, flow(on(1))];
+        expect(analyze(doubledFirst).lastPeriodStart).toBe(LATEST_START);
+        expect(analyze(doubledFirst)).toEqual(analyze(doubledLast));
+        expect(analyze([flowEnded(on(1)), ...days]).lastPeriodStart).toBe(on(4));
     });
 });
 
@@ -703,6 +975,37 @@ describe("no number in the maths is written in the maths", () => {
         expect(analyzeCycles({ days: logged, today: TODAY, profile: null }, wider).countedCycles).toBe(3);
     });
 
+    /**
+     * The period gap, from both sides at two settings. At 1 — any missed day ends a period,
+     * which is what this module did before #186 — #180's history splits again, which is the
+     * proof that the fix is the constant and not a literal next to it.
+     */
+    test("moving the period gap moves what counts as one period", () => {
+        const withRule = (days: CycleDay[], minPeriodGapDays: number) =>
+            analyzeCycles(
+                { days, today: TODAY, profile: profileAged(30) },
+                { ...RULES, minPeriodGapDays },
+            );
+        const oneMissed = history(flow(on(0)), flow(on(2)));
+        const twoMissed = history(flow(on(0)), flow(on(3)));
+        const threeMissed = history(flow(on(0)), flow(on(4)));
+
+        expect(withRule(oneMissed, 1).lastPeriodStart).toBe(on(2));
+        expect(withRule(oneMissed, 1).withheld).toBe("irregular-cycles");
+        expect(withRule(oneMissed, 2).lastPeriodStart).toBe(on(0));
+
+        expect(withRule(twoMissed, 2).lastPeriodStart).toBe(on(3));
+        expect(withRule(twoMissed, 3).lastPeriodStart).toBe(on(0));
+        expect(withRule(threeMissed, 3).lastPeriodStart).toBe(on(4));
+
+        // #180's own history at the old setting: the phantom row is back.
+        const missed = history(flow(on(0)), flow(on(1)), flow(on(3)), flow(on(4)));
+        expect(withRule(missed, 1).cycles.map((cycle) => cycle.lengthDays)).toEqual([
+            28, 28, 28, 28, 28, 3,
+        ]);
+        expect(withRule(missed, 1).lastPeriodStart).toBe("2026-06-08");
+    });
+
     test("moving the gate moves when a prediction appears", () => {
         const logged = periods([28, 29], 5);
         const lower: CycleRules = { ...RULES, minCyclesForEstimate: 2, narrowBandMinCycles: 2 };
@@ -769,6 +1072,27 @@ describe("a set of constants that would produce a plausible wrong answer is refu
 
     test("an inverted countable range, which would count nothing", () => {
         refuse({ minCycleLengthDays: 46 }, "maxCycleLengthDays", "at least minCycleLengthDays");
+    });
+
+    /**
+     * Zero would make every logged day a period of its own. A gap as long as the shortest
+     * countable cycle would make that cycle invisible even between two one-day periods, whose
+     * gap is the cycle less one day — so 20 is the widest gap that can still see a 21-day
+     * cycle, and 1, the rule before #186, is a setting rather than an error.
+     */
+    test("a period gap of zero, or one as long as the shortest countable cycle", () => {
+        refuse({ minPeriodGapDays: 0 }, "minPeriodGapDays", "positive integer");
+        refuse({ minPeriodGapDays: 1.5 }, "minPeriodGapDays", "positive integer");
+        refuse({ minPeriodGapDays: 21 }, "minPeriodGapDays", "less than minCycleLengthDays");
+        expect(cycleRulesProblem({ ...RULES, minPeriodGapDays: 20 })).toBe(null);
+        expect(cycleRulesProblem({ ...RULES, minPeriodGapDays: 1 })).toBe(null);
+        // …and the edge is what it says: at 20, two one-day periods 21 days apart are two.
+        const twoOneDayPeriods = [flow("2026-05-01"), flow("2026-05-22")];
+        const at20 = analyzeCycles(
+            { days: twoOneDayPeriods, today: TODAY, profile: null },
+            { ...RULES, minPeriodGapDays: 20 },
+        );
+        expect(at20.cycles.map((cycle) => cycle.lengthDays)).toEqual([21]);
     });
 
     test("a gate below two, where a shortest-to-longest variation has no meaning", () => {
@@ -1064,6 +1388,7 @@ describe("the cycle maths' configuration", () => {
     const CYCLE_ENV: Record<string, string> = {
         CYCLE_MIN_LENGTH_DAYS: String(RULES.minCycleLengthDays),
         CYCLE_MAX_LENGTH_DAYS: String(RULES.maxCycleLengthDays),
+        CYCLE_MIN_PERIOD_GAP_DAYS: String(RULES.minPeriodGapDays),
         CYCLE_HISTORY_CYCLES: String(RULES.historyCycles),
         CYCLE_MIN_CYCLES_FOR_ESTIMATE: String(RULES.minCyclesForEstimate),
         CYCLE_NARROW_BAND_MIN_CYCLES: String(RULES.narrowBandMinCycles),
@@ -1102,7 +1427,7 @@ describe("the cycle maths' configuration", () => {
      * an empty value cannot be filled back in by an `api/.env` the way a deleted key can.
      * That matters more here than it did for the pattern rung: `.env.example` now ships this
      * group **with values**, so a developer who followed the instruction to copy it has all
-     * fourteen set, and a case that simply omitted one would be testing her `.env`.
+     * fifteen set, and a case that simply omitted one would be testing her `.env`.
      */
     const UNSET = Object.fromEntries(Object.keys(CYCLE_ENV).map((name) => [name, ""]));
 
@@ -1117,6 +1442,34 @@ describe("the cycle maths' configuration", () => {
         });
         expect(code).not.toBe(0);
         expect(stderr).toContain("CYCLE_LUTEAL_PHASE_DAYS");
+    }, 30_000);
+
+    /**
+     * #186's constant joined an existing group, which is the moment a deployment can have the
+     * old fourteen and not the new one — so both directions of "partial" are asserted for it.
+     */
+    test("the group without the period gap is refused, and so is the period gap alone", async () => {
+        const without = await bootConfig({ ...CYCLE_ENV, CYCLE_MIN_PERIOD_GAP_DAYS: "" });
+        expect(without.code).not.toBe(0);
+        expect(without.stderr).toContain("Incomplete cycle maths configuration");
+        expect(without.stderr).toContain("CYCLE_MIN_PERIOD_GAP_DAYS");
+
+        const alone = await bootConfig({ ...UNSET, CYCLE_MIN_PERIOD_GAP_DAYS: "2" });
+        expect(alone.code).not.toBe(0);
+        expect(alone.stderr).toContain("Incomplete cycle maths configuration");
+        expect(alone.stderr).toContain("CYCLE_MIN_LENGTH_DAYS");
+    }, 30_000);
+
+    test("a period gap the maths refuses is refused at boot, naming the variable", async () => {
+        const zero = await bootConfig({ ...CYCLE_ENV, CYCLE_MIN_PERIOD_GAP_DAYS: "0" });
+        expect(zero.code).not.toBe(0);
+        expect(zero.stderr).toContain("Invalid env var CYCLE_MIN_PERIOD_GAP_DAYS");
+        expect(zero.stderr).toContain("positive integer");
+
+        const wide = await bootConfig({ ...CYCLE_ENV, CYCLE_MIN_PERIOD_GAP_DAYS: "21" });
+        expect(wide.code).not.toBe(0);
+        expect(wide.stderr).toContain("Invalid env var CYCLE_MIN_PERIOD_GAP_DAYS");
+        expect(wide.stderr).toContain("less than minCycleLengthDays");
     }, 30_000);
 
     /**
@@ -1147,8 +1500,28 @@ describe("the cycle maths' configuration", () => {
      *  is a broken instruction rather than a stale comment. */
     test("the values in .env.example are the values this file asserts against", async () => {
         const example = await Bun.file(`${import.meta.dir}/../.env.example`).text();
-        for (const [name, value] of Object.entries(CYCLE_ENV)) {
-            expect(example).toContain(`${name}=${value}`);
-        }
+        // Line-anchored, and read back as a group rather than searched for one at a time: a
+        // `toContain` passes on a commented-out line, which is a variable the developer who
+        // copies this file does not get — and a group missing one is a boot failure.
+        const set = [...example.matchAll(/^(CYCLE_[A-Z_]+)=(\S*)/gm)].map(([, name, value]) => [
+            name,
+            value,
+        ]);
+        expect(Object.fromEntries(set)).toEqual(CYCLE_ENV);
+    });
+
+    /**
+     * And the values CI boots with. `scripts/ci-api.sh` exports the group so the suite runs
+     * the configuration production is meant to run; a variable added here and not there would
+     * make every suite that loads `config.ts` refuse to boot in CI, and a value that drifted
+     * there would test a configuration nobody chose. Line-anchored, so a commented-out export
+     * does not count.
+     */
+    test("the values scripts/ci-api.sh exports are the values this file asserts against", async () => {
+        const script = await Bun.file(`${import.meta.dir}/../../scripts/ci-api.sh`).text();
+        const exported = [...script.matchAll(/^export (CYCLE_[A-Z_]+)=(.*)$/gm)].map(
+            ([, name, value]) => [name, value],
+        );
+        expect(Object.fromEntries(exported)).toEqual(CYCLE_ENV);
     });
 });

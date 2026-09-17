@@ -40,19 +40,24 @@ import type { Profile } from './users'
 // ── What a caller hands in ─────────────────────────────────────────────────────────────
 
 /**
- * One logged `cycle` entry, as this module needs it — a date and which marker it carries.
+ * One logged `cycle` entry, as this module needs it — a date (`localDate`, the user's local
+ * `YYYY-MM-DD`: a calendar label, never an instant), which marker it carries, and whether
+ * she marked her period as ending on it.
  *
  * `spotting` is a separate marker and not a fourth flow level (#23, `events.ts`), and the
  * distinction is load-bearing here: **a spotting day never starts a cycle** (A25 item 1).
  * It still belongs to a period, though, which is what A25 item 6 settles — so a run of
  * logged days that opens with spotting has its *first flow day* inside it, and the spotting
  * days before that belong to the previous cycle.
+ *
+ * `periodEnd` is #75's explicit "my period ended" mark. It can sit only on a flow day, for
+ * the reason `CyclePayload` gives in `events.ts` — a period cannot end on a day that records
+ * no bleeding — and the arms below keep that true here too. It is read for one thing only:
+ * whether later flow continues the period she marked (`loggedPeriods`, #186).
  */
-export interface CycleDay {
-  /** The user's local date, `YYYY-MM-DD`. A calendar label, never an instant. */
-  localDate: string
-  kind: 'flow' | 'spotting'
-}
+export type CycleDay =
+  | { localDate: string; kind: 'flow'; periodEnd?: true }
+  | { localDate: string; kind: 'spotting'; periodEnd?: never }
 
 export interface CycleInput {
   /** Every live `cycle` entry the caller read, in any order. Soft-deleted entries are the
@@ -99,6 +104,9 @@ export interface CycleRules {
   minCycleLengthDays: number
   /** A25: …and at most this long. Outside the range is "unusual length", never dropped. */
   maxCycleLengthDays: number
+  /** #186: this many consecutive days with nothing logged separate two periods; one fewer
+   *  is a missed day inside one. How logged days are grouped — not a clinical claim. */
+  minPeriodGapDays: number
   /** A25: the median and the variation are taken over the last this-many counted cycles. */
   historyCycles: number
   /** A26: a prediction is shown only with this many counted cycles or more. */
@@ -154,6 +162,8 @@ type PositiveRule = Exclude<keyof CycleRules, 'irregularity' | 'fertileDaysAfter
 const POSITIVE: readonly PositiveRule[] = [
   'minCycleLengthDays',
   'maxCycleLengthDays',
+  // Zero is not a looser grouping: every logged day would open a period of its own.
+  'minPeriodGapDays',
   'historyCycles',
   'minCyclesForEstimate',
   'narrowBandMinCycles',
@@ -176,14 +186,16 @@ const BAND_POSITIVE: readonly (keyof IrregularityBands)[] = [
  * **One implementation, called from two places on purpose.** `config.ts` runs it at boot so
  * an operator is told at startup, and `requireCycleRules` runs it on every evaluation so a
  * set assembled in code — a test fixture, a future remote config — cannot get past it. Two
- * copies of a six-clause safety check on health-critical constants is the drift this exists
- * to prevent.
+ * copies of a safety check on health-critical constants is the drift this exists to
+ * prevent.
  *
  * The cross-field clauses are not style: each one is a configuration that would produce a
  * *plausible-looking* wrong answer rather than an obvious failure. A luteal phase longer
  * than the shortest countable cycle puts ovulation before the cycle it belongs to; a peak
  * window wider than the fertile window puts peak days outside the window that contains
- * them; inverted age edges silently apply the wrong FIGO band.
+ * them; inverted age edges silently apply the wrong FIGO band; a period gap as long as the
+ * shortest countable cycle reads two periods that far apart as one, so that cycle can never
+ * be seen — even between two one-day periods, whose gap is the cycle less one day.
  */
 export const cycleRulesProblem = (rules: CycleRules | null): CycleRulesProblem | null => {
   if (!rules) return { field: 'rules', message: 'no constants are configured' }
@@ -211,6 +223,12 @@ export const cycleRulesProblem = (rules: CycleRules | null): CycleRulesProblem |
     return {
       field: 'maxCycleLengthDays',
       message: `must be at least minCycleLengthDays (${rules.minCycleLengthDays})`,
+    }
+  }
+  if (rules.minPeriodGapDays >= rules.minCycleLengthDays) {
+    return {
+      field: 'minPeriodGapDays',
+      message: `must be less than minCycleLengthDays (${rules.minCycleLengthDays}), or two periods the shortest countable cycle apart always read as one`,
     }
   }
   if (rules.lutealPhaseDays >= rules.minCycleLengthDays) {
@@ -308,53 +326,89 @@ export interface ObservedCycle {
   excluded: CycleExclusion | null
 }
 
-/**
- * The first flow day of every period, oldest first.
- *
- * A period is a run of consecutive logged days — flow *or* spotting — and its first flow
- * day is the earliest day in that run carrying flow. That is A25 items 1 and 6 together: a
- * spotting day never starts a cycle, and the spotting days before a first flow day belong
- * to the previous cycle. A run of spotting alone starts nothing.
- *
- * **A day the user did not log breaks the run**, because nothing here may read #75's
- * period-end mark (its semantics are still open — #176 scope) and there is no gap-tolerance
- * constant in A25 to read instead. A period logged with a day missing in the middle
- * therefore reads as two periods, and the short interval between them is returned as an
- * unusual-length cycle rather than silently absorbed. That is the visible, legible failure
- * rather than the invisible one; **filed as #180**, where the two candidate fixes and the
- * product question each of them needs answered are written out.
- */
-const firstFlowDays = (days: readonly CycleDay[]): number[] => {
-  const byDay = new Map<number, 'flow' | 'spotting'>()
-  for (const entry of days) {
-    const day = dayNumber(entry.localDate, 'localDate')
-    // Flow wins a day that somehow carries both markers: `events.ts` stores one entry per
-    // day and its payload makes "both at once" unrepresentable, so this is a floor under a
-    // hand-edited document, taken in the direction that keeps a real period visible.
-    if (entry.kind === 'flow' || !byDay.has(day)) byDay.set(day, entry.kind)
-  }
-
-  const sorted = [...byDay.keys()].sort((a, b) => a - b)
-  const starts: number[] = []
-  let previous: number | null = null
-  let runHasFlow = false
-  for (const day of sorted) {
-    if (previous === null || day !== previous + 1) runHasFlow = false
-    previous = day
-    if (byDay.get(day) !== 'flow' || runHasFlow) continue
-    runHasFlow = true
-    starts.push(day)
-  }
-  return starts
+/** One period as she logged it, in whole days: the first flow day that opened it, and the
+ *  last logged day of its run. The end is used for the menstrual phase only. */
+interface LoggedPeriod {
+  start: number
+  end: number
 }
 
-/** The last day of the run of logged days containing `start` — the period as she logged it.
- *  Used for the menstrual phase, which is observed rather than estimated. */
-const runEnd = (days: readonly CycleDay[], start: number): number => {
-  const logged = new Set(days.map((entry) => dayNumber(entry.localDate, 'localDate')))
-  let end = start
-  while (logged.has(end + 1)) end += 1
-  return end
+/**
+ * Every period she has logged, oldest first.
+ *
+ * A period is a run of logged days — flow *or* spotting — and it starts on the earliest day
+ * in that run carrying flow. That is A25 items 1 and 6 together: a spotting day never starts
+ * a cycle, and the spotting days before a first flow day belong to the previous cycle. A run
+ * of spotting alone starts nothing.
+ *
+ * **What ends a run is `minPeriodGapDays` days in a row with nothing logged (#186)**; one
+ * fewer is a missed tap inside one period. The app logs one day at a time and back-fills
+ * nothing, and a run used to end on *any* unlogged day — so a period logged 1, 2, 4, 5 read
+ * as two, and the phantom three-day interval between them withheld her prediction, her
+ * window and her phase behind a reason that was not true (#180, #190). The two ways of being
+ * wrong are not equally quiet, and #186 chose between them: merging two genuinely close
+ * episodes shows as one long period, while splitting one invents a short cycle nobody sees.
+ *
+ * **"Nothing logged", not "no flow"**: a logged spotting day keeps the run open, as it did
+ * before #186. The PRD's "first day with no flow logged" predates spotting being split out of
+ * the flow picker (#23, which said only that spotting starts nothing), and reading it the
+ * other way would make flow, spotting, spotting, flow two periods four days apart — the
+ * silent split #186 exists to avoid.
+ *
+ * **#75's period-end mark is read here, for one decision only: whether a later flow day
+ * continues the period she marked as ended.** Her mark says the days after it are not her
+ * period, so a logged spotting day after it no longer carries the run to the next flow day.
+ * From a marked flow day, every day until the next flow counts toward the gap. Flow within
+ * `minPeriodGapDays` of the mark means the period had not ended — the mark is stale, and the
+ * run continues exactly as it would unmarked. Flow at or beyond it opens a new period, and
+ * the mark stands. Only the run's *latest* flow day is asked: once flow has continued past a
+ * mark, that mark decides nothing. The mark is never an end date, a period length or a cycle
+ * length — `end` is the run as she logged it, marked or not.
+ */
+const loggedPeriods = (days: readonly CycleDay[], minGapDays: number): LoggedPeriod[] => {
+  const byDay = new Map<number, { flow: boolean; periodEnd: boolean }>()
+  for (const entry of days) {
+    const day = dayNumber(entry.localDate, 'localDate')
+    const seen = byDay.get(day)
+    if (entry.kind === 'flow') {
+      // Flow wins a day that somehow carries both markers: `events.ts` stores one entry per
+      // day and its payload makes "both at once" unrepresentable, so this is a floor under a
+      // hand-edited document, taken in the direction that keeps a real period visible. Two
+      // flow entries on one day are the same floor, and there the mark holds only if both
+      // carry it — the answer cannot depend on the order the entries arrive in, and a mark
+      // taken on half the evidence could only ever split a period.
+      const marked = entry.periodEnd === true
+      byDay.set(day, { flow: true, periodEnd: seen?.flow ? seen.periodEnd && marked : marked })
+    } else if (seen === undefined) {
+      byDay.set(day, { flow: false, periodEnd: false })
+    }
+  }
+
+  const periods: LoggedPeriod[] = []
+  let previous: number | null = null
+  // The run's latest flow day. A later flow day replaces it, which is what makes an earlier
+  // mark stale.
+  let lastFlow: { day: number; periodEnd: boolean } | null = null
+  let open: LoggedPeriod | null = null
+  for (const day of [...byDay.keys()].sort((a, b) => a - b)) {
+    const { flow, periodEnd } = byDay.get(day)!
+    const gapBefore = previous !== null && day - previous - 1 >= minGapDays
+    const pastMark =
+      flow && lastFlow !== null && lastFlow.periodEnd && day - lastFlow.day - 1 >= minGapDays
+    if (gapBefore || pastMark) {
+      open = null
+      lastFlow = null
+    }
+    previous = day
+    if (open !== null) open.end = day
+    if (!flow) continue
+    lastFlow = { day, periodEnd }
+    if (open === null) {
+      open = { start: day, end: day }
+      periods.push(open)
+    }
+  }
+  return periods
 }
 
 const toCycles = (starts: readonly number[], rules: CycleRules): ObservedCycle[] =>
@@ -509,7 +563,8 @@ export interface CycleAnalysis {
   band: { ageYears: number | null; maxVariationDays: number }
   /** The most recent first flow day, or `null` when no flow has been logged. */
   lastPeriodStart: string | null
-  /** The last day of the period run that opened the current cycle, as she logged it. */
+  /** The last day of the period run that opened the current cycle, as she logged it — a
+   *  missed day inside the run does not end it (#186). */
   currentPeriodEnd: string | null
   /** Today's cycle day, counted from `lastPeriodStart` (A25 item 6). */
   cycleDay: number | null
@@ -537,8 +592,8 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
   const today = dayNumber(input.today, 'today')
   const band = bandForAge(input.profile, settings)
 
-  const starts = firstFlowDays(input.days)
-  const cycles = toCycles(starts, settings)
+  const periods = loggedPeriods(input.days, settings.minPeriodGapDays)
+  const cycles = toCycles(periods.map((period) => period.start), settings)
   const countedAt = cycles.flatMap((cycle, index) => (cycle.counted ? [index] : []))
   const countedCycles = countedAt.length
   // The median's sample: the last `historyCycles` *counted* cycles, so a 60-day interval
@@ -569,10 +624,10 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
     spanned.length >= 2 ? Math.max(...spanned) - Math.min(...spanned) : null
   const irregular = variationDays !== null && variationDays > band.maxVariationDays
 
-  const lastStart = starts.at(-1) ?? null
-  const lastPeriodStart = lastStart === null ? null : dateFor(lastStart)
-  const currentPeriodEnd =
-    lastStart === null ? null : dateFor(runEnd(input.days, lastStart))
+  const current = periods.at(-1) ?? null
+  const lastStart = current?.start ?? null
+  const lastPeriodStart = current === null ? null : dateFor(current.start)
+  const currentPeriodEnd = current === null ? null : dateFor(current.end)
   // A25 item 6: day 1 is the first flow day itself. A date before it is not a cycle day —
   // which a caller can reach by asking about a day earlier than anything she has logged.
   const cycleDay = lastStart === null || today < lastStart ? null : today - lastStart + 1
@@ -631,8 +686,9 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
  * Four codes, and every boundary between them comes from A26's own constants or from what
  * she logged — none is invented here:
  *  - **menstrual** while today is inside the period run that opened this cycle. Observed,
- *    not estimated: Eva knows the days she logged and claims nothing about the ones she
- *    did not.
+ *    not estimated: Eva knows the days she logged and claims nothing past the last of them.
+ *    The unlogged days it does count are missed ones *between* two logged days, which #186
+ *    reads as part of the period.
  *  - **ovulation** across the fertile window (A26: ovulation − 5 through ovulation + 1).
  *  - **follicular** before that window, **luteal** after it.
  *
