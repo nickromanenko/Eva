@@ -5,8 +5,8 @@
  * It is the one edge in this file that points *up* the module diagram in `api/CLAUDE.md`,
  * and it costs nothing at runtime: `cycle.ts` is pure and its own two imports are `import
  * type`, erased at compile time, so loading it here loads no Firestore, no clock and no
- * credential. The alternative is two copies of a ten-clause safety check on constants that
- * decide whether a fertile window is drawn — see `cycleRulesProblem` for what each clause
+ * credential. The alternative is two copies of a safety check on constants that decide
+ * whether a fertile window is drawn — see `cycleRulesProblem` for what each clause
  * prevents, and why a second copy of it is the failure rather than the safeguard.
  */
 import { cycleRulesProblem, type CycleRules } from './cycle'
@@ -150,8 +150,8 @@ const patternRule = (): { lowSignalDays: number; lowAtOrBelow: number; severeSym
 }
 
 /**
- * The cycle maths' constants (A25–A27, #176): the field on `CycleRules`, and the
- * environment variable it is read from.
+ * The cycle maths' constants (A25–A27, #176, and #186's period gap): the field on
+ * `CycleRules`, and the environment variable it is read from.
  *
  * **The values are deliberately not here.** They are in `api/.env.example`, with the
  * decision each comes from, and a case in `cycle.test.ts` asserts the file still carries
@@ -159,11 +159,13 @@ const patternRule = (): { lowSignalDays: number; lowAtOrBelow: number; severeSym
  * which is how one goes stale while looking authoritative. Sources: FIGO AUB System 1
  * (Munro MG et al., Int J Gynecol Obstet 2018;143:393–408) for the bands; Wilcox AJ, Dunson
  * D, Baird DD, BMJ 2000;321:1259 for the fixed luteal phase that ovulation and the fertile
- * window are derived from.
+ * window are derived from. The period gap has no citation because it is not a clinical
+ * claim: it decides how logged days are grouped, and #186 says why it is two.
  */
 const CYCLE_VARS = [
   ['minCycleLengthDays', 'CYCLE_MIN_LENGTH_DAYS'],
   ['maxCycleLengthDays', 'CYCLE_MAX_LENGTH_DAYS'],
+  ['minPeriodGapDays', 'CYCLE_MIN_PERIOD_GAP_DAYS'],
   ['historyCycles', 'CYCLE_HISTORY_CYCLES'],
   ['minCyclesForEstimate', 'CYCLE_MIN_CYCLES_FOR_ESTIMATE'],
   ['narrowBandMinCycles', 'CYCLE_NARROW_BAND_MIN_CYCLES'],
@@ -200,7 +202,7 @@ const CYCLE_VAR_FOR_FIELD = new Map<string, string>([
 /**
  * The cycle maths' constants (A25–A27, #176), or `null`.
  *
- * **All fourteen or none, and a partial group is a boot failure** — the shape
+ * **All fifteen or none, and a partial group is a boot failure** — the shape
  * `providers.apple` has in this file, and the one #98 gives rung 2's thresholds, for the
  * reason each has it: a half-configured group is arithmetic running on numbers nobody
  * chose. Unlike Apple's signing key, a missing one here cannot be read as "not provisioned
@@ -240,6 +242,7 @@ const cycleRules = (): CycleRules | null => {
   const rules: CycleRules = {
     minCycleLengthDays: whole(cycleVar.minCycleLengthDays),
     maxCycleLengthDays: whole(cycleVar.maxCycleLengthDays),
+    minPeriodGapDays: whole(cycleVar.minPeriodGapDays),
     historyCycles: whole(cycleVar.historyCycles),
     minCyclesForEstimate: whole(cycleVar.minCyclesForEstimate),
     narrowBandMinCycles: whole(cycleVar.narrowBandMinCycles),

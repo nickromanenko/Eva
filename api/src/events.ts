@@ -37,11 +37,13 @@ export type SymptomSeverity = 'normal' | 'severe'
  *  (Firestore rejects undefined). Setting and clearing are both edits to the day's
  *  existing entry, so `localDate` never moves.
  *
- *  **It is stored and nothing here reads it.** The inferred end — the first day with no
- *  flow logged (PRD §Calendar) — is unchanged and still inferred. The two can disagree,
- *  once a later flow day is logged after a marked one, and which of them wins is the
- *  cycle maths' question (A11, C11), deliberately left open: #75 stores the fact and
- *  resolves nothing. Nothing in `api/src/` branches on this field. */
+ *  **Nothing here reads it, and exactly one thing anywhere does.** The inferred end — the
+ *  first day with no flow logged (PRD §Calendar) — is unchanged and still inferred. #75
+ *  stored the fact and deliberately left the disagreement open; #186 answered it in
+ *  `cycle.ts`, narrowly: a mark decides whether a *later flow day* continues the period it
+ *  ended, and nothing else — no end date, no period length, no cycle length. That read is
+ *  on the maths' own input type, so what carries this stored field to it is the event
+ *  mapping #179 adds to `today.ts`; until then nothing running consumes it. */
 export type CyclePayload =
   | { spotting: true; flow?: never; periodEnd?: never }
   | { flow: FlowLevel; spotting?: never; periodEnd?: true }
