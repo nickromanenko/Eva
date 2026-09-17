@@ -79,6 +79,8 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `content.ts` | The `content/` collection: the Dashboard's words — card templates, banners, nudges — and the version they are cached against | The only module that touches `content/`; refuses a write carrying no reviewer |
 | `dashboard-rules.ts` | The Today card's priority ladder (#96): a day's inputs in, the card's *subject* out — rung, template id, slot values, confidence wording class | Pure: no Firestore, no clock, no `fetch`; every input is passed in. Holds no text and no clinical threshold. Called by D3's card module, never by `index.ts` |
 | `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, caches the day's card, deletes them all | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser |
+
+| `cycle.ts` | The cycle maths (C11, #176): logged flow days in — counted cycles, the median next-period date, the fertile window, the FIGO irregularity band and the confidence class out | Pure: no Firestore, no clock, no `fetch`, no log line. Holds no constant of its own — every number arrives from `config.ts` and it refuses to answer without them. Every gate fails closed |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
@@ -106,6 +108,26 @@ deliberate rather than convenient: sharing `Slot` instead of restating it is wha
 comparison to other users, no scores for the person, no streaks" structural, because the card's
 slot vocabulary then has exactly one definition and a score cannot be introduced by editing a
 Firestore document.
+
+`cycle.ts` (C11, #176) is a leaf on the same terms, and shares vocabulary the same way: its
+two imports are `import type`, one from `dashboard-rules.ts` for the `CycleEstimate` D1
+consumes and one from `users.ts` for the `Profile` the age band is read from. Neither exists
+at runtime, so the maths still reaches nothing — the caller reads the flow entries and hands
+them in, which is what makes "recomputed on every edit to a flow entry, never a nightly
+batch" a property of the design rather than a job. Producing D1's shape rather than a parallel
+one is the same mechanism as sharing `Slot`: the ≥3-cycle gate and the irregularity band have
+exactly one definition, so the number the Today card speaks from cannot drift from the number
+the calendar draws. `today.ts` carries one *value* import from it — `CycleRulesUnsetError`,
+re-exported so the route can map that refusal to a 503 rather than letting it fall through to
+`app.onError` as a 500. It is a downward call to a leaf, the same shape as
+`today.ts → dashboard-rules.ts`, and it costs nothing at runtime.
+
+**There is one import that points the other way**, and it is worth stating because the rule
+above forbids it in general: `config.ts` imports `cycleRulesProblem` from `cycle.ts`. Those
+constants decide whether a fertile window is drawn at all, and they are checked twice — at
+boot, so an operator is told at startup, and on every evaluation, so a set assembled in code
+cannot get past it. Two copies of that check is the drift the single import exists to
+prevent. It is free at runtime for the reason above: `cycle.ts` loads nothing.
 
 ### Contracts
 
@@ -146,7 +168,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
 | `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days and while the entry has not been superseded (`409 DAY_ALREADY_LOGGED`) |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
-| `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card }` — the day's card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26) or `content/` is unseeded (#97) |
+| `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card }` — the day's card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26), the cycle maths' constants are unconfigured (#176), or `content/` is unseeded (#97) |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 | `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
 
@@ -1143,9 +1165,11 @@ because nothing here ever had it.
 Both of its inputs are unsupplied today, and the route says so rather than improvising: the
 pattern rung's thresholds are #26's and unconfigured, and `content/` is unseeded in every
 environment because #97 refuses to seed it without a reviewer. Either one makes
-`GET /me/today` answer `503 SERVICE_UNAVAILABLE`. The cycle maths (C11, #11) does not exist
-either, so `today.ts` passes a no-cycle-knowledge estimate and no card can state a phase —
-which is the safe direction, and the one place that changes when C11 lands.
+`GET /me/today` answer `503 SERVICE_UNAVAILABLE`, and so does an unset `CYCLE_*` group once
+anything on this route asks the maths for an answer. The cycle maths (C11, #176) now exists
+in `cycle.ts` but is **not wired in**: `today.ts` still passes a no-cycle-knowledge estimate
+and no card can state a phase — which is the safe direction, and #179 is the change that
+replaces it.
 
 **Planned (A3, A9 — §8 and §9 below; not yet in code):**
 

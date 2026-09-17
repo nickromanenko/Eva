@@ -80,6 +80,29 @@ if [ -z "$APPLE_SIGNIN_KEY_PEM" ]; then
 fi
 export APPLE_SIGNIN_KEY="$APPLE_SIGNIN_KEY_PEM"
 
+# **The cycle maths' constants (C11, #176), for the same reason the provider credentials
+# above are set: unconfigured is not the configuration that ships.**
+#
+# Left unset, `config.cycle` is `null`, `analyzeCycles` refuses, and every cycle path in the
+# suite takes its refusal branch — so a defect that only exists once the constants are
+# present would pass this gate. These are not secrets and not placeholders: they are the
+# values PRD §Predictions in Cycle mode settled on 2026-08-30 (A25–A27), the same ones
+# `api/.env.example` carries, so CI runs the configuration production is meant to run.
+export CYCLE_MIN_LENGTH_DAYS=21
+export CYCLE_MAX_LENGTH_DAYS=45
+export CYCLE_HISTORY_CYCLES=6
+export CYCLE_MIN_CYCLES_FOR_ESTIMATE=3
+export CYCLE_NARROW_BAND_MIN_CYCLES=6
+export CYCLE_LUTEAL_PHASE_DAYS=14
+export CYCLE_FERTILE_DAYS_BEFORE_OVULATION=5
+export CYCLE_FERTILE_DAYS_AFTER_OVULATION=1
+export CYCLE_PEAK_DAYS_BEFORE_OVULATION=2
+export CYCLE_IRREGULAR_YOUNG_MAX_AGE=25
+export CYCLE_IRREGULAR_MID_MAX_AGE=41
+export CYCLE_IRREGULAR_YOUNG_VARIATION_DAYS=9
+export CYCLE_IRREGULAR_MID_VARIATION_DAYS=7
+export CYCLE_IRREGULAR_OLDER_VARIATION_DAYS=9
+
 # api_ensure_up REUSES any healthy Eva API it finds, and `api_health` can tell that
 # something is an Eva API but not which project it points at. Reusing a stray dev server
 # here would run "the emulated suite" against production and report it green. Refuse

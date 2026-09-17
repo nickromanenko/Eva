@@ -58,6 +58,7 @@ import {
 } from "./events";
 import { getRefData, getSymptomRules, type SymptomRules } from "./refdata";
 import {
+    CycleRulesUnsetError,
     PatternRuleUnsetError,
     TemplateUnavailableError,
     deleteAllUserToday,
@@ -2150,11 +2151,12 @@ app.put("/me/body-signals/:date", requireAuth, requireAccount, async (c) => {
 /**
  * The Today card cannot be produced right now — and that is a refusal, not a bug.
  *
- * Two causes, both of them "something this card depends on has not been supplied": rung 2's
- * thresholds are unconfigured (#26 has not answered A32), or the content store holds no
- * template for the chosen subject at its confidence (nobody has seeded `content/`, which is
- * the state of every environment today — #97 refuses to seed without a reviewer). Answering
- * past either would mean a card that looks live and is not.
+ * Three causes, all of them "something this card depends on has not been supplied": rung 2's
+ * thresholds are unconfigured (#26 has not answered A32), the cycle maths' constants are
+ * unconfigured (A25–A27, #176), or the content store holds no template for the chosen
+ * subject at its confidence (nobody has seeded `content/`, which is the state of every
+ * environment today — #97 refuses to seed without a reviewer). Answering past any of them
+ * would mean a card that looks live and is not.
  *
  * `SERVICE_UNAVAILABLE` rather than a new code: the client contract grows by addition only
  * (GUARDRAILS 11), and this is exactly what that code already means everywhere else here —
@@ -2199,6 +2201,13 @@ app.get("/me/today", requireAuth, requireAccount, async (c) => {
         if (err instanceof TemplateUnavailableError) {
             return dashboardUnavailable(c, "template-unavailable");
         }
+        // C11's, and the only arm here that nothing can reach yet: `today.ts` still passes
+        // D1 a no-knowledge `CycleEstimate` and #179 is what swaps in `analyzeCycles`. It
+        // is mapped now because the day it becomes reachable is the day a deployment
+        // without the `CYCLE_*` group starts answering 500 instead of 503, and the
+        // `CYCLE_*` group is unset in every environment today (`deploy-api.yml` does not
+        // set it — #176 says why that is deliberate).
+        if (err instanceof CycleRulesUnsetError) return dashboardUnavailable(c, "cycle-rules-unset");
         // D1's `InvalidTimeError` had a third branch here and it was dead code: `date` comes
         // from `resolveClock`, `now` from `new Date()`, and `today.ts` drops a stored wall
         // clock it cannot parse rather than passing it down. Nothing could reach it, so

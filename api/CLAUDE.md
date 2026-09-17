@@ -35,7 +35,7 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
          ──► events.ts · today.ts · refdata.ts · email.ts · email-tokens.ts
          ──► firebase.ts · config.ts
 
-today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts
+today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · cycle.ts
 ```
 
 - `index.ts` — routes, validation, HTTP mapping. **No Firestore, no outbound fetch.**
@@ -124,8 +124,41 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts
   - Never log a card, a slot value or a signal, and never the template id: which card a user
     was about to see is derived from her logs, so `late_period` in a log line is a health
     fact about a named request (GUARDRAILS 12).
+  - **It re-exports the refusals `GET /me/today` answers 503 to**, and `index.ts` imports
+    them from here rather than from `dashboard-rules.ts` and `cycle.ts` — which is what
+    keeps the diagram above true. `CycleRulesUnsetError` is mapped and not yet *reachable*:
+    the estimate this module passes D1 is still #98's no-knowledge fixture and #179 is what
+    calls `analyzeCycles`. The arm ships with the error because the day it becomes
+    reachable is the day an unset `CYCLE_*` group turns a 503 into a 500, and that group is
+    unset in every environment today. `today.test.ts` pins that every exported refusal has
+    an arm, so the next one added fails the suite until it is mapped.
+
+- `cycle.ts` — the cycle maths (C11, #176). Logged flow days in; counted cycles, a
+  next-period date, a fertile window and a confidence band out. **Pure, like
+  `dashboard-rules.ts` and for the same reasons**: no Firestore, no clock, no `fetch`, no
+  log line — `today` is an argument, and its two imports are `import type`. Every number it
+  uses arrives in `CycleRules` from `config.ts` (A25–A27) and there is no default anywhere:
+  `analyzeCycles` throws `CycleRulesUnsetError` rather than estimating, exactly as rung 2
+  refuses without A32's thresholds. Every gate fails closed — under `minCyclesForEstimate`
+  counted cycles, over the FIGO band for her age, or with her age unknown and the variation
+  over the *tightest* band, there is no prediction and no window at all. An out-of-range
+  cycle is excluded from the estimate **and still returned, flagged** `unusual-length`;
+  dropping it from the output is the failure A25 names. **The median and the gate read
+  different samples, deliberately**: the median takes the counted cycles only, so a 60-day
+  interval cannot drag a predicted date, while the variation takes *every* interval between
+  them, so that interval still closes the gate. A25 item 2's literal "over the last 6
+  counted cycles" would hand a woman whose cycles alternate 28 and 60 days a fertile window
+  over a variation of zero — the fail-open §Phase 1 rules 4 and 5 and #176's Risks each
+  forbid. Age is read in `bandForAge` and nowhere else, so #81 (`profile.age` →
+  `dateOfBirth`) changes one function; an age outside the range the route accepts (13–99) is
+  read as *unknown* there, because the bands at both ends are the permissive ones and a
+  corrupted age must never be trusted more than a missing one.
+  `toCycleEstimate` projects the result into the `CycleEstimate` D1 already consumes.
 - `firebase.ts` — Admin SDK singleton. Never initialize a second app.
-- `config.ts` — required env vars, fail-fast.
+- `config.ts` — required env vars, fail-fast. It carries one import that points *up* this
+  list — `cycleRulesProblem` from `cycle.ts` — so the range checks the boot refuses and the
+  ones the maths refuses are one implementation rather than two copies that can drift. It
+  costs nothing at runtime: `cycle.ts` is pure and imports only types.
 
 ## Rules
 

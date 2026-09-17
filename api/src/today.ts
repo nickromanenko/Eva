@@ -447,7 +447,12 @@ export interface TodayRequest {
  * changes the card and new words do not.
  *
  * Throws `PatternRuleUnsetError` (D1's) and `TemplateUnavailableError` — refusals the route
- * answers `503` to, never `500`.
+ * answers `503` to, never `500`. `CycleRulesUnsetError` (C11's) is mapped there too and is
+ * not yet reachable from here: this function still hands D1 a no-knowledge `CycleEstimate`
+ * and #179 is what replaces it with `analyzeCycles`. The mapping ships with the error
+ * rather than after it, because the failure it prevents is a 500 on the first deployment
+ * that runs #179's code without the `CYCLE_*` group — and that is a deployment nobody
+ * would test first.
  *
  * D1 also documents `InvalidTimeError`, and this function cannot raise it: `request.date`
  * is `resolveClock`'s output, `now` is `new Date().toISOString()`, and `toSignalEntry`
@@ -509,4 +514,13 @@ export const deleteAllUserToday = async (uid: string): Promise<number> => {
   }
 }
 
+/**
+ * The refusals `GET /me/today` answers `503` to, re-exported from the one place each is
+ * defined so the route's `instanceof` is the same class object the thrower constructs.
+ *
+ * `index.ts` imports them from here rather than from `dashboard-rules.ts` and `cycle.ts`
+ * directly, which is what keeps the module diagram in `api/CLAUDE.md` true: the route knows
+ * this module and this module knows the two below it.
+ */
 export { PatternRuleUnsetError }
+export { CycleRulesUnsetError } from './cycle'
