@@ -126,12 +126,21 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
     fact about a named request (GUARDRAILS 12).
   - **It re-exports the refusals `GET /me/today` answers 503 to**, and `index.ts` imports
     them from here rather than from `dashboard-rules.ts` and `cycle.ts` — which is what
-    keeps the diagram above true. `CycleRulesUnsetError` is mapped and not yet *reachable*:
-    the estimate this module passes D1 is still #98's no-knowledge fixture and #179 is what
-    calls `analyzeCycles`. The arm ships with the error because the day it becomes
-    reachable is the day an unset `CYCLE_*` group turns a 503 into a 500, and that group is
-    unset in every environment today. `today.test.ts` pins that every exported refusal has
-    an arm, so the next one added fails the suite until it is mapped.
+    keeps the diagram above true. All three are reachable since #179: `CycleRulesUnsetError`
+    was mapped one issue early (#181), because the day it became reachable is the day an
+    unset `CYCLE_*` group turns a 503 into a 500, and that group is unset in every
+    environment today. `today.test.ts` boots a server per arm, and pins separately that every
+    exported refusal has one — so the next refusal added fails the suite until it is mapped,
+    before anything can throw it.
+  - **It is the seam the cycle maths is read through (#179).** `cycleEstimate` hands
+    `analyzeCycles` the logged `cycle` entries, the caller's local date and the profile, and
+    projects the answer with `toCycleEstimate`; no gate, band or threshold is re-decided
+    here. Two things in that mapping are load-bearing and neither fails loudly if dropped:
+    `toCycleDay` carries #75's `periodEnd` mark, which `cycle.ts` is the one reader of, and
+    the event read is widened to `(historyCycles + 2) × maxCycleLengthDays` days — derived
+    from the constants, never a number — because a window shorter than the maths' own reach
+    answers "regular" over a truncated history rather than failing. Body signals stay on rung
+    2's much shorter span: a year of them is a year of health data in memory for no answer.
 
 - `cycle.ts` — the cycle maths (C11, #176). Logged flow days in; the periods they group
   into, counted cycles, a next-period date, a fertile window and a confidence band out.

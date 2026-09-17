@@ -2218,12 +2218,11 @@ app.get("/me/today", requireAuth, requireAccount, async (c) => {
         if (err instanceof TemplateUnavailableError) {
             return dashboardUnavailable(c, "template-unavailable");
         }
-        // C11's, and the only arm here that nothing can reach yet: `today.ts` still passes
-        // D1 a no-knowledge `CycleEstimate` and #179 is what swaps in `analyzeCycles`. It
-        // is mapped now because the day it becomes reachable is the day a deployment
-        // without the `CYCLE_*` group starts answering 500 instead of 503, and the
-        // `CYCLE_*` group is unset in every environment today (`deploy-api.yml` does not
-        // set it — #176 says why that is deliberate).
+        // C11's, and reachable since #179 handed `today.ts`'s estimate to `analyzeCycles`.
+        // It was mapped one issue before it could be thrown (#181), because the day it
+        // became reachable is the day a deployment without the `CYCLE_*` group starts
+        // answering 500 instead of 503 — and that group is unset in every environment today
+        // (`deploy-api.yml` does not set it; #176 says why that is deliberate).
         if (err instanceof CycleRulesUnsetError) return dashboardUnavailable(c, "cycle-rules-unset");
         // D1's `InvalidTimeError` had a third branch here and it was dead code: `date` comes
         // from `resolveClock`, `now` from `new Date()`, and `today.ts` drops a stored wall

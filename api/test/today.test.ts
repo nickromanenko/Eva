@@ -3,6 +3,7 @@ import { Timestamp } from "firebase-admin/firestore";
 import { applyContent, contentVersion, invalidateContentCache, type Review } from "../src/content";
 import * as todayModule from "../src/today";
 import { PatternRuleUnsetError, TemplatePhraser, TemplateUnavailableError, getToday, type Phraser, type PhrasedText } from "../src/today";
+import { config } from "../src/config";
 import { CycleRulesUnsetError } from "../src/cycle";
 import type { Subject } from "../src/dashboard-rules";
 import type { Template } from "../src/content";
@@ -79,6 +80,68 @@ const NO_PATTERN_ENV = {
     DASHBOARD_PATTERN_LOW_SIGNAL_DAYS: "",
     DASHBOARD_PATTERN_LOW_AT_OR_BELOW: "",
     DASHBOARD_PATTERN_SEVERE_SYMPTOM_DAYS: "",
+};
+
+/**
+ * The cycle maths' fifteen, unset — the same "empty, not absent" trick, for the group
+ * `config.ts` treats as all-or-nothing (#176).
+ *
+ * All fifteen, because a *partial* group is a boot failure rather than an unconfigured
+ * capability: leaving one set would spawn a server that never answers instead of one that
+ * refuses, and the case below would then be about `bootApi` timing out.
+ *
+ * Listed here rather than derived from `config.ts`'s own table, deliberately: a variable
+ * renamed there must fail this file rather than be silently emptied under its new name.
+ */
+const NO_CYCLE_ENV = Object.fromEntries(
+    [
+        "CYCLE_MIN_LENGTH_DAYS",
+        "CYCLE_MAX_LENGTH_DAYS",
+        "CYCLE_MIN_PERIOD_GAP_DAYS",
+        "CYCLE_HISTORY_CYCLES",
+        "CYCLE_MIN_CYCLES_FOR_ESTIMATE",
+        "CYCLE_NARROW_BAND_MIN_CYCLES",
+        "CYCLE_LUTEAL_PHASE_DAYS",
+        "CYCLE_FERTILE_DAYS_BEFORE_OVULATION",
+        "CYCLE_FERTILE_DAYS_AFTER_OVULATION",
+        "CYCLE_PEAK_DAYS_BEFORE_OVULATION",
+        "CYCLE_IRREGULAR_YOUNG_MAX_AGE",
+        "CYCLE_IRREGULAR_MID_MAX_AGE",
+        "CYCLE_IRREGULAR_YOUNG_VARIATION_DAYS",
+        "CYCLE_IRREGULAR_MID_VARIATION_DAYS",
+        "CYCLE_IRREGULAR_OLDER_VARIATION_DAYS",
+    ].map((name) => [name, ""]),
+);
+
+/**
+ * The constants the cycle fixtures below are built for — A25–A27's values, which are what
+ * `api/.env.example` carries and what `scripts/ci-api.sh` exports into this run.
+ *
+ * **Asserted rather than assumed** (the first case in that describe). Every fixture date is
+ * placed inside a phase boundary these numbers draw — a period gap of two days, a fourteen-
+ * day luteal phase, a window opening five days before ovulation — so a run configured
+ * differently would land a fixture in another phase and assert the wrong card while looking
+ * green. This process and the server it spawned share an environment, so what is read here
+ * is what that server is running.
+ */
+const CYCLE_RULES = {
+    minCycleLengthDays: 21,
+    maxCycleLengthDays: 45,
+    minPeriodGapDays: 2,
+    historyCycles: 6,
+    minCyclesForEstimate: 3,
+    narrowBandMinCycles: 6,
+    lutealPhaseDays: 14,
+    fertileDaysBeforeOvulation: 5,
+    fertileDaysAfterOvulation: 1,
+    peakDaysBeforeOvulation: 2,
+    irregularity: {
+        youngMaxAge: 25,
+        midMaxAge: 41,
+        youngVariationDays: 9,
+        midVariationDays: 7,
+        olderVariationDays: 9,
+    },
 };
 
 const REVIEW: Review = {
@@ -780,13 +843,243 @@ describe.skipIf(!onEmulators)("GET /me/today, served", () => {
     });
 });
 
+// ── The cycle maths, through the route ─────────────────────────────────────────────────
+
 /**
- * The route's two refusals, each on a server that can produce only one of them — which is
+ * `GET /me/today` over a real cycle history (#179).
+ *
+ * Until this issue `today.ts` handed D1 a hardcoded "knows nothing" `CycleEstimate`, so no
+ * request this repo could make had ever produced a card that states a phase. These cases are
+ * the first that do, and they are deliberately end to end — through the route, against
+ * entries created through `POST /me/events` — because the two things #179 could quietly get
+ * wrong are both invisible one layer down: a `periodEnd` mark dropped on the mapping seam,
+ * and an event window too narrow to see the history the maths is asked to read. Both pass
+ * every unit test of `cycle.ts`, which is tested against fixtures it is handed directly.
+ *
+ * They run against this file's own server, which has the pattern rung configured and
+ * inherits the `CYCLE_*` group from the environment `scripts/ci-api.sh` exports.
+ *
+ * Age is not a variable here: every fixture's variation is either 0–1 day (inside the
+ * tightest FIGO band) or over 20 (outside the widest), so which band `bandForAge` picks
+ * cannot change an answer — which is what lets these cases run after the one that saves a
+ * questionnaire without depending on whether it did.
+ */
+describe.skipIf(!onEmulators)("GET /me/today, over a logged cycle history", () => {
+    const post = (body: unknown) =>
+        api("/me/events", { method: "POST", body: JSON.stringify(body) });
+
+    /** One flow day, optionally carrying #75's "my period ended" mark. Returns its id, which
+     *  is what the delete case needs. */
+    const flowOn = async (localDate: string, periodEnd = false): Promise<string> => {
+        const res = await post({
+            type: "cycle",
+            localDate,
+            payload: periodEnd ? { flow: "medium", periodEnd: true } : { flow: "medium" },
+            timeZone: "UTC",
+        });
+        expect(res.status).toBe(201);
+        return (await json<{ event: { id: string } }>(res)).event.id;
+    };
+
+    const spottingOn = async (localDate: string) => {
+        const res = await post({
+            type: "cycle",
+            localDate,
+            payload: { spotting: true },
+            timeZone: "UTC",
+        });
+        expect(res.status).toBe(201);
+    };
+
+    /** A period as she would log it: `days` consecutive flow days from `start`. */
+    const periodFrom = async (start: string, days: number): Promise<string> => {
+        const first = await flowOn(start);
+        for (let offset = 1; offset < days; offset++) await flowOn(shiftDays(start, offset));
+        return first;
+    };
+
+    /**
+     * A known account and no cached card.
+     *
+     * Every case here asserts *which* card the ladder chose, so it cannot start from whatever
+     * ran before it — and a soft-deleted entry is still a row `lastEventChangeAt` can see,
+     * which is why `clearEvents` hard-removes rather than deleting through the route.
+     */
+    const startFresh = async () => {
+        await clearEvents();
+        for (const doc of await storedDays()) await doc.ref.delete();
+    };
+
+    const cardToday = async (): Promise<TodayBody> => {
+        const res = await api("/me/today?timeZone=UTC");
+        expect(res.status).toBe(200);
+        return json<TodayBody>(res);
+    };
+
+    /** `today - back`, in UTC, which is the zone every case here calls in. */
+    const back = (days: number) => shiftDays(todayIn("UTC"), -days);
+
+    test("the constants these fixtures are built for are the ones this run configured", () => {
+        expect(config.cycle).toEqual(CYCLE_RULES);
+    });
+
+    /**
+     * **The first card in this repo's history to state a phase.**
+     *
+     * Six logged periods, 28 days apart, the last opening six days ago: five counted cycles
+     * (over A26's ≥3 gate), a variation of zero, and a fertile window that opens on cycle day
+     * 10 — so today, cycle day 7, is follicular. Her last logged flow day is four days ago,
+     * which is past `minPeriodGapDays`, so the period run is over and she is not menstrual.
+     *
+     * Follicular is the *only* phase this card is selected for since #184/#195 — every other
+     * phase falls through to the educational card rather than being told it is approaching
+     * ovulation — so this fixture is built for it rather than for whichever phase happened to
+     * come out.
+     *
+     * The oldest entry it reads is 146 days back, which is also what pins the widened event
+     * window: on #98's three-day read the maths sees nothing and this card is unreachable.
+     */
+    test("six regular logged periods reach the phase card", async () => {
+        await startFresh();
+        for (const days of [146, 118, 90, 62, 34]) await periodFrom(back(days), 2);
+        await periodFrom(back(6), 3);
+
+        const today = await cardToday();
+        expect(today.card.templateId).toBe("phase_energy");
+        expect(today.card.rung).toBe("phase");
+        expect(today.card.state).toBe("home_d");
+        expect(today.card.kicker).toBe("Cycle day 7 · likely approaching ovulation");
+        expect(today.card.title).toBe(TEMPLATES.find((t) => t.id === "phase_energy")!.title);
+        expect(JSON.stringify(today.card)).not.toMatch(UNFILLED);
+    });
+
+    /**
+     * A25 item 5 — recomputed on every edit to a flow entry, never a nightly batch.
+     *
+     * Deleting the day the current period opened on moves the anchor forward one day, so the
+     * same fixture answers cycle day 6 instead of 7 on the very next read. Through D3's
+     * existing `dataChangedAt` path: nothing here clears the stored card, and the card that
+     * comes back is a different one.
+     */
+    test("deleting the flow day the cycle is anchored on moves the card on the next read", async () => {
+        await startFresh();
+        for (const days of [146, 118, 90, 62, 34]) await periodFrom(back(days), 2);
+        const anchor = await periodFrom(back(6), 3);
+
+        const before = await cardToday();
+        expect(before.card.kicker).toBe("Cycle day 7 · likely approaching ovulation");
+
+        expect((await api(`/me/events/${anchor}`, { method: "DELETE" })).status).toBe(200);
+
+        const after = await cardToday();
+        expect(after.card.templateId).toBe("phase_energy");
+        expect(after.card.kicker).toBe("Cycle day 6 · likely approaching ovulation");
+        expect(after.generatedAt > before.generatedAt).toBe(true);
+    });
+
+    /**
+     * #197 (merged as #203), end to end, and the reason this issue waited for it.
+     *
+     * She is on day 4 of her period and has not logged this morning — the normal state of
+     * most of any morning, since `LogCycleStep.swift` logs one day at a time and back-fills
+     * nothing. Every other number here is the case above's: five counted 28-day cycles, no
+     * irregularity, a fertile window that has not opened. Read by the *logged* run alone she
+     * is follicular on cycle day 4 and this route hands her "Cycle day 4 · likely approaching
+     * ovulation" over "a harder training session may be an option".
+     *
+     * She is menstrual instead, because the run is not over until `minPeriodGapDays` days in
+     * a row carry nothing, and she gets the educational card — which is the correct answer
+     * until the canvas draws a menstrual variant of `home_d` (#191).
+     */
+    test("a woman still bleeding who has not logged today is not told she is approaching ovulation", async () => {
+        await startFresh();
+        for (const days of [143, 115, 87, 59, 31]) await periodFrom(back(days), 2);
+        await periodFrom(back(3), 3);
+
+        const today = await cardToday();
+        expect(today.card.templateId).not.toBe("phase_energy");
+        expect(today.card.templateId).toBe("educational");
+        expect(today.card.state).toBe("home_edu");
+        expect(JSON.stringify(today.card)).not.toContain("approaching ovulation");
+    });
+
+    /**
+     * #181's fail-closed gate, held end to end rather than in the pure module alone.
+     *
+     * Intervals of 28, 60, 28, 60, 28, 60. Only the three 28s are counted, which is enough
+     * to pass A26's ≥3 gate, and A25's literal "over the last 6 counted cycles" would read a
+     * variation of zero and hand an oligomenorrhoeic user a confident phase and a fertile
+     * window. The variation is taken over every interval *between* those cycles instead, so
+     * it is 32 days, the FIGO band closes, and the estimate is withheld.
+     *
+     * Her oldest logged period here is 270 days back — the deepest read in this file, and
+     * the one the derived window has to reach for the gate to see the 60-day intervals at
+     * all. A window too short does not fail loudly; it answers "regular" (#179 Risks).
+     */
+    test("alternating 28- and 60-day cycles stay withheld through the route", async () => {
+        await startFresh();
+        for (const days of [270, 242, 182, 154, 94, 66, 6]) await periodFrom(back(days), 2);
+
+        const today = await cardToday();
+        expect(today.card.templateId).toBe("irregular");
+        expect(today.card.state).toBe("home_c");
+        expect(today.card.rung).toBe("phase");
+        expect(JSON.stringify(today.card)).not.toContain("approaching ovulation");
+    });
+
+    /**
+     * #75's period-end mark, carried across the seam this issue adds — the pair below is the
+     * assertion, not either case alone.
+     *
+     * Identical days in both: four 28-day periods, then flow on days -8, -7 and -6, spotting
+     * on -5 and -4, and flow again on -3. The only difference is whether she marked the -6
+     * entry as the end of her period.
+     *
+     * Unmarked, the spotting carries the run across and the -3 flow day continues the same
+     * period: one period opening on day -8, cycle day 9, follicular, `phase_energy`. Marked,
+     * the -3 flow day is at `minPeriodGapDays` past the mark, so it opens a new period — a
+     * five-day interval, outside the countable range, and a variation that closes the band.
+     *
+     * **Nothing fails if `toCycleDay` drops `periodEnd`**: the maths simply never sees a mark
+     * anyone set, and the marked case answers exactly as the unmarked one does. That is what
+     * this pair is for, and it is why the assertion is on both halves.
+     */
+    const markFixture = async (marked: boolean) => {
+        await startFresh();
+        for (const days of [120, 92, 64, 36]) await periodFrom(back(days), 2);
+        await flowOn(back(8));
+        await flowOn(back(7));
+        await flowOn(back(6), marked);
+        await spottingOn(back(5));
+        await spottingOn(back(4));
+        await flowOn(back(3));
+    };
+
+    test("unmarked, the spotting carries her period across to the later flow day", async () => {
+        await markFixture(false);
+
+        const today = await cardToday();
+        expect(today.card.templateId).toBe("phase_energy");
+        expect(today.card.kicker).toBe("Cycle day 9 · likely approaching ovulation");
+    });
+
+    test("and the mark she set opens a new period instead — which the route can see", async () => {
+        await markFixture(true);
+
+        const today = await cardToday();
+        expect(today.card.templateId).toBe("irregular");
+        expect(today.card.state).toBe("home_c");
+        expect(today.card.templateId).not.toBe("phase_energy");
+    });
+});
+
+/**
+ * The route's three refusals, each on a server that can produce only one of them — which is
  * what makes a green run evidence about *that* `instanceof` arm rather than about 503s in
  * general.
  *
  * Emulator-only and deliberately so. CI runs `scripts/ci-api.sh`, which is emulators, and
- * the only route-level 503 case before this one was `skipIf(onEmulators)` — so it was the
+ * the only route-level 503 case before these was `skipIf(onEmulators)` — so it was the
  * suite's single skip and CI exercised neither branch. Each server is started inside its
  * case and killed with it: `config.ts` reads the environment once at import, so this is the
  * only seam, and nothing here runs against the real project.
@@ -797,7 +1090,9 @@ describe.skipIf(!onEmulators)("GET /me/today refuses rather than failing", () =>
     test("503 when rung 2's thresholds are unconfigured", async () => {
         await todayDocs().doc(utcDay()).delete();
         // Content is seeded, so `TemplateUnavailableError` cannot fire: D1 throws first,
-        // at `requirePatternRule`, before `getContent` is reached.
+        // at `requirePatternRule`, before `getContent` is reached. The `CYCLE_*` group is
+        // inherited and set, so C11's refusal — which since #179 is raised earlier still,
+        // while the ladder's inputs are being gathered — cannot fire either.
         const server = await bootApi(NO_PATTERN_ENV);
         try {
             const res = await apiAt(server.base, "/me/today?timeZone=UTC");
@@ -829,23 +1124,48 @@ describe.skipIf(!onEmulators)("GET /me/today refuses rather than failing", () =>
             invalidateContentCache();
         }
     }, 60_000);
+
+    /**
+     * C11's, reachable for the first time since #179 (the issue's fourth acceptance
+     * criterion), and tested the way the rung-2 case above is: a server booted with the group
+     * empty, because `config.ts` reads the environment once at import.
+     *
+     * **This is the configuration every deployment runs today** — `deploy-api.yml` sets no
+     * `CYCLE_*` variable, deliberately (#176, #191) — so without the arm the change made by
+     * #179 turns the first real request into a 500 with a `ref` and no explanation. The
+     * pattern rung is configured on this server and `content/` is seeded, so neither of the
+     * other two refusals can be what answers.
+     */
+    test("503 when the cycle maths' constants are unconfigured", async () => {
+        await todayDocs().doc(utcDay()).delete();
+        const server = await bootApi({ ...PATTERN_ENV, ...NO_CYCLE_ENV });
+        try {
+            const res = await apiAt(server.base, "/me/today?timeZone=UTC");
+            // 503, not the 500 `app.onError` hands back anything the route drops.
+            expect(res.status).toBe(503);
+            expect((await json<ErrorBody>(res)).error.code).toBe("SERVICE_UNAVAILABLE");
+            expect((await todayDocs().doc(utcDay()).get()).exists).toBe(false);
+        } finally {
+            server.child.kill();
+        }
+    }, 60_000);
 });
 
 /**
- * **Every refusal this module exports is mapped, including the one nothing can throw yet.**
+ * **Every refusal this module exports is mapped — and the list is derived, not written.**
  *
- * The two cases above boot a server each and prove their own `instanceof` arm end to end.
- * `CycleRulesUnsetError` cannot be proved that way: `getToday` still hands D1 a
- * no-knowledge `CycleEstimate` and #179 is the change that calls `analyzeCycles`, so no
- * request can reach the arm. The day it can is the day a deployment without the `CYCLE_*`
- * group — which is every deployment today, deliberately (#176) — answers 500 instead of
- * 503 for an unset configuration. So the arm ships with the error, and these two cases are
- * what hold it there:
+ * The three cases above boot a server each and prove their own `instanceof` arm end to end,
+ * which is the strong evidence. `CycleRulesUnsetError` could not be proved that way until
+ * #179: `getToday` handed D1 a no-knowledge `CycleEstimate`, so no request reached the arm,
+ * and the arm shipped one issue early (#181) precisely because the day it became reachable
+ * was the day a deployment without the `CYCLE_*` group — which is every deployment today,
+ * deliberately (#176, #191) — would answer 500 instead of 503. These two cases are what kept
+ * it honest in the meantime, and they still hold the general rule:
  *
  *  - the class the route branches on is the *same object* the maths constructs, so the
  *    `instanceof` will match rather than silently falling through to `app.onError`;
  *  - and the route's catch has an arm for every refusal `today.ts` exports, so the next
- *    refusal added below it fails here until it is mapped too.
+ *    refusal added below it fails here until it is mapped too — before anything can throw it.
  *
  * Neither needs Firestore or a server, so both run in every environment.
  */

@@ -930,8 +930,8 @@ so marked days get no rule of their own; what the mark changes is that a *spotti
 after it no longer carries the period forward to a later flow day, because she has said the
 period is over. It is read for that decision and for nothing else — not an end date, not a
 period length, not a cycle length — which is #75's scope line kept rather than lifted. The
-stored field reaches the maths through the event mapping #179 adds to `today.ts`; until
-then nothing running consumes it.
+stored field reaches the maths through `toCycleDay` in `today.ts` (#179), which is the only
+mapping between it and its one reader.
 
 **Retention — the 30 days are a clock, not a wish (#28).** `DELETE /me/events/{id}` is
 soft: it stamps `deletedAt` and range reads skip the entry. For the next 30 days
@@ -1201,14 +1201,27 @@ no event of any kind: the only logged input the ladder receives is body signals,
 entry (PRD Edge case 6) cannot reach a card by any path, and hiding one changes nothing
 because nothing here ever had it.
 
-Both of its inputs are unsupplied today, and the route says so rather than improvising: the
-pattern rung's thresholds are #26's and unconfigured, and `content/` is unseeded in every
-environment because #97 refuses to seed it without a reviewer. Either one makes
-`GET /me/today` answer `503 SERVICE_UNAVAILABLE`, and so does an unset `CYCLE_*` group once
-anything on this route asks the maths for an answer. The cycle maths (C11, #176) now exists
-in `cycle.ts` but is **not wired in**: `today.ts` still passes a no-cycle-knowledge estimate
-and no card can state a phase — which is the safe direction, and #179 is the change that
-replaces it.
+All three of its inputs are unsupplied today, and the route says so rather than improvising:
+the pattern rung's thresholds are #26's and unconfigured, `content/` is unseeded in every
+environment because #97 refuses to seed it without a reviewer, and the `CYCLE_*` group is
+unset everywhere (#176, #191). Any one of them makes `GET /me/today` answer
+`503 SERVICE_UNAVAILABLE`.
+
+**The cycle maths is wired in as of #179.** `today.ts` reads the logged `cycle` entries over
+a window derived from the constants — `(historyCycles + 2) × maxCycleLengthDays`, about a
+year, so the median and the variation see the history they are defined over — maps each to
+`cycle.ts`'s `CycleDay` (flow, spotting, and #75's `periodEnd` mark), and hands them to
+`analyzeCycles` with the profile `bandForAge` reads one field of. `toCycleEstimate` projects
+the answer into the `CycleEstimate` D1 already consumed, so no gate or band is decided
+twice. Body signals stay on rung 2's own, much shorter span: entries outside it change no
+answer, and a year of them in memory is a year of health data read for nothing.
+
+The estimate asks the maths *before* the ladder is consulted, so an unset `CYCLE_*` group
+refuses at `gatherInput` rather than at rung 4 — which is why the route's third 503 arm is
+the one a deployment hits first. What is still withheld is not engineering: `phase_energy`
+is the only phase card the canvas has drawn, it is selected for `follicular` alone (#184,
+#195), and every other phase falls through to the educational card until the variants are
+drawn.
 
 **Planned (A3, A9 — §8 and §9 below; not yet in code):**
 
