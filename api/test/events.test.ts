@@ -569,6 +569,118 @@ describe("events: cycle", () => {
         expect(onThatDay[0]!.localDate).toBe(date);
         expect(onThatDay[0]!.payload).toEqual({ flow: "medium" });
     });
+
+    // #188. Spotting is a mark that is present or absent, so `spotting: false` is a client
+    // saying something the model cannot store; "not spotting" is said by omitting the key or
+    // by sending a flow level. Coercing the value would store a spotting day she never
+    // logged, and since #181 a spotting day changes how her cycles are grouped. A refusal
+    // costs the client a retry, which is the cheaper failure, so the value is refused. The
+    // parser has always done that, but until these tests nothing checked it.
+    //
+    // Every refusal here is a 400 VALIDATION, and the catch-all ("A cycle entry needs either
+    // spotting or a flow level") refuses a bare `{ spotting: false }` too. Its message
+    // *also* names spotting, so #183's check that the message names the field would pass
+    // with this rule deleted. Only this rule's message says the value must be true.
+    const refusedAsNotTrue = async (res: Response): Promise<void> => {
+        expect(res.status).toBe(400);
+        const { code, message } = (await json<ErrorResponse>(res)).error;
+        expect(code).toBe("VALIDATION");
+        expect(message).toContain("spotting must be true");
+    };
+
+    test("spotting is only ever true: false and every other value are refused, and store nothing", async () => {
+        const date = shiftDays(todayIn("UTC"), -47);
+        const log = (payload: Record<string, unknown>) =>
+            post({ type: "cycle", localDate: date, timeZone: "UTC", payload });
+
+        // `"true"` is here for truthiness: a check that tests whether the value is truthy
+        // rather than whether it is `true` stores the string as a spotting day.
+        for (const spotting of [false, 0, "true"]) {
+            await refusedAsNotTrue(await log({ spotting }));
+        }
+
+        // `null` means absent here, as it does for `flow` and `periodEnd` in the same payload.
+        // So this body is empty and the catch-all refuses it. That rule's message is not
+        // this one's, which is why only the status is checked.
+        const nulled = await log({ spotting: null });
+        expect(nulled.status).toBe(400);
+        expect((await json<ErrorResponse>(nulled)).error.code).toBe("VALIDATION");
+
+        // Beside a flow level, `false` is refused too. The "not both" rule gets there first,
+        // and either rule refusing is enough. What matters is that the body is never read as
+        // "not spotting, heavy flow", which would be a guess at what the client meant.
+        const withFlow = await log({ spotting: false, flow: "heavy" });
+        expect(withFlow.status).toBe(400);
+        expect((await json<ErrorResponse>(withFlow)).error.code).toBe("VALIDATION");
+
+        // Nothing above was stored, so the day still has no entry.
+        expect(await cycleOn(date)).toBeUndefined();
+    });
+
+    test("a spotting day round-trips unchanged, and a null spotting beside a flow level is not a mark", async () => {
+        const spottingDay = shiftDays(todayIn("UTC"), -48);
+        const flowDay = shiftDays(todayIn("UTC"), -49);
+        const nulledDay = shiftDays(todayIn("UTC"), -50);
+        const log = (localDate: string, payload: Record<string, unknown>) =>
+            post({ type: "cycle", localDate, timeZone: "UTC", payload });
+
+        const spotting = await log(spottingDay, { spotting: true });
+        expect(spotting.status).toBe(201);
+        expect((await json<EventResponse>(spotting)).event.payload).toEqual({ spotting: true });
+
+        const flow = await log(flowDay, { flow: "light" });
+        expect(flow.status).toBe(201);
+        expect((await json<EventResponse>(flow)).event.payload).toEqual({ flow: "light" });
+
+        // Accepted as the flow day it is. The null is dropped rather than stored, so it
+        // cannot come back later as a spotting key that is present but empty.
+        const nulled = await log(nulledDay, { spotting: null, flow: "light" });
+        expect(nulled.status).toBe(201);
+        expect((await json<EventResponse>(nulled)).event.payload).toEqual({ flow: "light" });
+
+        // Check the range read as well as the write response.
+        expect((await cycleOn(spottingDay))!.payload).toEqual({ spotting: true });
+        for (const day of [flowDay, nulledDay]) {
+            const stored = (await cycleOn(day))!.payload;
+            expect(stored).toEqual({ flow: "light" });
+            expect(Object.hasOwn(stored, "spotting")).toBe(false);
+        }
+    });
+
+    test("PATCH refuses a spotting value that is not true, and leaves the day as it was", async () => {
+        const date = shiftDays(todayIn("UTC"), -51);
+        const event = (
+            await json<EventResponse>(
+                await post({
+                    type: "cycle",
+                    localDate: date,
+                    timeZone: "UTC",
+                    payload: { flow: "light" },
+                }),
+            )
+        ).event;
+
+        const patch = (payload: Record<string, unknown>) =>
+            api(`/me/events/${event.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ type: "cycle", localDate: date, timeZone: "UTC", payload }),
+            });
+
+        // PATCH replaces `payload` whole, so an accepted `false` would turn a flow day into a
+        // spotting day in one request.
+        for (const spotting of [false, 0, "true"]) {
+            await refusedAsNotTrue(await patch({ spotting }));
+        }
+        expect((await patch({ spotting: null })).status).toBe(400);
+        expect((await cycleOn(date))!.payload).toEqual({ flow: "light" });
+
+        // The control: this entry does take an edit, so the refusals above came from the
+        // value and not from the edit itself.
+        const edited = await patch({ spotting: true });
+        expect(edited.status).toBe(200);
+        expect((await json<EventResponse>(edited)).event.id).toBe(event.id);
+        expect((await cycleOn(date))!.payload).toEqual({ spotting: true });
+    });
 });
 
 describe("events: body signals", () => {
