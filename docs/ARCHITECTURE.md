@@ -78,7 +78,7 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
 | `content.ts` | The `content/` collection: the Dashboard's words — card templates, banners, nudges — and the version they are cached against | The only module that touches `content/`; refuses a write carrying no reviewer |
 | `dashboard-rules.ts` | The Today card's priority ladder (#96): a day's inputs in, the card's *subject* out — rung, template id, slot values, confidence wording class | Pure: no Firestore, no clock, no `fetch`; every input is passed in. Holds no text and no clinical threshold. Called by D3's card module, never by `index.ts` |
-| `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, caches the day's card, deletes them all | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser |
+| `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, caches the day's card, deletes them all. Also **the seam the cycle maths is read through** — `cycleEstimate` for the card, `cycleAnalysisFor` for the calendar (#205) | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser. Both cycle readers share one event window, one `CycleDay` mapping and one call to `analyzeCycles` |
 
 | `cycle.ts` | The cycle maths (C11, #176): logged flow days in — the periods they group into (#186), counted cycles, the median next-period date, the fertile window, the FIGO irregularity band and the confidence class out | Pure: no Firestore, no clock, no `fetch`, no log line. Holds no constant of its own — every number arrives from `config.ts` and it refuses to answer without them. Every gate fails closed. The one reader of `periodEnd`, for one decision (§4) |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
@@ -168,6 +168,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
 | `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days and while the entry has not been superseded (`409 DAY_ALREADY_LOGGED`) |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
+| `GET /me/cycle/predictions?from=&to=&timeZone=` | Bearer | `{ from, to, predictedPeriod, fertileWindow, peak, confidence, withheld }` — the calendar's overlay for a range (#205). Three lists of `localDate`s, clipped to the range; `confidence` is C11's own `wide`/`narrow` band, `null` when nothing is predicted, and `withheld` then names the gate that closed (`no-flow-logged`, `too-few-counted-cycles`, `irregular-cycles`). Range validated and capped exactly as `/me/events` is, with the same `VALIDATION` code. `503 SERVICE_UNAVAILABLE` while the cycle maths' constants are unconfigured (#176) |
 | `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card }` — the day's card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26), the cycle maths' constants are unconfigured (#176), or `content/` is unseeded (#97) |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 | `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
@@ -1222,6 +1223,22 @@ the one a deployment hits first. What is still withheld is not engineering: `pha
 is the only phase card the canvas has drawn, it is selected for `follicular` alone (#184,
 #195), and every other phase falls through to the educational card until the variants are
 drawn.
+
+**And the calendar reads the same seam as of #205.** `GET /me/cycle/predictions` answers
+**by range**, because `CalendarModel` already fetches events by range and caches by month and
+a month grid spans up to three of them — a per-day prediction would give one screen two fetch
+models. `cycleAnalysisFor` gathers what `gatherInput` gathers, through the same `toCycleDay`
+mapping and the same derived window, and hands it to the same `analyzeCycles`; what differs
+is only which shape the answer is projected into. The calendar needs `CycleAnalysis` rather
+than `CycleEstimate`: the latter is D1's projection and carries no `cycles` list, so "unusual
+length" cannot surface through it and neither can the fertile window's own dates. The route
+clips C11's dates to the range asked for and adds nothing — in particular, predicted period
+is the *one* day `nextPeriodStart` names, because `cycle.ts` deliberately produces no period
+length and painting four more cells would mean inventing one. Every gate stays
+`analyzeCycles`'s: a withheld prediction reaches the wire as empty lists, a `null` confidence
+and the reason that closed it, so `[28, 60, 28, 60, 28, 60]` cannot produce a fertile window
+by any path (PRD §Phase 1 rule 5). Nothing is cached under the route, which is what makes
+"recomputed on every edit to a flow entry" (A25 item 5) a property of it rather than a job.
 
 **Planned (A3, A9 — §8 and §9 below; not yet in code):**
 

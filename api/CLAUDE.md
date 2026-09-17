@@ -132,10 +132,18 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
     environment today. `today.test.ts` boots a server per arm, and pins separately that every
     exported refusal has one — so the next refusal added fails the suite until it is mapped,
     before anything can throw it.
-  - **It is the seam the cycle maths is read through (#179).** `cycleEstimate` hands
+  - **It is the seam the cycle maths is read through (#179), for both readers.**
+    `cycleEstimate` hands
     `analyzeCycles` the logged `cycle` entries, the caller's local date and the profile, and
     projects the answer with `toCycleEstimate`; no gate, band or threshold is re-decided
-    here. Two things in that mapping are load-bearing and neither fails loudly if dropped:
+    here. `cycleAnalysisFor` (#205) is the calendar's half: the same window, the same
+    `toCycleDay` mapping and the same `analyzeCycles` call, returning the **`CycleAnalysis`**
+    rather than D1's projection — `CycleEstimate` carries no `cycles` list, so "unusual
+    length" and the fertile window's own dates cannot surface through it, which is why
+    `GET /me/cycle/predictions` reads the analysis and the Today card reads the estimate. A
+    second gathering path is the drift this one function exists to prevent; if a third reader
+    appears it calls this, it does not re-read `users/{uid}/events/`.
+    Two things in that mapping are load-bearing and neither fails loudly if dropped:
     `toCycleDay` carries #75's `periodEnd` mark, which `cycle.ts` is the one reader of, and
     the event read is widened to `(historyCycles + 2) × maxCycleLengthDays` days — derived
     from the constants, never a number — because a window shorter than the maths' own reach
