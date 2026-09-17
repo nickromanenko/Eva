@@ -1,7 +1,13 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { config } from './config'
 import { getContent, type Template } from './content'
-import { analyzeCycles, toCycleEstimate, type CycleDay, type CycleRules } from './cycle'
+import {
+  analyzeCycles,
+  toCycleEstimate,
+  type CycleAnalysis,
+  type CycleDay,
+  type CycleRules,
+} from './cycle'
 import {
   PatternRuleUnsetError,
   selectSubject,
@@ -381,6 +387,57 @@ const cycleEstimate = (
   rules: CycleRules | null,
 ): DashboardInput['cycle'] => toCycleEstimate(analyzeCycles({ days, today, profile }, rules))
 
+/**
+ * How far *ahead* `cycle` entries are read.
+ *
+ * One day rather than none: a caller who names no zone gets a day of slack in both
+ * directions (`resolveClock` in `index.ts`), so an entry stored on tomorrow's UTC date is a
+ * real day a real device wrote about its own today, and dropping it would move the anchor
+ * every prediction hangs off. `gatherInput` below spans further still, so no `cycle` entry
+ * is visible to one of these two readers and invisible to the other.
+ */
+const CYCLE_LOOKAHEAD_DAYS = 1
+
+/**
+ * C11's whole answer for one user on one local date (#205).
+ *
+ * **`CycleAnalysis`, not `CycleEstimate`.** `cycleEstimate` above projects the same analysis
+ * into the narrower shape D1 consumes, which carries no `cycles` list — so "unusual length"
+ * cannot surface through it, and neither can the fertile window's own dates. The Dashboard
+ * needs the projection; the calendar needs the analysis. Both come from one call to
+ * `analyzeCycles`, which is what keeps the date the calendar draws and the phase the card
+ * speaks from the same arithmetic.
+ *
+ * It re-decides nothing: the window it reads, the mapping it reads through and the constants
+ * it hands over are the same three `gatherInput` uses, and every gate is `cycle.ts`'s. A
+ * second implementation of any of them is the drift #176's Risks name — in particular
+ * `toCycleDay`, which carries #75's `periodEnd` mark and is the only thing between the stored
+ * field and the one function that reads it.
+ *
+ * Throws `CycleRulesUnsetError` when the `CYCLE_*` group is unset, from `analyzeCycles`
+ * rather than from a check here — the refusal has one implementation too. The route answers
+ * `503` to it, exactly as `GET /me/today` does.
+ */
+export const cycleAnalysisFor = async (uid: string, today: string): Promise<CycleAnalysis> => {
+  const rules = config.cycle
+  const [events, user] = await Promise.all([
+    listEvents(
+      uid,
+      shiftDays(today, -cycleWindowDays(rules)),
+      shiftDays(today, CYCLE_LOOKAHEAD_DAYS),
+    ),
+    getUser(uid),
+  ])
+  const days: CycleDay[] = []
+  for (const event of events) {
+    const day = toCycleDay(event)
+    if (day !== null) days.push(day)
+  }
+  // The profile goes through untouched, for the reason `gatherInput` gives: `bandForAge` is
+  // the only thing that reads it, and it reads one field.
+  return analyzeCycles({ days, today, profile: user?.profile ?? null }, rules)
+}
+
 const gatherInput = async (
   uid: string,
   today: string,
@@ -584,3 +641,18 @@ export const deleteAllUserToday = async (uid: string): Promise<number> => {
  */
 export { PatternRuleUnsetError }
 export { CycleRulesUnsetError } from './cycle'
+
+/**
+ * The vocabulary `GET /me/cycle/predictions` answers in (#205), re-exported for the same
+ * reason the refusal above is: the route reads C11's answers through this module, so the
+ * confidence class and the withheld reason it puts on the wire are `cycle.ts`'s own names
+ * and not a second set that could drift from them.
+ *
+ * Types only — `verbatimModuleSyntax` erases them, so this adds no runtime edge.
+ */
+export type {
+  CycleAnalysis,
+  CyclePrediction,
+  EstimateWithheld,
+  FertileWindow,
+} from './cycle'

@@ -61,8 +61,11 @@ import {
     CycleRulesUnsetError,
     PatternRuleUnsetError,
     TemplateUnavailableError,
+    cycleAnalysisFor,
     deleteAllUserToday,
     getToday,
+    type CycleAnalysis,
+    type EstimateWithheld,
 } from "./today";
 import {
     deleteUserDocument,
@@ -2028,21 +2031,33 @@ const parseNewEvent = (
     } as NewEvent);
 };
 
-app.get("/me/events", requireAuth, requireAccount, async (c) => {
-    const from = c.req.query("from");
-    const to = c.req.query("to");
+/**
+ * An inclusive `localDate` range off the query string, validated and capped.
+ *
+ * Lifted out of `GET /me/events` unchanged — same checks, same order, same `VALIDATION`
+ * code and same messages — when the calendar gained a second range read (#205). One
+ * implementation rather than two that agree today: the cap is the only thing bounding how
+ * much a single request can ask the server to enumerate, and a copy of it is a copy that
+ * can be raised on one route and not the other.
+ */
+const parseDateRange = (from: unknown, to: unknown): Parsed<{ from: string; to: string }> => {
     if (!isCalendarDate(from) || !isCalendarDate(to)) {
-        return c.json(error("VALIDATION", "from and to must be YYYY-MM-DD"), 400);
+        return bad("from and to must be YYYY-MM-DD");
     }
-    if (from > to) return c.json(error("VALIDATION", "from must not be after to"), 400);
+    if (from > to) return bad("from must not be after to");
     if (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`) >
         MAX_RANGE_DAYS * 86_400_000) {
-        return c.json(
-            error("VALIDATION", `Range must be ${MAX_RANGE_DAYS} days or fewer`),
-            400,
-        );
+        return bad(`Range must be ${MAX_RANGE_DAYS} days or fewer`);
     }
-    return c.json({ events: await listEvents(c.get("claims").sub, from, to) });
+    return good({ from, to });
+};
+
+app.get("/me/events", requireAuth, requireAccount, async (c) => {
+    const range = parseDateRange(c.req.query("from"), c.req.query("to"));
+    if (!range.ok) return c.json(error(range.code, range.message), 400);
+    return c.json({
+        events: await listEvents(c.get("claims").sub, range.value.from, range.value.to),
+    });
 });
 
 app.post("/me/events", requireAuth, requireAccount, async (c) => {
@@ -2159,6 +2174,176 @@ app.put("/me/body-signals/:date", requireAuth, requireAccount, async (c) => {
         payload: payload.value,
     });
     return c.json({ event });
+});
+
+// ── Cycle predictions ──────────────────────────────────────────────────────────
+// The calendar's overlay (C12a of #11, #205). Validates at the edge and delegates to
+// today.ts, which is the seam the cycle maths is read through (ARCHITECTURE §3) — no
+// Firestore here, and not one number of the maths either.
+
+/** What the calendar draws over one range, and nothing else it does not draw.
+ *
+ *  Three lists of dates rather than three spans: a withheld prediction is then an empty
+ *  overlay by construction, instead of three nulls a client has to remember to check. Every
+ *  date in them was computed by `cycle.ts`. */
+interface CyclePredictionsBody {
+    /** The range asked for, echoed so a cached month knows what it holds. */
+    from: string;
+    to: string;
+    /** The predicted next first flow day, when it falls inside the range.
+     *
+     *  At most one day, because `cycle.ts` produces a next-period *start* and deliberately
+     *  no period length ("never an end date, a period length or a cycle length"). Painting
+     *  four more cells would mean inventing one here, which is the thing #205 forbids. */
+    predictedPeriod: string[];
+    /** Ovulation − `fertileDaysBeforeOvulation` through + `fertileDaysAfterOvulation`,
+     *  clipped to the range. Never a contraceptive method — the screen that draws it says
+     *  so (GUARDRAILS 35). */
+    fertileWindow: string[];
+    /** Peak fertility, a subset of `fertileWindow`. */
+    peak: string[];
+    /**
+     * A27's band: `wide` below `narrowBandMinCycles` counted cycles, `narrow` at or above
+     * it, `null` when there is no prediction at all.
+     *
+     * **C11's own vocabulary, passed through.** A second set of words here is how a wide
+     * band gets drawn as a certainty — the client picks its band off this, and a prediction
+     * from four cycles must not look like one from ten (PRD §Phase 1 rule 5).
+     */
+    confidence: "wide" | "narrow" | null;
+    /**
+     * Why there is nothing to draw, or `null` when there is.
+     *
+     * **In the response rather than inferred from empty lists**, because the two states are
+     * different and only one of them is about her data: `withheld` set means a gate closed
+     * (she has too few counted cycles, or her cycles vary more than her FIGO band allows),
+     * while `withheld: null` with empty lists means the prediction simply falls outside the
+     * range asked for. A client that guessed from emptiness would explain the second as the
+     * first.
+     */
+    withheld: EstimateWithheld | null;
+}
+
+/**
+ * The days from `span.from` through `span.to` that the caller also asked about.
+ *
+ * Enumeration, not arithmetic: both ends were computed by `cycle.ts` from the configured
+ * constants and nothing here derives a date of its own — it lists the days between two it
+ * was handed and drops the ones outside the range. `YYYY-MM-DD` orders lexicographically,
+ * which is what makes the clipping a string comparison; the loop is bounded by the range,
+ * which `parseDateRange` has already capped.
+ */
+const daysWithin = (
+    span: { from: string; to: string },
+    range: { from: string; to: string },
+): string[] => {
+    const start = span.from > range.from ? span.from : range.from;
+    const end = span.to < range.to ? span.to : range.to;
+    const days: string[] = [];
+    for (let day = start; day <= end; day = shiftDays(day, 1)) days.push(day);
+    return days;
+};
+
+/**
+ * C11's answer as the canvas draws it.
+ *
+ * A projection and nothing more. Every gate was decided in `analyzeCycles` — `prediction`
+ * is `null` exactly when one of them closed, and `withheld` then says which — so there is
+ * no threshold here that could disagree with the one the Today card speaks from. The
+ * irregular-cycles gate reaches the wire through this single branch, which is why
+ * `[28, 60, 28, 60, 28, 60]` cannot produce a fertile window by any path through this route.
+ */
+const toPredictionsBody = (
+    analysis: CycleAnalysis,
+    range: { from: string; to: string },
+): CyclePredictionsBody => {
+    const prediction = analysis.prediction;
+    if (prediction === null) {
+        return {
+            ...range,
+            predictedPeriod: [],
+            fertileWindow: [],
+            peak: [],
+            confidence: null,
+            withheld: analysis.withheld,
+        };
+    }
+    const window = prediction.fertileWindow;
+    const start = prediction.nextPeriodStart;
+    return {
+        ...range,
+        predictedPeriod: daysWithin({ from: start, to: start }, range),
+        fertileWindow: daysWithin(window, range),
+        peak: daysWithin({ from: window.peakFrom, to: window.peakTo }, range),
+        confidence: prediction.confidence,
+        withheld: null,
+    };
+};
+
+/**
+ * The prediction cannot be produced right now — a refusal, not a bug.
+ *
+ * One cause today, and it is the state of every environment: the cycle maths' constants are
+ * unconfigured (A25–A27, #176, #191). `SERVICE_UNAVAILABLE` rather than a new code, because
+ * the client contract grows by addition only (GUARDRAILS 11) and this is what that code
+ * already means here — a capability that is not available, not a request that was wrong.
+ * 503 rather than the 500 `app.onError` hands back anything a route drops, which is the same
+ * mapping `GET /me/today` makes for the same throw (#181).
+ *
+ * The log line carries the kind of refusal and nothing else. Not the range, not a withheld
+ * reason, not a date: which gate closed over whose calendar is derived from her logs, so
+ * `irregular-cycles` against a named request is a health fact in a log line (GUARDRAILS 12).
+ */
+const predictionsUnavailable = (c: Context, reason: string) => {
+    console.warn(JSON.stringify({ event: "predictions_unavailable", reason }));
+    return c.json(
+        error(
+            "SERVICE_UNAVAILABLE",
+            "Cycle predictions aren't available right now. Please try again later.",
+        ),
+        503,
+    );
+};
+
+/**
+ * The cycle overlay for a date range (#205, slice C12a of #11).
+ *
+ * **By range, because that is how the calendar already asks.** `CalendarModel` fetches
+ * events with `from`/`to` and caches by month, and a month grid spans up to three of them;
+ * a per-day prediction would give one screen two fetch models. So the range is validated
+ * and capped exactly as `GET /me/events` is, through the same `parseDateRange`.
+ *
+ * `timeZone` decides which local day the maths is anchored on — optional, with the same UTC
+ * fallback events and the Today card use. The *range* is what to draw; `today` is what the
+ * prediction is measured from, and they are different questions.
+ *
+ * **Derived on read, never cached** (PRD §Predictions 5): nothing is stored under this
+ * route, so an edited flow entry moves the answer on the very next request.
+ */
+app.get("/me/cycle/predictions", requireAuth, requireAccount, async (c) => {
+    const range = parseDateRange(c.req.query("from"), c.req.query("to"));
+    if (!range.ok) return c.json(error(range.code, range.message), 400);
+    const clock = resolveClock(c.req.query("timeZone"));
+    if (!clock.ok) return c.json(error(clock.code, clock.message), 400);
+
+    try {
+        // Only the caller's local *date* is needed: `cycle.ts` reads no clock, and the
+        // stored `localDate`s are calendar labels rather than instants — so unlike the Today
+        // card, nothing here has to turn a wall clock back into one.
+        const analysis = await cycleAnalysisFor(c.get("claims").sub, clock.value.today);
+        return c.json(toPredictionsBody(analysis, range.value));
+    } catch (err) {
+        if (err instanceof CycleRulesUnsetError) {
+            return predictionsUnavailable(c, "cycle-rules-unset");
+        }
+        // `InvalidCycleDateError` is deliberately not mapped. Every `localDate` the maths
+        // reads was written through `isCalendarDate` above, and `today` comes from
+        // `resolveClock`, so nothing reachable through the API can raise it — and an arm
+        // nothing can reach is one nothing can test. `today.ts` removed `InvalidTimeError`
+        // from the sibling route for exactly this reason. Anything else is a bug, and
+        // `app.onError` answers it as one.
+        throw err;
+    }
 });
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
