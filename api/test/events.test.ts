@@ -105,6 +105,49 @@ const range = async (from: string, to: string): Promise<EvaEventBody[]> =>
 
 const eventsCollection = () => firestore.collection("users").doc(uid).collection("events");
 
+/** Whether anything at all answers HTTP at `url` — not whether it is an Eva API. */
+const answers = (url: string): Promise<boolean> =>
+    fetch(`${url}/`)
+        .then(() => true)
+        .catch(() => false);
+
+/** Ports this file has spawned on. Only one case spawns today, and it waits for its child to go
+ *  before it finishes — but a case that fails earlier leaves through a `finally` that kills
+ *  without waiting, so a port handed out once is not reliably free again in this run. */
+const claimedPorts = new Set<number>();
+
+/** The suite server's window: `scripts/lib/api-server.sh` takes the first free port from
+ *  `EVA_API_PORT` through +10, and reads an empty value as unset, as `||` does here. */
+const suitePortsFrom = Number(process.env.EVA_API_PORT || 3003);
+const suitePortsTo = suitePortsFrom + 10;
+
+/**
+ * A port in 3100–3299 for the UTC+14 API: not in the suite server's window, not answered by
+ * anything, and not one this file has spawned on before (#193).
+ *
+ * **That range can hold the suite's own server** — 3103–3113 under `scripts/ci-api.sh` by
+ * default, and since #174 wherever a developer's `EVA_API_PORT` puts it — and every Eva API
+ * answers `/` with `Eva API`. A draw that lands on it boots nothing (the child exits with
+ * `EADDRINUSE`), the first poll succeeds anyway, and the case compares the suite server with
+ * itself: green, in ~80ms where a real UTC+14 boot takes ~440ms.
+ *
+ * The window is excluded by value because `EVA_API_PORT` is a developer's to set. Asking first
+ * is still needed, because the window is not where every Eva API is: `EVA_API_URL` can point
+ * the suite somewhere else entirely, `scripts/ci-mobile.sh` runs its own server on 3203, and a
+ * server an interrupted run left behind answers `Eva API` just the same.
+ */
+const freePort = async (): Promise<number> => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const port = 3100 + Math.floor(Math.random() * 200);
+        if (claimedPorts.has(port)) continue;
+        if (port >= suitePortsFrom && port <= suitePortsTo) continue;
+        if (await answers(`http://localhost:${port}`)) continue;
+        claimedPorts.add(port);
+        return port;
+    }
+    throw new Error("no free port in 3100-3299 for the UTC+14 API this case needs");
+};
+
 beforeAll(async () => {
     // Sign-up no longer hands out a session (#6): the account has to be activated first.
     // `signUpActivated` does the three steps — sign up, spend an activation token, sign in.
@@ -229,7 +272,7 @@ describe("events: timezone", () => {
     });
 
     test("a server running in UTC+14 stores the same dates as this one", async () => {
-        const port = 3100 + Math.floor(Math.random() * 200);
+        const port = await freePort();
         const child = Bun.spawn(["bun", "run", "src/index.ts"], {
             cwd: new URL("..", import.meta.url).pathname,
             env: { ...process.env, TZ: "Pacific/Kiritimati", PORT: String(port) },
@@ -240,6 +283,9 @@ describe("events: timezone", () => {
         try {
             let up = false;
             for (let i = 0; i < 40 && !up; i++) {
+                // A child that has already exited could not bind. Polling on would mean
+                // waiting for, or adopting, whatever else answers here; stop and fail below.
+                if (child.exitCode !== null) break;
                 up = await fetch(`${base}/`)
                     .then((r) => r.text())
                     .then((t) => t === "Eva API")
@@ -268,6 +314,19 @@ describe("events: timezone", () => {
             );
             expect(res.status).toBe(201);
             expect((await json<EventResponse>(res)).event.localDate).toBe(today);
+
+            // Nothing above can tell which Eva API answered: `/` says `Eva API` on all of them,
+            // and the suite's own server, in the host's zone, passes every assertion here. The
+            // only proof it was the UTC+14 child is that the answers stop when it does.
+            // `freePort` makes adoption unlikely; this makes it visible if it happens anyway.
+            child.kill();
+            await child.exited;
+            if (await answers(base)) {
+                throw new Error(
+                    `port ${port} still answers with the UTC+14 API stopped: the dates ` +
+                        "above were compared against a server this case did not start",
+                );
+            }
         } finally {
             child.kill();
         }
