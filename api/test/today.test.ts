@@ -980,27 +980,43 @@ describe.skipIf(!onEmulators)("GET /me/today, over a logged cycle history", () =
     /**
      * #197 (merged as #203), end to end, and the reason this issue waited for it.
      *
-     * She is on day 4 of her period and has not logged this morning — the normal state of
-     * most of any morning, since `LogCycleStep.swift` logs one day at a time and back-fills
-     * nothing. Every other number here is the case above's: five counted 28-day cycles, no
-     * irregularity, a fertile window that has not opened. Read by the *logged* run alone she
-     * is follicular on cycle day 4 and this route hands her "Cycle day 4 · likely approaching
-     * ovulation" over "a harder training session may be an option".
+     * The same woman as the case above, three mornings earlier: day 4 of her period, days 1
+     * to 3 logged, and this morning not logged yet — the normal state of most of any morning,
+     * since `LogCycleStep.swift` logs one day at a time and back-fills nothing. Every other
+     * number is unchanged: five counted 28-day cycles, no irregularity, a fertile window that
+     * has not opened. Read by the *logged* run alone she is follicular on cycle day 4, and
+     * rung 4's follicular-only card hands her "likely approaching ovulation" over "a harder
+     * training session may be an option" while she is bleeding.
      *
-     * She is menstrual instead, because the run is not over until `minPeriodGapDays` days in
-     * a row carry nothing, and she gets the educational card — which is the correct answer
-     * until the canvas draws a menstrual variant of `home_d` (#191).
+     * She is menstrual instead, so no phase card is selected at all and she gets the
+     * educational one — the correct answer until the canvas draws a menstrual `home_d` (#191).
+     *
+     * **The second half is what makes the first half evidence.** `educational` is also what
+     * the no-knowledge estimate this issue replaced produced, so on its own it proves
+     * nothing. Deleting yesterday's flow entry changes one fact — her last logged day is now
+     * two days ago, one past the grace `minPeriodGapDays` allows — and the same account, same
+     * history, same morning answers `phase_energy` on cycle day 4. That is the bound
+     * `cycle.ts` states on the other side of #197's trade, observed rather than trusted:
+     * never menstrual more than `minPeriodGapDays - 1` days past the last day she logged.
      */
     test("a woman still bleeding who has not logged today is not told she is approaching ovulation", async () => {
         await startFresh();
         for (const days of [143, 115, 87, 59, 31]) await periodFrom(back(days), 2);
-        await periodFrom(back(3), 3);
+        await flowOn(back(3));
+        await flowOn(back(2));
+        const yesterday = await flowOn(back(1));
 
-        const today = await cardToday();
-        expect(today.card.templateId).not.toBe("phase_energy");
-        expect(today.card.templateId).toBe("educational");
-        expect(today.card.state).toBe("home_edu");
-        expect(JSON.stringify(today.card)).not.toContain("approaching ovulation");
+        const bleeding = await cardToday();
+        expect(bleeding.card.templateId).not.toBe("phase_energy");
+        expect(bleeding.card.templateId).toBe("educational");
+        expect(bleeding.card.state).toBe("home_edu");
+        expect(JSON.stringify(bleeding.card)).not.toContain("approaching ovulation");
+
+        expect((await api(`/me/events/${yesterday}`, { method: "DELETE" })).status).toBe(200);
+
+        const lapsed = await cardToday();
+        expect(lapsed.card.templateId).toBe("phase_energy");
+        expect(lapsed.card.kicker).toBe("Cycle day 4 · likely approaching ovulation");
     });
 
     /**
@@ -1070,6 +1086,47 @@ describe.skipIf(!onEmulators)("GET /me/today, over a logged cycle history", () =
         expect(today.card.templateId).toBe("irregular");
         expect(today.card.state).toBe("home_c");
         expect(today.card.templateId).not.toBe("phase_energy");
+    });
+
+    /**
+     * The profile reaching the maths, which nothing else in this file would notice.
+     *
+     * `bandForAge` reads one field of it and is the only thing that does, so every other
+     * fixture here is deliberately age-independent — a `null` handed over in the profile's
+     * place would change none of their answers. This one is built on that seam: a spread of
+     * eight days across four counted cycles, inside the 18–25 band (nine days) and outside
+     * the tightest (seven), which is the band `bandForAge` falls back to when it is given no
+     * profile at all. With her age the gate is open and she gets a phase card; without it the
+     * same history is refused as irregular.
+     *
+     * It runs last because it is the one case that writes to `users/{uid}`, and it leaves the
+     * account on an age the cases above would not have cared about either way.
+     */
+    test("her age reaches the maths, and decides which FIGO band the gate applies", async () => {
+        await startFresh();
+        const saved = await api("/me/questionnaire", {
+            method: "PUT",
+            body: JSON.stringify({
+                age: 20,
+                weightKg: 62,
+                heightCm: 170,
+                goals: ["energy"],
+                conditions: [],
+                medications: "",
+                lifestyle: "active",
+                sports: ["running"],
+            }),
+        });
+        expect(saved.status).toBe(200);
+
+        // Intervals of 28, 28, 28 and 36: a median of 28 whichever band applies, and a
+        // shortest-to-longest spread of eight.
+        for (const days of [126, 98, 70, 42]) await periodFrom(back(days), 2);
+        await periodFrom(back(6), 3);
+
+        const today = await cardToday();
+        expect(today.card.templateId).toBe("phase_energy");
+        expect(today.card.kicker).toBe("Cycle day 7 · likely approaching ovulation");
     });
 });
 
