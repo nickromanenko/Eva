@@ -902,6 +902,12 @@ end on a day that records no bleeding, and spotting is by definition not flow.
 `parseCyclePayload` refuses both combinations at the edge, and the arms of `CyclePayload`
 make them unrepresentable in the type.
 
+**A mark is `true` or absent, never `false` (#188).** `spotting` and `periodEnd` accept
+exactly `true`. Any other value (`false`, `0`, `"true"`) is `400 VALIDATION` and is never
+coerced: a stored `spotting: true` the user did not send would change how her cycles are
+grouped. To say "not spotting" or "not the end", the client leaves the key out, and `null`
+means the same as leaving it out.
+
 It rides on the last day *with* flow rather than taking its own entry on the first dry day,
 which is what keeps it inside the deterministic ID above: an entry at `cycle_<first dry day>`
 would have to share that ID with a spotting entry on the same date, and the payload is a
