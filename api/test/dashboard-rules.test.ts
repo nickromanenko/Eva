@@ -9,6 +9,7 @@ import {
     type DashboardInput,
     type DashboardRules,
     type PatternRule,
+    type PhaseCode,
     type Rung,
     type SignalEntry,
     type Subject,
@@ -527,6 +528,83 @@ describe("the phase is spoken only when C11 says it may be", () => {
             );
             expect(subject.confidence).toBe("hedged");
         }
+    });
+});
+
+// ── Rung 4's one card, and the phases it is true of (#184) ─────────────────────────────
+
+describe("the phase card is selected only for the phase its words are true of", () => {
+    /**
+     * `phase_energy` is rung 4's only phase card, and its words are fixed: "Cycle day
+     * {cycleDay} · likely approaching ovulation" over "Many women notice higher energy around
+     * now". It used to be selected for every phase C11 lets the card speak, and two reviewers
+     * were shown it on cycle day 2 (menstrual) and day 21 (luteal) — a kicker naming the wrong
+     * phase over a title asserting the opposite of the tendency.
+     *
+     * The set is not read off the copy here. `dashboard-copy.test.ts` holds each string to a
+     * claim — the kicker to the follicular phase, the title to follicular or ovulation — and a
+     * card is as true as its least true line, so the rung selects it where both hold. Every
+     * other phase falls through the rest of the ladder, which has nothing else to say, so it
+     * lands on the educational card.
+     *
+     * `Record<PhaseCode, …>` makes "all four" something the compiler checks: a fifth code fails
+     * `bun run typecheck` here until someone decides which card it gets. Each row is a coherent
+     * day of a regular 28-day cycle under #181's boundaries (menstrual 1–4, follicular 5–9, the
+     * window 10–16), with the logging gap that day implies — flow is not a body signal, so
+     * nothing reaches rung 2.
+     */
+    test("all four phases: only follicular reaches home_d, the other three fall through", () => {
+        const fallback: Subject = {
+            rung: "education",
+            templateId: TEMPLATE.educational,
+            slots: {},
+            confidence: "plain",
+        };
+        type Day = { cycleDay: number; daysSinceLastLog: number; subject: Subject };
+        const days: Record<PhaseCode, Day> = {
+            menstrual: { cycleDay: 2, daysSinceLastLog: 0, subject: fallback },
+            follicular: {
+                cycleDay: 8,
+                daysSinceLastLog: 4,
+                subject: {
+                    rung: "phase",
+                    templateId: TEMPLATE.phaseEnergy,
+                    slots: { cycleDay: 8, phase: "follicular" },
+                    confidence: "hedged",
+                },
+            },
+            ovulation: { cycleDay: 13, daysSinceLastLog: 9, subject: fallback },
+            luteal: { cycleDay: 21, daysSinceLastLog: 17, subject: fallback },
+        };
+
+        // One comparison over the whole table, so a failure shows every phase that is wrong
+        // rather than stopping at the first. Both bands, because the narrowing is on the phase
+        // and must not lean on the band.
+        type Band = "wide" | "narrow";
+        const codes = Object.keys(days) as PhaseCode[];
+        const table = (pick: (code: PhaseCode, band: Band, counted: number) => Subject) =>
+            Object.fromEntries(
+                ([["wide", 4], ["narrow", 6]] as const).map(([band, counted]) => [
+                    band,
+                    Object.fromEntries(codes.map((code) => [code, pick(code, band, counted)])),
+                ]),
+            );
+
+        const selected = table((code, band, countedCycles) =>
+            selectSubject(
+                base({
+                    cycle: {
+                        ...ESTIMATED,
+                        countedCycles,
+                        cycleDay: days[code].cycleDay,
+                        phase: { code, confidence: band },
+                    },
+                    daysSinceLastLog: days[code].daysSinceLastLog,
+                }),
+                RULES,
+            ),
+        );
+        expect(selected).toEqual(table((code) => days[code].subject));
     });
 });
 

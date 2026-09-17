@@ -98,7 +98,9 @@ export interface Subject {
 
 /** The phase words the PRD and the canvas already use ("Cycle day 15 · likely follicular";
  *  "luteal surfaces bloating and cravings, menstrual surfaces cramps"). C11 owns which one
- *  a day falls in; this module passes it to the `phase` slot and never reads it. */
+ *  a day falls in; this module passes it to the `phase` slot, and branches on it in exactly
+ *  one place — rung 4, which selects its only card for the one phase that card is true of
+ *  (#184). */
 export type PhaseCode = 'menstrual' | 'follicular' | 'ovulation' | 'luteal'
 
 /**
@@ -643,7 +645,9 @@ const milestoneRung: LadderStep = () => null
  *
  * Only cycle mode is decided here. `home_plan`'s fertile-window variant is D10's, and a
  * pregnant or postpartum user reaching this rung falls through to the educational fallback
- * rather than being shown a cycle card, which is the safe direction to fail.
+ * rather than being shown a cycle card, which is the safe direction to fail. Within cycle
+ * mode the phase card is follicular-only, and a speakable phase that is not falls through the
+ * same way — the comment at that branch says why, and what it costs (#184).
  */
 const phaseRung: LadderStep = (input) => {
   if (input.mode !== 'cycle') return null
@@ -655,8 +659,30 @@ const phaseRung: LadderStep = (input) => {
     return { rung: 'setup', templateId: TEMPLATE.coldStart, slots: {}, confidence: 'plain' }
   }
 
+  // **`phase_energy` is selected for the follicular phase only, and that is a narrowing, not an
+  // oversight (#184).** Its words are fixed — "likely approaching ovulation" over "Many women
+  // notice higher energy around now" — and it used to be selected for every speakable phase,
+  // so a woman on cycle day 2 or day 21 read a kicker naming the wrong phase over a title
+  // asserting the opposite of the tendency. The phase is not chosen by reading the copy here:
+  // `api/test/dashboard-copy.test.ts` holds each line to a claim, and this is the one phase
+  // every line is true of — the kicker holds for follicular alone, the title for follicular or
+  // ovulation. Ovulation is the tempting widening, and it is wrong: C11's `ovulation` is the
+  // whole fertile window, which runs past ovulation day, and the code cannot say which part of
+  // it today is.
+  //
+  // **This is #175's decision, one rung down** — there it narrowed rung 2's pattern predicate
+  // to the words of the one pattern card rather than write a sentence the canvas had not drawn.
+  // The gap here is the same and it is the canvas's: `home_d` has only ever been drawn for the
+  // approach to ovulation, and no per-phase variant exists. The rung widens when a variant is
+  // drawn, seeded and audited, one phase at a time — never by adding a phase to this line,
+  // which the audit reports as a mismatch it has no row for, and fails on, as it should.
+  //
+  // **The cost, stated plainly:** the card fires on a few days of each cycle, and every other
+  // day falls through to the educational card, so most users will see that card on most days
+  // until the canvas draws the variants. That is a worse product and a correct one. A card that
+  // is true on the few days it fires beats one that fires every day and is false on most.
   const phase = speakablePhase(input.cycle)
-  if (phase !== null && input.cycle.cycleDay !== null) {
+  if (phase !== null && phase.code === 'follicular' && input.cycle.cycleDay !== null) {
     return {
       rung: 'phase',
       templateId: TEMPLATE.phaseEnergy,

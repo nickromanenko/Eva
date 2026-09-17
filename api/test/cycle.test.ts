@@ -10,7 +10,14 @@ import {
     type CycleDay,
     type CycleRules,
 } from "../src/cycle";
-import { TEMPLATE, selectSubject, type DashboardInput, type DashboardRules } from "../src/dashboard-rules";
+import {
+    TEMPLATE,
+    selectSubject,
+    type DashboardInput,
+    type DashboardRules,
+    type PhaseCode,
+    type Subject,
+} from "../src/dashboard-rules";
 import type { Profile } from "../src/users";
 
 /**
@@ -857,32 +864,77 @@ describe("the estimate D1 already consumes", () => {
 
     /**
      * The whole point of the slice, without the route: D1's phase rung is unreachable while
-     * `today.ts` passes a no-knowledge fixture, and this is the fixture replaced. Six
-     * counted regular cycles select `home_d` — a card that states a phase.
+     * `today.ts` passes a no-knowledge fixture, and this is the fixture replaced. Six counted
+     * regular cycles select `home_d` — a card that states a phase — **on a follicular day, and
+     * on no other** (#184).
+     *
+     * This case used to assert `home_d` on cycle day 10, which the maths calls `ovulation`
+     * because the fertile window opens there. That was the defect, asserted: the card reads
+     * "likely approaching ovulation" over "higher energy around now", and #184 narrowed rung 4
+     * to the one phase both lines are true of. The menstrual and luteal rows are the
+     * measurement #184 was filed on — day 2 and day 21 of a regular six-cycle history.
      */
-    test("fed into D1, six regular cycles select the phase card", () => {
+    test("fed into D1, six regular cycles select the phase card on a follicular day only", () => {
         const RULES_D1: DashboardRules = {
             pattern: { lowSignalDays: 3, lowAtOrBelow: 2, severeSymptomDays: 3 },
         };
-        const input: DashboardInput = {
+        // Everything she has logged is flow, so nothing reaches rung 2. Flow is logged up to
+        // today and never past it, and the logging gap is the one those days imply.
+        const onCycleDay = (cycleDay: number, flowDays: number): DashboardInput => ({
             mode: "cycle",
             today: TODAY,
             now: `${TODAY}T09:00:00Z`,
-            cycle: toCycleEstimate(analyze(periods([28, 28, 28, 28, 28, 28], 9))),
+            cycle: toCycleEstimate(
+                analyze(periods([28, 28, 28, 28, 28, 28], cycleDay - 1, flowDays)),
+            ),
             signals: [],
             redFlag: null,
             upcomingAppointments: [],
             profileComplete: true,
             nutritionSetUp: false,
             todayTotals: null,
-            daysSinceLastLog: 9,
+            daysSinceLastLog: cycleDay - flowDays,
+        });
+        const fallback: Subject = {
+            rung: "education",
+            templateId: TEMPLATE.educational,
+            slots: {},
+            confidence: "plain",
         };
-        const subject = selectSubject(input, RULES_D1);
-        expect(subject.templateId).toBe(TEMPLATE.phaseEnergy);
-        expect(subject.rung).toBe("phase");
-        expect(subject.slots).toEqual({ cycleDay: 10, phase: "ovulation" });
-        // Hedged at every band: v1 has no confirmed-ovulation path (GUARDRAILS 35).
-        expect(subject.confidence).toBe("hedged");
+        // A 28-day median puts ovulation on day 15 and the window on days 10–16.
+        const rows: { cycleDay: number; flowDays: number; phase: PhaseCode; subject: Subject }[] = [
+            // Day 2 of a period she has logged both days of.
+            { cycleDay: 2, flowDays: 2, phase: "menstrual", subject: fallback },
+            {
+                cycleDay: 9,
+                flowDays: 4,
+                phase: "follicular",
+                subject: {
+                    rung: "phase",
+                    templateId: TEMPLATE.phaseEnergy,
+                    slots: { cycleDay: 9, phase: "follicular" },
+                    // Hedged at every band: v1 has no confirmed-ovulation path (GUARDRAILS 35).
+                    confidence: "hedged",
+                },
+            },
+            { cycleDay: 10, flowDays: 4, phase: "ovulation", subject: fallback },
+            { cycleDay: 21, flowDays: 4, phase: "luteal", subject: fallback },
+        ];
+
+        // One comparison, so a failure names every row that is wrong, and the phase the maths
+        // actually produced is part of it — a row whose fixture drifted into another phase
+        // would otherwise pass while testing something else.
+        const selected = rows.map(({ cycleDay, flowDays }) => {
+            const input = onCycleDay(cycleDay, flowDays);
+            return {
+                cycleDay,
+                phase: input.cycle.phase?.code,
+                subject: selectSubject(input, RULES_D1),
+            };
+        });
+        expect(selected).toEqual(
+            rows.map(({ cycleDay, phase, subject }) => ({ cycleDay, phase, subject })),
+        );
     });
 
     test("and two cycles select the still-learning card instead, carrying the count", () => {

@@ -852,30 +852,13 @@ const UNTRUE: KnownUntrue[] = [
         canvasMustDraw:
             "home_b at zero, one or two counted cycles — the card says 'Log two more periods' and the ladder selects it at all three. Zero is the commonest of them and the furthest from the words: `phaseRung` asks only for a known `cycleDay`, which one logged period sets, while a counted cycle needs two first-flow days. So the first card a cycle-mode user sees after logging her first period reads '0 of 3 cycles' and asks her for two more when she needs three. Draw the count as a slot while you are there — see `NOTED` on this card's kicker, which hard-codes the gate #181 made configurable.",
     },
-    // **Both `phase_energy` rows are gated on #184, and #184 removes them rather than making
-    // them true.** It narrows rung 4 to the one phase this copy describes — exactly what #175
-    // did to rung 2 — after which every other phase falls through to `educational` and stops
-    // reaching this card at all. So whoever lands it takes these two entries *out*: this file
-    // goes red on a recorded mismatch that has been fixed, which is the second of its three
-    // failure modes. Do not try to edit them into truth.
-    //
-    // The canvas request for per-phase `home_d` variants still stands, but its job changes:
-    // after #184 the drawing is what would let the rung widen again, not what makes these
-    // rows true.
-    {
-        template: TEMPLATE.phaseEnergy,
-        field: "kicker",
-        examples: ["phase luteal"],
-        canvasMustDraw:
-            "home_d for the phases other than the approach to ovulation — the kicker names one phase and the ladder selects the card for all four. Gated on #184, which narrows the rung instead; delete this row there.",
-    },
-    {
-        template: TEMPLATE.phaseEnergy,
-        field: "title",
-        examples: ["phase menstrual"],
-        canvasMustDraw:
-            "home_d's tendency line for the menstrual and luteal phases, where 'higher energy around now' is the opposite of the tendency. Same gate (#184), same disposal: delete, do not edit.",
-    },
+    // `phase_energy` had two rows here — its kicker and its title, each untrue of phases the
+    // ladder selected it for — until #184 narrowed rung 4 to the follicular phase, the one
+    // phase both lines are true of. Nothing else reaches the card now, so there is nothing
+    // left to record, and the rows were deleted rather than edited into truth. The canvas
+    // request for per-phase `home_d` variants still stands; its job now is to let the rung
+    // widen again. Widening it without one puts both rows back as new mismatches, and this
+    // file goes red.
     {
         template: TEMPLATE.signalOverridesPhase,
         field: "title",
@@ -1087,17 +1070,33 @@ describe("the copy audit walks every subject the ladder can select", () => {
         expect(LADDER_CASES).toHaveLength(MODES.length * CYCLES.length * HISTORIES.length * 2);
         expect(CASES).toHaveLength(2183); // 2,160 from the product, 20 red-flag, 3 clock
 
-        // Every mode reaches a card, every phase code reaches the phase card, and every
+        // Every mode reaches a card, every phase code reaches rung 4's decision, and every
         // history reaches something — the three axes the mismatches below turn on.
         for (const mode of MODES) {
             expect(WALK.some((s) => s.case.input.mode === mode)).toBe(true);
         }
-        const phases = new Set(
-            WALK.filter((s) => s.subject.templateId === TEMPLATE.phaseEnergy).map(
-                (s) => s.case.input.cycle.phase?.code,
-            ),
-        );
-        expect([...phases].sort()).toEqual(["follicular", "luteal", "menstrual", "ovulation"]);
+        // Rung 4 gives the phase card to the one phase its words are true of and lets the
+        // other three fall through to the fallback (#184). Both halves are pinned, and the
+        // second is the one that matters here: a re-widened rung is only a *new* mismatch in
+        // this file if the cases that would expose it are still walked into rung 4 in cycle
+        // mode. The filter is cycle mode because every other mode reaches the fallback with
+        // all four phases, follicular included.
+        const speakablePhasesAt = (templateId: TemplateId): PhaseCode[] =>
+            [
+                ...new Set(
+                    WALK.filter(
+                        (s) => s.case.input.mode === "cycle" && s.subject.templateId === templateId,
+                    ).map((s) => phaseOf(s.case)),
+                ),
+            ]
+                .filter((code): code is PhaseCode => code !== null)
+                .sort();
+        expect(speakablePhasesAt(TEMPLATE.phaseEnergy)).toEqual(["follicular"]);
+        expect(speakablePhasesAt(TEMPLATE.educational)).toEqual([
+            "luteal",
+            "menstrual",
+            "ovulation",
+        ]);
         const histories = new Set(WALK.map((s) => s.case.name.split(" · ")[2]));
         // +3: the red-flag cases carry no history segment at all, and the clock cases carry
         // two between them (the evening pair share one).
