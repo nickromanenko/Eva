@@ -10,7 +10,11 @@ import Testing
 /// attempts" spent another attempt and, on the per-address counter, pushed the window
 /// further out. The three pieces below are what stops that: the case, the deadline read
 /// from `Retry-After`, and the wording that counts it down.
+/// `@MainActor` for `AuthRateLimitedBanner`, which is a `View` and therefore main-actor
+/// isolated along with its `message(retryAt:at:)` and `fallbackMessage`. Same reason as
+/// `AuthResendCooldownTests`: 16.4 makes it an error, 26.2 a warning.
 @Suite("429 RATE_LIMITED")
+@MainActor
 struct RateLimitedResponseTests {
     private static let throttled = """
         {"error":{"code":"RATE_LIMITED","message":"Too many attempts. Try again later."}}
