@@ -2,7 +2,8 @@
 # Verify the iOS app: regenerate the project, build, and run the UI tests.
 #
 #   scripts/verify-mobile.sh            build + UI tests (boots the API if needed)
-#   scripts/verify-mobile.sh --build    build only, no simulator tests, no API
+#   scripts/verify-mobile.sh --build    compile every target, run nothing: no simulator
+#                                       tests, no API, no emulators
 #
 # Simulator: override with EVA_SIMULATOR_ID (default matches scripts/e2e.sh).
 #
@@ -48,11 +49,26 @@ fi
 rm -f "$PLIST_BEFORE"
 
 if [ "$BUILD_ONLY" = "1" ]; then
-  echo "▶ build only"
+  echo "▶ build only (app + test targets, nothing run)"
+  # **`build-for-testing`, not `build`.** The Eva scheme lists only the app under
+  # `build:`; EvaTests and EvaUITests are under `test:`. So plain `build` compiled the app
+  # and nothing else, and this flag — the whole of what a pull request runs (#158) —
+  # could not see a test target that did not compile.
+  #
+  # It could not see it for nine files and several merges. `EvaUITests` had never once
+  # compiled under CI's Xcode 16.4: every XCUITest API is `@MainActor` in the SDK and the
+  # suites were nonisolated, which 16.4 rejects and 26.2 waves through as a warning. The
+  # `Full suite` job caught it on every push from the day it landed and failed every time;
+  # the pull requests that added to it were green, because this line built the app.
+  #
+  # `build-for-testing` compiles the test targets and stops — it boots no simulator, needs
+  # no API and no emulators, and runs not one test. That division is deliberate and is
+  # #158's: the pull request compiles, `main` and the nightly run. This moves where the
+  # compile *ends*, not what runs.
   (cd "$ROOT/mobile" && xcodebuild \
     -project Eva.xcodeproj -scheme Eva \
     -destination "id=$SIMULATOR" \
-    -derivedDataPath build build) || FAILED=1
+    -derivedDataPath build build-for-testing) || FAILED=1
 else
   # The UI test signs up for real, so it needs the API up.
   api_ensure_up || exit 1

@@ -46,39 +46,45 @@ final class CalendarUITests: EvaUITestCase {
     /// It runs in `tearDown`, not at the end of the test body, so a failure half-way through
     /// still cleans up — `continueAfterFailure` is false, so the body stops where it fails.
     /// It asserts, because a silent failure here is the orphaning it exists to prevent.
+    ///
+    /// The body runs on the main actor — see `CalendarLoggingUITests.tearDown()` for why
+    /// this is a checked `assumeIsolated` rather than a `@MainActor` annotation on the
+    /// override, which Swift rejects.
     override func tearDown() {
-        defer {
-            createdAccountEmail = nil
-            createdAccountToken = nil
-            super.tearDown()
+        MainActor.assumeIsolated {
+            defer {
+                createdAccountEmail = nil
+                createdAccountToken = nil
+                super.tearDown()
+            }
+            guard let token = createdAccountToken else { return }
+
+            var request = URLRequest(url: URL(string: "\(Self.apiBaseURL)/me")!)
+            request.httpMethod = "DELETE"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+            // A semaphore rather than an `XCTestExpectation`: expectations in `tearDown` are
+            // fragile, and this has nothing to do while it waits.
+            let finished = DispatchSemaphore(value: 0)
+            var status = 0
+            var body: String?
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                body = error?.localizedDescription ?? data.flatMap { String(data: $0, encoding: .utf8) }
+                finished.signal()
+            }.resume()
+            let arrived = finished.wait(timeout: .now() + 30) == .success
+
+            XCTAssertTrue(arrived, "DELETE /me never answered; this run's logged entries are orphaned")
+            XCTAssertEqual(
+                status, 200,
+                """
+                DELETE /me answered \(status) for \(createdAccountEmail ?? "?"): \(body ?? "no body").
+                The entries this test logged are still in Firestore, and the cleanup sweep does
+                not reach a user's events subcollection.
+                """
+            )
         }
-        guard let token = createdAccountToken else { return }
-
-        var request = URLRequest(url: URL(string: "\(Self.apiBaseURL)/me")!)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
-        // A semaphore rather than an `XCTestExpectation`: expectations in `tearDown` are
-        // fragile, and this has nothing to do while it waits.
-        let finished = DispatchSemaphore(value: 0)
-        var status = 0
-        var body: String?
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            body = error?.localizedDescription ?? data.flatMap { String(data: $0, encoding: .utf8) }
-            finished.signal()
-        }.resume()
-        let arrived = finished.wait(timeout: .now() + 30) == .success
-
-        XCTAssertTrue(arrived, "DELETE /me never answered; this run's logged entries are orphaned")
-        XCTAssertEqual(
-            status, 200,
-            """
-            DELETE /me answered \(status) for \(createdAccountEmail ?? "?"): \(body ?? "no body").
-            The entries this test logged are still in Firestore, and the cleanup sweep does
-            not reach a user's events subcollection.
-            """
-        )
     }
 
     func testTheCalendarLandsPagesAndShowsWhatWasLogged() throws {

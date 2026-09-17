@@ -1366,7 +1366,8 @@ CI authenticates by Workload Identity Federation — **no key files in CI, ever*
 | `scripts/ci-api.sh` | `Test API` | PR touching `api/**`, then again on `main` | the API deploy |
 | `scripts/verify-website.sh` | `Test Website` | PR touching `website/**`, then again on `main` | the website deploy |
 | `scripts/verify-rules.sh` | `Test Rules` | PR + push touching the rules | — (rules deploy is manual) |
-| `scripts/verify-mobile.sh` | — | **nothing. A human, when they remember** | — |
+| `scripts/verify-mobile.sh --build` | `Test Mobile` / `Build` | PR touching `mobile/**`, then again on `main` | — |
+| `scripts/ci-mobile.sh` | `Test Mobile` / `Full suite` | push to `main`, and nightly — **not** on a PR | — |
 
 Before #67 exactly one of those ran, and `Deploy API` pushed to production Cloud Run on
 every merge touching `api/**` with no typecheck and no test in between. The deploys now
@@ -1412,12 +1413,23 @@ points at the real project and is what runs locally before a PR. CI is the floor
 ceiling, and a green tick is not a substitute for the real run on anything that touches
 the auth boundary.
 
-**iOS is not verified by CI at all.** `scripts/verify-mobile.sh` needs a macOS runner and
-a simulator, takes ~350s, and macOS runners bill at a premium multiplier; running it per
-PR was considered and declined on cost (#67). So every claim about the iOS app in a PR is
-something a person ran by hand on one machine, and nothing catches the PR where they did
-not. Sign in with Apple could not be driven in CI regardless — it cannot be completed in
-a simulator.
+**iOS compiles in CI on a PR; it is not *run* there.** `scripts/verify-mobile.sh` needs a
+macOS runner and a simulator, takes ~350s, and macOS runners bill at a premium multiplier;
+running the whole suite per PR was considered and declined on cost (#67), and #158 kept
+that call. So a pull request gets `--build` — xcodegen, the Info.plist guard, and a
+compile of every target including `EvaTests` and `EvaUITests` — while the suite itself
+runs on `main` and nightly. A test that compiles and fails is therefore still found a
+merge late. Sign in with Apple could not be driven in CI regardless — it cannot be
+completed in a simulator.
+
+**A compile is worth a job of its own, and the reason is measured.** `--build` ran plain
+`xcodebuild build` until the fix below, and the Eva scheme lists only the app under
+`build:` — so the PR job compiled the app and none of the tests. `EvaUITests` had never
+once compiled under CI's Xcode 16.4 in that window: every XCUITest API is `@MainActor` in
+the SDK and the nine suites were nonisolated, which 16.4 rejects as an error and Xcode
+26.2 — the machine they were written on — reports as a warning and builds anyway. The
+`Full suite` job failed on every push from the day #158 landed; the pull requests that
+added to it were green. `build-for-testing` is what closed that.
 
 **What that cost, once, measured (#135).** The UI suite sat red across at least two
 changes and nobody was told. When it was finally run, it held three separate breakages

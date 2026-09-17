@@ -35,30 +35,45 @@ final class CalendarLoggingUITests: EvaUITestCase {
     /// never signs in over HTTP: it logs everything by tapping, which is the whole point of
     /// it. `tearDown`, not the end of the body, so a failure half-way through still cleans
     /// up — `continueAfterFailure` is false, so the body stops where it fails.
+    ///
+    /// The body runs on the main actor, which is where XCTest already calls it.
+    ///
+    /// `tearDown()` cannot simply be annotated: an override inherits the isolation of the
+    /// declaration it overrides, and `XCTestCase.tearDown()` is nonisolated Objective-C, so
+    /// `@MainActor override` is rejected outright — "has different actor isolation from
+    /// nonisolated overridden declaration". But everything below is `@MainActor`, because
+    /// `EvaUITestCase` is.
+    ///
+    /// `assumeIsolated` states the thread this already runs on and *checks* it, rather than
+    /// asserting it unsafely. It adds no failure mode the suite did not already have: the
+    /// test methods are `@MainActor` too, so a tearDown reached off the main thread would
+    /// mean the test body had already trapped on the way in.
     override func tearDown() {
-        defer {
-            createdAccountEmail = nil
-            super.tearDown()
-        }
-        guard let email = createdAccountEmail else { return }
-        guard let token = bearerToken(email: email) else {
-            XCTFail("Could not sign in to clean up \(email); its entries are orphaned")
-            return
-        }
+        MainActor.assumeIsolated {
+            defer {
+                createdAccountEmail = nil
+                super.tearDown()
+            }
+            guard let email = createdAccountEmail else { return }
+            guard let token = bearerToken(email: email) else {
+                XCTFail("Could not sign in to clean up \(email); its entries are orphaned")
+                return
+            }
 
-        var request = URLRequest(url: URL(string: "\(Self.apiBaseURL)/me")!)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (status, body) = send(request)
+            var request = URLRequest(url: URL(string: "\(Self.apiBaseURL)/me")!)
+            request.httpMethod = "DELETE"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let (status, body) = send(request)
 
-        XCTAssertEqual(
-            status, 200,
-            """
-            DELETE /me answered \(status) for \(email): \(body ?? "no body").
-            The entries this test logged are still in Firestore, and the cleanup sweep does
-            not reach a user's events subcollection.
-            """
-        )
+            XCTAssertEqual(
+                status, 200,
+                """
+                DELETE /me answered \(status) for \(email): \(body ?? "no body").
+                The entries this test logged are still in Firestore, and the cleanup sweep does
+                not reach a user's events subcollection.
+                """
+            )
+        }
     }
 
     /// Signs in over HTTP purely so `tearDown` has something to authorize with.

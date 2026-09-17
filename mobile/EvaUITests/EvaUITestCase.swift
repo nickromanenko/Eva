@@ -12,6 +12,22 @@ import XCTest
 /// Every account is `e2e+<uuid>@e2e.evaapp.dev`, which is the pattern
 /// `scripts/e2e-cleanup.ts` sweeps at the end of `scripts/verify-mobile.sh` (GUARDRAILS
 /// §16). Anything outside it is left behind in a real project.
+///
+/// **`@MainActor` on the base class, and nowhere else.** Every XCUITest API this target
+/// touches — `XCUIApplication`, `XCUIElement`, `XCUIElementQuery`, `XCUIDevice` — is
+/// declared `@MainActor` by the SDK itself (`XCUI_SWIFT_MAIN_ACTOR` in
+/// XCUIAutomationDefines.h), so a nonisolated test method cannot legally call any of them.
+/// Isolation is inherited by subclasses, so this one annotation covers all nine suites;
+/// annotating the methods would say the same thing 200 times.
+///
+/// It is stated rather than inferred because the two compilers disagree about inferring
+/// it. Xcode 26.2 reports the violation as a *warning* and builds anyway; CI's Xcode 16.4
+/// reports the identical diagnostic as an *error* and does not. That is why this target
+/// had never once compiled in CI (#158's `Full suite` job failed on every run from the day
+/// it landed) while building cleanly on the machine it was written on — the same 16.4/26.2
+/// split #168 fixed for the app target, which did not reach here. The annotation states
+/// what was already true of these APIs; nothing about how the tests run changes.
+@MainActor
 class EvaUITestCase: XCTestCase {
 
     /// Eight characters and a digit — the rule the sign-up screen states and the CTA
