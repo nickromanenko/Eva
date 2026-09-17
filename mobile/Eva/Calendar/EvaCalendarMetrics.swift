@@ -82,6 +82,25 @@ enum EvaCalendarMetrics {
         }
     }
 
+    // MARK: Predicted days (#206)
+
+    /// The stripe pattern's ink and repeat —
+    /// `repeating-linear-gradient(45deg, C 0 3px, transparent 3px 7px)`. Three points of
+    /// ink every seven, so four points of the surface below shows through between them.
+    static let predictionStripeInk: CGFloat = 3
+    static let predictionStripePeriod: CGFloat = 7
+
+    /// `border:1px dashed`.
+    static let predictionOutlineWidth: CGFloat = 1
+
+    /// The dash pattern, which is **not a canvas value** — CSS `dashed` leaves the segment
+    /// length to the renderer, so the artboard specifies none and the browsers that draw it
+    /// each pick their own. 3 on, 3 off is the common reading of a 1px `dashed` border and
+    /// it keeps the broken edge legible around a 15pt corner radius; a longer dash closes
+    /// up on the curve and reads as solid, which is the one thing this outline may not do.
+    /// Recorded in DESIGN.md §9a.
+    static let predictionOutlineDash: [CGFloat] = [3, 3]
+
     // MARK: Surfaces
 
     /// The white hairline on the calendar's glass surfaces.

@@ -13,6 +13,10 @@ struct CalendarMonthGrid: View {
     /// a dictionary so the grid never has to know how the model stores it.
     let cycleMark: (EvaDay) -> EvaCycleMark?
     let glyphs: (EvaDay) -> [EvaEventGlyph]
+    /// What the API predicted for this day, in the artboard's own order (#206). Empty for
+    /// every day when the prediction is withheld, which is what makes "withheld draws
+    /// nothing" a property of the data rather than a branch in the view.
+    var predictions: (EvaDay) -> [EvaPredictionMark] = { _ in [] }
     let select: (EvaDay) -> Void
 
     private let columns = Array(
@@ -43,6 +47,7 @@ struct CalendarMonthGrid: View {
                     isSelected: cell.date == selectedDay,
                     cycleMark: cycleMark(cell.date),
                     glyphs: glyphs(cell.date),
+                    predictions: predictions(cell.date),
                     select: { select(cell.date) }
                 )
             }
@@ -78,7 +83,17 @@ struct CalendarDayCell: View {
     let isSelected: Bool
     let cycleMark: EvaCycleMark?
     let glyphs: [EvaEventGlyph]
+    var predictions: [EvaPredictionMark] = []
     let select: () -> Void
+
+    /// The one prediction that gets the cell's surface, or `nil`.
+    ///
+    /// The artboard's `mkCell` is a single `else if` chain — flow, then fertile window,
+    /// then predicted period — so a day is drawn as **at most one thing**, and a logged
+    /// flow day is never drawn as a prediction. That ordering is the model's
+    /// (`CalendarModel.predictions(on:)` hands them over in it); the logged-wins rule is
+    /// `background`'s, below.
+    private var drawnPrediction: EvaPredictionMark? { predictions.first }
 
     var body: some View {
         // Days from the months either side are drawn and not tappable, which is what the
@@ -122,6 +137,13 @@ struct CalendarDayCell: View {
             Color.clear
         } else if let fill = cycleMark?.cellFill {
             shape.fill(fill)
+        } else if let prediction = drawnPrediction {
+            // **A logged flow day is never drawn as a prediction**, which is why this arm
+            // sits below the wash rather than over it: the artboard's chain tries flow
+            // first, and what she logged outranks what Eva estimated everywhere in the
+            // product (DESIGN.md §8, HOME_SPEC: "observed logs always outrank
+            // predictions"). The cell still *announces* both — see `accessibilityLabel`.
+            EvaPredictionSurface(mark: prediction, cornerRadius: EvaCalendarMetrics.cellRadius)
         } else {
             // L1 glass: 40% white against the artboard's 34%, and the nearest level the
             // design system names. No `Material` at L1, which matters at 42 cells.
@@ -198,6 +220,24 @@ struct CalendarDayCell: View {
     /// Everything the cell draws is in here, because everything the cell draws is a small
     /// coloured shape in a corner — the grid is unreadable to VoiceOver and to anyone who
     /// cannot separate a 6pt pink square from a 6pt green diamond unless the cell says so.
+    ///
+    /// ## Why the predicted days are in here too (#206)
+    ///
+    /// The epic's Risks name the colour-blind rule as the one with no verification, and a
+    /// pattern is not a word: "dashed and patterned" can be measured in a render test, but
+    /// nothing outside this app can check that the *right* days got it. The artboard emits
+    /// `'Predicted period'` and `'Predicted fertile window'` per cell, and putting them
+    /// here makes the distinction between an estimate and a fact something `EvaUITests` can
+    /// hold the grid to without sampling a pixel or naming a hue.
+    ///
+    /// A prediction is announced even when the cell drew a logged wash instead of it
+    /// (`background`, above). That is the artboard's own behaviour — its `bits` array pushes
+    /// the fertile window and the predicted period regardless of what won the surface — and
+    /// it errs the safe way round: a logged day is never *announced* as only a prediction.
+    ///
+    /// "No entries" counts the same things the artboard counts, so a day with a prediction
+    /// and nothing logged does not claim to be empty. It is not called an entry either:
+    /// nothing was logged on it.
     private var accessibilityLabel: String {
         var parts = [cell.date.formattingDate.formatted(
             EvaDay.formatStyle.weekday(.wide).day().month(.wide).year()
@@ -205,7 +245,10 @@ struct CalendarDayCell: View {
         if isToday { parts.append("Today") }
         if let cycleMark { parts.append(cycleMark.accessibilityLabel) }
         parts.append(contentsOf: glyphs.map(\.accessibilityLabel))
-        if cycleMark == nil && glyphs.isEmpty { parts.append("No entries") }
+        parts.append(contentsOf: predictions.map(\.accessibilityLabel))
+        if cycleMark == nil && glyphs.isEmpty && predictions.isEmpty {
+            parts.append("No entries")
+        }
         return parts.joined(separator: ". ")
     }
 }
@@ -226,6 +269,13 @@ struct CalendarDayCell: View {
         EvaDay(year: 2026, month: 8, day: 13): [.sport],
         EvaDay(year: 2026, month: 8, day: 18): [.bodySignals]
     ]
+    // The artboard's own August: a fertile window over 17–21 and one predicted period day
+    // on the 31st. One day, not five — `cycle.ts` gives a start and no length.
+    let predictions: [EvaDay: [EvaPredictionMark]] = Dictionary(
+        uniqueKeysWithValues: (17...21).map {
+            (EvaDay(year: 2026, month: 8, day: $0), [EvaPredictionMark.fertileWindow])
+        } + [(EvaDay(year: 2026, month: 8, day: 31), [EvaPredictionMark.period])]
+    )
 
     return ZStack {
         EvaScreenBackground().ignoresSafeArea()
@@ -235,6 +285,7 @@ struct CalendarDayCell: View {
             selectedDay: EvaDay(year: 2026, month: 8, day: 12),
             cycleMark: { marks[$0] },
             glyphs: { glyphs[$0] ?? [] },
+            predictions: { predictions[$0] ?? [] },
             select: { _ in }
         )
         .padding(EvaSpacing.lg)

@@ -315,6 +315,38 @@ final class AppSession {
         }
     }
 
+    /// The calendar's prediction overlay. `GET /me/cycle/predictions?from=&to=&timeZone=`
+    /// (#205, C12a).
+    ///
+    /// **A range, for the same reason `events(from:through:)` takes one** — one month grid,
+    /// one fetch model. The route validates and caps the range through the same
+    /// `parseDateRange` that route uses, so there is no second set of limits to respect.
+    ///
+    /// The zone identifier, never a date. The *range* says what to draw and `timeZone` says
+    /// which local day the estimate is measured from; they are different questions, and a
+    /// device that sent its own answer to the second would be asserting the prediction
+    /// instead of asking for it.
+    ///
+    /// Answers `503 SERVICE_UNAVAILABLE` wherever the `CYCLE_*` constants are unset, which
+    /// is every environment today (#176, #191). That reaches the caller as an ordinary
+    /// `APIError.server` and `CalendarModel` draws no overlay for it — see `loadPrediction`.
+    ///
+    /// Nothing here logs the response. A predicted date is derived from her logged periods
+    /// and is health data under GUARDRAILS 12 exactly as an event payload is.
+    func predictions(from: EvaDay, through to: EvaDay) async throws -> EvaCyclePredictions {
+        try await authorized {
+            try await client.get(
+                "/me/cycle/predictions",
+                query: [
+                    URLQueryItem(name: "from", value: from.isoDate),
+                    URLQueryItem(name: "to", value: to.isoDate),
+                    URLQueryItem(name: "timeZone", value: TimeZone.current.identifier)
+                ],
+                authorized: true
+            )
+        }
+    }
+
     // MARK: - Reading the Dashboard (#99)
 
     /// The Home tab's card for the user's local date. `GET /me/today?timeZone=` (#98, D3).

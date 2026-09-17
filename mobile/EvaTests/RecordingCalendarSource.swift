@@ -25,6 +25,7 @@ final class RecordingCalendarSource: CalendarEventSource {
     // MARK: What was asked
 
     private(set) var ranges: [ClosedRange<EvaDay>] = []
+    private(set) var predictionRanges: [ClosedRange<EvaDay>] = []
     private(set) var refDataCalls = 0
     private(set) var writes: [EvaEventWrite] = []
     private(set) var bodySignalWrites: [EvaBodySignalsWrite] = []
@@ -36,8 +37,19 @@ final class RecordingCalendarSource: CalendarEventSource {
 
     var events: [EvaEvent] = []
     var catalogue = EvaRefData(version: "v1", catalogues: EvaRefData.Catalogues())
+    /// What the prediction route answers, before clipping. The default is the state every
+    /// environment is actually in: an answer, withheld, with nothing to draw.
+    var prediction = EvaCyclePredictions(
+        from: EvaDay(year: 2000, month: 1, day: 1),
+        to: EvaDay(year: 2100, month: 1, day: 1),
+        withheld: .noFlowLogged
+    )
     /// Thrown by the next read.
     var failure: (any Error)?
+    /// Thrown by the next prediction read. Separate from `failure`, because the whole point
+    /// of the overlay's error handling is that it fails **on its own** without taking the
+    /// entries or the screen down with it.
+    var predictionFailure: (any Error)?
     /// Thrown by the next write, delete or restore.
     var writeFailure: (any Error)?
 
@@ -65,6 +77,25 @@ final class RecordingCalendarSource: CalendarEventSource {
         refDataCalls += 1
         if let failure { throw failure }
         return catalogue
+    }
+
+    /// The prediction overlay (#206), recorded the same way the event ranges are — how
+    /// many requests, over which ranges, is the claim `CalendarModel` makes about it too.
+    ///
+    /// The answer is **clipped to the range asked for**, which is what the route does
+    /// (`daysWithin`), so a test that asks for one month cannot be handed another month's
+    /// days by accident and mistake the model's caching for the server's clipping.
+    func predictions(from: EvaDay, through to: EvaDay) async throws -> EvaCyclePredictions {
+        predictionRanges.append(from...to)
+        if let predictionFailure { throw predictionFailure }
+        return EvaCyclePredictions(
+            from: from,
+            to: to,
+            predictedPeriod: prediction.predictedPeriod.filter { (from...to).contains($0) },
+            fertileWindow: prediction.fertileWindow.filter { (from...to).contains($0) },
+            confidence: prediction.confidence,
+            withheld: prediction.withheld
+        )
     }
 
     /// Lets every held call return, then yields so they actually run.

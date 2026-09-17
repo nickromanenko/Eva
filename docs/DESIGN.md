@@ -478,6 +478,33 @@ The cycle sheet's own spotting swatch keeps the artboard's **dashed** ring
 (`1.5px dashed rgba(201,95,134,.6)`), which is the canvas' drawing and is unambiguous
 there: a sheet has no predictions on it to confuse a dashed outline with.
 
+**The predicted cell's dash pattern is 3-on-3-off, which is not a canvas value (#206).**
+The artboard writes `border:1px dashed` and CSS leaves the segment length to the renderer,
+so there is nothing to transcribe. 3/3 keeps the outline visibly broken around the cell's
+15pt corner radius; a longer dash closes up on the curve and reads as solid, which is the
+one thing this outline may not do. The fills and outline colours *are* the artboard's, and
+the legend's swatch uses the **cell's** values rather than the legend row's own — the two
+differ by a few hundredths of alpha, and a swatch that is literally the cell is the whole
+job of a legend.
+
+**The calendar's summary card keeps the canvas' card and not its copy (#206).** In Cycle
+mode the artboard fills the three slots with `'Cycle day 15 · follicular'`, `'Energy
+usually climbs this week'` and `'Your next period is estimated around 31 Aug, based on your
+last 4 logged cycles. Estimates shift as you log.'` Two of those need data no route serves
+this screen: cycle day and phase come from the Today card's own analysis, and the *count*
+of logged cycles is not on `GET /me/cycle/predictions` at all — it answers three lists of
+days, a confidence band and a withheld reason. So the kicker is `Estimate`, the heading
+names the estimated date, the body is the band's own sentence, and the artboard's closing
+line is kept verbatim. Nothing restates a threshold the server owns: A27's bands are 3–5
+and 6+ counted cycles, `narrowBandMinCycles` is configuration, and a number in this copy
+would be a second copy of it. The canvas should draw the withheld states — it has none.
+
+**The positive-test legend row is still absent, and so is its mark (#206).** The artboard's
+legend lists three predicted or unlogged things; two of them are drawn now. The third needs
+`#80`'s event type before there is anything to describe, and the rule this legend has
+followed since C1 is that a row and its mark ship together — §7's 9pt top-left outlined
+square is specified and unbuilt, not built and unlisted.
+
 **The day's entries carry Edit and Delete in place, not in a day sheet (#160).** C1's note
 above promised the sheet would arrive with the actions that justify it. It has not, and the
 promise is withdrawn: the log picker is itself a bottom sheet, so a day sheet that opens

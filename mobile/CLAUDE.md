@@ -60,6 +60,26 @@ only way to reach the `home_off` bar: a card has to be cached before it can be a
 card, and nothing can take the network away mid-launch. Both hooks seed the **card**, never
 the session — the app has to be signed in already.
 
+## Calendar prediction overlay (DEBUG)
+
+`GET /me/cycle/predictions` exists (#205) and answers **503 in every environment**: A25–A27's
+constants are unset until #26 signs them off with sources. `EVA_CYCLE_PREDICTION` hands the
+calendar one response body so the overlay can be reviewed and tested anyway. It is the
+route's own JSON — decoded by the same `EvaCyclePredictions`, so the hook exercises the
+decoder rather than going round it — or the literal `unavailable`, which fails every read
+the way the live route does:
+
+```sh
+SIMCTL_CHILD_EVA_API_BASE_URL=http://localhost:3003 \
+SIMCTL_CHILD_EVA_CYCLE_PREDICTION='{"from":"2026-09-01","to":"2026-09-30","predictedPeriod":["2026-09-28"],"fertileWindow":["2026-09-13","2026-09-14"],"peak":[],"confidence":"wide","withheld":null}' \
+  xcrun simctl launch --terminate-running-process $UDID com.evaapp.ios
+```
+
+A body rather than a table of named states, because a named state would have to *generate*
+dates relative to today — and prediction arithmetic in Swift is the one thing #206 forbids,
+DEBUG or not. It seeds the **prediction only**: the entries still come from the API, so a
+predicted cell can be looked at next to a logged one, and the app has to be signed in.
+
 `simctl` cannot scroll. To capture below the fold, drive the simulator with the
 `Claude Code iOS Simulator` MCP (`swipe` from `y: 760` to `y: 180`, ~580pt a time, then
 `screenshot`) — start more than 4pt from any edge or the swipe becomes an OS edge
@@ -76,7 +96,7 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Onboarding/` | `OnboardingModel` state machine, `Steps/`, `Components/` |
 | `Eva/Navigation/` | The tab bar (`EvaTabView`) and `EvaTabRouter` — the tab selection, and the one request a tab makes of another |
 | `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar |
-| `Eva/Calendar/` | `CalendarView`, the month grid, the event model and its glyphs |
+| `Eva/Calendar/` | `CalendarView`, the month grid, the event model and its glyphs, the prediction overlay (#206) and the summary card |
 | `Eva/Calendar/Logging/` | The log picker sheet and its four forms, the write payloads, the date policy |
 | `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field |
 | `Eva/Theme/Specimen/` | DEBUG-only design specimen — see above |
@@ -110,7 +130,8 @@ Adding a token or a component means adding it to the specimen too.
 - Interactive elements need a stable `accessibilityIdentifier` — UI tests and
   screenshot tooling navigate by it. `PrimaryButton` sets `primary.<title>`.
 - Keep the DEBUG hooks working: `EVA_ONBOARDING_STEP`, `EVA_UITEST_RESET`,
-  `EVA_API_BASE_URL`, `EVA_SPECIMEN`, `EVA_TODAY_CARD`, `EVA_TODAY_REFRESH`.
+  `EVA_API_BASE_URL`, `EVA_SPECIMEN`, `EVA_TODAY_CARD`, `EVA_TODAY_REFRESH`,
+  `EVA_CYCLE_PREDICTION`.
 - No Firebase iOS SDK. It stays commented out in `project.yml` until it's a decided
   task.
 
