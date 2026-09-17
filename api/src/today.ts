@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { config } from './config'
 import { getContent, type Template } from './content'
+import { analyzeCycles, toCycleEstimate, type CycleDay, type CycleRules } from './cycle'
 import {
   PatternRuleUnsetError,
   selectSubject,
@@ -14,7 +15,7 @@ import {
 } from './dashboard-rules'
 import { firestore } from './firebase'
 import { lastEventChangeAt, lastLoggedDate, listEvents, type EvaEvent } from './events'
-import { lastUserChangeAt, getUser } from './users'
+import { lastUserChangeAt, getUser, type Profile } from './users'
 
 /**
  * Owner of `users/{uid}/today/{date}` (GUARDRAILS rule 10) — the Today card, slice D3 of
@@ -315,26 +316,70 @@ const toAppointment = (event: EvaEvent, today: string): UpcomingAppointment | nu
 }
 
 /**
- * The cycle maths' answers, as this module can supply them today.
+ * A stored `cycle` entry in the vocabulary the maths reads (#179).
  *
- * **C11 (#11) does not exist yet**, so every field here is the "I know nothing about her
- * cycle" value rather than a number computed on the way past. That is deliberate and it is
- * the safe direction: with `cycleDay` null and no phase, D1's phase rung can only reach
- * the cold-start card or fall through to the educational one, and no card can state a
- * phase Eva has not earned the right to state (PRD Confidence and cold start 2–4).
+ * Three facts and no more: the day, which marker it carries, and #75's explicit "my period
+ * ended" mark. **`periodEnd` is carried here or nowhere** — `cycle.ts` is its one reader
+ * (#186, #196) and this mapping is the only thing between the stored field and that read,
+ * so dropping it would leave a mark the user set deciding nothing while every test of the
+ * maths still passed.
  *
- * Re-deriving any of this here would be the drift D1 refuses by taking these as inputs —
- * the ≥3-cycle gate and the irregularity band are C11's constants, and a second copy of
- * them is a second answer. When C11 lands, this function is the one place that changes.
+ * `flow` and `spotting` are mutually exclusive in `CyclePayload` and the route refuses a
+ * body carrying both, so the arms below are a floor under a hand-edited document rather than
+ * a rule — and flow wins, the same direction `loggedPeriods` takes for the same reason: the
+ * one that keeps a real period visible.
  */
-const cycleEstimate = (): DashboardInput['cycle'] => ({
-  countedCycles: 0,
-  enoughCyclesForEstimates: false,
-  irregular: false,
-  cycleDay: null,
-  phase: null,
-  daysPastPredictedPeriod: null,
-})
+const toCycleDay = (event: EvaEvent): CycleDay | null => {
+  if (event.type !== 'cycle') return null
+  const payload = event.payload as { flow?: unknown; spotting?: unknown; periodEnd?: unknown }
+  if (typeof payload.flow === 'string' && payload.flow.length > 0) {
+    return payload.periodEnd === true
+      ? { localDate: event.localDate, kind: 'flow', periodEnd: true }
+      : { localDate: event.localDate, kind: 'flow' }
+  }
+  if (payload.spotting === true) return { localDate: event.localDate, kind: 'spotting' }
+  return null
+}
+
+/**
+ * How far back `cycle` entries are read.
+ *
+ * **Derived from the constants, never written as a number** — the same rule
+ * `signalWindowDays` follows, for the same reason: a window shorter than the maths' own
+ * reach would silently drop the oldest cycles from the median and the variation, and a
+ * prediction drawn from a truncated history looks exactly like one drawn from all of it.
+ *
+ * `historyCycles` intervals need `historyCycles + 1` first flow days, which span at most
+ * `historyCycles × maxCycleLengthDays`. One more cycle covers the one in progress today,
+ * and one more is the margin that keeps the oldest of them inside the window when a cycle
+ * runs to the edge of the countable range. At A25's values that is 360 days — about a year,
+ * bounded, and one user's calendar on the single-field `localDate` index.
+ *
+ * An unset group reads nothing extra: `analyzeCycles` refuses below rather than answering,
+ * so a year of health data would be read for an answer that is never produced.
+ */
+const cycleWindowDays = (rules: CycleRules | null): number =>
+  rules === null ? 0 : (rules.historyCycles + 2) * rules.maxCycleLengthDays
+
+/**
+ * C11's answers, for this user, today (#179).
+ *
+ * The whole of the cycle maths is `cycle.ts`'s and none of it is re-derived here — this
+ * gathers the days, hands them over with the constants, and projects the result into the
+ * shape D1 already consumes. `toCycleEstimate` reads the local date off the analysis rather
+ * than being handed it again, which is what stops a phase and a cycle day being measured
+ * against two different days.
+ *
+ * Throws `CycleRulesUnsetError` when the `CYCLE_*` group is unset — a refusal the route
+ * answers `503` to, exactly as it does rung 2's. That is the direction #176 chose: no
+ * default, because a default here is a clinical constant nobody recorded choosing.
+ */
+const cycleEstimate = (
+  days: readonly CycleDay[],
+  today: string,
+  profile: Profile | null,
+  rules: CycleRules | null,
+): DashboardInput['cycle'] => toCycleEstimate(analyzeCycles({ days, today, profile }, rules))
 
 const gatherInput = async (
   uid: string,
@@ -343,7 +388,11 @@ const gatherInput = async (
   timeZone: string,
   rules: DashboardRules,
 ): Promise<DashboardInput> => {
-  const from = shiftDays(today, -signalWindowDays(rules))
+  // One read: the window the query spans and the constants the maths is handed are the same
+  // set by construction rather than by two lookups happening to agree.
+  const cycleRules = config.cycle
+  const signalsFrom = shiftDays(today, -signalWindowDays(rules))
+  const from = shiftDays(today, -Math.max(cycleWindowDays(cycleRules), signalWindowDays(rules)))
   const to = shiftDays(today, APPOINTMENT_LOOKAHEAD_DAYS)
   const [events, user, lastLogged] = await Promise.all([
     listEvents(uid, from, to),
@@ -352,9 +401,18 @@ const gatherInput = async (
   ])
 
   const signals: SignalEntry[] = []
+  const cycleDays: CycleDay[] = []
   const upcomingAppointments: UpcomingAppointment[] = []
   for (const event of events) {
-    const signal = toSignalEntry(event, timeZone)
+    const cycleDay = toCycleDay(event)
+    if (cycleDay !== null) {
+      cycleDays.push(cycleDay)
+      continue
+    }
+    // Body signals stay on rung 2's own span. The read above is a year long for the maths'
+    // sake, and rung 2 counts consecutive days *ending today*, so an older entry cannot
+    // change an answer — it would only be a year of health data held in memory for nothing.
+    const signal = event.localDate < signalsFrom ? null : toSignalEntry(event, timeZone)
     if (signal !== null) {
       signals.push(signal)
       continue
@@ -369,7 +427,9 @@ const gatherInput = async (
     mode: 'cycle',
     today,
     now,
-    cycle: cycleEstimate(),
+    // The profile goes through untouched: `bandForAge` is the only thing that reads it, and
+    // it reads one field (#176, and #81 when age becomes a date of birth).
+    cycle: cycleEstimate(cycleDays, today, user?.profile ?? null, cycleRules),
     signals,
     // D10 owns the mapping from a logged code to a flag. Until it exists there is nothing
     // to resolve, which is why D1 documents `null` as the value in every mode.
@@ -446,13 +506,13 @@ export interface TodayRequest {
  * a thing: an existing day keeps its filled text and its `contentVersion`, because new data
  * changes the card and new words do not.
  *
- * Throws `PatternRuleUnsetError` (D1's) and `TemplateUnavailableError` — refusals the route
- * answers `503` to, never `500`. `CycleRulesUnsetError` (C11's) is mapped there too and is
- * not yet reachable from here: this function still hands D1 a no-knowledge `CycleEstimate`
- * and #179 is what replaces it with `analyzeCycles`. The mapping ships with the error
- * rather than after it, because the failure it prevents is a 500 on the first deployment
- * that runs #179's code without the `CYCLE_*` group — and that is a deployment nobody
- * would test first.
+ * Throws `PatternRuleUnsetError` (D1's), `TemplateUnavailableError` and — since #179 wired
+ * `analyzeCycles` in — `CycleRulesUnsetError` (C11's): refusals the route answers `503` to,
+ * never `500`. The third was mapped before it could be thrown, deliberately (#181), because
+ * the day it became reachable was the day a deployment without the `CYCLE_*` group would
+ * start answering 500 for an unset configuration — and that group is unset in every
+ * environment today (#191). It is reachable now, and `today.test.ts` boots a server with the
+ * group emptied to prove the arm rather than the mapping.
  *
  * D1 also documents `InvalidTimeError`, and this function cannot raise it: `request.date`
  * is `resolveClock`'s output, `now` is `new Date().toISOString()`, and `toSignalEntry`

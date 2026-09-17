@@ -42,8 +42,8 @@ export type SymptomSeverity = 'normal' | 'severe'
  *  stored the fact and deliberately left the disagreement open; #186 answered it in
  *  `cycle.ts`, narrowly: a mark decides whether a *later flow day* continues the period it
  *  ended, and nothing else — no end date, no period length, no cycle length. That read is
- *  on the maths' own input type, so what carries this stored field to it is the event
- *  mapping #179 adds to `today.ts`; until then nothing running consumes it. */
+ *  on the maths' own input type, so what carries this stored field to it is `toCycleDay` in
+ *  `today.ts` (#179) — the one mapping between this field and its one reader. */
 export type CyclePayload =
   | { spotting: true; flow?: never; periodEnd?: never }
   | { flow: FlowLevel; spotting?: never; periodEnd?: true }
