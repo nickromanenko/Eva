@@ -905,8 +905,10 @@ describe("the phase", () => {
     test("menstrual while today is inside the logged period run", () => {
         expect(phaseAt(0)).toBe("menstrual");
         expect(phaseAt(3)).toBe("menstrual");
-        // The run is four days long, so day five is no longer menstrual.
-        expect(phaseAt(4)).not.toBe("menstrual");
+        // The run is four days long. Day five carries nothing, and one dry day no longer ends
+        // the phase any more than it ends the period (#197, below); day six is two of them.
+        expect(phaseAt(4)).toBe("menstrual");
+        expect(phaseAt(5)).not.toBe("menstrual");
     });
 
     test("follicular before the window, ovulation inside it, luteal after", () => {
@@ -923,6 +925,150 @@ describe("the phase", () => {
         const irregular = analyze(periods([22, 28, 28, 40], 8), profileAged(30));
         expect(irregular.irregular).toBe(true);
         expect(toCycleEstimate(irregular).phase).toBe(null);
+    });
+});
+
+// ── The morning she has not logged yet (#197) ──────────────────────────────────────────
+
+/**
+ * **The phase ends a period the same way the grouping does (#186), and that is the whole
+ * change.** It used to end on the run's last *logged* day, so a woman bleeding on cycle day 3
+ * who had not logged that day yet was `follicular` — and rung 4, narrowed by #184 to exactly
+ * that phase, then told her she was likely approaching ovulation and might consider a harder
+ * training session. Every rung, template and gate was behaving as specified, which is what
+ * made it invisible; `LogCycleStep.swift` logs one day at a time and back-fills nothing, so
+ * "not logged yet" is the normal state of a morning rather than an edge case.
+ *
+ * **Derived values, not the classification** (#180's model, #186's table): the phase moves the
+ * selected card, so the cases below assert the card `dashboard-rules.ts` returns as well as
+ * the anchor, the cycle day and the predicted date that did *not* move.
+ */
+describe("a day she has not logged yet is still her period (#197)", () => {
+    const RULES_D1: DashboardRules = {
+        pattern: { lowSignalDays: 3, lowAtOrBelow: 2, severeSymptomDays: 3 },
+    };
+    /** Everything she has logged is flow, so no signal rung can fire and the card on screen is
+     *  the one the phase chose. */
+    const cardFor = (days: readonly CycleDay[], daysSinceLastLog: number): Subject => {
+        const input: DashboardInput = {
+            mode: "cycle",
+            today: TODAY,
+            now: `${TODAY}T09:00:00Z`,
+            cycle: toCycleEstimate(analyze(days)),
+            signals: [],
+            redFlag: null,
+            upcomingAppointments: [],
+            profileComplete: true,
+            nutritionSetUp: false,
+            todayTotals: null,
+            daysSinceLastLog,
+        };
+        return selectSubject(input, RULES_D1);
+    };
+    const educational: Subject = {
+        rung: "education",
+        templateId: TEMPLATE.educational,
+        slots: {},
+        confidence: "plain",
+    };
+    /** Six regular cycles — enough for a narrow band, so a phase is speakable and rung 4 is
+     *  reachable. The most recent period is logged for `flowDays` days from `daysAgo` before
+     *  `TODAY`, and nothing after that. */
+    const regular = (daysAgo: number, flowDays: number) =>
+        periods([28, 28, 28, 28, 28, 28], daysAgo, flowDays);
+
+    /**
+     * The issue's own case, with the card she was being shown. Before this change:
+     * `follicular`, and `home_d` — "Cycle day 3 · likely approaching ovulation / Many women
+     * notice higher energy around now / a harder training session may be an option".
+     */
+    test("flow logged on days 1 and 2, nothing logged on day 3: she is menstrual, and gets no ovulation card", () => {
+        const days = regular(2, 2);
+        const result = analyze(days);
+
+        // The premise, stated rather than implied: she logged yesterday and not today.
+        expect(result.currentPeriodEnd).toBe(shift(TODAY, -1));
+        // #180's four values — only the phase moves; the anchor, the day and the date do not.
+        expect(result.lastPeriodStart).toBe(shift(TODAY, -2));
+        expect(result.cycleDay).toBe(3);
+        expect(result.prediction?.nextPeriodStart).toBe(shift(TODAY, 26));
+        expect(toCycleEstimate(result).phase).toEqual({ code: "menstrual", confidence: "narrow" });
+
+        // And the card: the educational fallback, not `phase_energy` on cycle day 3.
+        expect(cardFor(days, 1)).toEqual(educational);
+    });
+
+    /**
+     * The boundary from both sides, and that it is the constant rather than a day written
+     * next to it. At 1 — the pre-#186 rule, where any dry day ends a period — the defect is
+     * back; at 3, two dry days are still her period.
+     */
+    test("one dry day is still her period; at the gap it has ended", () => {
+        const phaseWith = (daysAgo: number, minPeriodGapDays: number) =>
+            toCycleEstimate(
+                analyzeCycles(
+                    { days: regular(daysAgo, 2), today: TODAY, profile: profileAged(30) },
+                    { ...RULES, minPeriodGapDays },
+                ),
+            ).phase?.code ?? null;
+
+        // Logged through today, then one dry day, then two — the gap is 2.
+        expect(phaseWith(1, 2)).toBe("menstrual");
+        expect(phaseWith(2, 2)).toBe("menstrual");
+        expect(phaseWith(3, 2)).toBe("follicular");
+
+        // The same days read against the other two settings.
+        expect(phaseWith(2, 1)).toBe("follicular");
+        expect(phaseWith(3, 3)).toBe("menstrual");
+        expect(phaseWith(4, 3)).toBe("follicular");
+    });
+
+    /**
+     * The other end of the trade, which is what bounds it: she is never called menstrual more
+     * than `minPeriodGapDays - 1` days past the last day she logged. A period she logged for
+     * five days and stopped is over on the second dry morning, not indefinitely.
+     */
+    test("a period that ended days ago is not still menstrual", () => {
+        const phaseAt = (daysAgo: number) =>
+            toCycleEstimate(analyze(regular(daysAgo, 5))).phase?.code ?? null;
+        expect(phaseAt(5)).toBe("menstrual"); // logged days 1-5, today is day 6: one dry day
+        expect(phaseAt(6)).toBe("follicular");
+        expect(phaseAt(8)).toBe("follicular");
+        expect(cardFor(regular(8, 5), 4)).toEqual({
+            rung: "phase",
+            templateId: TEMPLATE.phaseEnergy,
+            slots: { cycleDay: 9, phase: "follicular" },
+            confidence: "hedged",
+        });
+    });
+
+    /**
+     * #181's case, which this must not reopen: a woman whose cycles alternate 28 and 60 days
+     * has a variation of 32 and gets no window, no prediction and no phase. It is the case a
+     * wider menstrual rule could fail *open* on — the menstrual arm is the one phase that is
+     * observed rather than estimated, and reaching it before the withheld gate would hand her
+     * a phase her data does not support. Her fixture is one dry day past her last logged day,
+     * which is exactly the day this change widens.
+     */
+    test("[28, 60, 28, 60, 28, 60] stays withheld on the morning after her last logged day", () => {
+        const days = periods([28, 60, 28, 60, 28, 60], 5, 5);
+        const result = analyze(days, profileAged(30));
+
+        // The premise: today is the first day she has not logged, inside the widened window.
+        expect(result.currentPeriodEnd).toBe(shift(TODAY, -1));
+        expect(result.countedCycles).toBe(3);
+        expect(result.variationDays).toBe(32);
+        expect(result.irregular).toBe(true);
+        expect(result.prediction).toBe(null);
+        expect(result.withheld).toBe("irregular-cycles");
+        expect(toCycleEstimate(result).phase).toBe(null);
+        // The card says so — no phase in it at all (`home_c`).
+        expect(cardFor(days, 1)).toEqual({
+            rung: "phase",
+            templateId: TEMPLATE.irregular,
+            slots: {},
+            confidence: "hedged",
+        });
     });
 });
 
