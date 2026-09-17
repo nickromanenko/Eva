@@ -30,7 +30,8 @@
  * `selectSubject` can return, checks each rendered string against what the input actually
  * contained, and pins the strings byte for byte — so a copy edit here fails there until its
  * claims have been re-read. Read that file's `UNTRUE` before signing: it is the list of what
- * the words below still get wrong, and what the canvas has to draw to close each one.
+ * the words below still get wrong. It used to be true that every row there was a drawing
+ * waiting to happen; after #202 it is not, and the two rows left say so themselves.
  */
 import {
   applyContent,
@@ -45,9 +46,15 @@ import {
 /**
  * Who signed this copy off.
  *
- * `source` names the exact canvas state, by the commit that last changed it, so a reviewer
- * can diff what was signed against what is drawn today rather than trusting a file name. It
- * also names the audit, because since #177 that is part of what is being signed.
+ * `source` names the exact canvas state so a reviewer can diff what was signed against what
+ * is drawn today rather than trusting a file name. It also names the audit, because since
+ * #177 that is part of what is being signed.
+ *
+ * **It names a pull request rather than a commit, and that is deliberate** (#202). It used
+ * to read `@ 0f7cda4`, the commit that last changed the canvas — which worked while the
+ * signature only ever followed the drawing. #202 changes the canvas and the seed in one
+ * commit, and that commit's SHA cannot be written into the commit it names. A PR number
+ * resolves to exactly one merge, and the diff is one click from it.
  *
  * **Not a clinical review**, and the distinction is the whole reason this field is a
  * sentence and not a checkbox. No clinician has read these strings. What was reviewed is
@@ -56,29 +63,51 @@ import {
  *
  * The 2026-09-16 signature said "no card states something the rules layer has not actually
  * observed about the user". That was false when it was written, and #177 is the issue that
- * establishes it: `signals_today` reads "You logged low energy and a headache today" and is
+ * established it: `signals_today` read "You logged low energy and a headache today" and was
  * selected for every logged day in the four non-cycle modes and for severe-symptom,
- * low-energy-only and low-mood runs in cycle mode. It is not the only one. The canvas drew
+ * low-energy-only and low-mood runs in cycle mode. It was not the only one. The canvas drew
  * these fourteen cards as illustrations — one woman, one day — and D1 routes a wide range of
  * situations into each.
  *
- * **So this signature says something narrower and checkable instead.** Fourteen strings
- * across seven cards assert something their subject does not guarantee; every one of them is
- * enumerated in `api/test/dashboard-copy.test.ts`'s `UNTRUE`, with the cases that demonstrate
- * it and what the canvas would have to draw. No string below changed — none could, because
- * the fix for every one of them is a card the canvas has not drawn, and a seed file is not
- * where product copy is authored.
+ * ## What is signed here, and what is still owed
  *
- * **Four more sit in `NOTED`, beside it**, because no generated input can falsify them: a
- * sentence implying a personal baseline the rule does not hold, one offering rest to everyone
- * who logged anything, a fixed article headline nobody chose, and a card that hard-codes the
- * ≥3-cycle gate C11 reads from configuration (`CYCLE_MIN_CYCLES_FOR_ESTIMATE`, since #181).
- * They are not mismatches the audit can demonstrate, and they are not nothing. Read both
- * lists.
+ * **Fourteen strings across seven cards carried that fault when #177 was filed. Two remain,
+ * on one card.** The audit's `UNTRUE` is the list, with the cases that demonstrate each and
+ * what would close it:
+ *
+ * - #195 took two of them off by narrowing rung 4 to the follicular phase — the one phase
+ *   every line of `phase_energy` is true of. A rule change, not a drawing.
+ * - **#202 takes ten off by changing the words**: twelve strings across `home_b`, `home_e`,
+ *   `home_g`, `home_edu` and `home_flag`, drawn on the canvas first and transcribed here.
+ *   That is the half of this signature that had never moved — the file used to say "no
+ *   string below changed — none could", and it could, once somebody drew them.
+ * - **The two left are `mood_pattern`'s kicker and title**, which say "3 days" while
+ *   `lowSignalDays` is #26's to set. They are in a field called `canvasMustDraw` and **they
+ *   are not a drawing**: no sentence closes them, because `requirePatternRule` accepts a
+ *   dose of 1, where "consecutive days" is false, and imposes no ceiling, where "the last
+ *   few days" is. They need a `patternDays` slot — an entry in `SLOTS` and a line in
+ *   `patternRung` — or #26 fixing the dose. Both are rule changes, kept out of a signature
+ *   on words.
+ *
+ * **Two of the ten closed by saying less rather than by saying it accurately**, and a signer
+ * should know which: `home_e`'s and `home_g`'s titles stopped naming what she logged. Nothing
+ * in this system turns a rating of 1 into the words "low energy" — `dashboard-rules.ts` holds
+ * symptom codes and never labels, by design, and `SLOTS` has no key for one. **#200** is the
+ * slice that would give those two cards their content back, and it argues the mapping belongs
+ * in `content.ts` behind this same gate, because "low energy" is a judgement about a number
+ * rather than a readback of it.
+ *
+ * **Three sit in `NOTED`, beside `UNTRUE`**, because no generated input can falsify them: a
+ * sentence implying a personal baseline the rule does not hold, a fixed article headline
+ * nobody chose, and a card that hard-codes the ≥3-cycle gate C11 reads from configuration
+ * (`CYCLE_MIN_CYCLES_FOR_ESTIMATE`, since #181). A fourth — rest offered to everyone who
+ * logged anything — went with `home_g`'s line2 in #202. They are not mismatches the audit can
+ * demonstrate, and they are not nothing. Read both lists.
  *
  * And read what that file says it does **not** catch, written above `UNTRUE`: it is a ledger,
  * not a gate. It goes red when the list changes, and stays green when a mismatch already on
- * the list becomes reachable by real users — which is the transition #184 exists to gate.
+ * the list becomes reachable by real users — the transition #184 existed to gate, and did,
+ * as #195.
  *
  * Signing this is signing both lists: these words, this ladder, these known gaps, and no
  * others.
@@ -86,17 +115,41 @@ import {
  * Cards that would need a clinician to stand behind them are still not in this set: the one
  * card that speaks about a pattern reports the user's own logs and declines to interpret
  * them, and the red-flag rung that would carry real clinical weight is inert (`redFlag` is
- * `null` everywhere, D10) — which is exactly why the three mismatches the audit finds in
- * `red_flag` cost nothing today and must be closed before D10 makes it live.
- * docs/LAUNCH.md L7 remains open on its own terms and this does not close it.
+ * `null` everywhere, D10). #202 closed all three of that card's mismatches — it no longer
+ * names one symptom for every code D10 will map, no longer says "today" about a rung that
+ * applies no window, and no longer sends every mode to a maternity provider. **What it still
+ * does is render `{loggedAt}` as a raw ISO-8601 instant** (`Logged 2026-09-13T08:00:00Z`,
+ * where the canvas draws `Logged 14:20`), which the audit is structurally blind to because
+ * that string is *true*. Filed as **#201**, and it is on the one card with real clinical
+ * weight. docs/LAUNCH.md L7 remains open on its own terms and this does not close it.
  *
- * **Which of the fourteen reaches anyone is worth knowing before signing.** Today none of
- * them do: `DASHBOARD_PATTERN_*` is not among `deploy-api.yml`'s `--set-env-vars`, so
+ * **Which card reaches anyone is worth knowing before signing.** Today none of them do:
+ * `DASHBOARD_PATTERN_*` is not among `deploy-api.yml`'s `--set-env-vars`, so
  * `config.dashboard.pattern` is null in production, rung 2 throws on every call and
- * `GET /me/today` answers 503. The moment those are set, `educational` is the first card
- * live — `today.ts`'s `cycleEstimate()` is hard-coded to "knows nothing" and `redFlag` is
- * always null, so it and `signals_today` are between them nearly the whole surface. Its one
- * mismatch is the one to read hardest.
+ * `GET /me/today` answers 503. The whole surface is still one env var away from existing.
+ *
+ * When it is thrown, the live set is **three cards, not two — if #204 has landed by then**,
+ * and it is open as this is written. As of this commit `today.ts`'s `cycleEstimate()` is
+ * hard-coded to "knows nothing", so no cycle rung can fire and `educational` and
+ * `signals_today` are between them nearly everything. #204 wires the real `CycleEstimate`
+ * from `cycle.ts` into that function, which makes rung 4 reachable and puts `phase_energy`
+ * on the surface beside them. The other half of the old sentence does not move: `redFlag` is
+ * still `null` in every mode until D10, so rung 1 stays inert either way.
+ *
+ * That is stated as a condition rather than as a fact because both readings are wrong if it
+ * is asserted — before #204 it over-counts the live set, after it, it under-counts.
+ *
+ * **The practical point of #202 survives it**: `educational` and `signals_today` were both
+ * mismatches when #177 was filed and neither is now, and they are the two cards almost
+ * everyone would have seen. **The third is worth reading differently.** `phase_energy` is
+ * untouched here and its copy is true — but it is true *because #195 narrowed rung 4 to the
+ * follicular phase*, the one phase every line of it describes, not because the sentences are
+ * true generally. A rule is holding it up. Widen that rung without drawing the per-phase
+ * variants and both of its rows come straight back into `UNTRUE`, which is the transition the
+ * audit is a ledger for and not a gate against. Narrower still after #203: a woman whose last
+ * logged flow day is inside the gap threshold reads as `menstrual` on a morning she has not
+ * logged yet, so she falls through to `educational` rather than being told she is likely
+ * approaching ovulation.
  *
  * Exported so `api/test/content.test.ts` can tell whether the gate is still closed. The
  * case that proves this script has no way past the refusal has to *run* the script, and
@@ -107,7 +160,7 @@ export const REVIEW: Review = {
   reviewedBy: 'Nick Romanenko',
   reviewedAt: '2026-09-17',
   source:
-    'docs/design/Eva App.dc.html @ 0f7cda4 — Dashboard rail (CARDS, NUDGES, banners); ' +
+    'docs/design/Eva App.dc.html @ #202 — Dashboard rail (CARDS, NUDGES, banners); ' +
     'plus the reachable-subject audit in api/test/dashboard-copy.test.ts (#177)',
 }
 
@@ -129,10 +182,10 @@ export const TEMPLATES: Template[] = [
   {
     id: 'signal_overrides_phase', rung: 'pattern', mode: 'cycle', state: 'home_e', confidence: 'plain',
     kicker: 'Cycle day {cycleDay}',
-    title: 'You logged low energy this morning after a poor night’s sleep',
-    line2: 'Although energy can be higher around this phase, your own log comes first.',
-    line3: 'Sleep, stress and iron affect daily energy more than cycle phase. A lighter session may feel more manageable today.',
-    actions: ['Review this morning’s log'], slots: ['cycleDay'], status: 'active', order: 1,
+    title: 'Eva is reading what you logged, not what the phase predicts',
+    line2: 'Your phase is context for what you reported, not a substitute for it.',
+    line3: 'Sleep, stress and iron affect daily energy more than cycle phase.',
+    actions: ['Review what I logged'], slots: ['cycleDay'], status: 'active', order: 1,
   },
   {
     id: 'cold_start', rung: 'setup', mode: 'any', state: 'home_a', confidence: 'plain',
@@ -144,7 +197,7 @@ export const TEMPLATES: Template[] = [
     id: 'still_learning', rung: 'phase', mode: 'cycle', state: 'home_b', confidence: 'hedged',
     kicker: 'Cycle tracking · {cycleCount} of 3 cycles',
     title: 'Eva is still learning your cycle',
-    line2: 'Log two more periods to help estimate your cycle phases more reliably. Until then, no phase is shown.',
+    line2: 'Log more periods to help estimate your cycle phases more reliably. Until then, no phase is shown.',
     actions: ['Open Calendar'], slots: ['cycleCount'], status: 'active', order: 3,
   },
   {
@@ -163,9 +216,9 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: 'signals_today', rung: 'pattern', mode: 'any', state: 'home_g', confidence: 'plain',
-    kicker: 'Logged today',
-    title: 'You logged low energy and a headache today',
-    line2: 'A slower pace or additional rest may feel more appropriate.',
+    kicker: 'Logged · last 24 hours',
+    title: 'Your own log comes first',
+    line2: 'Eva can see what you logged but not what caused it.',
     actions: ['Review what I logged'], slots: [], status: 'active', order: 6,
   },
   {
@@ -180,7 +233,7 @@ export const TEMPLATES: Template[] = [
     id: 'educational', rung: 'education', mode: 'any', state: 'home_edu', confidence: 'plain',
     tone: 'edu', kicker: 'Today’s read',
     title: 'Why sleep can affect appetite more than willpower',
-    line2: 'Educational content, not personalized insight — nothing new in your logs today.',
+    line2: 'Educational content, not personalized insight — no new body signals in the last 24 hours.',
     meta: '{category} · {readMinutes} min read',
     actions: ['Read article'], slots: ['category', 'readMinutes'], status: 'active', order: 8,
   },
@@ -204,9 +257,9 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: 'red_flag', rung: 'flag', mode: 'pregnancy', state: 'home_flag', confidence: 'plain',
-    tone: 'flag', kicker: 'Logged {loggedAt} today',
-    title: 'You logged reduced fetal movement today',
-    line2: 'Contact your maternity provider or local urgent care service for guidance. Eva cannot assess this.',
+    tone: 'flag', kicker: 'Logged {loggedAt}',
+    title: 'You logged a symptom that needs medical attention',
+    line2: 'Contact your provider or a local urgent care service for guidance. Eva cannot assess this.',
     actions: ['View contact options', 'Review what I logged'], slots: ['loggedAt'],
     status: 'active', order: 11,
   },

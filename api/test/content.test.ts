@@ -508,7 +508,16 @@ describe("tone and framing, checkable on the seed", () => {
         );
         // The exact count, not a floor: a floor with slack in it lets a dozen strings be
         // deleted from the seed without a signal, which is the other way copy drifts.
-        expect(fragments).toHaveLength(94);
+        //
+        // **94 → 93 in #177, and the one that went is arithmetic rather than copy.** That
+        // change rewrote twelve strings across five cards and every one of them is slotless,
+        // so each contributes exactly one fragment before and after. The exception is
+        // `home_flag`'s kicker: `'Logged {loggedAt} today'` split either side of the slot
+        // into `Logged` and `today`, and `'Logged {loggedAt}'` leaves only `Logged`. The
+        // other half of this case — that every fragment is in the canvas — held at 93 of 93
+        // through that change, which is the half that says the seed still transcribes the
+        // drawing.
+        expect(fragments).toHaveLength(93);
         for (const fragment of fragments) expect(canvas).toContain(fragment);
     });
 

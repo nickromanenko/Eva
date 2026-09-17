@@ -480,19 +480,18 @@ const isLow = (value: number | null, c: Case): boolean =>
     value !== null && value <= doseOf(c).lowAtOrBelow;
 
 /**
- * "This morning", in the only reading the input can settle: before noon on the clock the
- * entry itself carries.
+ * **No card says "this morning" or "today" about something she logged any more**, so the two
+ * helpers that measured it are gone: `loggedInTheMorning`, which read the hour off the
+ * entry's own offset-bearing `loggedAt` (ISO-8601 with an offset, so the wall time in the
+ * string is the time she saw it — no process timezone needed, and none available), and
+ * `flagRaisedToday`, which compared the flag's date to `today`.
  *
- * `loggedAt` is ISO-8601 **with an offset** (`SignalEntry`), so the wall time in the string
- * is the time she saw it — no process timezone is needed here, and none is available. Two of
- * `home_e`'s strings say these words, and the observed window that chose the entry is 24
- * hours wide and knows nothing about mornings.
+ * They are named here rather than quietly deleted, because they are what a temporal claim
+ * would be written with the next time a card says when. The two facts that made them
+ * necessary both outlived the sentences that tripped over them: the window that picks the
+ * entry is 24 hours wide and knows nothing about calendar days or mornings, and rung 1
+ * applies no window at all.
  */
-const loggedInTheMorning = (e: SignalEntry): boolean => Number(e.loggedAt.slice(11, 13)) < 12;
-
-/** The flag's day, as both `home_flag` strings that say "today" read it. */
-const flagRaisedToday = (c: Case): boolean =>
-    c.input.redFlag?.loggedAt.startsWith(c.input.today) === true;
 
 const phaseOf = (c: Case): PhaseCode | null => {
     const { cycle } = c.input;
@@ -529,7 +528,7 @@ const AUDIT: Record<TemplateId, Audited> = {
         copy: {
             kicker: "Cycle tracking · {cycleCount} of 3 cycles",
             title: "Eva is still learning your cycle",
-            line2: "Log two more periods to help estimate your cycle phases more reliably. Until then, no phase is shown.",
+            line2: "Log more periods to help estimate your cycle phases more reliably. Until then, no phase is shown.",
             actions: ["Open Calendar"],
         },
         claims: {
@@ -544,8 +543,24 @@ const AUDIT: Record<TemplateId, Audited> = {
                 holds: (c) => !c.input.cycle.enoughCyclesForEstimates,
             },
             line2: {
-                says: "exactly two more periods are needed — she has logged one cycle",
-                holds: (c) => c.input.cycle.countedCycles === 1,
+                // "two more" became "more", and the sentence stopped counting down from
+                // one. It was selected at zero, one *and* two counted cycles, and zero is
+                // the commonest of the three — `phaseRung` asks only for a known `cycleDay`,
+                // which one logged period sets, while a counted cycle needs two first-flow
+                // days. So the card asked for two more when she needed three.
+                //
+                // **The number is not recoverable here**, which is why the sentence carries
+                // none. It would have to be `minCyclesForEstimate − countedCycles`, and C11
+                // hands this module its *answer* to the gate and never the gate — see
+                // `NOTED` on this card's kicker, which hard-codes the same number for the
+                // same reason. Nothing in `SubjectSlots` can reach a remainder, so the
+                // sentence asks for "more" and the claim checks both halves of what it says:
+                // that periods are the thing still missing, and that no phase is being shown
+                // meanwhile. Deliberately not the title's predicate alone — a claim that only
+                // repeated the line above would leave the half about *periods* unexamined.
+                says: "she is short of the counted cycles the gate asks for, and no phase is being estimated meanwhile",
+                holds: (c) =>
+                    c.input.cycle.countedCycles < 3 && !c.input.cycle.enoughCyclesForEstimates,
             },
             actions: null,
         },
@@ -602,43 +617,50 @@ const AUDIT: Record<TemplateId, Audited> = {
         state: "home_e",
         copy: {
             kicker: "Cycle day {cycleDay}",
-            title: "You logged low energy this morning after a poor night’s sleep",
-            line2: "Although energy can be higher around this phase, your own log comes first.",
-            line3: "Sleep, stress and iron affect daily energy more than cycle phase. A lighter session may feel more manageable today.",
-            actions: ["Review this morning’s log"],
+            title: "Eva is reading what you logged, not what the phase predicts",
+            line2: "Your phase is context for what you reported, not a substitute for it.",
+            line3: "Sleep, stress and iron affect daily energy more than cycle phase.",
+            actions: ["Review what I logged"],
         },
         claims: {
             kicker: null,
             title: {
-                says: "the entry the card is about carries a low energy rating and a low sleep rating, and was logged this morning",
-                holds: (c) => {
-                    const e = observed(c);
-                    return (
-                        e !== null &&
-                        isLow(e.energy, c) &&
-                        isLow(e.sleep, c) &&
-                        e.localDate === c.input.today &&
-                        loggedInTheMorning(e)
-                    );
-                },
+                // **It names no signal and no clock, and neither was fixable by naming them
+                // better.** The old title asserted a low energy rating, a low sleep rating
+                // and a morning; the rung selects this card for *any* observed entry in
+                // cycle mode with a speakable phase, so severe cramps with ratings of 5 got
+                // it too. A `{signal}` slot is not the escape: `dashboard-rules.ts` holds
+                // symptom *codes* and never words by design, `SLOTS` has no key that takes
+                // one, and the phraser only substitutes what the subject already carries —
+                // so nothing in this system can turn a rating of 1 into "low energy". And
+                // the window that picked the entry is 24 hours wide, so "this morning" was
+                // false for anything logged the previous evening.
+                //
+                // What is left is the two facts the rung itself guarantees, which is a
+                // duller card than the canvas drew. The card that names what she logged
+                // needs a reviewed phrase vocabulary — codes and rating bands to words —
+                // and that is a slice, not a copy edit.
+                says: "she logged something inside the observed window, and a phase Eva could have spoken from is not what the card is speaking from",
+                holds: (c) => observed(c) !== null && phaseOf(c) !== null,
             },
             line2: {
-                says: "the estimated phase is one energy tends to be higher in",
-                holds: (c) => HIGHER_ENERGY_PHASES.includes(phaseOf(c)!),
+                // PRD §Dashboard's own sentence for this card — "The phase is context for
+                // what she reported; it is not a substitute for it" — which is true in every
+                // phase. "energy can be higher around this phase" was true in two of four,
+                // and read as a contrast with a tendency that was not there in the other two.
+                says: "a phase estimate exists to be context",
+                holds: (c) => phaseOf(c) !== null,
             },
-            // A general statement about physiology plus a suggestion in "may" — neither is
-            // a claim about what she logged.
+            // A general statement about physiology. Its second sentence went with the
+            // title: "A lighter session may feel more manageable today" was offered to
+            // whatever she logged, ratings of 5 included, which is the same untargeted rest
+            // advice `NOTED` recorded against `home_g`'s line2 and which that card has now
+            // also dropped.
             line3: null,
-            // "Review this morning's log" carries the same two words as the title, and was
-            // audited on the day alone for the same reason the title was: the day is the
-            // half a fixed 09:00 clock makes easy to check.
-            actions: {
-                says: "the entry the card is about was logged this morning",
-                holds: (c) => {
-                    const e = observed(c);
-                    return e !== null && e.localDate === c.input.today && loggedInTheMorning(e);
-                },
-            },
+            // `home_g`'s label, which the canvas draws and which names no clock. The old one
+            // said "this morning" about the same 24-hour window the title did, and was
+            // audited on the day alone for the same reason the title was.
+            actions: null,
         },
     },
 
@@ -664,29 +686,35 @@ const AUDIT: Record<TemplateId, Audited> = {
     [TEMPLATE.signalsToday]: {
         state: "home_g",
         copy: {
-            kicker: "Logged today",
-            title: "You logged low energy and a headache today",
-            line2: "A slower pace or additional rest may feel more appropriate.",
+            kicker: "Logged · last 24 hours",
+            title: "Your own log comes first",
+            line2: "Eva can see what you logged but not what caused it.",
             actions: ["Review what I logged"],
         },
         claims: {
             kicker: {
-                says: "the entry the card is about was logged today",
-                holds: (c) => observed(c)?.localDate === c.input.today,
+                // The PRD's own window — "If the user has logged body signals in the last 24
+                // hours…" — which is the one this rung actually applies. "Logged today" was
+                // false for the entry made at 23:00 last night that the window still holds,
+                // and the fixture that demonstrated it is still in `HISTORIES`.
+                says: "a body signal was logged inside the observed 24-hour window",
+                holds: (c) => observed(c) !== null,
             },
             title: {
-                says: "the entry the card is about carries a low energy rating and a headache, and was logged today",
-                holds: (c) => {
-                    const e = observed(c);
-                    return (
-                        e !== null &&
-                        isLow(e.energy, c) &&
-                        e.symptoms.some((s) => s.code === "headache") &&
-                        e.localDate === c.input.today
-                    );
-                },
+                // **#177's headline case, and it names nothing on purpose.** Every logged
+                // day in the four non-cycle modes reaches this card, as do severe-symptom,
+                // low-energy-only and low-mood runs in cycle mode — so "low energy and a
+                // headache" was false in 1,351 of the 1,460 cases that render it. The only
+                // things true of all of them are that she logged, and that this card leads
+                // with it rather than with a phase. Same slot wall as `home_e`'s title.
+                says: "she logged something, and it is what this card is about",
+                holds: (c) => observed(c) !== null,
             },
-            // "may feel more appropriate" — offered, not asserted.
+            // `home_h`'s "Eva can see the pattern but not its cause", in the singular: a
+            // statement of Eva's limits, not a claim about her. It replaces "a slower pace
+            // or additional rest may feel more appropriate", which claimed nothing either —
+            // and was offered to a pregnant user who logged energy 5 and sleep 5, which is
+            // why `NOTED` carried it. That entry is gone with the sentence.
             line2: null,
             actions: null,
         },
@@ -734,7 +762,7 @@ const AUDIT: Record<TemplateId, Audited> = {
         copy: {
             kicker: "Today’s read",
             title: "Why sleep can affect appetite more than willpower",
-            line2: "Educational content, not personalized insight — nothing new in your logs today.",
+            line2: "Educational content, not personalized insight — no new body signals in the last 24 hours.",
             meta: "{category} · {readMinutes} min read",
             actions: ["Read article"],
         },
@@ -743,20 +771,26 @@ const AUDIT: Record<TemplateId, Audited> = {
             // An article's headline. It says nothing about her, so there is nothing here to
             // be false — but "nothing to be false" is not "nothing to read": see `NOTED`.
             title: null,
-            // **"nothing new in your logs today" — and `signals` is body signals only.**
-            // `SignalEntry`'s own doc says so ("This is the only logged-data input, and it is
-            // body signals only"): cycle, sport, meals, appointments and sex never reach this
-            // module. `daysSinceLastLog` does see them — #173 fills it from `lastLoggedDate`,
-            // "the most recent day that carries a live entry of any kind" — so it is the one
-            // input that can answer the question the sentence actually asks.
+            // **The sentence now says what this module can see.** "nothing new in your logs
+            // today" was a claim about logs of every kind, and `signals` is body signals
+            // only — `SignalEntry`'s own doc says so ("This is the only logged-data input,
+            // and it is body signals only"): cycle, sport, meals, appointments and sex never
+            // reach here. So a day whose only entry was a run, a meal, a period or an
+            // appointment was told there was nothing new in her logs. `daysSinceLastLog`
+            // does see them, and no sentence here can be true of a number this card cannot
+            // read — the fixture that demonstrated it reached this card through a sheet
+            // opened and not saved, which is the same input by the same route.
             //
-            // The broad reading of "your logs" is the repo's own: the `logging_gap` nudge says
-            // "any body signals" where it means body signals, and this card does not.
+            // The narrowing is the repo's own reading: the `logging_gap` nudge says "any
+            // body signals" where it means body signals, and this card now does too.
+            //
+            // It is a *guarantee*, not a likelihood: rung 2 returns `signals_today` for any
+            // observed entry, so reaching rung 6 at all means `observedSignal` found none.
+            // "the mirror of the ladder's observed-data rule agrees with the ladder" below
+            // is what holds that true rather than this claim assuming it.
             line2: {
-                says: "nothing of any kind was logged today, which is what 'your logs' means",
-                holds: (c) =>
-                    c.input.daysSinceLastLog !== 0 &&
-                    !c.input.signals.some((e) => e.localDate === c.input.today && hasSignal(e)),
+                says: "no body signal was logged inside the observed 24-hour window",
+                holds: (c) => observed(c) === null,
             },
             meta: null,
             actions: null,
@@ -766,31 +800,45 @@ const AUDIT: Record<TemplateId, Audited> = {
     [TEMPLATE.redFlag]: {
         state: "home_flag",
         copy: {
-            kicker: "Logged {loggedAt} today",
-            title: "You logged reduced fetal movement today",
-            line2: "Contact your maternity provider or local urgent care service for guidance. Eva cannot assess this.",
+            kicker: "Logged {loggedAt}",
+            title: "You logged a symptom that needs medical attention",
+            line2: "Contact your provider or a local urgent care service for guidance. Eva cannot assess this.",
             actions: ["View contact options", "Review what I logged"],
         },
         claims: {
             kicker: {
-                says: "the flag was raised today",
-                holds: flagRaisedToday,
+                // "today" is gone, because rung 1 applies no window: it fires on whatever
+                // `loggedAt` the caller passes, and it is evaluated before any time input is
+                // parsed on purpose — an escalation must not be suppressed by a problem, or
+                // a date, below it. So the card states the time it was given and claims
+                // nothing about which day that was.
+                says: "the time named is the time the flag carries",
+                holds: (c) => c.input.redFlag !== null,
             },
-            // **"You logged reduced fetal movement today" asserts two things**, and only the
-            // first was audited. That is the trapdoor the next round has to not fall through:
-            // when D10 draws a card per code, the symptom half becomes true, this entry comes
-            // out of `UNTRUE` — and unless the day is audited here, a flag raised three days
-            // ago renders as "today" on the one card with real clinical weight, with the
-            // ledger green.
+            // **The title asserted two things and now asserts neither, which is the whole
+            // reason this row could be retired at all.** The code is not recoverable here:
+            // `RedFlagSignal` carries a `refdata/` code, `dashboard-rules.ts` holds codes and
+            // never labels by design ("the words are the client's"), and no key in `SLOTS`
+            // takes a symptom — so "reduced fetal movement" was the one flag D10 might map,
+            // rendered for every flag it maps. The labels do exist, on `refdata.ts`'s
+            // `SymptomItem`, and nothing carries one toward a subject; wiring that is D3 plus
+            // a field on `RedFlagSignal` plus a new slot, and it belongs with D10's mapping.
+            // The day was never audited at all.
+            //
+            // **So the trapdoor named here before is still open, from the other side.** When
+            // D10 draws a card per code, the sentence that replaces this one must be audited
+            // for its day as well as its symptom, or a flag raised three days ago renders as
+            // "today" on the one card with real clinical weight, with the ledger green.
             title: {
-                says: "the flag is reduced fetal movement, and it was raised today",
-                holds: (c) =>
-                    c.input.redFlag?.code === "reduced-fetal-movement" && flagRaisedToday(c),
+                says: "a red flag was raised",
+                holds: (c) => c.input.redFlag !== null,
             },
-            line2: {
-                says: "a maternity provider is the person to contact — she is pregnant",
-                holds: (c) => c.input.mode === "pregnancy",
-            },
+            // An instruction, and now the same instruction in every mode. It named a
+            // maternity provider while rung 1 fires in all five — `redFlagRung` has no mode
+            // gate, deliberately, because "always wins" has no mode in it. "your provider" is
+            // DESIGN §8's neutral role, which is correct in cycle, planning, pregnancy,
+            // postpartum and loss alike.
+            line2: null,
             actions: null,
         },
     },
@@ -817,20 +865,35 @@ interface KnownUntrue {
 }
 
 /**
- * **Every mismatch this audit can demonstrate, and none of it is fixable in a seed file.**
+ * **Every mismatch this audit can demonstrate.** Two, where this list held fourteen when it
+ * was written and twelve after #184 narrowed rung 4.
  *
  * `api/scripts/seed-content.ts` is a transcription of `docs/design/Eva App.dc.html`, and
  * `content.test.ts`'s "every string the seed ships is the canvas' string" enforces that
- * mechanically, fragment by fragment. So closing any line below means the canvas draws the
- * variant first. The PR that adds this file carries the request; each entry names what it
- * asks for.
+ * mechanically, fragment by fragment. So closing a line below means the canvas draws the
+ * variant first, and that is what happened: ten rows came off this list because `CARDS` now
+ * draws `home_b`, `home_e`, `home_g`, `home_edu` and `home_flag` in words that are true of
+ * everyone the ladder routes to them. The claims above each say what moved and what it cost.
  *
- * The slot route — `'You logged {signal} today'` — is not available either, and the reason
- * is a boundary rather than a preference: `dashboard-rules.ts` contains no text by design
- * and holds symptom *codes*, never labels, so nothing in the ladder can produce the words
- * "low energy"; #173's `TemplatePhraser` only substitutes slot values the subject already
- * carries, and a title with an unfilled slot is a refusal — so a slot nobody fills turns
- * card G from a card that is sometimes wrong into a card that never renders.
+ * **Two of those closed by saying less rather than by saying it accurately**, and they are
+ * the ones to re-read rather than the ones left below: `home_e`'s and `home_g`'s titles both
+ * stopped naming what she logged, because nothing in this system can turn a rating of 1 into
+ * the words "low energy". The slot route — `'You logged {signal} today'` — is a boundary
+ * rather than a preference: `dashboard-rules.ts` contains no text by design and holds symptom
+ * *codes*, never labels, so nothing in the ladder can produce those words; #173's
+ * `TemplatePhraser` only substitutes slot values the subject already carries, and a title
+ * with an unfilled slot is a refusal — so a slot nobody fills turns card G from a card that
+ * is sometimes wrong into a card that never renders. Giving those two cards their content
+ * back means a reviewed vocabulary from codes and rating bands to words, which is a slice.
+ *
+ * ## The two that remain are not a canvas question
+ *
+ * Both are `mood_pattern`'s, both are the same mismatch, and **neither is fixable by drawing
+ * anything**: the card names a number that is configuration. They are left here deliberately.
+ * Closing them needs either a `patternDays` slot — an entry in `SLOTS` and a line in
+ * `patternRung` — or #26 fixing `lowSignalDays` at three, and both are rule changes. The
+ * PR that retired the other ten is a signature on *words*; mixing a rules change into it
+ * would make what is being signed less clear. Nothing in the copy above depends on them.
  *
  * ## This is a ledger, not a gate — read this before trusting a green run
  *
@@ -845,96 +908,25 @@ interface KnownUntrue {
  * wrong with the sentence. It does not mean anyone is being protected from it.
  */
 const UNTRUE: KnownUntrue[] = [
-    {
-        template: TEMPLATE.stillLearning,
-        field: "line2",
-        examples: ["0 counted cycles, one period logged"],
-        canvasMustDraw:
-            "home_b at zero, one or two counted cycles — the card says 'Log two more periods' and the ladder selects it at all three. Zero is the commonest of them and the furthest from the words: `phaseRung` asks only for a known `cycleDay`, which one logged period sets, while a counted cycle needs two first-flow days. So the first card a cycle-mode user sees after logging her first period reads '0 of 3 cycles' and asks her for two more when she needs three. Draw the count as a slot while you are there — see `NOTED` on this card's kicker, which hard-codes the gate #181 made configurable.",
-    },
-    // `phase_energy` had two rows here — its kicker and its title, each untrue of phases the
-    // ladder selected it for — until #184 narrowed rung 4 to the follicular phase, the one
-    // phase both lines are true of. Nothing else reaches the card now, so there is nothing
-    // left to record, and the rows were deleted rather than edited into truth. The canvas
-    // request for per-phase `home_d` variants still stands; its job now is to let the rung
-    // widen again. Widening it without one puts both rows back as new mismatches, and this
-    // file goes red.
-    {
-        template: TEMPLATE.signalOverridesPhase,
-        field: "title",
-        examples: ["severe cramps only", "logged at 20:00 and read at 23:30"],
-        canvasMustDraw:
-            "home_e for a logged day that is not low energy plus poor sleep — a symptom alone, a mood alone, or ratings that are fine.",
-    },
-    {
-        template: TEMPLATE.signalOverridesPhase,
-        field: "line2",
-        examples: ["phase luteal"],
-        canvasMustDraw:
-            "home_e's phase line for the phases energy is not higher in; it reads as a contrast with a tendency that is not there.",
-    },
-    {
-        template: TEMPLATE.signalOverridesPhase,
-        field: "actions",
-        examples: ["logged last night", "logged at 20:00 and read at 23:30"],
-        canvasMustDraw:
-            "home_e's action label for an entry logged the previous evening — the observed window is 24 hours, the label says 'this morning'.",
-    },
-    {
-        template: TEMPLATE.signalsToday,
-        field: "kicker",
-        examples: ["logged last night"],
-        canvasMustDraw:
-            "home_g's kicker for an entry inside the 24-hour window but not on today's date.",
-    },
-    {
-        template: TEMPLATE.signalsToday,
-        field: "title",
-        examples: ["severe cramps only", "a headache logged last night"],
-        canvasMustDraw:
-            "home_g for a logged day that is not low energy plus a headache. This is #177's headline case: every logged day in the four non-cycle modes reaches this card, as do severe-symptom, low-energy-only and low-mood runs in cycle mode.",
-    },
+    // `still_learning.line2`, `signal_overrides_phase`'s title, line2 and actions,
+    // `signals_today`'s kicker and title, `educational.line2` and all three `red_flag` rows
+    // stood here. The canvas drew every one of them and the seed follows it, so they are
+    // deleted in the same change that made their sentences true — the second of this file's
+    // three failure modes, spent on purpose. `phase_energy`'s two went one commit earlier,
+    // to #184, by narrowing the rung instead.
     {
         template: TEMPLATE.moodPattern,
         field: "kicker",
         examples: ["four-day dose"],
         canvasMustDraw:
-            "home_h's kicker as a slot, or #26 fixing lowSignalDays at three — the card says '3 days' and the dose is configuration.",
+            "home_h's kicker as a slot, or #26 fixing lowSignalDays at three — the card says '3 days' and the dose is configuration. **Not a drawing, despite the field name**: no sentence the canvas can draw is true at every dose `requirePatternRule` accepts, because it accepts 1 (where 'consecutive days' is false) and has no ceiling (where 'the last few days' is). Deliberately left on this list by the PR that closed the other ten, which changed words only.",
     },
     {
         template: TEMPLATE.moodPattern,
         field: "title",
         examples: ["four-day dose"],
         canvasMustDraw:
-            "home_h's sentence as a slot, for the same reason as its kicker. At A32's own dose of three the sentence is true.",
-    },
-    {
-        template: TEMPLATE.educational,
-        field: "line2",
-        examples: ["the sheet opened and nothing saved"],
-        canvasMustDraw:
-            "home_edu's line for a day whose only logs are not body signals — a run, a meal, a period, an appointment, a sex entry. She logged, and the card tells her nothing new is in her logs. **The widest blast radius on this list**: with #173 merged this is the first card that becomes live, and #184 makes it the default for most users on most days, so these two land together even though they are fixed apart. The demonstrating fixture reaches it through a sheet opened and not saved, which is the same input by the same route — `daysSinceLastLog` counts entries of any kind, `signals` holds body signals only, and the gap between them is the sentence.",
-    },
-    {
-        template: TEMPLATE.redFlag,
-        field: "kicker",
-        examples: ["raised three days ago"],
-        canvasMustDraw:
-            "home_flag for a flag raised before today — rung 1 applies no window, so the card says 'today' for any flag the caller passes.",
-    },
-    {
-        template: TEMPLATE.redFlag,
-        field: "title",
-        examples: ["red flag cramps", "reduced-fetal-movement raised three days ago"],
-        canvasMustDraw:
-            "home_flag for each red-flag code D10 will map, **and for a flag not raised today** — the title asserts both. The subject carries only `loggedAt`, never the code, so every flag renders as reduced fetal movement; and rung 1 applies no window, so any `loggedAt` the caller passes renders as 'today'. Drawing one half leaves this row in place for the other.",
-    },
-    {
-        template: TEMPLATE.redFlag,
-        field: "line2",
-        examples: ["cycle · red flag"],
-        canvasMustDraw:
-            "home_flag outside pregnancy — rung 1 fires in all five modes and the contact line names a maternity provider.",
+            "home_h's sentence as a slot, for the same reason as its kicker, and with the same caveat. At A32's own dose of three the sentence is true — which is why this ships: `DASHBOARD_PATTERN_LOW_SIGNAL_DAYS` is what decides whether it is, and nothing enforces that it is three.",
     },
 ];
 
@@ -963,11 +955,6 @@ const NOTED: Noted[] = [
         template: TEMPLATE.moodPattern,
         field: "line2",
         note: "'Sleep has also been below your usual level' implies a personal baseline. Rung 2 holds none: `lowAtOrBelow` is an absolute threshold, the same number for every user, so 'your usual level' names data the rule does not have. Nothing can demonstrate it — the checkable claim is 'sleep was low on every day of the run', and that is true wherever the card is selected. A wording question for whoever draws the slotted home_h.",
-    },
-    {
-        template: TEMPLATE.signalsToday,
-        field: "line2",
-        note: "'A slower pace or additional rest may feel more appropriate' is offered rather than asserted, so it claims nothing about her and its claim above is `null`. But it rides along with the card, and the card is selected for *every* logged day in the four non-cycle modes — so a pregnant user logging energy 5 and sleep 5 is advised to rest. Whoever draws the general home_g needs this next to the title, not only in a PR body.",
     },
     {
         template: TEMPLATE.stillLearning,
