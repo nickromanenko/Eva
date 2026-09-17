@@ -21,10 +21,30 @@ export type SportIntensity = 'light' | 'medium' | 'hard'
 export type SymptomSeverity = 'normal' | 'severe'
 
 /** Spotting is a separate marker, not a fourth flow level: a spotting day does not
- *  start a period. The `never` arms make "both at once" unrepresentable. */
+ *  start a period. The `never` arms make "both at once" unrepresentable.
+ *
+ *  `periodEnd` is the explicit "my period ended" mark from the day sheet (#75). It rides
+ *  on the cycle entry of the last day **with** flow, not on its own entry on the first dry
+ *  day, which is what keeps it inside the one-per-day document ID: an entry at
+ *  `cycle_<first dry day>` would have to share that ID with a spotting entry on the same
+ *  date, and this is a union rather than a record. Two rules follow, and the arms below
+ *  state both — `parseCyclePayload` refuses them at the edge, where input is checked:
+ *   - it never appears with `spotting: true`, because spotting is by definition not flow;
+ *   - it never appears without a flow level on the same entry. A period cannot end on a
+ *     day that records no bleeding, so the mark cannot store a fact that contradicts
+ *     itself.
+ *  Absent means "not marked", and the key is absent rather than `false` or `undefined`
+ *  (Firestore rejects undefined). Setting and clearing are both edits to the day's
+ *  existing entry, so `localDate` never moves.
+ *
+ *  **It is stored and nothing here reads it.** The inferred end — the first day with no
+ *  flow logged (PRD §Calendar) — is unchanged and still inferred. The two can disagree,
+ *  once a later flow day is logged after a marked one, and which of them wins is the
+ *  cycle maths' question (A11, C11), deliberately left open: #75 stores the fact and
+ *  resolves nothing. Nothing in `api/src/` branches on this field. */
 export type CyclePayload =
-  | { spotting: true; flow?: never }
-  | { flow: FlowLevel; spotting?: never }
+  | { spotting: true; flow?: never; periodEnd?: never }
+  | { flow: FlowLevel; spotting?: never; periodEnd?: true }
 
 /** `code` is validated at the route edge against the catalogue in `refdata.ts` (#24).
  *

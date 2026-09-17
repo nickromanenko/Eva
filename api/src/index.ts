@@ -1761,9 +1761,22 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const parseCyclePayload = (body: Record<string, unknown>): Parsed<CyclePayload> => {
     const hasSpotting = body.spotting !== undefined && body.spotting !== null;
     const hasFlow = body.flow !== undefined && body.flow !== null;
+    const hasPeriodEnd = body.periodEnd !== undefined && body.periodEnd !== null;
     // Spotting is a marker, not a flow level: a spotting day does not start a period.
     if (hasSpotting && hasFlow) {
         return bad("A cycle entry is either spotting or a flow level, not both");
+    }
+    // The explicit period end rides on the last day *with* flow (#75), so both refusals
+    // below are one rule seen from two sides: the mark cannot say a period ended on a day
+    // that records no bleeding. They overlap deliberately — a spotting body reaches the
+    // second one too, since it has no flow — and each is kept because the message is what
+    // tells the caller which rule it broke. For the same reason the second is narrower
+    // than the catch-all at the bottom: a client sending `periodEnd` with nothing to
+    // attach it to has a different bug from one sending an empty payload.
+    if (hasPeriodEnd) {
+        if (body.periodEnd !== true) return bad("periodEnd must be true when present");
+        if (hasSpotting) return bad("periodEnd cannot sit on a spotting day: spotting is not flow");
+        if (!hasFlow) return bad("periodEnd needs a flow level on the same entry");
     }
     if (hasSpotting) {
         return body.spotting === true
@@ -1771,9 +1784,13 @@ const parseCyclePayload = (body: Record<string, unknown>): Parsed<CyclePayload> 
             : bad("spotting must be true when present");
     }
     if (hasFlow) {
-        return body.flow === "light" || body.flow === "medium" || body.flow === "heavy"
-            ? good({ flow: body.flow })
-            : bad("flow must be light, medium or heavy");
+        if (body.flow !== "light" && body.flow !== "medium" && body.flow !== "heavy") {
+            return bad("flow must be light, medium or heavy");
+        }
+        // The key is absent when unmarked rather than `false` or `undefined`: Firestore
+        // rejects undefined, and PATCH replaces `payload` whole, so clearing the mark is
+        // sending the day's payload without it.
+        return good(hasPeriodEnd ? { flow: body.flow, periodEnd: true } : { flow: body.flow });
     }
     return bad("A cycle entry needs either spotting or a flow level");
 };

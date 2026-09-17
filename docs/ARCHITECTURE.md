@@ -894,6 +894,29 @@ stored); without one the server uses UTC and allows a day of slack either side.
 document ID (`cycle_2026-08-27`), so re-logging replaces rather than accumulates. As
 a consequence their `localDate` cannot be changed by `PATCH` — delete and re-log.
 
+**The explicit period-end mark is a flag on the last flow day (#75).** A `cycle` payload is
+`{ spotting: true }` or `{ flow: 'light' | 'medium' | 'heavy', periodEnd?: true }`, and
+`periodEnd` is the "my period ended" mark the day sheet sets. It may not appear with
+`spotting: true`, and may not appear without a flow level on the same entry: a period cannot
+end on a day that records no bleeding, and spotting is by definition not flow.
+`parseCyclePayload` refuses both combinations at the edge, and the arms of `CyclePayload`
+make them unrepresentable in the type.
+
+It rides on the last day *with* flow rather than taking its own entry on the first dry day,
+which is what keeps it inside the deterministic ID above: an entry at `cycle_<first dry day>`
+would have to share that ID with a spotting entry on the same date, and the payload is a
+union rather than a record. So setting and clearing are both edits to the day's existing
+entry — `PATCH` replaces `payload` whole, so the mark is set by sending it and cleared by
+sending the day's payload without it — `localDate` never moves, and the one-per-day rule is
+untouched.
+
+**Inference and the explicit mark are two different facts, and only the second is stored.**
+The period end the PRD infers — the first day with no flow logged — is unchanged and still
+inferred; the mark exists because "the user said so" must not be represented by the absence
+of a flow entry. Nothing in `api/src/` reads `periodEnd`. The two can disagree, once a flow
+day is logged after a marked one, and which of them wins is the cycle maths' question
+(A11 / C11): #75 stores the fact and deliberately resolves nothing.
+
 **Retention — the 30 days are a clock, not a wish (#28).** `DELETE /me/events/{id}` is
 soft: it stamps `deletedAt` and range reads skip the entry. For the next 30 days
 (`RETENTION_DAYS` in `events.ts`, the one place the number lives) it can be brought back
