@@ -566,6 +566,12 @@ export interface CycleAnalysis {
   /** The last day of the period run that opened the current cycle, as she logged it — a
    *  missed day inside the run does not end it (#186). */
   currentPeriodEnd: string | null
+  /** The grouping constant this answer was computed with (#186), carried so the phase can
+   *  apply to the dry days *after* that run the same rule the grouping applied to the dry
+   *  days inside it (#197) — see `phaseOn`. An input kept in the output for the reason
+   *  `today` is: a projection that had to be handed the number again could be handed a
+   *  different one, and two readings of what one period is is the drift #186 removed. */
+  minPeriodGapDays: number
   /** Today's cycle day, counted from `lastPeriodStart` (A25 item 6). */
   cycleDay: number | null
   /** `null` whenever a gate withheld it; `withheld` then says which one. */
@@ -643,6 +649,7 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
     band,
     lastPeriodStart,
     currentPeriodEnd,
+    minPeriodGapDays: settings.minPeriodGapDays,
     cycleDay,
   }
 
@@ -685,12 +692,28 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
  *
  * Four codes, and every boundary between them comes from A26's own constants or from what
  * she logged — none is invented here:
- *  - **menstrual** while today is inside the period run that opened this cycle. Observed,
- *    not estimated: Eva knows the days she logged and claims nothing past the last of them.
- *    The unlogged days it does count are missed ones *between* two logged days, which #186
- *    reads as part of the period.
+ *  - **menstrual** while today is inside the period run that opened this cycle, and while
+ *    the days since it are still too few to have ended that run (#197).
  *  - **ovulation** across the fertile window (A26: ovulation − 5 through ovulation + 1).
  *  - **follicular** before that window, **luteal** after it.
+ *
+ * **The menstrual boundary is `minPeriodGapDays`, the same number that groups her days
+ * (#186, #197).** It used to be the run's last logged day, which meant a woman bleeding on
+ * cycle day 3 *who had not logged that day yet* was follicular — and `dashboard-rules.ts`'s
+ * follicular-only rung 4 then told her, correctly by its own rule, that she was likely
+ * approaching ovulation and might consider a harder training session. That is the sentence
+ * #184 was filed to stop, reached one layer down, and it was the normal state of a morning:
+ * `LogCycleStep.swift` logs one day at a time and nothing back-fills. If one dry day does
+ * not end a period for counting, it does not end it for the phase either — so the run is
+ * over once `minPeriodGapDays` days in a row carry nothing, today included, which is the
+ * grouping predicate applied to the trailing edge rather than a second rule.
+ *
+ * **The bound on the opposite failure — telling a woman she is menstruating when her period
+ * ended days ago — is exactly that constant**: never more than `minPeriodGapDays - 1` days
+ * past the last day she logged, which is one day at the configured 2, and `cycleRulesProblem`
+ * already refuses a gap at or above the shortest countable cycle, so the grace can never
+ * span a cycle. Still observed rather than estimated: every day it counts is a day adjacent
+ * to one she logged, and the moment she logs flow, that day is inside the run anyway.
  *
  * A withheld prediction means no phase at all. That is the gate doing its job: every phase
  * but the observed one is read off an estimated ovulation date, so a phase without a
@@ -700,7 +723,15 @@ const phaseOn = (analysis: CycleAnalysis, today: number): PhaseCode | null => {
   // `today` is `analysis.today` as a day number; the caller has already parsed it once.
   if (analysis.prediction === null || analysis.cycleDay === null) return null
   const periodEnd = analysis.currentPeriodEnd
-  if (periodEnd !== null && today <= dayNumber(periodEnd, 'currentPeriodEnd')) return 'menstrual'
+  // Days with nothing logged since the run's last logged day, today included — the same
+  // count `loggedPeriods` takes between two logged days, which is why it reads `<` against
+  // the same constant. Negative inside the run, where the answer was never in question.
+  if (
+    periodEnd !== null &&
+    today - dayNumber(periodEnd, 'currentPeriodEnd') < analysis.minPeriodGapDays
+  ) {
+    return 'menstrual'
+  }
   const window = analysis.prediction.fertileWindow
   if (today < dayNumber(window.from, 'fertileWindow.from')) return 'follicular'
   if (today <= dayNumber(window.to, 'fertileWindow.to')) return 'ovulation'

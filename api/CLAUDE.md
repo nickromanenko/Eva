@@ -140,7 +140,14 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   It used to be — a period logged 1, 2, 4, 5 moved the anchor, the cycle day, the predicted
   date and the phase, and after #181 withheld the prediction outright behind a reason that
   was false (#180, #190). A logged spotting day still keeps a run open; only days with
-  nothing logged are a gap. This is also the **one reader of #75's `periodEnd`**, for one
+  nothing logged are a gap. **The menstrual phase ends a period the same way (#197)**: the
+  run is over once `minPeriodGapDays` days in a row carry nothing, today included. Ending it
+  on the run's last *logged* day made a woman bleeding on cycle day 3 who had not logged that
+  morning `follicular` — the one phase rung 4 speaks for — so she was told she was likely
+  approaching ovulation and might train harder, which is #184's sentence reached through the
+  phase instead of the rung. The other side of that trade is bounded by the same constant:
+  never menstrual more than `minPeriodGapDays - 1` days past the last day she logged.
+  This is also the **one reader of #75's `periodEnd`**, for one
   decision: whether a later flow day continues the period she marked as ended — within the
   gap the mark is stale and the period continues, at or beyond it a new period starts and
   the mark stands. Never an end date, a period length or a cycle length. **Pure, like
