@@ -107,6 +107,42 @@ const apiAt = (at: string, path: string, init?: RequestInit & { token?: string |
 const api = (path: string, init?: RequestInit & { token?: string | null }) =>
     apiAt(base, path, init);
 
+/** Ports this file has already spawned on. Its `beforeAll` server stays up for the whole
+ *  run, so "already used" and "already free again" are different things here. */
+const claimedPorts = new Set<number>();
+
+/**
+ * A port in 3400–3599 that nothing is answering on and this file has not already taken.
+ *
+ * **The health check below cannot tell one Eva API from another, and that is the bug this
+ * exists to close.** It asks `/` for the string `Eva API`, which every server this file
+ * starts answers — so drawing a port an earlier one still holds means the new process exits
+ * with `EADDRINUSE` while the very first poll succeeds against the *old* server. `bootApi`
+ * then returns that server's URL, and the case runs against a process it did not configure
+ * and whose content bundle was cached before the case deleted anything.
+ *
+ * That is a 1-in-200 draw and it went red on `fix/177-card-copy` on 2026-09-17: a 200 where
+ * a 503 was expected, in 64ms where a real boot takes ~720ms. Forcing the collision
+ * reproduces it exactly. Every green run before it was a draw that happened to miss.
+ *
+ * Checked by asking rather than by bookkeeping alone, because the collision is not only with
+ * this file: `EVA_API_PORT` is a developer's to set, and a `verify-api.sh` server inside this
+ * range answers `Eva API` too.
+ */
+const freePort = async (): Promise<number> => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const port = 3400 + Math.floor(Math.random() * 200);
+        if (claimedPorts.has(port)) continue;
+        const answered = await fetch(`http://localhost:${port}/`)
+            .then(() => true)
+            .catch(() => false);
+        if (answered) continue;
+        claimedPorts.add(port);
+        return port;
+    }
+    throw new Error("no free port in 3400-3599 for the API this case needs");
+};
+
 /**
  * Spawns an API with `over` layered on this process's environment, and waits for it to
  * answer. `config.ts` reads the environment once at import, so a case that needs a
@@ -115,7 +151,7 @@ const api = (path: string, init?: RequestInit & { token?: string | null }) =>
  * session token works against all of them.
  */
 const bootApi = async (over: Record<string, string>) => {
-    const port = 3400 + Math.floor(Math.random() * 200);
+    const port = await freePort();
     const spawned = Bun.spawn(["bun", "run", "src/index.ts"], {
         cwd: new URL("..", import.meta.url).pathname,
         env: { ...process.env, PORT: String(port), ...over },
@@ -125,6 +161,9 @@ const bootApi = async (over: Record<string, string>) => {
     const url = `http://localhost:${port}`;
     let up = false;
     for (let i = 0; i < 60 && !up; i++) {
+        // A child that has already exited could not bind. Polling on would mean waiting for
+        // — or worse, adopting — whatever else answers here, so stop and fail below.
+        if (spawned.exitCode !== null) break;
         up = await fetch(`${url}/`)
             .then((r) => r.text())
             .then((t) => t === "Eva API")

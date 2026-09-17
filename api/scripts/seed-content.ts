@@ -19,6 +19,18 @@
  * the refusal must stay the only door, so that the next copy change is signed the same way
  * rather than waved through. Changing a string below without moving `reviewedAt` is the
  * thing this guards against.
+ *
+ * ## The second half of the signature is now mechanical (#177)
+ *
+ * "Verbatim from the canvas" was always checkable, and `content.test.ts` checks it fragment
+ * by fragment. The other half — *no card says something the rules layer has not observed* —
+ * was a sentence a reviewer had to hold in their head against a ladder in another file, and
+ * it did not hold: two review rounds on #96 each found a card asserting something specific
+ * about a user it was not true of. `api/test/dashboard-copy.test.ts` walks every subject
+ * `selectSubject` can return, checks each rendered string against what the input actually
+ * contained, and pins the strings byte for byte — so a copy edit here fails there until its
+ * claims have been re-read. Read that file's `UNTRUE` before signing: it is the list of what
+ * the words below still get wrong, and what the canvas has to draw to close each one.
  */
 import {
   applyContent,
@@ -34,16 +46,57 @@ import {
  * Who signed this copy off.
  *
  * `source` names the exact canvas state, by the commit that last changed it, so a reviewer
- * can diff what was signed against what is drawn today rather than trusting a file name.
+ * can diff what was signed against what is drawn today rather than trusting a file name. It
+ * also names the audit, because since #177 that is part of what is being signed.
  *
  * **Not a clinical review**, and the distinction is the whole reason this field is a
  * sentence and not a checkbox. No clinician has read these strings. What was reviewed is
- * that every string matches the canvas verbatim, and that no card states something the
- * rules layer has not actually observed about the user. Cards that would need a clinician
- * to stand behind them are not in this set: the one card that speaks about a pattern
- * reports the user's own logs and declines to interpret them, and the red-flag rung that
- * would carry real clinical weight is inert (`redFlag` is `null` everywhere, D10).
+ * that every string matches the canvas verbatim, and — this is the part that moved on
+ * 2026-09-17 — **which cards are not yet true of everyone the ladder routes to them**.
+ *
+ * The 2026-09-16 signature said "no card states something the rules layer has not actually
+ * observed about the user". That was false when it was written, and #177 is the issue that
+ * establishes it: `signals_today` reads "You logged low energy and a headache today" and is
+ * selected for every logged day in the four non-cycle modes and for severe-symptom,
+ * low-energy-only and low-mood runs in cycle mode. It is not the only one. The canvas drew
+ * these fourteen cards as illustrations — one woman, one day — and D1 routes a wide range of
+ * situations into each.
+ *
+ * **So this signature says something narrower and checkable instead.** Fourteen strings
+ * across seven cards assert something their subject does not guarantee; every one of them is
+ * enumerated in `api/test/dashboard-copy.test.ts`'s `UNTRUE`, with the cases that demonstrate
+ * it and what the canvas would have to draw. No string below changed — none could, because
+ * the fix for every one of them is a card the canvas has not drawn, and a seed file is not
+ * where product copy is authored.
+ *
+ * **Four more sit in `NOTED`, beside it**, because no generated input can falsify them: a
+ * sentence implying a personal baseline the rule does not hold, one offering rest to everyone
+ * who logged anything, a fixed article headline nobody chose, and a card that hard-codes the
+ * ≥3-cycle gate C11 reads from configuration (`CYCLE_MIN_CYCLES_FOR_ESTIMATE`, since #181).
+ * They are not mismatches the audit can demonstrate, and they are not nothing. Read both
+ * lists.
+ *
+ * And read what that file says it does **not** catch, written above `UNTRUE`: it is a ledger,
+ * not a gate. It goes red when the list changes, and stays green when a mismatch already on
+ * the list becomes reachable by real users — which is the transition #184 exists to gate.
+ *
+ * Signing this is signing both lists: these words, this ladder, these known gaps, and no
+ * others.
+ *
+ * Cards that would need a clinician to stand behind them are still not in this set: the one
+ * card that speaks about a pattern reports the user's own logs and declines to interpret
+ * them, and the red-flag rung that would carry real clinical weight is inert (`redFlag` is
+ * `null` everywhere, D10) — which is exactly why the three mismatches the audit finds in
+ * `red_flag` cost nothing today and must be closed before D10 makes it live.
  * docs/LAUNCH.md L7 remains open on its own terms and this does not close it.
+ *
+ * **Which of the fourteen reaches anyone is worth knowing before signing.** Today none of
+ * them do: `DASHBOARD_PATTERN_*` is not among `deploy-api.yml`'s `--set-env-vars`, so
+ * `config.dashboard.pattern` is null in production, rung 2 throws on every call and
+ * `GET /me/today` answers 503. The moment those are set, `educational` is the first card
+ * live — `today.ts`'s `cycleEstimate()` is hard-coded to "knows nothing" and `redFlag` is
+ * always null, so it and `signals_today` are between them nearly the whole surface. Its one
+ * mismatch is the one to read hardest.
  *
  * Exported so `api/test/content.test.ts` can tell whether the gate is still closed. The
  * case that proves this script has no way past the refusal has to *run* the script, and
@@ -52,8 +105,10 @@ import {
  */
 export const REVIEW: Review = {
   reviewedBy: 'Nick Romanenko',
-  reviewedAt: '2026-09-16',
-  source: 'docs/design/Eva App.dc.html @ 0f7cda4 — Dashboard rail (CARDS, NUDGES, banners)',
+  reviewedAt: '2026-09-17',
+  source:
+    'docs/design/Eva App.dc.html @ 0f7cda4 — Dashboard rail (CARDS, NUDGES, banners); ' +
+    'plus the reachable-subject audit in api/test/dashboard-copy.test.ts (#177)',
 }
 
 /** The 14 card variants the canvas' `CARDS` holds, in its order.

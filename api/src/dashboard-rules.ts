@@ -284,8 +284,13 @@ export interface PatternRule {
    * `content/` has no `symptom_pattern` template for it to name, and the one pattern card
    * describes low mood and sleep — so selecting that card for a severe-symptom run would
    * tell her she logged something she did not. D2 owns writing the card; until it exists
-   * this number is validated and unused, and such a run falls through to `signals_today`,
-   * which still says something true.
+   * this number is validated and unused, and such a run falls through to `signals_today`.
+   *
+   * **That fallback is not a true card either, and this comment used to say it was** (#177).
+   * `signals_today` reads "You logged low energy and a headache today", which a severe-cramps
+   * run did not. The canvas has not drawn the variant; `api/test/dashboard-copy.test.ts`
+   * records the mismatch and the PR that added it asks for the card. Nothing here changes
+   * until that card exists — the routing is right, the words behind it are what is missing.
    */
   severeSymptomDays: number
 }
@@ -506,9 +511,14 @@ const requirePatternRule = (rules: DashboardRules): PatternRule => {
  * `return`, so severe cramps three days running with mood 5 and sleep 5 selected a card
  * reading "You've logged low mood for three consecutive days". The card it needs is
  * `symptom_pattern`, which does not exist: writing it is D2's, not a rule this slice may
- * invent. Until it does, such a run falls through to `signals_today`, which describes what
- * she logged and claims nothing beyond it. `severeSymptomDays` stays validated so the day
- * the card arrives, the dose behind it is already known good.
+ * invent. Until it does, such a run falls through to `signals_today`. `severeSymptomDays`
+ * stays validated so the day the card arrives, the dose behind it is already known good.
+ *
+ * **What that fallback says is not true of her either** (#177). This comment claimed it
+ * "describes what she logged and claims nothing beyond it"; `signals_today`'s title names
+ * low energy and a headache, and a severe-cramps run logged neither. Routing the run
+ * somewhere whose copy nobody re-read is the same mistake one rung down, and it is recorded
+ * as such in `api/test/dashboard-copy.test.ts` rather than argued about in a comment again.
  */
 const matchesPattern = (input: DashboardInput, rule: PatternRule): boolean => {
   const lowRun = runEndingToday(input, rule.lowSignalDays)
@@ -560,7 +570,9 @@ const redFlagRung: LadderStep = (input) =>
  * without the gate, a user in loss mode two days past a predicted period was shown "Your
  * period is later than predicted", with *Log period* and *Log test* under it, days after a
  * pregnancy loss. `mood_pattern` and `signals_today` are `mode: 'any'` and stay mode-free:
- * each describes only what she logged, which is as true in one mode as another.
+ * each is *about* what she logged, which is as relevant in one mode as another — but note
+ * that "about her log" is not the same as "true of her log", and `signals_today`'s words are
+ * not (#177). The mode gate is right; the card behind it is the open half.
  */
 const patternRung: LadderStep = (input, rules) => {
   const rule = requirePatternRule(rules)

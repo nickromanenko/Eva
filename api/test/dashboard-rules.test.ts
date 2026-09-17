@@ -374,10 +374,12 @@ describe("priority ladder", () => {
     });
 
     test("and the other two are not — `mode: 'any'` means every mode", () => {
-        // `mood_pattern` and `signals_today` describe what she logged and claim nothing
-        // beyond it, which is as true in one mode as in another. The gate above is two cards
-        // wide, not the whole rung: widening it would be silence where there is something
-        // true to say.
+        // `mood_pattern` and `signals_today` are about what she logged rather than about a
+        // cycle, which is as relevant in one mode as in another. The gate above is two cards
+        // wide, not the whole rung: widening it would be silence where there is something to
+        // say. What `signals_today` currently says is not true of everyone routed to it —
+        // that is #177 and `dashboard-copy.test.ts`, and it is a copy problem, not this
+        // gate's.
         for (const mode of ["cycle", "planning", "pregnancy", "postpartum", "loss"] as const) {
             const run = base({
                 mode,
@@ -692,7 +694,9 @@ describe("rung 2 is inert until #26's rule is configured", () => {
         // days running — mood 5, sleep 5 — selected "You've logged low mood for three
         // consecutive days". The card it actually needs is `symptom_pattern`; writing it is
         // D2's, not a rule this slice may invent. Until then the run falls through to
-        // `signals_today`, which still describes what she logged.
+        // `signals_today` — which reads "You logged low energy and a headache today" and is
+        // no truer of her (#177). This case pins the routing, not the card's honesty;
+        // `dashboard-copy.test.ts` is where that is recorded.
         const severeRun = base({
             daysSinceLastLog: 0,
             signals: [TODAY, YESTERDAY, TWO_DAYS_AGO].map((localDate) =>
