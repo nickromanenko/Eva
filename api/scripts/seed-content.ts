@@ -62,13 +62,24 @@ import {
  * these fourteen cards as illustrations — one woman, one day — and D1 routes a wide range of
  * situations into each.
  *
- * **So this signature says something narrower and checkable instead.** Thirteen strings
- * across six cards assert something their subject does not guarantee; every one of them is
- * enumerated in `api/test/dashboard-copy.test.ts`'s `UNTRUE`, with the case that
- * demonstrates it and what the canvas would have to draw. No string below changed — none
- * could, because the fix for every one of them is a card the canvas has not drawn, and a
- * seed file is not where product copy is authored. Signing this is signing that list: these
- * words, this ladder, these known gaps, and no others.
+ * **So this signature says something narrower and checkable instead.** Fourteen strings
+ * across seven cards assert something their subject does not guarantee; every one of them is
+ * enumerated in `api/test/dashboard-copy.test.ts`'s `UNTRUE`, with the cases that demonstrate
+ * it and what the canvas would have to draw. No string below changed — none could, because
+ * the fix for every one of them is a card the canvas has not drawn, and a seed file is not
+ * where product copy is authored.
+ *
+ * **Three more sit in `NOTED`, beside it**, because no generated input can falsify them: a
+ * sentence implying a personal baseline the rule does not hold, one offering rest to everyone
+ * who logged anything, and a fixed article headline nobody chose. They are not mismatches the
+ * audit can demonstrate, and they are not nothing. Read both lists.
+ *
+ * And read what that file says it does **not** catch, written above `UNTRUE`: it is a ledger,
+ * not a gate. It goes red when the list changes, and stays green when a mismatch already on
+ * the list becomes reachable by real users — which is the transition #184 exists to gate.
+ *
+ * Signing this is signing both lists: these words, this ladder, these known gaps, and no
+ * others.
  *
  * Cards that would need a clinician to stand behind them are still not in this set: the one
  * card that speaks about a pattern reports the user's own logs and declines to interpret
@@ -76,6 +87,14 @@ import {
  * `null` everywhere, D10) — which is exactly why the three mismatches the audit finds in
  * `red_flag` cost nothing today and must be closed before D10 makes it live.
  * docs/LAUNCH.md L7 remains open on its own terms and this does not close it.
+ *
+ * **Which of the fourteen reaches anyone is worth knowing before signing.** Today none of
+ * them do: `DASHBOARD_PATTERN_*` is not among `deploy-api.yml`'s `--set-env-vars`, so
+ * `config.dashboard.pattern` is null in production, rung 2 throws on every call and
+ * `GET /me/today` answers 503. The moment those are set, `educational` is the first card
+ * live — `today.ts`'s `cycleEstimate()` is hard-coded to "knows nothing" and `redFlag` is
+ * always null, so it and `signals_today` are between them nearly the whole surface. Its one
+ * mismatch is the one to read hardest.
  *
  * Exported so `api/test/content.test.ts` can tell whether the gate is still closed. The
  * case that proves this script has no way past the refusal has to *run* the script, and

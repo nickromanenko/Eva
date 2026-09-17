@@ -11,10 +11,10 @@ import {
     type PhaseCode,
     type SignalEntry,
     type Subject,
-    type SubjectSlots,
     type TemplateId,
 } from "../src/dashboard-rules";
-import type { Slot, Template } from "../src/content";
+import type { Template } from "../src/content";
+import type { Phraser } from "../src/today";
 
 /**
  * The copy audit (#177): **does each card's text say anything the input did not contain?**
@@ -50,6 +50,14 @@ import type { Slot, Template } from "../src/content";
  * - a string that *changes* fails the byte-for-byte pin, so no copy edit can land without
  *   its claims being re-read. That is the half of `seed-content.ts`'s signature nobody was
  *   re-checking, and #177 exists because it did not hold.
+ *
+ * **There is a fourth transition it does not catch**, and it is the one that ships a bad card:
+ * a mismatch already in `UNTRUE` becoming reachable by real users. See the note above `UNTRUE`
+ * — this file is a ledger, and the gate for that transition has to be an issue and a rule
+ * change, not a row here.
+ *
+ * `NOTED`, beside it, carries the claims the input shape cannot falsify at all, so that "not
+ * in `UNTRUE`" does not read as "nobody found anything".
  *
  * ## What this file is not
  *
@@ -126,6 +134,16 @@ const estimated = (code: PhaseCode, cycleDay: number): CycleEstimate => ({
 
 const CYCLES: { name: string; cycle: CycleEstimate }[] = [
     { name: "no cycle data", cycle: NO_CYCLE },
+    {
+        // **The commonest state `still_learning` is selected in, and the one its words are
+        // furthest from.** C11 measures `cycleDay` from the most recent first-flow day, so
+        // one logged period sets it; a *counted cycle* is the interval between two of them,
+        // so it is still zero. `phaseRung` asks only whether `cycleDay` is known — so the
+        // first card a new cycle-mode user sees after logging her first period is one that
+        // counts down from one.
+        name: "0 counted cycles, one period logged",
+        cycle: { ...NO_CYCLE, cycleDay: 3 },
+    },
     { name: "1 counted cycle", cycle: { ...NO_CYCLE, countedCycles: 1, cycleDay: 12 } },
     { name: "2 counted cycles", cycle: { ...NO_CYCLE, countedCycles: 2, cycleDay: 20 } },
     {
@@ -327,7 +345,72 @@ const FLAG_CASES: Case[] = MODES.flatMap((mode) =>
     ),
 );
 
-const CASES: Case[] = [...LADDER_CASES, ...FLAG_CASES];
+/**
+ * The clock, because everything above is generated at 09:00 and three strings say when.
+ *
+ * `signal_overrides_phase` says "this morning" in its title *and* in its action label, and
+ * `signals_today`'s title says "today". A single fixed `now` in the morning never produces
+ * the ordinary evening — an entry made at 20:00, read at 23:30 — and never produces a card
+ * whose subject is an otherwise perfectly matching log made on the wrong day. So the temporal
+ * half of each was audited against nothing that could contradict it, which is how a claim
+ * reads as examined while testing half its string. (`red_flag`'s "today" needs no case here:
+ * `FLAG_CASES` already raises one three days back.)
+ *
+ * The observed window that picks the entry is 24 hours wide and knows nothing about calendar
+ * days or mornings, which is the whole reason these are reachable.
+ *
+ * Three cases rather than a third axis on the product above: an axis would double 2,160 cases
+ * to ask a question three of them answer.
+ */
+const EVENING = `${TODAY}T23:30:00Z`;
+
+const eveningEntry = (over: Partial<SignalEntry>): SignalEntry => ({
+    ...entry({ localDate: TODAY, ...over }),
+    loggedAt: `${TODAY}T20:00:00Z`,
+});
+
+const CLOCK_CASES: Case[] = [
+    {
+        name: "cycle · phase follicular · logged at 20:00 and read at 23:30 · A32's dose (3 days, ≤2)",
+        input: build({
+            mode: "cycle",
+            now: EVENING,
+            cycle: estimated("follicular", 13),
+            signals: [eveningEntry({ energy: 1, sleep: 2 })],
+            daysSinceLastLog: 0,
+        }),
+        rules: RULE_SETS[0]!.rules,
+    },
+    {
+        name: "pregnancy · no cycle data · logged at 20:00 and read at 23:30 · A32's dose (3 days, ≤2)",
+        input: build({
+            mode: "pregnancy",
+            now: EVENING,
+            signals: [eveningEntry({ energy: 1, symptoms: severe("headache") })],
+            daysSinceLastLog: 0,
+        }),
+        rules: RULE_SETS[0]!.rules,
+    },
+    {
+        // The canvas' own day — low energy and a headache — logged late enough last night to
+        // still be the entry this morning's card is about. Everything `home_g`'s title names
+        // is there; only the day is wrong, which is the half that was not audited.
+        name: "pregnancy · no cycle data · low energy and a headache logged last night · A32's dose (3 days, ≤2)",
+        input: build({
+            mode: "pregnancy",
+            signals: [
+                {
+                    ...entry({ localDate: YESTERDAY, energy: 1, symptoms: severe("headache") }),
+                    loggedAt: `${YESTERDAY}T23:00:00Z`,
+                },
+            ],
+            daysSinceLastLog: 1,
+        }),
+        rules: RULE_SETS[0]!.rules,
+    },
+];
+
+const CASES: Case[] = [...LADDER_CASES, ...FLAG_CASES, ...CLOCK_CASES];
 
 // ── The ladder's own reading of the input, mirrored ────────────────────────────────────
 // `observedSignal` and `runEndingToday` are not exported, and the claims below have to ask
@@ -395,6 +478,21 @@ const observed = (c: Case): SignalEntry | null => observedEntry(c.input);
  *  No card carries a number, so a card that says "low" is saying "at or below that". */
 const isLow = (value: number | null, c: Case): boolean =>
     value !== null && value <= doseOf(c).lowAtOrBelow;
+
+/**
+ * "This morning", in the only reading the input can settle: before noon on the clock the
+ * entry itself carries.
+ *
+ * `loggedAt` is ISO-8601 **with an offset** (`SignalEntry`), so the wall time in the string
+ * is the time she saw it — no process timezone is needed here, and none is available. Two of
+ * `home_e`'s strings say these words, and the observed window that chose the entry is 24
+ * hours wide and knows nothing about mornings.
+ */
+const loggedInTheMorning = (e: SignalEntry): boolean => Number(e.loggedAt.slice(11, 13)) < 12;
+
+/** The flag's day, as both `home_flag` strings that say "today" read it. */
+const flagRaisedToday = (c: Case): boolean =>
+    c.input.redFlag?.loggedAt.startsWith(c.input.today) === true;
 
 const phaseOf = (c: Case): PhaseCode | null => {
     const { cycle } = c.input;
@@ -510,14 +608,15 @@ const AUDIT: Record<TemplateId, Audited> = {
         claims: {
             kicker: null,
             title: {
-                says: "the entry the card is about carries a low energy rating and a low sleep rating, logged today",
+                says: "the entry the card is about carries a low energy rating and a low sleep rating, and was logged this morning",
                 holds: (c) => {
                     const e = observed(c);
                     return (
                         e !== null &&
                         isLow(e.energy, c) &&
                         isLow(e.sleep, c) &&
-                        e.localDate === c.input.today
+                        e.localDate === c.input.today &&
+                        loggedInTheMorning(e)
                     );
                 },
             },
@@ -528,9 +627,15 @@ const AUDIT: Record<TemplateId, Audited> = {
             // A general statement about physiology plus a suggestion in "may" — neither is
             // a claim about what she logged.
             line3: null,
+            // "Review this morning's log" carries the same two words as the title, and was
+            // audited on the day alone for the same reason the title was: the day is the
+            // half a fixed 09:00 clock makes easy to check.
             actions: {
-                says: "the entry the card is about was logged today",
-                holds: (c) => observed(c)?.localDate === c.input.today,
+                says: "the entry the card is about was logged this morning",
+                holds: (c) => {
+                    const e = observed(c);
+                    return e !== null && e.localDate === c.input.today && loggedInTheMorning(e);
+                },
             },
         },
     },
@@ -568,13 +673,14 @@ const AUDIT: Record<TemplateId, Audited> = {
                 holds: (c) => observed(c)?.localDate === c.input.today,
             },
             title: {
-                says: "the entry the card is about carries a low energy rating and a headache",
+                says: "the entry the card is about carries a low energy rating and a headache, and was logged today",
                 holds: (c) => {
                     const e = observed(c);
                     return (
                         e !== null &&
                         isLow(e.energy, c) &&
-                        e.symptoms.some((s) => s.code === "headache")
+                        e.symptoms.some((s) => s.code === "headache") &&
+                        e.localDate === c.input.today
                     );
                 },
             },
@@ -632,12 +738,22 @@ const AUDIT: Record<TemplateId, Audited> = {
         },
         claims: {
             kicker: null,
-            // An article's headline. It says nothing about her — but no slice chooses the
-            // article, so today it is a fixed headline over a link nobody has wired (D7).
+            // An article's headline. It says nothing about her, so there is nothing here to
+            // be false — but "nothing to be false" is not "nothing to read": see `NOTED`.
             title: null,
+            // **"nothing new in your logs today" — and `signals` is body signals only.**
+            // `SignalEntry`'s own doc says so ("This is the only logged-data input, and it is
+            // body signals only"): cycle, sport, meals, appointments and sex never reach this
+            // module. `daysSinceLastLog` does see them — #173 fills it from `lastLoggedDate`,
+            // "the most recent day that carries a live entry of any kind" — so it is the one
+            // input that can answer the question the sentence actually asks.
+            //
+            // The broad reading of "your logs" is the repo's own: the `logging_gap` nudge says
+            // "any body signals" where it means body signals, and this card does not.
             line2: {
-                says: "nothing was logged today",
+                says: "nothing of any kind was logged today, which is what 'your logs' means",
                 holds: (c) =>
+                    c.input.daysSinceLastLog !== 0 &&
                     !c.input.signals.some((e) => e.localDate === c.input.today && hasSignal(e)),
             },
             meta: null,
@@ -656,11 +772,18 @@ const AUDIT: Record<TemplateId, Audited> = {
         claims: {
             kicker: {
                 says: "the flag was raised today",
-                holds: (c) => c.input.redFlag?.loggedAt.startsWith(c.input.today) === true,
+                holds: flagRaisedToday,
             },
+            // **"You logged reduced fetal movement today" asserts two things**, and only the
+            // first was audited. That is the trapdoor the next round has to not fall through:
+            // when D10 draws a card per code, the symptom half becomes true, this entry comes
+            // out of `UNTRUE` — and unless the day is audited here, a flag raised three days
+            // ago renders as "today" on the one card with real clinical weight, with the
+            // ledger green.
             title: {
-                says: "the flag is reduced fetal movement",
-                holds: (c) => c.input.redFlag?.code === "reduced-fetal-movement",
+                says: "the flag is reduced fetal movement, and it was raised today",
+                holds: (c) =>
+                    c.input.redFlag?.code === "reduced-fetal-movement" && flagRaisedToday(c),
             },
             line2: {
                 says: "a maternity provider is the person to contact — she is pregnant",
@@ -676,9 +799,16 @@ const AUDIT: Record<TemplateId, Audited> = {
 interface KnownUntrue {
     template: TemplateId;
     field: Field;
-    /** A fragment of a case name that demonstrates it. Asserted, so the fixture that
-     *  proves the mismatch cannot quietly disappear. */
-    example: string;
+    /**
+     * Fragments of case names that demonstrate it — **one per distinct way the string is
+     * untrue**. A sentence that asserts two things ("You logged reduced fetal movement
+     * *today*") needs a case for each, so that fixing one half cannot leave the other
+     * unwatched: that is how a row gets deleted, the claim rewritten in the same shape, and
+     * the remaining falsehood shipped green.
+     *
+     * Every fragment is asserted, so the fixture proving a mismatch cannot quietly disappear.
+     */
+    examples: string[];
     /** What the canvas would have to draw. Not a suggested sentence — #177: where the
      *  canvas has not drawn a card, the honest output is a request, not an invention. */
     canvasMustDraw: string;
@@ -699,98 +829,165 @@ interface KnownUntrue {
  * "low energy"; #173's `TemplatePhraser` only substitutes slot values the subject already
  * carries, and a title with an unfilled slot is a refusal — so a slot nobody fills turns
  * card G from a card that is sometimes wrong into a card that never renders.
+ *
+ * ## This is a ledger, not a gate — read this before trusting a green run
+ *
+ * The three ways this file goes red are all about **the list changing**: a mismatch appears,
+ * a mismatch is fixed, or a string is edited. It is **silent when a mismatch already on the
+ * list becomes reachable by real users.** Nothing below records how often a row fires, or
+ * whether the rung that selects it is live at all — so a routing change that takes a row from
+ * "reachable in principle" to "the card most users see" passes here without a word.
+ *
+ * That is not hypothetical. It is exactly the transition #179 performs, and #184 exists to
+ * gate it *because this file cannot*. A row here means somebody looked and wrote down what is
+ * wrong with the sentence. It does not mean anyone is being protected from it.
  */
 const UNTRUE: KnownUntrue[] = [
     {
         template: TEMPLATE.stillLearning,
         field: "line2",
-        example: "2 counted cycles",
+        examples: ["0 counted cycles, one period logged"],
         canvasMustDraw:
-            "home_b at two counted cycles — the card counts down from one ('Log two more periods') and the ladder selects it at one *or* two.",
+            "home_b at zero, one or two counted cycles — the card says 'Log two more periods' and the ladder selects it at all three. Zero is the commonest of them and the furthest from the words: `phaseRung` asks only for a known `cycleDay`, which one logged period sets, while a counted cycle needs two first-flow days. So the first card a cycle-mode user sees after logging her first period reads '0 of 3 cycles' and asks her for two more when she needs three.",
     },
+    // **Both `phase_energy` rows are gated on #184, and #184 removes them rather than making
+    // them true.** It narrows rung 4 to the one phase this copy describes — exactly what #175
+    // did to rung 2 — after which every other phase falls through to `educational` and stops
+    // reaching this card at all. So whoever lands it takes these two entries *out*: this file
+    // goes red on a recorded mismatch that has been fixed, which is the second of its three
+    // failure modes. Do not try to edit them into truth.
+    //
+    // The canvas request for per-phase `home_d` variants still stands, but its job changes:
+    // after #184 the drawing is what would let the rung widen again, not what makes these
+    // rows true.
     {
         template: TEMPLATE.phaseEnergy,
         field: "kicker",
-        example: "phase luteal",
+        examples: ["phase luteal"],
         canvasMustDraw:
-            "home_d for the phases other than the approach to ovulation — the kicker names one phase and the ladder selects the card for all four.",
+            "home_d for the phases other than the approach to ovulation — the kicker names one phase and the ladder selects the card for all four. Gated on #184, which narrows the rung instead; delete this row there.",
     },
     {
         template: TEMPLATE.phaseEnergy,
         field: "title",
-        example: "phase menstrual",
+        examples: ["phase menstrual"],
         canvasMustDraw:
-            "home_d's tendency line for the menstrual and luteal phases, where 'higher energy around now' is the opposite of the tendency.",
+            "home_d's tendency line for the menstrual and luteal phases, where 'higher energy around now' is the opposite of the tendency. Same gate (#184), same disposal: delete, do not edit.",
     },
     {
         template: TEMPLATE.signalOverridesPhase,
         field: "title",
-        example: "severe cramps only",
+        examples: ["severe cramps only", "logged at 20:00 and read at 23:30"],
         canvasMustDraw:
             "home_e for a logged day that is not low energy plus poor sleep — a symptom alone, a mood alone, or ratings that are fine.",
     },
     {
         template: TEMPLATE.signalOverridesPhase,
         field: "line2",
-        example: "phase luteal",
+        examples: ["phase luteal"],
         canvasMustDraw:
             "home_e's phase line for the phases energy is not higher in; it reads as a contrast with a tendency that is not there.",
     },
     {
         template: TEMPLATE.signalOverridesPhase,
         field: "actions",
-        example: "logged last night",
+        examples: ["logged last night", "logged at 20:00 and read at 23:30"],
         canvasMustDraw:
             "home_e's action label for an entry logged the previous evening — the observed window is 24 hours, the label says 'this morning'.",
     },
     {
         template: TEMPLATE.signalsToday,
         field: "kicker",
-        example: "logged last night",
+        examples: ["logged last night"],
         canvasMustDraw:
             "home_g's kicker for an entry inside the 24-hour window but not on today's date.",
     },
     {
         template: TEMPLATE.signalsToday,
         field: "title",
-        example: "severe cramps only",
+        examples: ["severe cramps only", "a headache logged last night"],
         canvasMustDraw:
             "home_g for a logged day that is not low energy plus a headache. This is #177's headline case: every logged day in the four non-cycle modes reaches this card, as do severe-symptom, low-energy-only and low-mood runs in cycle mode.",
     },
     {
         template: TEMPLATE.moodPattern,
         field: "kicker",
-        example: "four-day dose",
+        examples: ["four-day dose"],
         canvasMustDraw:
             "home_h's kicker as a slot, or #26 fixing lowSignalDays at three — the card says '3 days' and the dose is configuration.",
     },
     {
         template: TEMPLATE.moodPattern,
         field: "title",
-        example: "four-day dose",
+        examples: ["four-day dose"],
         canvasMustDraw:
             "home_h's sentence as a slot, for the same reason as its kicker. At A32's own dose of three the sentence is true.",
     },
     {
+        template: TEMPLATE.educational,
+        field: "line2",
+        examples: ["the sheet opened and nothing saved"],
+        canvasMustDraw:
+            "home_edu's line for a day whose only logs are not body signals — a run, a meal, a period, an appointment, a sex entry. She logged, and the card tells her nothing new is in her logs. **The widest blast radius on this list**: with #173 merged this is the first card that becomes live, and #184 makes it the default for most users on most days, so these two land together even though they are fixed apart. The demonstrating fixture reaches it through a sheet opened and not saved, which is the same input by the same route — `daysSinceLastLog` counts entries of any kind, `signals` holds body signals only, and the gap between them is the sentence.",
+    },
+    {
         template: TEMPLATE.redFlag,
         field: "kicker",
-        example: "raised three days ago",
+        examples: ["raised three days ago"],
         canvasMustDraw:
             "home_flag for a flag raised before today — rung 1 applies no window, so the card says 'today' for any flag the caller passes.",
     },
     {
         template: TEMPLATE.redFlag,
         field: "title",
-        example: "red flag cramps",
+        examples: ["red flag cramps", "reduced-fetal-movement raised three days ago"],
         canvasMustDraw:
-            "home_flag for each red-flag code D10 will map. The subject carries only `loggedAt`, never the code, so every flag renders as reduced fetal movement.",
+            "home_flag for each red-flag code D10 will map, **and for a flag not raised today** — the title asserts both. The subject carries only `loggedAt`, never the code, so every flag renders as reduced fetal movement; and rung 1 applies no window, so any `loggedAt` the caller passes renders as 'today'. Drawing one half leaves this row in place for the other.",
     },
     {
         template: TEMPLATE.redFlag,
         field: "line2",
-        example: "cycle · red flag",
+        examples: ["cycle · red flag"],
         canvasMustDraw:
             "home_flag outside pregnancy — rung 1 fires in all five modes and the contact line names a maternity provider.",
+    },
+];
+
+/**
+ * **What a signer must read that this audit cannot demonstrate.**
+ *
+ * `UNTRUE` is bounded by what `DashboardInput` can express: a row gets in only when some
+ * generated case renders the string and the claim comes back false. A sentence whose problem
+ * lies outside that shape — one that implies data the input has no field for, or that is
+ * advice rather than an assertion — can never produce a row, and keeping it out is right.
+ * Leaving it *unwritten* is not. The seed's signature says "these words, this ladder, these
+ * known gaps, and no others", and a PR body is not in the repo; in six months this file is
+ * where someone will look.
+ *
+ * So this is the other half of the same list, and `seed-content.ts` points at both.
+ */
+interface Noted {
+    template: TemplateId;
+    field: Field;
+    /** Why no generated input can falsify it, and what a reader should do with that. */
+    note: string;
+}
+
+const NOTED: Noted[] = [
+    {
+        template: TEMPLATE.moodPattern,
+        field: "line2",
+        note: "'Sleep has also been below your usual level' implies a personal baseline. Rung 2 holds none: `lowAtOrBelow` is an absolute threshold, the same number for every user, so 'your usual level' names data the rule does not have. Nothing can demonstrate it — the checkable claim is 'sleep was low on every day of the run', and that is true wherever the card is selected. A wording question for whoever draws the slotted home_h.",
+    },
+    {
+        template: TEMPLATE.signalsToday,
+        field: "line2",
+        note: "'A slower pace or additional rest may feel more appropriate' is offered rather than asserted, so it claims nothing about her and its claim above is `null`. But it rides along with the card, and the card is selected for *every* logged day in the four non-cycle modes — so a pregnant user logging energy 5 and sleep 5 is advised to rest. Whoever draws the general home_g needs this next to the title, not only in a PR body.",
+    },
+    {
+        template: TEMPLATE.educational,
+        field: "title",
+        note: "A fixed article headline over a link nobody has wired: no slice chooses the article (D7), so every user reads the same one under 'Today's read'. It asserts nothing about her and cannot fail a claim — but 'Why sleep can affect appetite more than willpower', shown to someone who has never logged sleep, is a state rather than an insight.",
     },
 ];
 
@@ -806,24 +1003,6 @@ const OUT_OF_REACH: Record<string, string> = {
 
 // ── Running it ─────────────────────────────────────────────────────────────────────────
 
-const PLACEHOLDER = /\{(\w+)\}/g;
-
-/** #173's `TemplatePhraser`, in the one respect this file needs: slot values substituted,
- *  and a string with a slot the subject did not carry is not rendered at all. */
-const fill = (value: string | undefined, slots: SubjectSlots): string | undefined => {
-    if (value === undefined) return undefined;
-    let complete = true;
-    const filled = value.replace(PLACEHOLDER, (match, slot: string) => {
-        const supplied = slots[slot as Slot];
-        if (supplied === undefined) {
-            complete = false;
-            return match;
-        }
-        return String(supplied);
-    });
-    return complete ? filled : undefined;
-};
-
 const fieldOf = (template: Template, field: Field): string | undefined =>
     field === "actions" ? template.actions.join(" · ") : template[field];
 
@@ -831,10 +1010,14 @@ const FIELDS: Field[] = ["kicker", "title", "line2", "line3", "meta", "actions"]
 
 let TEMPLATES: Template[] = [];
 let byId = new Map<string, Template>();
+/** #173's own `TemplatePhraser`, not a copy of it — see `beforeAll`. */
+let phraser: Phraser;
 
 interface Walked {
     case: Case;
     subject: Subject;
+    /** What `byId` holds for the subject's id. Guarded below against what the phraser
+     *  actually selected, which is a narrower question. */
     template: Template;
     /** Fields that rendered, i.e. carried no unfilled slot. */
     rendered: Field[];
@@ -845,19 +1028,26 @@ let WALK: Walked[] = [];
 let FAILURES = new Map<string, string[]>();
 
 beforeAll(async () => {
-    // Imported here, not at the top of the file: the seed pulls in `content.ts`, and with
-    // it the Admin SDK. Same reason `dashboard-rules.test.ts` does it this way.
+    // Imported here, not at the top of the file: the seed pulls in `content.ts`, and `today.ts`
+    // pulls in `config.ts` and the Admin SDK. Same reason `dashboard-rules.test.ts` does it
+    // this way, and the types both files need are `import type`, which is erased.
     TEMPLATES = (await import("../scripts/seed-content")).TEMPLATES;
     byId = new Map(TEMPLATES.map((t) => [t.id, t]));
+    // **#173's phraser, not a re-implementation of it.** This file used to carry its own
+    // `fill` — the slot semantics matched, but a copy of the thing under audit is one edit
+    // away from auditing something nobody ships. `TemplatePhraser` also filters on
+    // confidence, which the copy did not; the case below is what says the two agree.
+    phraser = new (await import("../src/today")).TemplatePhraser();
 
     WALK = CASES.map((c) => {
         const subject = selectSubject(c.input, c.rules);
         const template = byId.get(subject.templateId);
         if (!template) throw new Error(`the seed has no template ${subject.templateId}`);
-        const rendered = FIELDS.filter(
-            (field) =>
-                (field === "actions" && template.actions.length > 0) ||
-                (field !== "actions" && fill(template[field], subject.slots) !== undefined),
+        // Whatever the phraser leaves out did not render: an unfilled slot removes its line,
+        // and a title with one is a `TemplateUnavailableError` rather than a card.
+        const text = phraser.phrase(subject, TEMPLATES);
+        const rendered = FIELDS.filter((field) =>
+            field === "actions" ? text.actions.length > 0 : text[field] !== undefined,
         );
         return { case: c, subject, template, rendered };
     });
@@ -888,7 +1078,7 @@ describe("the copy audit walks every subject the ladder can select", () => {
         // A floor would let the fixture table be gutted without a signal, which is the
         // quiet way an audit stops auditing. Exact, like the seed's fragment count.
         expect(LADDER_CASES).toHaveLength(MODES.length * CYCLES.length * HISTORIES.length * 2);
-        expect(CASES).toHaveLength(2000);
+        expect(CASES).toHaveLength(2183); // 2,160 from the product, 20 red-flag, 3 clock
 
         // Every mode reaches a card, every phase code reaches the phase card, and every
         // history reaches something — the three axes the mismatches below turn on.
@@ -902,7 +1092,36 @@ describe("the copy audit walks every subject the ladder can select", () => {
         );
         expect([...phases].sort()).toEqual(["follicular", "luteal", "menstrual", "ovulation"]);
         const histories = new Set(WALK.map((s) => s.case.name.split(" · ")[2]));
-        expect(histories.size).toBe(HISTORIES.length + 1); // +1: the red-flag cases' own shape
+        // +3: the red-flag cases carry no history segment at all, and the clock cases carry
+        // two between them (the evening pair share one).
+        expect(histories.size).toBe(HISTORIES.length + 3);
+
+        // And the clock, whose three cases exist to strain a temporal claim each. Which card
+        // each reaches is pinned: a routing change that sent them elsewhere would leave the
+        // temporal half of three sentences unexercised again, and fail nothing.
+        expect(
+            CLOCK_CASES.map((c) => WALK.find((s) => s.case === c)!.subject.templateId),
+        ).toEqual([TEMPLATE.signalOverridesPhase, TEMPLATE.signalsToday, TEMPLATE.signalsToday]);
+        expect(WALK.filter((s) => s.case.input.now === EVENING)).toHaveLength(2);
+    });
+
+    test("and it renders through #173's phraser, so `byId` is not a looser lookup", () => {
+        // `byId` keys on the template id alone. `TemplatePhraser` requires the id, `active`
+        // status *and* a confidence equal to the subject's, then takes the lowest `order`.
+        // Every reachable id agrees today; this is what says so, rather than the shortcut
+        // quietly being right — the same guard `observedEntry` gets above.
+        for (const step of WALK) {
+            const candidates = TEMPLATES.filter(
+                (t) => t.id === step.subject.templateId && t.status === "active",
+            );
+            expect(`${step.subject.templateId}: ${candidates.length} active`).toBe(
+                `${step.subject.templateId}: 1 active`,
+            );
+            expect(`${step.subject.templateId}: ${candidates[0]!.confidence}`).toBe(
+                `${step.subject.templateId}: ${step.subject.confidence}`,
+            );
+            expect(step.template).toBe(candidates[0]!);
+        }
     });
 
     test("the mirror of the ladder's observed-data rule agrees with the ladder", () => {
@@ -979,12 +1198,35 @@ describe("no card asserts something the input did not contain", () => {
         expect(found).toEqual(declared);
     });
 
+    test("and the notes beside it still name strings the seed ships", () => {
+        // `NOTED` is prose and cannot be checked for truth. Two things can be: that a note has
+        // not outlived the sentence it is about, and that nothing demonstrable was filed there
+        // instead of in `UNTRUE` — which would be a mismatch downgraded to a comment.
+        expect(NOTED.length).toBeGreaterThan(0);
+        const ledgered = new Set(UNTRUE.map((u) => `${u.template}.${u.field}`));
+        for (const n of NOTED) {
+            const key = `${n.template}.${n.field}`;
+            const template = byId.get(n.template);
+            expect(template).toBeDefined();
+            expect(`${key}: ${fieldOf(template!, n.field) !== undefined}`).toBe(`${key}: true`);
+            expect(`${key} examined: ${n.field in AUDIT[n.template].claims}`).toBe(
+                `${key} examined: true`,
+            );
+            expect(`${key} in UNTRUE: ${ledgered.has(key)}`).toBe(`${key} in UNTRUE: false`);
+        }
+    });
+
     test("each one is demonstrated by a case, so the fixture proving it cannot vanish", () => {
         for (const u of UNTRUE) {
             const names = FAILURES.get(`${u.template}.${u.field}`) ?? [];
-            expect(
-                `${u.template}.${u.field} ← ${names.some((n) => n.includes(u.example)) ? u.example : names.slice(0, 3).join(" | ")}`,
-            ).toBe(`${u.template}.${u.field} ← ${u.example}`);
+            // Every fragment, not just one: a string that is untrue two ways has to stay
+            // demonstrated both ways, or fixing the easy half silently retires the hard one.
+            expect(u.examples.length).toBeGreaterThan(0);
+            for (const example of u.examples) {
+                expect(
+                    `${u.template}.${u.field} ← ${names.some((n) => n.includes(example)) ? example : names.slice(0, 3).join(" | ")}`,
+                ).toBe(`${u.template}.${u.field} ← ${example}`);
+            }
         }
     });
 
