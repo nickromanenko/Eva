@@ -1240,6 +1240,18 @@ and the reason that closed it, so `[28, 60, 28, 60, 28, 60]` cannot produce a fe
 by any path (PRD §Phase 1 rule 5). Nothing is cached under the route, which is what makes
 "recomputed on every edit to a flow entry" (A25 item 5) a property of it rather than a job.
 
+**The client half (#206) draws that answer and computes none of it.** `CalendarModel` asks
+for the overlay over the same range as the entries and caches it by month, so one screen
+keeps one fetch model; the days are mapped onto cells and nothing else happens to them —
+the three files that touch a predicted date are scanned for date arithmetic by
+`CalendarPredictionTests`, because "extend the predicted period by four days" is four lines
+of plausible Swift that no behavioural test would catch. A25 item 5 reaches the device as an
+invalidation: writing, editing, deleting or restoring a `cycle` entry drops the whole
+overlay and re-asks, because the route recomputes on read and a moved anchor moves the whole
+projection. A `503` from the route draws nothing and says nothing — which is deliberately
+*not* what a withheld prediction does, since only one of the two is an answer about her
+data.
+
 **Planned (A3, A9 — §8 and §9 below; not yet in code):**
 
 ```
@@ -1273,6 +1285,7 @@ adding it to the delete is the way health-adjacent identifiers outlive their own
 | `Profile/` | `ProfileView` (identity, connected accounts, log out, danger zone) and `DeleteAccountModal` |
 | `Navigation/` | `EvaTabView` and `EvaTabBar` — the signed-in shell — and `EvaTabRouter`, which holds the tab selection and the one request a tab makes of another |
 | `Home/` | The Dashboard's Home tab (#99, D4): `HomeModel` and its `TodayCardSource`, `EvaTodayCard` (the `GET /me/today` wire types), `TodayCardView` in its four tones, the header and the offline bar |
+| `Calendar/` | `CalendarModel` and its `CalendarEventSource`, the month grid and its marks, and the prediction overlay (#206): `EvaCyclePredictions` (the `GET /me/cycle/predictions` wire types) with `EvaPredictionOverlay`, the dashed-and-patterned `EvaPredictionMark`, and the summary card |
 | `Theme/` | Colors, gradients, `PrimaryButton`, progress style — see [DESIGN.md](DESIGN.md) |
 
 **The Home tab reads through a protocol, not through `AppSession` directly.**

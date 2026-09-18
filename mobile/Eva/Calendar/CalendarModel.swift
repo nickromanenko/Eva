@@ -13,6 +13,14 @@ protocol CalendarEventSource {
     func events(from: EvaDay, through to: EvaDay) async throws -> [EvaEvent]
     func refData() async throws -> EvaRefData
 
+    /// The prediction overlay for a range (#206). `GET /me/cycle/predictions`.
+    ///
+    /// **By range, not by day**, because that is how this screen already asks for
+    /// everything else — a month grid spans up to three months, and a per-day prediction
+    /// would give one screen two fetch models for no gain. C12a answers by range for
+    /// exactly this reason.
+    func predictions(from: EvaDay, through to: EvaDay) async throws -> EvaCyclePredictions
+
     // The write half (#160). Each answers with the server's copy of the entry, which is
     // what goes on the grid — see `AppSession`'s note on why the local draft will not do.
     func createEvent(_ write: EvaEventWrite) async throws -> EvaEvent
@@ -105,6 +113,12 @@ final class CalendarModel {
 
     private(set) var toast: Toast?
 
+    /// The prediction overlay (#206), fetched by range and cached by month exactly as the
+    /// entries are — its own type so that everything touching a predicted date sits in one
+    /// readable place. Its own month cache, kept separately from the events one because
+    /// either request can fail without the other.
+    private(set) var overlay = EvaPredictionOverlay()
+
     private var eventsByDay: [EvaDay: [EvaEvent]] = [:]
     private var loadedMonths: Set<EvaMonth> = []
     private var toastTask: Task<Void, Never>?
@@ -153,6 +167,27 @@ final class CalendarModel {
         return nil
     }
 
+    /// What the API predicted for a day, in the order the cell draws and announces them.
+    ///
+    /// Empty for every day when the prediction was withheld — the route answers a withheld
+    /// prediction with three empty lists, so "nothing is drawn" needs no branch here. It is
+    /// also empty when the prediction simply falls outside the ranges fetched, which is a
+    /// *different* state and is told apart by the withheld reason, never by this being
+    /// empty (see `CalendarSummary`).
+    func predictions(on day: EvaDay) -> [EvaPredictionMark] { overlay.marks(on: day) }
+
+    /// What the summary card above the grid says, or `nil` when it has nothing to say.
+    ///
+    /// Nothing to say covers two cases and neither is a prediction being withheld: no
+    /// answer has landed (the route is unavailable, or the first one is still in flight),
+    /// and the empty state is on screen — where "Log your first period to start
+    /// predictions" is already the whole message and a second card under it would be a
+    /// quieter copy of the same sentence.
+    var summary: CalendarSummary? {
+        guard !showsEmptyState, let answer = overlay.answer else { return nil }
+        return CalendarSummary(answer: answer, predictedDays: overlay.days)
+    }
+
     /// Whether the empty state should be on screen: the account has no history *and* the
     /// question has been answered.
     var showsEmptyState: Bool { hasHistory == false }
@@ -196,6 +231,7 @@ final class CalendarModel {
         }
         absorb(saved)
         show(toast: Toast(message: Self.savedMessage(for: saved)))
+        if saved.type == .cycle { await cycleDataChanged() }
         return saved
     }
 
@@ -213,6 +249,10 @@ final class CalendarModel {
                 message: "\(CalendarEntryPresentation.typeName(for: event.type)) deleted",
                 restorable: event
             ))
+            // A25 item 5: deleting the entry the prediction is anchored on moves the
+            // prediction, and the route recomputes on read — so the overlay has to re-ask
+            // rather than keep drawing an estimate the deleted period was the reason for.
+            if event.type == .cycle { await cycleDataChanged() }
         } catch let error as APIError {
             if case .sessionExpired = error { return }
             show(toast: Toast(message: error.localizedDescription))
@@ -254,6 +294,7 @@ final class CalendarModel {
             show(toast: Toast(
                 message: "\(CalendarEntryPresentation.typeName(for: event.type)) restored"
             ))
+            if event.type == .cycle { await cycleDataChanged() }
         } catch let error as APIError {
             if case .sessionExpired = error { return }
             show(toast: Toast(message: error.localizedDescription))
@@ -453,10 +494,21 @@ final class CalendarModel {
         }
     }
 
-    /// One request, and what it does to the screen's state. Only `fetch` calls this, and
-    /// only ever one call at a time.
+    /// One page's worth of requests, and what they do to the screen's state. Only `fetch`
+    /// calls this, and only ever one call at a time.
+    ///
+    /// Two requests over the **same range**, started together: the entries and the
+    /// prediction overlay. Together rather than in sequence because neither answer needs
+    /// the other, and the overlay is drawn on the same cells as the entries — a second
+    /// round trip in series would page the grid in two visible steps.
     private func perform(from: EvaDay, to: EvaDay, answersHistory: Bool) async {
         loadState = .loading
+        async let overlay: Void = loadPrediction(from: from, to: to)
+        await loadEvents(from: from, to: to, answersHistory: answersHistory)
+        await overlay
+    }
+
+    private func loadEvents(from: EvaDay, to: EvaDay, answersHistory: Bool) async {
         do {
             let events = try await source.events(from: from, through: to)
             apply(events, coveringFrom: from, to: to)
@@ -482,6 +534,42 @@ final class CalendarModel {
         } catch {
             loadState = .failed(APIError.decoding.localizedDescription)
         }
+    }
+
+    // MARK: - The prediction overlay (#206)
+
+    /// Asks for the overlay over a range, and **never fails the screen for it**.
+    ///
+    /// The same call `loadRefDataIfNeeded` makes and for a stronger version of the same
+    /// reason: the calendar's job is to show what she logged, and it does that whether or
+    /// not Eva can estimate anything. The route answers `503 SERVICE_UNAVAILABLE` in every
+    /// environment that has not configured the `CYCLE_*` constants — which is all of them
+    /// today (#176, #191) — so a load error here would put a failure card on every calendar
+    /// in the product, about a feature that is simply not switched on yet.
+    ///
+    /// What the user sees when this fails is therefore **nothing**: no overlay and no
+    /// summary card. That is deliberate and is not the same as `withheld`. A withheld
+    /// prediction is an answer about her data and says so in words; a request that did not
+    /// land is not an answer at all, and inventing a reason for it would be telling her
+    /// something about her cycles that the server never said.
+    private func loadPrediction(from: EvaDay, to: EvaDay) async {
+        guard let range = overlay.missingRange(from: from, to: to) else { return }
+        guard let answer = try? await source.predictions(from: range.from, through: range.to)
+        else { return }
+        overlay.absorb(answer)
+    }
+
+    /// A cycle entry was written, edited, deleted or restored, so the overlay is stale.
+    ///
+    /// Without this, logging a first period would clear the empty-state card and leave
+    /// "Log a period and Eva can start estimating the next one" underneath it — a sentence
+    /// about her data that her data had just stopped supporting.
+    private func cycleDataChanged() async {
+        overlay.invalidate()
+        // The three months this page keeps warm, exactly as `missingVisibleRange` asks for
+        // them — asked unconditionally, because the cache that would have narrowed it was
+        // just emptied.
+        await loadPrediction(from: visibleMonth.previous.firstDay, to: visibleMonth.next.lastDay)
     }
 
     /// Replaces everything in the fetched range, rather than merging into it.

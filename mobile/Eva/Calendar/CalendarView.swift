@@ -3,10 +3,11 @@ import SwiftUI
 /// The calendar — the app's landing surface, and the screen every later calendar slice
 /// builds on.
 ///
-/// Reads, navigates and, since C2 (#160), logs. Predictions, phases and the fertile window
-/// are C3, which is why nothing here is dashed or patterned — the artboard reserves those
-/// two treatments for predicted data, and drawing one now would mean drawing a prediction
-/// Eva has not made.
+/// Reads, navigates, logs (C2, #160) and — since C12b (#206) — draws what the API
+/// predicted. The dashed outline and the stripe pattern appear on this screen and nowhere
+/// else in the app, and they appear only on days `GET /me/cycle/predictions` named: the
+/// artboard reserves both treatments for predicted data, and nothing here computes a
+/// prediction of its own.
 struct CalendarView: View {
 
     let session: AppSession
@@ -24,7 +25,18 @@ struct CalendarView: View {
     init(session: AppSession, router: EvaTabRouter? = nil, today: EvaDay = .today()) {
         self.session = session
         self.router = router
+        #if DEBUG
+        // `EVA_CYCLE_PREDICTION` hands the overlay one response body so the predicted days
+        // can be reviewed and tested while the route answers 503 everywhere (#176, #191).
+        // Absent — which is every build that is not a UI test or a screenshot run — this is
+        // `session` and nothing below knows the difference. The seeded source still reads
+        // the real entries; only the prediction comes from the hook. See
+        // `EvaCyclePredictionLaunch`.
+        let source = EvaCyclePredictionLaunch.source(wrapping: session) ?? session
+        _model = State(initialValue: CalendarModel(source: source, today: today))
+        #else
         _model = State(initialValue: CalendarModel(source: session, today: today))
+        #endif
         _pickerYear = State(initialValue: today.year)
     }
 
@@ -60,6 +72,10 @@ struct CalendarView: View {
 
                     if model.showsEmptyState {
                         emptyStateCard
+                    } else if let summary = model.summary {
+                        // The artboard's `notEmpty` slot — the same place the empty-state
+                        // card sits, and never both.
+                        CalendarSummaryCard(summary: summary)
                     }
 
                     if case .failed(let message) = model.loadState {
@@ -133,6 +149,7 @@ struct CalendarView: View {
             selectedDay: model.selectedDay,
             cycleMark: model.cycleMark(on:),
             glyphs: model.glyphs(on:),
+            predictions: model.predictions(on:),
             select: model.select
         )
         // `simultaneousGesture`, not `gesture`: the screen scrolls vertically and the
