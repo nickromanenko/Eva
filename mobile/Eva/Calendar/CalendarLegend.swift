@@ -7,11 +7,16 @@ import SwiftUI
 /// share one 50pt cell, so hue is the least reliable thing about them.
 ///
 /// The artboard's legend also lists predicted period, the fertile window and the
-/// positive-test mark. **Two of the three arrive here with #206**, which is the slice that
-/// draws them; the positive-test mark still does not, because the event type it marks does
-/// not exist yet (#80) and a legend entry for something the grid never draws is a promise.
-/// It is listed neither here nor in `EvaEventGlyph` for that reason — the rule this file
-/// has followed since C1 is that a row and its mark ship together.
+/// positive-test mark. **All three are real now.** #206 drew the first two; #80 adds the
+/// event type the third describes and its top-left outlined square, so the rule this file
+/// has followed since C1 — a row and its mark ship together — is satisfied for the last of
+/// them, and there is nothing left here describing something the grid cannot draw.
+///
+/// The positive-test row arrives through `EvaEventGlyph.allCases` with the other four event
+/// marks rather than as a row of its own, which also puts it last, where the artboard's own
+/// legend puts it. Its swatch is `EvaEventGlyphMark`, so it is the cell's mark at the cell's
+/// size: solid-stroked, because dashed and patterned belong to the two predicted rows above
+/// it and a logged test result is something she reported.
 ///
 /// Two rows here are not on the artboard's legend. Appointment, which is the one drawn mark
 /// the artboard leaves unexplained; and spotting, whose ring the artboard does not draw at

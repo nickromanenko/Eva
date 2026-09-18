@@ -8,13 +8,17 @@ import SwiftUI
 // 50pt cell cannot be told apart by hue by a red-green colourblind user, and three of the
 // four are 5–6pt across, which is below where hue is reliably perceived by anyone. So
 // each type owns a corner *and* an outline: bottom-left circle, bottom-centre square,
-// bottom-right diamond, top-right badge. Two marks never share a corner, which is what
-// lets a cell be read at a glance and by touch exploration.
+// bottom-right diamond, top-right badge, top-left outlined square. Two marks never share a
+// corner, which is what lets a cell be read at a glance and by touch exploration.
 //
 // A new type does not get "the same shape in a new colour". It gets a free corner, or the
 // design gets revisited.
+//
+// The top-left corner was held for the positive-test mark from C1 — this file, DESIGN.md §7
+// and `EvaCycleMark.spottingRing` all say so, which is why spotting became a ring around the
+// number rather than a fifth corner. #80 spends it, and the four corners are now full.
 
-/// One of the four marks a day cell can carry.
+/// One of the five marks a day cell can carry.
 ///
 /// `cycle` is absent on purpose: a period day is drawn as the cell's *fill*, not as a
 /// mark, so the two never compete for the same corner. See `EvaCycleMark.cellFill`.
@@ -23,6 +27,7 @@ enum EvaEventGlyph: String, Hashable, Sendable, CaseIterable {
     case bodySignals
     case sport
     case appointment
+    case positiveTest
 
     /// Which corner of the cell this mark owns. No two share one.
     enum Position: Hashable, Sendable {
@@ -30,6 +35,7 @@ enum EvaEventGlyph: String, Hashable, Sendable, CaseIterable {
         case bottomCenter
         case bottomTrailing
         case topTrailing
+        case topLeading
     }
 
     /// The outline that distinguishes this mark with the colour removed.
@@ -39,6 +45,11 @@ enum EvaEventGlyph: String, Hashable, Sendable, CaseIterable {
         case diamond
         /// A hollow rounded square carrying a `+`.
         case badge
+        /// A hollow rounded square with nothing in it — the artboard's positive-test mark,
+        /// which is the badge's outline at two thirds the size and without the `+`. The
+        /// two are told apart by size and by what is inside them, and they never share a
+        /// corner.
+        case outlinedSquare
     }
 
     var position: Position {
@@ -47,6 +58,7 @@ enum EvaEventGlyph: String, Hashable, Sendable, CaseIterable {
         case .bodySignals: .bottomCenter
         case .sport: .bottomTrailing
         case .appointment: .topTrailing
+        case .positiveTest: .topLeading
         }
     }
 
@@ -56,6 +68,7 @@ enum EvaEventGlyph: String, Hashable, Sendable, CaseIterable {
         case .bodySignals: .square
         case .sport: .diamond
         case .appointment: .badge
+        case .positiveTest: .outlinedSquare
         }
     }
 
@@ -71,18 +84,28 @@ enum EvaEventGlyph: String, Hashable, Sendable, CaseIterable {
         case .bodySignals: .evaDeepPink
         case .sport: .evaSuccess
         case .appointment: .evaInformationInk
+        // `#A9436E` on the artboard; `evaActionPinkSolid` is `#A94A6C`, the token already
+        // substituted for it on the mode chip and the today disc (DESIGN.md §9a).
+        case .positiveTest: .evaActionPinkSolid
         }
     }
 
     /// What the legend calls it — shape named in the words, so the legend works in
     /// greyscale too. The artboard's own legend strings, with Appointment added (see
-    /// `CalendarLegend`).
+    /// `CalendarLegend`) and with one word changed.
+    ///
+    /// The artboard writes the positive test as *"Positive test · top-left mark"*, which
+    /// names the corner and not the shape — the one rule every other row here keeps, and
+    /// the reason this legend exists at all. "Outlined square" is what §7 specifies and
+    /// what the cell draws, and it is also what separates this row from the filled centre
+    /// square above it. Recorded in DESIGN.md §9a as a deviation, not a transcription.
     var legendLabel: String {
         switch self {
         case .sex: "Sex · bottom-left dot"
         case .bodySignals: "Body signals · center square"
         case .sport: "Sport · right diamond"
         case .appointment: "Appointment · top-right badge"
+        case .positiveTest: "Positive test · top-left outlined square"
         }
     }
 
@@ -93,6 +116,10 @@ enum EvaEventGlyph: String, Hashable, Sendable, CaseIterable {
         case .bodySignals: "Body signals logged"
         case .sport: "Sport logged"
         case .appointment: "Appointment"
+        // The artboard's own `aria-label`, and deliberately not "Positive test logged":
+        // DESIGN.md §8 asks sensitive events to stay neutral in their indicators as well as
+        // in their language, and a result is reported rather than performed.
+        case .positiveTest: "Positive test"
         }
     }
 }
@@ -105,6 +132,7 @@ extension EvaEventType {
         case .bodySignals: .bodySignals
         case .sport: .sport
         case .appointment: .appointment
+        case .positiveTest: .positiveTest
         // Drawn as the cell's fill, not as a corner mark.
         case .cycle: nil
         }
@@ -153,8 +181,9 @@ extension EvaCycleMark {
     ///
     /// * **Not a wash.** A fill of any strength is the grid's word for "period day", which
     ///   is the one thing a spotting day must not say.
-    /// * **Not a corner mark.** All four corners are taken — dot, square, diamond, badge —
-    ///   and the top-left is already promised to the positive-test mark in DESIGN.md §7.
+    /// * **Not a corner mark.** All four corners were taken — dot, square, diamond, badge —
+    ///   and the top-left was already promised to the positive-test mark in DESIGN.md §7,
+    ///   which #80 has since drawn there.
     /// * **Not dashed.** Dashed and patterned are reserved for *predicted* data (§7), and
     ///   a spotting entry is something the user logged.
     ///
@@ -207,6 +236,21 @@ struct EvaEventGlyphMark: View {
                         .font(.custom(EvaFont.bold, size: EvaCalendarMetrics.badgeGlyphSize))
                         .foregroundStyle(glyph.tint)
                 }
+        case .outlinedSquare:
+            // **A flat, unbroken stroke.** Dashed and patterned belong to predictions
+            // (DESIGN.md §7, #206), and a positive test is something she reported — so the
+            // one visual mistake available here is drawing it like an estimate. There is no
+            // `StrokeStyle` on this line for that reason, and `CalendarGlyphRenderTests`
+            // counts the runs along its top edge so a dash pattern added later fails.
+            RoundedRectangle(
+                cornerRadius: EvaCalendarMetrics.positiveTestRadius,
+                style: .continuous
+            )
+            .strokeBorder(glyph.tint, lineWidth: EvaCalendarMetrics.positiveTestStrokeWidth)
+            .frame(
+                width: EvaCalendarMetrics.positiveTestSize,
+                height: EvaCalendarMetrics.positiveTestSize
+            )
         }
     }
 }

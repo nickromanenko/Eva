@@ -180,6 +180,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
             "The summary card does not call the prediction an estimate: \(narrowCard)"
         )
         assertTheLegendCarriesTheNotice(app)
+        assertTheLegendListsTheArtboardsThreeMarks(app)
         capture("01-prediction-narrow")
 
         // MARK: The wide band reads differently, and never as a certainty
@@ -312,6 +313,30 @@ final class CalendarPredictionUITests: EvaUITestCase {
             },
             "The notice does not name the fertile window: \(lines)"
         )
+    }
+
+    /// The three rows the artboard's legend lists and the grid could not draw.
+    ///
+    /// C1 listed none of them, #206 drew the predicted period and the fertile window, and
+    /// #80 drew the third. The rule `CalendarLegend` has followed since C1 is that a row and
+    /// its mark ship together — so this is the assertion that the legend has stopped
+    /// describing anything the app cannot do, checked on the rendered card rather than on
+    /// the enum, because the enum has listed labels that no `ForEach` reached before.
+    private func assertTheLegendListsTheArtboardsThreeMarks(_ app: XCUIApplication) {
+        let legend = app.staticTexts.matching(identifier: "calendar.legend")
+        XCTAssertTrue(
+            legend.firstMatch.waitForExistence(timeout: 10),
+            "The calendar legend is not on screen at all"
+        )
+        let lines = legend.allElementsBoundByIndex.map(\.label)
+        // Substrings the notice under the fertile-window row cannot also satisfy — it names
+        // the window in prose, so a bare "fertile window" would pass with the row deleted.
+        for row in ["Predicted period", "Fertile window (predicted", "Positive test"] {
+            XCTAssertTrue(
+                lines.contains { $0.localizedCaseInsensitiveContains(row) },
+                "The legend has no row for \(row). Legend lines: \(lines)"
+            )
+        }
     }
 
     // MARK: - Navigation

@@ -52,6 +52,7 @@ import {
     type EventSource,
     type LoggableEventType,
     type NewEvent,
+    type PositiveTestPayload,
     type SportPayload,
     type Symptom,
     type SymptomSeverity,
@@ -1948,6 +1949,29 @@ const parseCyclePayload = (body: Record<string, unknown>): Parsed<CyclePayload> 
     return bad("A cycle entry needs either spotting or a flow level");
 };
 
+/** A positive test records one thing — this day — and carries nothing else (#80).
+ *
+ *  Absent, `null` and `{}` are the same request and all three are accepted: the entry is
+ *  the fact, so a client has no field to send. **Any other key is refused rather than
+ *  dropped**, and that refusal does two jobs no other payload parser has to do.
+ *
+ *  It stops `{"negative": true}` being posted to a type named `positiveTest` and stored,
+ *  silently, as a positive — a payload parser that ignored unknown keys would accept that
+ *  body with a 201 and record the opposite of what the caller meant.
+ *
+ *  And it is the only door a clinical number could come through. An empty payload with no
+ *  validator is the obvious place for a client to start attaching a beta-hCG reading or a
+ *  test's own score; GUARDRAILS 35 keeps values a clinic would report out of Eva, and a
+ *  field that is refused at the edge cannot become one that is merely unused at rest. */
+const parsePositiveTestPayload = (payload: unknown): Parsed<PositiveTestPayload> => {
+    if (payload === undefined || payload === null) return good({});
+    if (!isRecord(payload)) return bad("payload must be an object");
+    if (Object.keys(payload).length > 0) {
+        return bad("A positive test marks the day and carries nothing else");
+    }
+    return good({});
+};
+
 const parseRating = (value: unknown, name: string): Parsed<number | undefined> => {
     if (value === undefined || value === null) return good(undefined);
     if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 5) {
@@ -2116,6 +2140,10 @@ const parsePayload = (
     localDate: string,
     rules: SymptomRules | null,
 ): Parsed<EventPayload> => {
+    // The one type whose `payload` may be absent, so its check runs before the guard
+    // below rather than as an arm of the switch: it has no field to send, and requiring
+    // `payload: {}` would be a key that exists only to be empty.
+    if (type === "positiveTest") return parsePositiveTestPayload(payload);
     if (!isRecord(payload)) return bad("payload must be an object");
     switch (type) {
         case "cycle":
@@ -2138,9 +2166,10 @@ const parseEventType = (value: unknown): Parsed<LoggableEventType> => {
         value !== "cycle" &&
         value !== "bodySignals" &&
         value !== "sport" &&
-        value !== "appointment"
+        value !== "appointment" &&
+        value !== "positiveTest"
     ) {
-        return bad("type must be cycle, bodySignals, sport or appointment");
+        return bad("type must be cycle, bodySignals, sport, appointment or positiveTest");
     }
     return good(value);
 };

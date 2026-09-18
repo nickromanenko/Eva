@@ -80,6 +80,11 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   loading: `getAccount` for the gate, `ensureUser` for the two sign-in routes.
 - `events.ts` — the only module that touches `users/{uid}/events/`. Calendar entries:
   create, range read by `localDate`, edit, soft delete. Never log a payload — health data.
+  `positiveTest` (#80) is the second fact stored here that **nothing reads**, and the first
+  that is its own type rather than a field: a `CyclePayload` arm would have demanded flow on
+  a day that has none, shared one one-per-day document with a spotting entry, and put the
+  fact inside the only mapping `cycle.ts` reads. Its payload is empty and the route refuses
+  every key on it, so there is no field for a later reader to start branching on.
   A soft delete is recoverable for `RETENTION_DAYS` (30) and then purged: `restoreEvent`
   is the Undo behind `POST /me/events/{id}/restore`, `purgeUserEvents` is the job behind
   the promise, driven by `scripts/purge-events.ts` (a script, not a route — ARCHITECTURE

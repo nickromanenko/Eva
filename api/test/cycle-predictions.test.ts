@@ -510,6 +510,49 @@ describe("GET /me/cycle/predictions: what the calendar draws", () => {
         expect(after.predictedPeriod).toEqual([analysis.prediction!.nextPeriodStart]);
         expect(after.predictedPeriod).not.toEqual(before.predictedPeriod);
     });
+
+    /**
+     * #80's hard constraint, asserted where it could actually break: a positive test is not
+     * a flow day, and nothing about it reaches `cycle.ts`.
+     *
+     * It is structurally invisible today — `toCycleDay` in `today.ts` answers `null` for
+     * every event whose type is not `cycle`, so a separate event type never enters the
+     * mapping. But "structurally" is a claim about one line somebody can widen in a
+     * keystroke, and every value-level test in the repo passes when they do.
+     *
+     * The day is chosen to do damage if it counted. `back(160)` sits in the middle of the
+     * gap between the periods opening at `back(174)` and `back(146)`, so a flow day there
+     * splits one 28-day interval into two 14-day ones — under `minCycleLengthDays`, and a
+     * variation far outside the widest FIGO band. The **control** at the end is what makes
+     * that claim mean anything: the same date, logged as flow, moves the answer. Without it
+     * the assertion above would pass just as well against a route that answered from a
+     * cache, or against a fixture whose overlay nothing could disturb.
+     */
+    test("a positive test is not a flow day: the overlay is identical with and without one", async () => {
+        await clearEvents();
+        await periodsStartingOn(REGULAR_STARTS);
+        const before = await predictions(WHOLE().from, WHOLE().to);
+        expect(before.withheld).toBeNull();
+
+        const midCycle = back(160);
+        const marked = await post({
+            type: "positiveTest",
+            localDate: midCycle,
+            timeZone: "UTC",
+        });
+        expect(marked.status).toBe(201);
+
+        // Every list, the band and the withheld reason — the whole body, so a field that
+        // started reading it cannot hide behind one this case forgot to name.
+        expect(await predictions(WHOLE().from, WHOLE().to)).toEqual(before);
+
+        // The control. A cycle entry on the same date is a different document (the two
+        // types have different one-per-day ids), so this adds flow rather than replacing
+        // the mark — and the overlay moves.
+        await flowOn(midCycle);
+        const withFlow = await predictions(WHOLE().from, WHOLE().to);
+        expect(withFlow).not.toEqual(before);
+    });
 });
 
 /**

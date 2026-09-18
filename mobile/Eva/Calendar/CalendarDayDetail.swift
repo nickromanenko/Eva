@@ -42,9 +42,14 @@ struct CalendarDayDetail: View {
                 emptyDay
             } else {
                 ForEach(entries) { entry in
+                    let presentation = CalendarEntryPresentation(event: entry, refData: refData)
                     CalendarEntryRow(
-                        presentation: CalendarEntryPresentation(event: entry, refData: refData),
-                        edit: edit.map { edit in { edit(entry) } },
+                        presentation: presentation,
+                        // An entry with no form behind it shows no Edit — a positive test
+                        // is a day and nothing else, so the button would open a sheet with
+                        // nothing on it (#80). Delete is still there, which is the whole of
+                        // the undo PRD §Positive test asks for.
+                        edit: presentation.isEditable ? edit.map { edit in { edit(entry) } } : nil,
                         delete: delete.map { delete in { delete(entry) } }
                     )
                 }

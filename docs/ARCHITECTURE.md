@@ -940,11 +940,11 @@ is no index from an account to a usable token. Account deletion takes them all �
 document carries the address.
 
 `users/{uid}/events/{eventId}` — one subcollection for every calendar entry,
-discriminated by `type` (`cycle`, `bodySignals`, `sport`, `appointment`; `sex` is
-reserved for C10). Owned by `api/src/events.ts`.
+discriminated by `type` (`cycle`, `bodySignals`, `sport`, `appointment`, `positiveTest`;
+`sex` is reserved for C10). Owned by `api/src/events.ts`.
 
 ```
-type          'cycle' | 'bodySignals' | 'sport' | 'appointment'
+type          'cycle' | 'bodySignals' | 'sport' | 'appointment' | 'positiveTest'
 localDate     'YYYY-MM-DD'    // the stored query key, sent by the device
 loggedAt      'YYYY-MM-DDTHH:mm:ss'   // local wall clock, same day as localDate
 note          string | null   // ≤280 chars, uncapped for appointments
@@ -966,9 +966,24 @@ Date policy, validated at the edge: future dates are for `appointment` only
 otherwise. "Today" is computed in the request's optional `timeZone` (IANA, not
 stored); without one the server uses UTC and allows a day of slack either side.
 
-`cycle` and `bodySignals` are one entry per user per day, enforced by a deterministic
-document ID (`cycle_2026-08-27`), so re-logging replaces rather than accumulates. As
-a consequence their `localDate` cannot be changed by `PATCH` — delete and re-log.
+`cycle`, `bodySignals` and `positiveTest` are one entry per user per day, enforced by a
+deterministic document ID (`cycle_2026-08-27`), so re-logging replaces rather than
+accumulates. As a consequence their `localDate` cannot be changed by `PATCH` — delete and
+re-log.
+
+**A positive test is its own type, and nothing reads it (#80).** PRD §Positive test is
+"marks the day": the entry *is* the fact, so its payload is `{}` and `parsePositiveTestPayload`
+refuses every key rather than dropping it — which is what stops `{ negative: true }` being
+stored under a type named `positiveTest`, and what keeps a beta-hCG reading out of the one
+door it could arrive through (GUARDRAILS 35). It is deliberately **not** a third arm of
+`CyclePayload`: both of those arms require flow or spotting and a test needs neither, a
+`cycle` arm would put a test and a spotting day on the same date into one one-per-day
+document, and `toCycleDay` maps *cycle* entries — so a separate type is what makes "the
+cycle maths cannot see this" a property of the model rather than a rule to remember. No mode
+moves, no card changes and no prediction shifts because of one; the cycle-to-pregnancy
+transition it will trigger is D10's, and its semantics are not decided. The client draws it
+as the grid's top-left outlined square (DESIGN.md §7) and cannot yet write one — the log
+picker's row is a later slice.
 
 **The explicit period-end mark is a flag on the last flow day (#75).** A `cycle` payload is
 `{ spotting: true }` or `{ flow: 'light' | 'medium' | 'heavy', periodEnd?: true }`, and
@@ -1019,7 +1034,7 @@ instant arithmetic on the server-set `deletedAt`; none of it touches `localDate`
 time zone, DST change or client clock can move the boundary.
 
 Restore answers `404` for an unknown id, for an entry that was never deleted, and for one
-past its window. The interesting case is one-per-day: because `cycle` and `bodySignals`
+past its window. The interesting case is one-per-day: because those types
 live at a deterministic ID, re-logging that day **overwrites the very document** that held
 the deleted entry, so there is nothing left to restore. Restore refuses with
 `409 DAY_ALREADY_LOGGED` rather than creating a duplicate or relabelling the newer entry
@@ -1793,7 +1808,7 @@ creation, and a delete must follow both.
   that looks up `idempotencyKey` and returns the existing document if one matches. A
   `POST` the device retries after a timeout therefore cannot double-log. This is the
   guarantee the queue relies on, and `api/test/` must keep pinning it.
-- For the one-per-day types `cycle` and `bodySignals` the key is **ignored** — the
+- For the one-per-day types `cycle`, `bodySignals` and `positiveTest` the key is **ignored** — the
   deterministic document ID (`cycle_2026-08-27`) makes the write idempotent by
   construction, and a repeat simply re-sets the same day. Same guarantee, different
   mechanism; the client does not need to know which.

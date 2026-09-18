@@ -206,7 +206,10 @@ struct LogSheet: View {
         case .bodySignals: step = .bodySignals(editing: existing?.id)
         case .sport: step = .sport(editing: nil)
         case .appointment: step = .appointment(editing: nil)
-        case .sex: break
+        // Neither is offered by the picker, so neither is reachable: `sex` because the
+        // route reserves the type, `positiveTest` because the row and the sheet that write
+        // one are the slice after #80.
+        case .sex, .positiveTest: break
         }
     }
 
@@ -224,8 +227,10 @@ struct LogSheet: View {
         case .bodySignals: .bodySignals(editing: event.id)
         case .sport: .sport(editing: event.id)
         case .appointment: .appointment(editing: event.id)
-        // Not reachable: a sex entry cannot be written, so nothing offers to edit one.
-        case .sex: .picker
+        // Not reachable: neither entry has a form, so the day list draws no Edit on either
+        // (`EvaEventDetail.isEditable`). A sex entry cannot be written at all; a positive
+        // test can, and its whole content is the day it is on.
+        case .sex, .positiveTest: .picker
         }
     }
 

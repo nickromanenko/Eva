@@ -742,6 +742,176 @@ describe("events: cycle", () => {
     });
 });
 
+/**
+ * #80. A positive pregnancy test, which marks a day and does nothing else.
+ *
+ * It is its **own event type** rather than a third arm of `CyclePayload` — see the type's
+ * own comment in `src/events.ts` for the three reasons. Two of them are properties these
+ * cases can actually check, and they do: a positive test needs no bleeding on the day, and
+ * it shares a date with a cycle entry without either one displacing the other.
+ *
+ * The third — that `cycle.ts` never sees it — is asserted where it could break, at
+ * `GET /me/cycle/predictions` in `cycle-predictions.test.ts`.
+ */
+describe("events: positive test", () => {
+    /** The day's positive test as the range read returns it, or `undefined`. */
+    const testOn = async (date: string): Promise<EvaEventBody | undefined> =>
+        (await range(date, date)).find((e) => e.type === "positiveTest");
+
+    test("it marks a day with no payload at all, and the day keeps one", async () => {
+        const date = shiftDays(todayIn("UTC"), -60);
+
+        // No `payload` key. The entry is the fact, so there is nothing for a client to
+        // send — and a route that required `payload: {}` would be asking for a key that
+        // exists only to be empty.
+        const created = await post({ type: "positiveTest", localDate: date, timeZone: "UTC" });
+        expect(created.status).toBe(201);
+        const event = (await json<EventResponse>(created)).event;
+        expect(event.type).toBe("positiveTest");
+        expect(event.localDate).toBe(date);
+        expect(event.payload).toEqual({});
+        expect(event.deletedAt).toBe(null);
+
+        // The read is the half that is easy to lose, and an empty object is the easiest
+        // thing of all to drop on the way back out.
+        expect((await testOn(date))!.payload).toEqual({});
+
+        // One per day: the second mark is the same document, not a second identical row in
+        // her day list. The payload is empty, so a duplicate carries no second fact.
+        const again = await post({ type: "positiveTest", localDate: date, timeZone: "UTC" });
+        expect(again.status).toBe(201);
+        expect((await json<EventResponse>(again)).event.id).toBe(event.id);
+        expect((await range(date, date)).filter((e) => e.type === "positiveTest")).toHaveLength(1);
+    });
+
+    test("an explicit empty payload and a null one are the same request", async () => {
+        const empty = shiftDays(todayIn("UTC"), -61);
+        const nulled = shiftDays(todayIn("UTC"), -62);
+
+        const withEmpty = await post({
+            type: "positiveTest",
+            localDate: empty,
+            timeZone: "UTC",
+            payload: {},
+        });
+        expect(withEmpty.status).toBe(201);
+        expect((await json<EventResponse>(withEmpty)).event.payload).toEqual({});
+
+        const withNull = await post({
+            type: "positiveTest",
+            localDate: nulled,
+            timeZone: "UTC",
+            payload: null,
+        });
+        expect(withNull.status).toBe(201);
+        expect((await json<EventResponse>(withNull)).event.payload).toEqual({});
+    });
+
+    /**
+     * The validation that is the whole of this type's edge, and it is doing two jobs.
+     *
+     * `{ negative: true }` is the one a parser that ignored unknown keys would accept with a
+     * 201 and store as a *positive* test — the opposite of what the caller meant, recorded
+     * silently. And a number a clinic would report is refused rather than dropped: an empty
+     * payload with no validator is exactly where a client would start attaching a beta-hCG
+     * reading, and GUARDRAILS 35 keeps values like that out of Eva.
+     */
+    test("it carries nothing else: every extra key is refused, not dropped", async () => {
+        const date = shiftDays(todayIn("UTC"), -63);
+
+        for (const payload of [
+            { negative: true },
+            { result: "positive" },
+            { hcg: 250 },
+            { flow: "heavy" },
+            { spotting: true },
+        ]) {
+            const res = await post({
+                type: "positiveTest",
+                localDate: date,
+                timeZone: "UTC",
+                payload,
+            });
+            expect(res.status).toBe(400);
+            expect((await json<ErrorResponse>(res)).error.code).toBe("VALIDATION");
+        }
+
+        // Not an object either — absent and null are the two ways of saying "nothing", and
+        // a string or a list is a client that thinks this type takes a value.
+        for (const payload of ["positive", 1, true, []]) {
+            const res = await post({
+                type: "positiveTest",
+                localDate: date,
+                timeZone: "UTC",
+                payload,
+            });
+            expect(res.status).toBe(400);
+        }
+
+        // None of the above took the day: a refused entry writes nothing.
+        expect(await testOn(date)).toBeUndefined();
+    });
+
+    /**
+     * The shape of the decision, checked rather than asserted in a comment: a positive test
+     * needs no bleeding on the day, and it does not compete with the day's cycle entry for
+     * a document. Both would be false if this rode on `CyclePayload` — a third arm there
+     * would either have demanded a flow level or shared `cycle_<localDate>` with one.
+     */
+    test("it needs no flow on the day, and shares a day with a cycle entry", async () => {
+        const dry = shiftDays(todayIn("UTC"), -64);
+        const shared = shiftDays(todayIn("UTC"), -65);
+
+        expect(
+            (await post({ type: "positiveTest", localDate: dry, timeZone: "UTC" })).status,
+        ).toBe(201);
+        expect((await range(dry, dry)).map((e) => e.type)).toEqual(["positiveTest"]);
+
+        const flow = await post({
+            type: "cycle",
+            localDate: shared,
+            timeZone: "UTC",
+            payload: { spotting: true },
+        });
+        expect(flow.status).toBe(201);
+        expect(
+            (await post({ type: "positiveTest", localDate: shared, timeZone: "UTC" })).status,
+        ).toBe(201);
+
+        const onThatDay = await range(shared, shared);
+        expect(onThatDay.map((e) => e.type).sort()).toEqual(["cycle", "positiveTest"]);
+        // The cycle entry is untouched — the two are different documents, so neither
+        // replaced the other on a date where both are one-per-day.
+        expect(onThatDay.find((e) => e.type === "cycle")!.payload).toEqual({ spotting: true });
+        expect(onThatDay.find((e) => e.type === "positiveTest")!.payload).toEqual({});
+    });
+
+    test("it cannot be logged ahead: only appointments go forward", async () => {
+        const res = await post({
+            type: "positiveTest",
+            localDate: shiftDays(todayIn("UTC"), 1),
+            timeZone: "UTC",
+        });
+        expect(res.status).toBe(400);
+        expect((await json<ErrorResponse>(res)).error.code).toBe("FUTURE_DATE_NOT_ALLOWED");
+    });
+
+    /** PRD §Positive test: "Undoing a positive test must be as quiet as the loss flow: one
+     *  tap, no questions." That tap is the delete every other entry already has, and the
+     *  mark leaves the grid with it. */
+    test("deleting one takes the mark off the day", async () => {
+        const date = shiftDays(todayIn("UTC"), -66);
+        const event = (
+            await json<EventResponse>(
+                await post({ type: "positiveTest", localDate: date, timeZone: "UTC" }),
+            )
+        ).event;
+
+        expect((await api(`/me/events/${event.id}`, { method: "DELETE" })).status).toBe(200);
+        expect(await testOn(date)).toBeUndefined();
+    });
+});
+
 describe("events: body signals", () => {
     test("the day's entry is upserted, never accumulated", async () => {
         const date = shiftDays(todayIn("UTC"), -32);
