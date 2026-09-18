@@ -661,7 +661,7 @@ describe("deleting an account returns its address's throttle budget", () => {
             exhaust(email);
             expect(consumeAuthAttempt("signin", null, email)).toBe(false);
 
-            const res = await deleteMe(await mintToken(uid, email));
+            const res = await deleteMe(await mintToken(uid, email, 0));
             expect(res.status).toBe(200);
 
             // Still spent: the delete completed, and the counters were not the delete's to
@@ -698,7 +698,7 @@ describe("deleting an account returns its address's throttle budget", () => {
             exhaust(bystander);
             expect(consumeAuthAttempt("signin", null, bystander)).toBe(false);
 
-            const res = await deleteMe(await mintToken(uid, email));
+            const res = await deleteMe(await mintToken(uid, email, 0));
             expect(res.status).toBe(200);
 
             expect(consumeAuthAttempt("signin", null, email)).toBe(true);

@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
 import { routePath } from "hono/route";
-import { mintToken, requireAuth, type TokenClaims } from "./auth";
+import { mintToken, requireAuth, tokenVersionOf, type TokenClaims } from "./auth";
 import { config } from "./config";
 import { getContent } from "./content";
 import { EmailError, sendActivationEmail, sendPasswordResetEmail } from "./email";
@@ -71,8 +71,10 @@ import {
 import {
     CONDITION_CODES,
     MEDICATION_CODES,
+    bumpTokenVersion,
     deleteUserDocument,
     ensureUser,
+    getAccount,
     getUser,
     isActivated,
     markActivated,
@@ -432,21 +434,37 @@ const upstreamUnavailable = (
  * It lives here rather than beside `requireAuth` because `auth.ts` must not reach
  * Firestore and `users.ts` is the only module that may (GUARDRAILS 10) — so the composing
  * of the two belongs at the route edge, which is what this file is.
+ *
+ * **It is also where a reset ends every other session (#76).** The account's
+ * `tokenVersion` rides back on the very snapshot this gate already reads, so the check is
+ * one integer comparison and not a second round trip — the design constraint the issue
+ * set, and the reason the version lives on `users/{uid}` rather than in a revocation list
+ * of its own. A stale token gets the byte-identical answer an expired one gets, so no
+ * error code is added or repurposed and the client's existing sign-out handling (§5, #55)
+ * applies to it unchanged.
  */
 const requireAccount = createMiddleware<{
     Variables: { claims: TokenClaims; account: User };
 }>(async (c, next) => {
-    const account = await getUser(c.get("claims").sub);
+    const claims = c.get("claims");
+    const account = await getAccount(claims.sub);
     // 401, not 404: the caller's credential is the thing that is no longer good, and the
     // app signs out on it wherever it lands — `AppSession.authorized` routes every
     // authorized request through one handler, so this is not only caught at launch (#55).
     // Same code and message as any other dead token —
     // "your account was deleted" is not a distinction worth drawing for a caller who,
-    // by definition, cannot be told anything about it.
-    if (!account) {
+    // by definition, cannot be told anything about it. A superseded session is told the
+    // same nothing, and for the stronger version of the same reason: whoever is holding it
+    // may well be the person the reset was aimed at.
+    //
+    // **Equality, not `<`.** "Minted at the current generation" is the property; a token
+    // claiming a generation this account has never reached is not a session of ours
+    // either, and reading it as good would make a rolled-back document hand every stale
+    // token back its access.
+    if (!account || tokenVersionOf(claims) !== account.tokenVersion) {
         return c.json(error("UNAUTHORIZED", "Invalid or expired token"), 401);
     }
-    c.set("account", account);
+    c.set("account", account.user);
     await next();
 });
 
@@ -522,18 +540,21 @@ app.post("/auth/signin", async (c) => {
         try {
             const { localId } = await signInWithPassword(email, password);
             // Self-healing: also the attach point for future providers (same uid → same doc).
-            const user = await ensureUser(localId, email, "password");
+            // The account's token generation comes back with it (#76), off the snapshot
+            // `ensureUser` already read, so this mints at the current one without asking.
+            const account = await ensureUser(localId, email, "password");
             // `null` means the account is being deleted. The credentials are real, and that is
             // exactly why this must not mint a token: signing in is the one path that could
             // otherwise walk an account back out of its own deletion. Answered as a failed
             // sign-in — the same answer a wrong password gets, which is also the honest one,
             // because the account those credentials named is gone.
-            if (!user) {
+            if (!account) {
                 return c.json(
                     error("INVALID_CREDENTIALS", "Wrong email or password"),
                     401,
                 );
             }
+            const user = account.user;
             // The activation gate (#6), and *where* it sits is the design: after Identity
             // Toolkit has verified the password. Answering "not activated" for an unverified
             // password would tell anyone holding an address that an account exists behind it,
@@ -546,7 +567,10 @@ app.post("/auth/signin", async (c) => {
                     403,
                 );
             }
-            return c.json({ token: await mintToken(localId, email), user });
+            return c.json({
+                token: await mintToken(localId, email, account.tokenVersion),
+                user,
+            });
         } catch (err) {
             if (err instanceof IdentityToolkitError) {
                 if (err.kind === "unavailable") return upstreamUnavailable(c, "signin", err);
@@ -720,6 +744,15 @@ const sendResetLink = async (uid: string, email: string): Promise<void> => {
 const claimForActivation = async (uid: string, password: string): Promise<void> => {
     await setPassword(uid, password);
     await retractUnprovenIdentities(uid);
+    // **And Eva's own sessions, not only Firebase's** (#76). `retractUnprovenIdentities`
+    // revokes the account's refresh tokens; this is the same act on the session layer that
+    // is actually in front of the user, and leaving the two disagreeing is how an
+    // inconsistency of this kind gets written. Nothing to strand today — the route refuses
+    // an already-activated account, and only an activated account can have a live session —
+    // but that is true by the arrangement of three other routes rather than by anything
+    // here. Deliberately *not* on the create path: there was no account to have sessions on.
+    // The full rule, including what a provider unlink should do, is on `bumpTokenVersion`.
+    await bumpTokenVersion(uid);
 };
 
 const activate = async (c: Context, raw: unknown, body: Record<string, unknown>) => {
@@ -804,8 +837,10 @@ const activate = async (c: Context, raw: unknown, body: Record<string, unknown>)
         await claimForActivation(uid, password);
     }
 
-    const user = await ensureUser(uid, result.email, "password");
-    if (!user) return tokenFailure(c, "invalid");
+    // The account, not the token generation: this route answers `{ activated: true }` and
+    // mints nothing, so there is no session here to stamp with one.
+    const account = await ensureUser(uid, result.email, "password");
+    if (!account) return tokenFailure(c, "invalid");
     if (!(await markActivated(uid))) return tokenFailure(c, "invalid");
     // **Last, and the order is load-bearing.** `emailVerified` is what
     // `claimUnprovenAccount` reads to decide whether to apply its address test, and
@@ -962,6 +997,22 @@ app.post("/auth/password/reset", async (c) => {
     const user = await getUser(uid);
     if (!user) return tokenFailure(c, "invalid");
 
+    // **Every other session ends here** (#76), and this is the whole of the decision: the
+    // reason a woman resets her password is usually that somebody else has it, so a reset
+    // that leaves the other session live defeats its own purpose. Not an opt-in — a second
+    // control is found by the people who need it least.
+    //
+    // **Before `setPassword`, deliberately.** The two can only fail in one order, so pick
+    // the safe one: bump-then-fail signs everyone out and leaves the old password working,
+    // which costs her a sign-in she can complete; set-then-fail changes the password and
+    // leaves the attacker's session alive, which is the exact state this exists to prevent.
+    // Annoying beats insecure.
+    //
+    // `null` is the account going away since the read two lines up — a dead link, the same
+    // answer that read gives.
+    const tokenVersion = await bumpTokenVersion(uid);
+    if (tokenVersion === null) return tokenFailure(c, "invalid");
+
     await setPassword(uid, password);
     // Same retraction as the activation route, and reachable by the same person: this is
     // the recovery an owner is sent to when someone else has reserved their address, so it
@@ -1012,8 +1063,15 @@ app.post("/auth/password/reset", async (c) => {
         // No uid, no address, no reason string (GUARDRAILS 12).
         console.log(JSON.stringify({ event: "credentials_unproven_after_reset" }));
     }
+    // **The device that performed the reset keeps its session, and this line is how** (#76).
+    // It is identified by being the one the new token is handed to — not by a heuristic, a
+    // device id or a cookie, none of which this API has. The token minted here is the only
+    // one carrying the generation the bump just created; every session outstanding before
+    // it carries a lower one and is refused at the account gate on its next request. So she
+    // stays signed in on the phone she is holding and is signed out everywhere else, which
+    // is the outcome the issue asked for without needing to identify anything.
     return c.json({
-        token: await mintToken(uid, user.email),
+        token: await mintToken(uid, user.email, tokenVersion),
         user: { ...user, activated: true },
     });
 });
@@ -1302,15 +1360,20 @@ app.post("/auth/idp", async (c) => {
         // Only now, once the credential has earned the account. The second tombstone check
         // is `ensureUser`'s own, and closes the window between the read above and this
         // write: a `DELETE /me` landing in between must still win.
-        const user = await ensureUser(localId, email, PROVIDER_IDS[parsed.value.provider]);
-        if (!user) return refuseProvider(c, "idp", "deleted-race");
+        const account = await ensureUser(localId, email, PROVIDER_IDS[parsed.value.provider]);
+        if (!account) return refuseProvider(c, "idp", "deleted-race");
         // The claim above has already taken the account, so there is nothing left to
         // retract — and `proveAddress` must not run here: a provider sign-in would unlink
         // the very identity that just signed in.
         await markActivated(localId);
+        // A provider sign-in mints at the account's current generation and bumps nothing:
+        // signing in with Apple takes no credential away from anyone. `claimUnprovenAccount`
+        // above is the one thing on this path that does, and it can only run on an
+        // unactivated account — which, by the argument on `bumpTokenVersion`, has no
+        // sessions to end.
         return c.json({
-            token: await mintToken(localId, email),
-            user: { ...user, activated: true },
+            token: await mintToken(localId, email, account.tokenVersion),
+            user: { ...account.user, activated: true },
         });
     } catch (err) {
         const answer = providerFailure(c, "idp", err);
@@ -1355,14 +1418,17 @@ app.post("/me/auth/providers", requireAuth, requireAccount, async (c) => {
         if (localId !== account.id) {
             throw new Error("signInWithIdp resolved a different account");
         }
-        const user = await ensureUser(
+        // No bump: linking adds a credential and removes none, so the caller's other
+        // devices have no reason to be signed out (see `bumpTokenVersion` for the rule,
+        // and for what an unlink route would owe instead).
+        const linked = await ensureUser(
             account.id,
             account.email,
             PROVIDER_IDS[parsed.value.provider],
         );
         // A delete landed between the account gate and here.
-        if (!user) return c.json(error("UNAUTHORIZED", "Invalid or expired token"), 401);
-        return c.json({ user });
+        if (!linked) return c.json(error("UNAUTHORIZED", "Invalid or expired token"), 401);
+        return c.json({ user: linked.user });
     } catch (err) {
         const answer = providerFailure(c, "link", err);
         if (answer) return answer;
@@ -1418,9 +1484,25 @@ app.get("/me", requireAuth, requireAccount, (c) => c.json({ user: c.get("account
  * It is also the one authenticated route deliberately *not* behind `requireAccount` — the
  * gate would reject the very token a client needs to retry with. What that token can still
  * do here is re-delete an account that is already gone, which is nothing.
+ *
+ * **The session check is not part of that exception (#76).** "A password reset invalidates
+ * every session" has to be true of the route that destroys the account, or it is a
+ * sentence rather than a property — a superseded session locked out of every read while
+ * still able to delete everything is worse than no revocation at all. So the generation is
+ * checked here by hand, and only *while there is still a document to check it against*:
+ * the retry the exception exists for happens after the tombstone is stamped, where
+ * `getAccount` answers `null` and this falls straight through, exactly as before.
  */
 app.delete("/me", requireAuth, async (c) => {
-    const { sub } = c.get("claims");
+    const claims = c.get("claims");
+    const { sub } = claims;
+    // One read, on a route that already makes a dozen round trips — not the per-request
+    // cost `requireAccount` is careful about. `null` is "no account, or one already being
+    // deleted", which is the retry case and proceeds.
+    const live = await getAccount(sub);
+    if (live && tokenVersionOf(claims) !== live.tokenVersion) {
+        return c.json(error("UNAUTHORIZED", "Invalid or expired token"), 401);
+    }
     // An **optional** fresh Apple authorization code (#7), obtained by the app re-prompting
     // for authorization just before it calls this. Optional because deletion cannot depend
     // on it: an old client, a user who declines the prompt, or a request built by anything

@@ -1463,7 +1463,7 @@ describe("the declared maximums are the maximums", () => {
         // and the caller could not detect.
         const email = newEmail();
         const uid = await trackedUnactivatedAccount(email);
-        const token = await mintToken(uid, email);
+        const token = await mintToken(uid, email, 0);
 
         // At the ceiling first: a real Apple code must not be refused by a limit someone
         // tightened without noticing.
@@ -1477,7 +1477,7 @@ describe("the declared maximums are the maximums", () => {
 
         const secondEmail = newEmail();
         const secondUid = await trackedUnactivatedAccount(secondEmail);
-        const secondToken = await mintToken(secondUid, secondEmail);
+        const secondToken = await mintToken(secondUid, secondEmail, 0);
         const res = await send(
             "DELETE",
             "/me",
@@ -1804,7 +1804,7 @@ describe("the provider routes are throttled, and separately", () => {
             const email = newEmail();
             const uid = await trackedUnactivatedAccount(email);
             await markActivated(uid);
-            const token = await mintToken(uid, email);
+            const token = await mintToken(uid, email, 0);
 
             idp = () => {
                 throw new IdentityToolkitError("INVALID_IDP_RESPONSE", 400);
@@ -1833,7 +1833,7 @@ describe("POST /me/auth/providers — linking is deliberate, and never a merge",
         const email = newEmail();
         const uid = await trackedUnactivatedAccount(email);
         await markActivated(uid);
-        return { uid, email, token: await mintToken(uid, email) };
+        return { uid, email, token: await mintToken(uid, email, 0) };
     };
 
     test(
@@ -1917,7 +1917,7 @@ describe("DELETE /me — Apple revocation never fails the delete", () => {
         async () => {
             const email = newEmail();
             const uid = await trackedUnactivatedAccount(email);
-            const token = await mintToken(uid, email);
+            const token = await mintToken(uid, email, 0);
             const APPLE_CODE = "apple-authorization-code-z9y8x7";
             const logged: string[] = [];
             const spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
@@ -1976,7 +1976,7 @@ describe("DELETE /me — Apple revocation never fails the delete", () => {
         async () => {
             const email = newEmail();
             const uid = await trackedUnactivatedAccount(email);
-            const token = await mintToken(uid, email);
+            const token = await mintToken(uid, email, 0);
 
             // Two observations, because one of them does not work where this runs. The
             // `fetch` stub catches an outbound call — but only in an environment where

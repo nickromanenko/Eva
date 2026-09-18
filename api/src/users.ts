@@ -79,6 +79,22 @@ export interface User {
   activated: boolean
 }
 
+/**
+ * A user **and the session generation her tokens must match** (#76).
+ *
+ * `tokenVersion` is deliberately *not* a field on `User`, for the reason `lastUserChangeAt`
+ * gives further down this file: `GET /me` serves `User` verbatim to the app, and a counter
+ * the client has no use for does not belong in a response body. It is a server-side fact
+ * about sessions, so it travels beside the user rather than inside her.
+ *
+ * Every read that needs it gets it from the *same snapshot* the user came out of — which
+ * is what makes #76's check one comparison and not a second Firestore round trip.
+ */
+export interface Account {
+  user: User
+  tokenVersion: number
+}
+
 const users = () => firestore.collection('users')
 
 /** `activatedAt` is `null` from creation until the activation link is used, and a
@@ -88,6 +104,17 @@ const users = () => firestore.collection('users')
  *  regression, not security. Hence `!== null` rather than a truthiness test. */
 const isActivatedData = (data: FirebaseFirestore.DocumentData): boolean =>
   data.activatedAt !== null
+
+/**
+ * The account's session generation (#76). **Absent is `0`**, for the reason
+ * `isActivatedData` reads an absent `activatedAt` as activated: every document written
+ * before this field existed has none, and those accounts hold tokens that carry no `tv`
+ * claim — which `auth.ts` also reads as `0`. The two absences therefore compare equal and
+ * the deploy signs nobody out. A non-number is read the same way rather than trusted:
+ * this is a gate, and `0` is its closed position.
+ */
+const storedTokenVersion = (data: FirebaseFirestore.DocumentData): number =>
+  typeof data.tokenVersion === 'number' ? data.tokenVersion : 0
 
 /**
  * The stored `profile` map read as *this* schema, or `null`.
@@ -163,7 +190,7 @@ export const ensureUser = async (
   uid: string,
   email: string,
   provider: string,
-): Promise<User | null> => {
+): Promise<Account | null> => {
   const ref = users().doc(uid)
   const snapshot = await ref.get()
   if (snapshot.exists) {
@@ -180,10 +207,15 @@ export const ensureUser = async (
     // would cost a second round trip to learn something we just decided.
     const data = snapshot.data()!
     const existing: string[] = data.authProviders ?? []
-    return toUser(uid, {
-      ...data,
-      authProviders: existing.includes(provider) ? existing : [...existing, provider],
-    })
+    // The version comes off the snapshot this function already read (#76): a sign-in mints
+    // at the account's current generation, and it costs nothing to know what that is.
+    return {
+      user: toUser(uid, {
+        ...data,
+        authProviders: existing.includes(provider) ? existing : [...existing, provider],
+      }),
+      tokenVersion: storedTokenVersion(data),
+    }
   }
   // A new document starts *not* activated, explicitly: `null`, never absent, because
   // absent is what a pre-#6 document looks like and means the opposite (see
@@ -198,13 +230,18 @@ export const ensureUser = async (
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   })
+  // A fresh document carries no `tokenVersion` and needs none: `0` is what every reader
+  // makes of its absence, and there are no earlier sessions for it to strand.
   return {
-    id: uid,
-    email,
-    questionnaireCompleted: false,
-    profile: null,
-    authProviders: [provider],
-    activated: false,
+    user: {
+      id: uid,
+      email,
+      questionnaireCompleted: false,
+      profile: null,
+      authProviders: [provider],
+      activated: false,
+    },
+    tokenVersion: 0,
   }
 }
 
@@ -231,9 +268,79 @@ export const readUser = async (
   return { deleted: false, user: toUser(uid, snapshot.data()!) }
 }
 
-export const getUser = async (uid: string): Promise<User | null> => {
+/**
+ * What the account gate reads (#76): the user, and the generation her token has to carry.
+ *
+ * **One read, and it is the read the gate already made.** `requireAccount` has always
+ * loaded this document to prove the account still exists (#8); this returns one more
+ * value out of the same snapshot, so checking the token version costs a comparison and
+ * not a round trip. Anything that needed a second read would be the wrong design — say so
+ * rather than paying it.
+ *
+ * `null` for a missing document and for a tombstone alike, exactly as `getUser` answers,
+ * and for the same reason: a delete in flight is not an account.
+ */
+export const getAccount = async (uid: string): Promise<Account | null> => {
   const snapshot = await users().doc(uid).get()
-  return snapshot.exists && !isTombstone(snapshot) ? toUser(uid, snapshot.data()!) : null
+  if (!snapshot.exists || isTombstone(snapshot)) return null
+  const data = snapshot.data()!
+  return { user: toUser(uid, data), tokenVersion: storedTokenVersion(data) }
+}
+
+/** The user alone, for the callers that have no session to check — expressed through
+ *  `getAccount` so the tombstone rule has one implementation rather than two. */
+export const getUser = async (uid: string): Promise<User | null> =>
+  (await getAccount(uid))?.user ?? null
+
+/**
+ * Ends every session on this account, and returns the generation the caller may mint at
+ * (#76).
+ *
+ * **What bumps it, and why each answer is what it is.** The rule is: *a credential that
+ * could already open this account has been taken away or replaced.* Concretely —
+ *
+ * - **`POST /auth/password/reset` — yes, always.** The decision on #76, and the reason the
+ *   field exists: someone resetting a password usually does it because somebody else has
+ *   it, and a reset that leaves the other session live defeats its own purpose. Not behind
+ *   an opt-in, because a second control is found by the people who least need it.
+ * - **`POST /auth/activate` on the claim path — yes.** That path sets a password on an
+ *   account this request did not create, and `retractUnprovenIdentities` beside it already
+ *   revokes Firebase's refresh tokens; leaving Eva's own sessions alone there would be the
+ *   two halves of one act disagreeing. It is belt and braces *today* — an account with a
+ *   live Eva session is necessarily activated (sign-in requires it, `/auth/idp` and reset
+ *   stamp it), and the route refuses an activated account as a dead link — so there is
+ *   provably nothing to strand. That argument is true by arrangement of three other
+ *   routes, which is the kind of true that stops being true quietly.
+ * - **The create path of `/auth/activate` — no.** There is no account yet, so there is no
+ *   session to end and nothing to bump from.
+ * - **`POST /me/auth/providers` (link) — no.** Adding a credential takes nothing from
+ *   anyone. Signing a woman out of her other devices for connecting Apple would be a bug
+ *   wearing security's clothes.
+ * - **A provider *unlink* — yes, when a route for it exists.** There is none today, which
+ *   is why this is a sentence and not a call site. The reasoning is the reset's own: an
+ *   unlink exists to stop a credential opening this account, and a session that credential
+ *   minted is that credential still opening it. Whoever builds that route calls this, and
+ *   mints the caller a fresh token the way the reset route does, so the device doing the
+ *   unlinking is not the one it punishes.
+ * - **`DELETE /me` — no.** The tombstone already refuses every token for the account, and
+ *   an account that is gone has no sessions left to number.
+ *
+ * `null` means there was no account to bump — no document, or a tombstone — which the
+ * caller answers as a dead link rather than as an error.
+ *
+ * A transaction, and not `FieldValue.increment`, because the caller needs the resulting
+ * number to mint with: two concurrent resets must not both mint at the same generation,
+ * or the loser's token opens the winner's account.
+ */
+export const bumpTokenVersion = async (uid: string): Promise<number | null> => {
+  const ref = users().doc(uid)
+  return firestore.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref)
+    if (!snapshot.exists || isTombstone(snapshot)) return null
+    const next = storedTokenVersion(snapshot.data()!) + 1
+    tx.update(ref, { tokenVersion: next, updatedAt: FieldValue.serverTimestamp() })
+    return next
+  })
 }
 
 /**

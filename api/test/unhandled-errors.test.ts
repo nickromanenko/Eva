@@ -110,6 +110,10 @@ mock.module("../src/users", () => ({
     ...users,
     ensureUser: async () => (userStore ?? unset("users.ensureUser"))(),
     getUser: async () => (userStore ?? unset("users.getUser"))(),
+    // The account gate reads `getAccount` since #76 — the same seam, one function further
+    // along. Without it here the gate calls the real Firestore and the mocked outage below
+    // never reaches the handler it is supposed to be testing.
+    getAccount: async () => (userStore ?? unset("users.getAccount"))(),
 }));
 
 mock.module("../src/events", () => ({
@@ -122,12 +126,21 @@ const { default: server } = await import("../src/index");
 
 const succeeds = () => ({ localId: UID, email: EMAIL });
 
-/** A live account for the gate to find. Never written anywhere — `users` is mocked. */
+/**
+ * A live account for the gate to find. Never written anywhere — `users` is mocked.
+ *
+ * The `Account` shape `getAccount` and `ensureUser` answer with since #76: the user, and
+ * the session generation her token has to match. `0` is the generation of an account that
+ * has never had a password reset, which is what every `mintToken(…, 0)` below mints at.
+ */
 const liveAccount = () => ({
-    id: UID,
-    email: EMAIL,
-    questionnaireCompleted: false,
-    profile: null,
+    user: {
+        id: UID,
+        email: EMAIL,
+        questionnaireCompleted: false,
+        profile: null,
+    },
+    tokenVersion: 0,
 });
 
 /**
@@ -389,7 +402,7 @@ describe("what the operator gets, and what they deliberately do not", () => {
             const answer = await send(
                 "DELETE",
                 `/me/events/${EVENT_ID}?timeZone=Europe/Berlin`,
-                { token: await mintToken(UID, EMAIL) },
+                { token: await mintToken(UID, EMAIL, 0) },
             );
 
             expectShapedInternalError(answer);
@@ -506,7 +519,7 @@ describe("onError is the floor, not a replacement", () => {
             userStore = liveAccount; // the gate's own throw would answer before the route
             deleteEvent = () => false;
             const answer = await send("DELETE", `/me/events/${EVENT_ID}`, {
-                token: await mintToken(UID, EMAIL),
+                token: await mintToken(UID, EMAIL, 0),
             });
 
             expect(answer.status).toBe(404);
@@ -695,7 +708,7 @@ describe("a throw that is not an Error, and a path that is not a route", () => {
             // And `c.req.path` is the field that would make a line useful, which is the
             // field that carries ids and dates (GUARDRAILS 12).
             await send("POST", `/me/events/${EVENT_ID}/no-such-action`, {
-                token: await mintToken(UID, EMAIL),
+                token: await mintToken(UID, EMAIL, 0),
             });
 
             expect(logged).toHaveLength(0);
