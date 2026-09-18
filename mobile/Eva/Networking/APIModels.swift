@@ -1,6 +1,9 @@
 import Foundation
 
-struct APIUser: Codable {
+/// The account as the API describes it. **Decoded, never encoded** — nothing sends a user,
+/// and the synthesized `Encodable` half only ever existed because `profile` used to be typed
+/// as the request body (#215).
+struct APIUser: Decodable {
     let id: String
     let email: String
     let questionnaireCompleted: Bool
@@ -29,7 +32,23 @@ struct APIUser: Codable {
     /// and wrong for the first Apple-only one — and it would be the delete flow's cue to
     /// skip Apple revocation, which is the expensive way to be wrong.
     let authProviders: [String]
-    let profile: ProfilePayload?
+    /// The stored profile, or `nil` until the questionnaire is answered.
+    ///
+    /// **`APIProfile`, not `ProfilePayload`** — what the app sends and what the API returns
+    /// are different shapes, and #211 found that out the expensive way. It added `timeZone`
+    /// to the payload; the API reads it to resolve *her* day and deliberately never stores
+    /// it, so the moment a response carried a profile it stopped decoding. `PUT
+    /// /me/questionnaire` threw `.decoding` and left her on the last questionnaire step,
+    /// and `GET /me` threw the same at every launch afterwards, which `bootstrap()` reads
+    /// as `.unreachable` (#215).
+    let profile: APIProfile?
+
+    /// Spelled out rather than synthesized. `Codable` used to generate it as a side effect
+    /// of the `Encodable` half nothing ever called; a type with a hand-written
+    /// `init(from:)` and no encoding to synthesize gets no keys of its own.
+    private enum CodingKeys: String, CodingKey {
+        case id, email, questionnaireCompleted, activated, authProviders, profile
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -38,7 +57,7 @@ struct APIUser: Codable {
         questionnaireCompleted = try container.decode(Bool.self, forKey: .questionnaireCompleted)
         activated = try container.decodeIfPresent(Bool.self, forKey: .activated) ?? true
         authProviders = try container.decodeIfPresent([String].self, forKey: .authProviders) ?? []
-        profile = try container.decodeIfPresent(ProfilePayload.self, forKey: .profile)
+        profile = try container.decodeIfPresent(APIProfile.self, forKey: .profile)
     }
 
     /// Whether an identity provider is attached to this account.
@@ -60,13 +79,43 @@ struct APIUser: Codable {
     }
 }
 
+/// The profile as the API **returns** it: `users.ts`' `Profile`, field for field.
+///
+/// Its own type rather than `ProfilePayload`, which is what the app **sends**. The two agree
+/// on eight fields and differ on one — `timeZone` is a request parameter, not a stored fact
+/// — and one type standing for both turned that difference into a decode failure on every
+/// response that carried a profile (#215). `Decodable` only, so the difference cannot be
+/// re-erased by using this as a body.
+///
+/// Nothing reads these fields yet; Profile is #19. They are decoded because the server sends
+/// them, and a wire type that quietly drops what it is given is the same mistake seen from
+/// the other side.
+struct APIProfile: Decodable {
+    let dateOfBirth: String
+    /// `Double`, matching what `ProfilePayload` sends and what `users.ts` declares — a TypeScript
+    /// `number`, which `parseProfile` validates as a finite number in a range and never as an
+    /// integer. A weight typed in pounds is stored as the kilograms it converts to (#82), so
+    /// `68.04` comes back on the wire and an `Int` here would be #215 again in a new costume.
+    let weightKg: Double
+    let heightCm: Double
+    let goals: [String]
+    let conditions: [String]
+    let medications: String
+    let lifestyle: String
+    let sports: [String]
+}
+
 /// `PUT /me/questionnaire`'s body.
 ///
 /// **A date of birth, not an age** (#81): the API stores the date and derives the age, so a
 /// profile cannot go quietly stale between birthdays. `conditions` and `medications` carry
 /// `ProfileOption` codes, never the labels the chips draw. `timeZone` is not stored — the
 /// API uses it to resolve which day "today" is when it checks the 18+ floor.
-struct ProfilePayload: Codable {
+///
+/// **`Encodable`, not `Codable`.** That last sentence is the whole of #215: a field the API
+/// never sends back cannot be part of a type anything decodes, and a comment saying so did
+/// not stop it. `APIProfile` is the response shape; this one only goes out.
+struct ProfilePayload: Encodable {
     let dateOfBirth: String
     /// SI, always — the device converts at the edge and never stores what it displayed
     /// (#82, `EvaBodyUnits`). `Double` because whole kilograms cannot represent a pound:

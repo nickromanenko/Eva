@@ -133,6 +133,24 @@ final class OnboardingModel {
     /// something she has not done.
     var dateOfBirthError: String? { isOldEnough ? nil : Self.minimumAgeMessage }
 
+    // MARK: - The medication question, which has to be answered (#215)
+
+    /// The rule the health step states under the medication chips — up front, the way §6's
+    /// password helper states its rule, rather than revealed as a refusal afterwards.
+    static let medicationRule = "Choose one. None is an answer."
+
+    /// Whether the medication question has an answer, which is what holds that step's CTA.
+    ///
+    /// It is one value out of a closed list with **no member for "unanswered"**:
+    /// `parseProfile` refuses anything that is not a `MEDICATION_CODES` entry, and
+    /// `profilePayload`'s `medications ?? ""` is not one of them — so skipping the question
+    /// is a 400 three screens later, worded for whoever wrote the API. Required is the honest
+    /// reading of a list that already ends in None.
+    ///
+    /// `conditions` is deliberately not held the same way: an empty list is a legitimate
+    /// answer there, which is exactly why "None of these" is a code and not an empty array.
+    var hasMedicationAnswer: Bool { medications != nil }
+
     init() {
         #if DEBUG
         // Lets tooling (screenshots, previews) jump straight to a step:
