@@ -40,8 +40,13 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
 
 - `index.ts` — routes, validation, HTTP mapping. **No Firestore, no outbound fetch.**
 - `auth.ts` — JWT mint/verify + `requireAuth`. The only user of `JWT_SECRET`. It proves a
-  token is ours and nothing more; whether the account still exists is `requireAccount` in
-  `index.ts`, which is where it has to live because this file must not reach Firestore.
+  token is ours and nothing more; whether the account still exists — and whether the session
+  is still current (#76) — is `requireAccount` in `index.ts`, which is where both have to
+  live because this file must not reach Firestore. `mintToken` therefore *takes* the token
+  version rather than looking it up: every caller already holds it, from `ensureUser` or from
+  the bump it just performed. `tokenVersionOf` reads an absent `tv` as `0`, which is the
+  claim half of #76's migration — the document half is in `users.ts`, and the two absences
+  have to agree.
 - `identity-toolkit.ts` — the Firebase Auth account: password *and* provider credentials via
   Google REST (the only user of the web API key — the Admin SDK cannot verify either, which
   is why this exists), and `deleteAuthAccount` via the Admin SDK, which is the only place an
@@ -65,6 +70,14 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   tombstone that starts an account delete (#8): while it is set `getUser` answers `null`
   and `ensureUser` refuses to revive the document, which is what stops a deleted account
   coming back through a sign-in or through a pre-delete token.
+  **`tokenVersion` is the account's session generation (#76)**, and `bumpTokenVersion` is
+  the written-down rule for what ends a session — a password reset always, activation's
+  claim path, a provider unlink when such a route exists; not a link, not a sign-in, not an
+  ordinary write. Read that comment before adding a call site or leaving one out. It travels
+  in `Account` beside the `User` rather than on it, because `GET /me` serves `User` verbatim
+  and a session counter is not the client's business — the same reasoning that keeps
+  `lastUserChangeAt` off that shape. Every reader gets it from a snapshot it was already
+  loading: `getAccount` for the gate, `ensureUser` for the two sign-in routes.
 - `events.ts` — the only module that touches `users/{uid}/events/`. Calendar entries:
   create, range read by `localDate`, edit, soft delete. Never log a payload — health data.
   A soft delete is recoverable for `RETENTION_DAYS` (30) and then purged: `restoreEvent`
@@ -210,8 +223,20 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   `SERVICE_UNAVAILABLE`, `DAY_ALREADY_LOGGED`, `NOT_ACTIVATED`, `INVALID_TOKEN`,
   `TOKEN_EXPIRED`, `PROVIDER_ALREADY_LINKED`, `INTERNAL`.
 - Every authenticated route carries `requireAuth, requireAccount` — the second is what
-  makes a deleted account's still-valid token useless. `DELETE /me` is the one exception,
-  so an interrupted delete can be retried with the same token.
+  makes a deleted account's still-valid token useless, and since #76 what makes a session
+  superseded by a password reset useless too. `DELETE /me` is the one exception, so an
+  interrupted delete can be retried with the same token — but it checks the token version
+  by hand, because "a reset invalidates every session" cannot be false on the route that
+  destroys the account. It checks only while a document still exists, so the retry (which
+  happens after the tombstone) is untouched.
+- **A password reset ends every other session (#76).** `POST /auth/password/reset` bumps
+  `tokenVersion` **before** `setPassword`, deliberately: bump-then-fail signs everyone out
+  and leaves the old password working, set-then-fail changes the password and leaves the
+  attacker's session alive. Annoying beats insecure. It then mints the caller's new token at
+  the new generation, which is the whole of how the device that performed the reset is kept
+  signed in — it is identified by being the one the token is handed to, not by a device id
+  this API does not have. A stale token answers exactly what an expired one answers; adding a
+  code for it would be a client change for a state the client already handles.
 - `app.onError` is the floor: any throw no route answered for is `500 INTERNAL` with a
   fixed message and a `ref`. Never the thrown error's text, in the body or the log —
   ARCHITECTURE §3 says why that is the point of it.

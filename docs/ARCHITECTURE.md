@@ -69,11 +69,11 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | File | Owns | Rule |
 |---|---|---|
 | `index.ts` | Routes, request validation, HTTP status/error mapping | No Firestore or `fetch` calls here — delegate |
-| `auth.ts` | Minting and verifying the Eva JWT, `requireAuth` middleware | The only place `JWT_SECRET` is used |
+| `auth.ts` | Minting and verifying the Eva JWT, `requireAuth` middleware | The only place `JWT_SECRET` is used. Takes the token version as an argument; never reads it, because it may not reach Firestore |
 | `identity-toolkit.ts` | The Firebase Auth account: password and provider credentials verified via Google REST, delete via the Admin SDK | The only place the web API key is used; the only place an Auth user is deleted |
 | `providers.ts` | The two calls that go to Apple and Google *directly*: Google's PKCE code exchange, Apple's client secret and token revocation | The only place `GOOGLE_IOS_CLIENT_ID` and the Apple keys are used; writes no log line |
 | `rate-limit.ts` | In-memory attempt counters for `/auth/*` | Holds no identity state; never logs its keys |
-| `users.ts` | The `users/{uid}` document: read, create, update, mark deleted, delete, list IDs | The only module that touches `users/` |
+| `users.ts` | The `users/{uid}` document: read, create, update, bump the token version, mark deleted, delete, list IDs | The only module that touches `users/`. `bumpTokenVersion` carries the written-down rule for what ends a session (#76) |
 | `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all | The only module that touches `events/` |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against | The only module that touches `refdata/` |
 | `content.ts` | The `content/` collection: the Dashboard's words — card templates, banners, nudges — and the version they are cached against | The only module that touches `content/`; refuses a write carrying no reviewer |
@@ -790,12 +790,12 @@ can never see, and never depends on, whether an address is registered — that i
 the non-enumeration property above intact. `api/test/signin-non-enumeration.test.ts` pins
 that a throttled registered address and a throttled unknown one are byte-identical.
 
-The JWT is HS256, 30-day TTL, claims `{ sub, email, iat, exp }`. **There is no refresh
+The JWT is HS256, 30-day TTL, claims `{ sub, email, tv, iat, exp }`. **There is no refresh
 token in v1** — expiry means sign in again. Adding refresh is an architecture change,
 not a task.
 
 **Every authenticated route is gated twice (#8).** `requireAuth` proves the token was ours;
-`requireAccount`, right after it, proves the account it names still exists — one `getUser`
+`requireAccount`, right after it, proves the account it names still exists — one `getAccount`
 call, and a `401 UNAUTHORIZED` with the same message a bad token gets when it does not.
 The gate exists because the token above is stateless and unrevocable: without it a token
 minted before an account was deleted would keep working for up to 30 days, and at `GET /me`
@@ -805,9 +805,43 @@ revoking, rather than a list of deleted uids: it stops answering the moment a de
 and is gone when the delete finishes, so nothing about a deleted account is retained in
 order to keep refusing it. The cost is one Firestore read per authenticated request.
 
-`DELETE /me` is the single exception, deliberately: the gate would reject the very token a
-client needs to retry an interrupted delete with. All that token can do there is delete an
-account that is already gone.
+### A password reset invalidates every session (#76)
+
+The same gate is where a reset takes effect, and it is the same argument one step further:
+a stateless 30-day token meant that resetting a password left the *other* session live, and
+the reason a woman resets a password is usually that somebody else has it. A reset that does
+not end that session defeats its own purpose. It is **not** an opt-in "sign out everywhere",
+because a second control is found by the people who least need it.
+
+`users/{uid}.tokenVersion` (§4) is the account's session generation, and `tv` above is the
+generation a token was minted at. `requireAccount` compares them. **The value rides back on
+the read the gate already made** — `getAccount` returns the user and the version out of one
+snapshot — so this costs one integer comparison and no extra round trip. A design needing a
+second read per request would be the wrong design, which is why the version lives on the user
+document rather than in a revocation list of its own.
+
+- **What bumps it**: `POST /auth/password/reset`, always; and `POST /auth/activate` on the
+  *claim* path, which sets a password on an account it did not create and already revokes
+  Firebase's refresh tokens beside it. A provider **unlink** should bump when such a route
+  exists — there is none today. Linking a provider, signing in, and ordinary writes do not:
+  none of them takes a credential away. `DELETE /me` does not need to; the tombstone already
+  refuses every token. The rule and its reasoning live on `bumpTokenVersion` in `users.ts`.
+- **The resetting device is not signed out**, and it is identified by being the one the new
+  token is handed to rather than by any device id this API does not have: `/auth/password/reset`
+  already mints a session, so it bumps first and mints at the new generation. Every session
+  outstanding before it carries a lower one.
+- **No error code changes.** A superseded token is answered byte-for-byte as an expired one,
+  so `APIClient`'s existing `sessionExpired` handling (§5) applies to it unchanged.
+- **The deploy signs nobody out.** A token minted before #76 carries no `tv` and a document
+  written before it carries no `tokenVersion`; both absences read as `0` and compare equal.
+
+`DELETE /me` is the single exception to the gate, deliberately: it would reject the very token
+a client needs to retry an interrupted delete with. All that token can do there is delete an
+account that is already gone. **The generation check is not part of that exception** — it is
+made by hand in the route, and only while a document still exists to check against, so the
+retry (which happens after the tombstone) falls through exactly as before. A superseded
+session locked out of every read but still able to destroy the account would be worse than no
+revocation at all.
 
 ## 4. Data model
 
@@ -820,9 +854,21 @@ authProviders          string[]        // arrayUnion: "password", "apple.com", "
 questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
 activatedAt            Timestamp | null  // #6; null = unconfirmed, ABSENT = pre-#6 = confirmed
+tokenVersion           number          // #76; the session generation. ABSENT = 0 = never bumped
 deletedAt              Timestamp       // absent until a delete starts; see below
 createdAt, updatedAt   serverTimestamp
 ```
+
+`tokenVersion` is the session generation (#76, §3). A token carries the generation it was
+minted at and the account gate compares the two, so bumping this number ends every session
+that is already out. **Absent is `0`**, the same convention `activatedAt` uses one line up and
+for the same kind of reason: no document written before #76 has the field and no token minted
+before it has the claim, and the two absences have to compare equal or the deploy signs out
+every user Eva has. Nothing writes it at creation — the first bump creates it.
+
+It is deliberately **not** on the `User` shape `users.ts` serves, which is what `GET /me`
+returns verbatim: it is a server-side fact about sessions and the client has no use for it.
+`getAccount` carries it alongside the user instead, out of the same snapshot.
 
 `deletedAt` on a *user* is not a soft delete and has no undo. It is the tombstone that
 makes account deletion safe to interrupt: while it is set, `getUser` answers `null`, so the
@@ -1424,8 +1470,10 @@ themselves are exercised by hand on a device. This is the same honest gap
 
 The JWT is stateless and lives 30 days, so the server's only way to say "this credential
 is finished" is a `401 UNAUTHORIZED` — which `requireAccount` now returns for a deleted
-account on every authenticated route (§3). The client has to hear that everywhere, not
-just at launch.
+account on every authenticated route, and since #76 for a session a password reset has
+superseded (§3). The client has to hear that everywhere, not just at launch. Both are the
+same 401 with the same message, deliberately: no client change was needed for the second,
+which is what "no existing error code changes" bought.
 
 Two pieces, and the split matters:
 
