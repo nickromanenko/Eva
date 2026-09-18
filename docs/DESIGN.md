@@ -182,9 +182,9 @@ Retry action.
 
 **Calendar cells** — every event carries a fixed position *and* shape as well as a
 colour: sex = bottom-left circle, body signals = bottom-centre square, sport =
-bottom-right diamond, appointment = top-right badge. Flow uses three pink opacities;
-predictions are always dashed and patterned. Today is a filled `#C95F86` circle;
-selected is a 2px outline.
+bottom-right diamond, appointment = top-right badge, positive test = top-left outlined
+square. Flow uses three pink opacities; predictions are always dashed and patterned, and
+nothing logged ever is. Today is a filled `#C95F86` circle; selected is a 2px outline.
 
 **Tab bar & FAB** — five tabs (Home · Calendar · Eva Chat · Learn · Profile, A4) in a
 `rgba(255,249,246,.8)` bar, active tab tinted; 56×56 FAB, radius 20,
@@ -475,8 +475,8 @@ and three constraints decided the shape:
 
 - **not a wash**, at any strength — a fill is the grid's word for "period day", and that is
   the one thing a spotting day must not say;
-- **not a corner mark** — all four corners are taken (dot, square, diamond, badge) and the
-  top-left is already promised to §7's positive-test mark;
+- **not a corner mark** — all four corners were taken (dot, square, diamond, badge) and the
+  top-left was already promised to §7's positive-test mark, which #80 has since drawn there;
 - **not dashed** — dashed and patterned are reserved for *predicted* data (§7), and this is
   something the user logged.
 
@@ -511,11 +511,32 @@ line is kept verbatim. Nothing restates a threshold the server owns: A27's bands
 and 6+ counted cycles, `narrowBandMinCycles` is configuration, and a number in this copy
 would be a second copy of it. The canvas should draw the withheld states — it has none.
 
-**The positive-test legend row is still absent, and so is its mark (#206).** The artboard's
-legend lists three predicted or unlogged things; two of them are drawn now. The third needs
-`#80`'s event type before there is anything to describe, and the rule this legend has
-followed since C1 is that a row and its mark ship together — §7's 9pt top-left outlined
-square is specified and unbuilt, not built and unlisted.
+**The positive-test mark and its legend row are drawn (#80).** The artboard's legend lists
+three predicted or unlogged things; #206 drew two and #80 drew the third, so the rule this
+legend has followed since C1 — a row and its mark ship together — is satisfied for the last
+of them and the legend describes nothing the grid cannot draw. §7's 9pt top-left outlined
+square is a transcription: `9px/border-radius:3px/border:1.5px solid`, at `left:4px;top:3px`,
+with `#A9436E` taking `evaActionPinkSolid` as everywhere else on this screen. The stroke is
+**solid** — dashed and patterned are §7's word for a prediction, and a test result is
+something she reported, which is the one distinction on this grid that a wrong stroke would
+erase.
+
+The corner was held for it from C1: it is why spotting became a ring around the number
+rather than a fifth corner mark (see the note above). Spending it fills all four corners, so
+the next type to want one revisits the design rather than taking "the same shape in a new
+colour".
+
+**The legend row says "outlined square" where the artboard says "mark".** The artboard's
+own string is `Positive test · top-left mark`, which names the corner and not the shape —
+the one rule every other row keeps, and the reason the legend exists at all in a grid whose
+marks are 5–9pt. `Positive test · top-left outlined square` is what §7 specifies and what
+the cell draws, and it is also what separates this row from the filled centre square above
+it. A deviation, not a transcription.
+
+**Nothing logs one yet.** #80 ships the event type, its validation, the mark and the legend
+row; the picker row and the sheet that write a positive test are a further slice, so the
+grid draws an entry the app itself cannot create — the same position `sex` has been in since
+C1, except that here the route does store it.
 
 **The day's entries carry Edit and Delete in place, not in a day sheet (#160).** C1's note
 above promised the sheet would arrive with the actions that justify it. It has not, and the
@@ -560,17 +581,20 @@ must look — a neutral label and a neutral dot, no imagery — and the route re
 until C10 ships it with its privacy switch. It is drawn, dimmed, and says "Not available
 yet", in the same treatment as a type the chosen day refuses: a type the calendar can
 *display* but the picker omits entirely would read as a bug rather than as a plan. The
-"Positive test" row is dropped instead of dimmed, because it is a pregnancy-mode entry and
-that whole mode is unbuilt.
+"Positive test" row is dropped rather than dimmed. C2 dropped it as a pregnancy-mode entry,
+which the PRD's own event table contradicts — it reads *yes* in Cycle and in Planning — so
+since #80 the reason is simply that there is nothing to open: that issue ships the type, the
+mark and the legend row, and the sheet that writes one is the slice after it. When the row
+arrives it goes after Cycle, where the artboard puts it.
 
-**The calendar's legend lists Appointment and Spotting, and drops three rows.** The
+**The calendar's legend lists Appointment and Spotting, and no longer drops anything.** The
 artboard's legend explains period, predicted period, fertile window, sex, body signals,
-sport and the positive-test mark, and never explains the appointment badge it draws. The
-grid draws no predictions (C3) and no test mark (pregnancy mode), and a legend entry for a
-mark the grid never draws is a promise — so those three arrive with the marks they
-describe. Appointment gets the row the artboard omits, and spotting gets one in #160,
-because a ring and three washes that share a colour and do not share a meaning are exactly
-the pair a legend exists for.
+sport and the positive-test mark, and never explains the appointment badge it draws. C1
+dropped three rows, because the grid then drew no predictions and no test mark and a legend
+entry for a mark the grid never draws is a promise; #206 and #80 drew those marks, and each
+row arrived with the mark it describes. Appointment gets the row the artboard omits, and
+spotting gets one in #160, because a ring and three washes that share a colour and do not
+share a meaning are exactly the pair a legend exists for.
 
 **The calendar's surfaces take the nearest named glass level and radius.** The artboard
 gives the screen its own percentages — 34% on a day cell, 50% on the legend, 60% on a month

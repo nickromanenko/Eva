@@ -28,6 +28,9 @@ struct CalendarEntryPresentation: Equatable, Sendable {
     let glyph: EvaEventGlyph?
     /// The flow or spotting marker, for the cycle entry's own mark.
     let cycleMark: EvaCycleMark?
+    /// Whether the row offers Edit. False for the entries that *are* their own content and
+    /// have no form to reopen — see `EvaEventDetail.isEditable`. Delete is unaffected.
+    let isEditable: Bool
 
     init(event: EvaEvent, refData: EvaRefData?) {
         id = event.id
@@ -56,7 +59,15 @@ struct CalendarEntryPresentation: Equatable, Sendable {
             // stay neutral in language *and* in indicators).
             summary = ""
             cycleMark = nil
+        case .positiveTest:
+            // The artboard's day list pushes the words "Positive test" and nothing beside
+            // them, which is also all there is to say: the entry carries no payload, and
+            // §8 rules out the congratulation an app would otherwise put here.
+            summary = ""
+            cycleMark = nil
         }
+
+        isEditable = event.detail.isEditable
     }
 
     /// The whole row as one sentence, for the container element the row became when C2 put
@@ -83,6 +94,8 @@ struct CalendarEntryPresentation: Equatable, Sendable {
         case .sport: "Sport"
         case .appointment: "Doctor appointment"
         case .sex: "Sex"
+        // The artboard's own words, in the picker row, the day list and the legend.
+        case .positiveTest: "Positive test"
         }
     }
 

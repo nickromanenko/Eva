@@ -13,7 +13,13 @@ import { firestore } from './firebase'
 
 /** `sex` is reserved so the enum is stable when C10 ships it with its privacy switch.
  *  It has no payload and no validator yet — the route rejects it. */
-export type EventType = 'cycle' | 'bodySignals' | 'sport' | 'appointment' | 'sex'
+export type EventType =
+  | 'cycle'
+  | 'bodySignals'
+  | 'sport'
+  | 'appointment'
+  | 'sex'
+  | 'positiveTest'
 export type LoggableEventType = Exclude<EventType, 'sex'>
 export type EventSource = 'user' | 'eva'
 export type FlowLevel = 'light' | 'medium' | 'heavy'
@@ -47,6 +53,35 @@ export type SymptomSeverity = 'normal' | 'severe'
 export type CyclePayload =
   | { spotting: true; flow?: never; periodEnd?: never }
   | { flow: FlowLevel; spotting?: never; periodEnd?: true }
+
+/** A positive pregnancy test on this day, and nothing else (#80; PRD §Positive test —
+ *  "Positive test — marks the day"). The entry *is* the fact, so there is no field to
+ *  carry and the payload is empty. `parsePositiveTestPayload` refuses every key rather
+ *  than dropping it, which is the only door a beta-hCG reading or a "negative" could come
+ *  through (GUARDRAILS 35).
+ *
+ *  **Its own event type rather than a third arm of `CyclePayload`**, and three things
+ *  decided that independently:
+ *   - A test is not bleeding. Both arms above require flow or spotting, which is exactly
+ *     what let `periodEnd` ride on the day it qualifies. A positive test has no such host
+ *     — the day it usually lands on has nothing logged on it at all — so an arm would
+ *     have meant either a `cycle` entry recording no cycle fact, or asking a woman to log
+ *     flow she does not have.
+ *   - `cycle` holds one entry per day at `cycle_<localDate>`. An arm would put a positive
+ *     test and a spotting day on the same date into one document, which is the collision
+ *     the `periodEnd` comment above explains `CyclePayload` was shaped to avoid.
+ *   - `cycle.ts` must not read it, and `today.ts`'s `toCycleDay` maps *cycle* entries
+ *     (`event.type !== 'cycle'` → `null`). A separate type never enters that mapping, so
+ *     "the maths cannot see this" is a property of the type rather than a rule someone
+ *     has to remember. A third arm would have put it inside the one module that must not
+ *     have it.
+ *
+ *  **Nothing reads it**, and that is the decision rather than an omission: no mode moves,
+ *  no card changes, no prediction shifts. The same place #75 left `periodEnd` in, for the
+ *  same reason — the cycle-to-pregnancy transition this fact will trigger is D10's, and
+ *  its semantics are not decided. Recording the fact first is what makes it available the
+ *  day they are. */
+export type PositiveTestPayload = Record<string, never>
 
 /** `code` is validated at the route edge against the catalogue in `refdata.ts` (#24).
  *
@@ -90,6 +125,7 @@ type Typed =
   | { type: 'bodySignals'; payload: BodySignalsPayload }
   | { type: 'sport'; payload: SportPayload }
   | { type: 'appointment'; payload: AppointmentPayload }
+  | { type: 'positiveTest'; payload: PositiveTestPayload }
 
 export type EventPayload = Typed['payload']
 
@@ -128,8 +164,17 @@ export type UpdateResult =
 
 /** One entry per user per day, enforced by a deterministic document ID rather than a
  *  read-then-write. `bodySignals` is upserted (PRD "Other requirements" 3); a second
- *  `cycle` entry replaces the first (PRD "Menstrual cycle"). */
-const ONE_PER_DAY: ReadonlySet<LoggableEventType> = new Set(['cycle', 'bodySignals'])
+ *  `cycle` entry replaces the first (PRD "Menstrual cycle").
+ *
+ *  `positiveTest` joins them (#80) because the day *is* its whole content: the payload is
+ *  empty, so a second entry on one date is a duplicate rather than a second fact, and two
+ *  identical rows in the day list is what a user would see. Storage, not semantics —
+ *  nothing here branches on the type beyond where its document lives. */
+const ONE_PER_DAY: ReadonlySet<LoggableEventType> = new Set([
+  'cycle',
+  'bodySignals',
+  'positiveTest',
+])
 
 export const isOnePerDay = (type: LoggableEventType): boolean => ONE_PER_DAY.has(type)
 

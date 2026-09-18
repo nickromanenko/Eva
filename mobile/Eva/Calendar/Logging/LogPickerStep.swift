@@ -31,12 +31,18 @@ struct LogPickerStep: View {
 
     @State private var isChangingDate = false
 
-    /// The order the artboard lists them in, minus the two it draws that C2 does not build:
-    /// Positive test is a pregnancy-mode entry (out of #160's scope), and Sex is here but
-    /// unavailable — the route reserves the type until C10 ships it with its privacy
-    /// switch. It is drawn rather than dropped because the canvas is specific about how it
-    /// must look, and because a type that exists on the calendar and not in the picker
-    /// reads as a bug rather than as a plan.
+    /// The order the artboard lists them in, minus the two it draws that this build does not
+    /// offer. Sex is here but unavailable — the route reserves the type until C10 ships it
+    /// with its privacy switch. It is drawn rather than dropped because the canvas is
+    /// specific about how it must look, and because a type that exists on the calendar and
+    /// not in the picker reads as a bug rather than as a plan.
+    ///
+    /// **Positive test is dropped, and the reason has changed (#80).** C2 dropped it as a
+    /// pregnancy-mode entry, which the PRD's own table contradicts — it reads *yes* in Cycle
+    /// and in Planning. #80 ships the type, the grid's top-left mark and the legend row; what
+    /// it does not ship is a row here and the sheet behind it, so there is still nothing for
+    /// this list to open. Adding the row is the next slice, and it belongs after `.cycle`,
+    /// where the artboard puts it.
     private static let types: [EvaEventType] = [.cycle, .sex, .bodySignals, .sport, .appointment]
 
     var body: some View {
@@ -193,6 +199,9 @@ struct LogPickerStep: View {
         case .bodySignals: "Energy, mood, sleep, symptoms"
         case .sport: "Activity, duration, intensity"
         case .appointment: "Type, notes, reminder"
+        // Unreachable while `types` omits the row — kept as an arm rather than a `default`
+        // so the compiler still names this file the day a type is added.
+        case .positiveTest: "Marks the day · does not change your mode"
         }
     }
 
@@ -257,6 +266,9 @@ struct LogTypeMark: View {
         case .bodySignals: .evaDeepPink.opacity(0.16)
         case .sport: .evaPistachio.opacity(0.40)
         case .appointment: .evaInformation.opacity(0.16)
+        // As above: no row draws this yet. The tile's own mark is the grid's outlined
+        // square, so the wash behind it is the cycle row's pink.
+        case .positiveTest: .evaPrimaryPink.opacity(0.22)
         }
     }
 }

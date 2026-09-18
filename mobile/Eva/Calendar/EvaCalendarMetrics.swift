@@ -46,9 +46,9 @@ enum EvaCalendarMetrics {
     /// The spotting ring, which the artboard does not draw — see `EvaCycleMark.spottingRing`.
     ///
     /// Sized to clear the 28pt today disc so that a day which is both still shows both, and
-    /// drawn around the number rather than in a corner because all four corners are spoken
-    /// for: dot, square, diamond, badge, and the top-left is reserved for the positive-test
-    /// mark DESIGN.md §7 already specifies.
+    /// drawn around the number rather than in a corner because all four corners were spoken
+    /// for: dot, square, diamond, badge, and the top-left was reserved for the positive-test
+    /// mark DESIGN.md §7 specifies, which #80 has since drawn there.
     static let spottingRingSize: CGFloat = 32
     static let spottingRingWidth: CGFloat = 1.5
 
@@ -59,16 +59,25 @@ enum EvaCalendarMetrics {
     /// `font:700 9px` — the `+` inside the badge.
     static let badgeGlyphSize: CGFloat = 9
 
+    /// The positive-test mark: `width:9px;height:9px;border-radius:3px;border:1.5px solid`
+    /// (#80). DESIGN.md §7 states the same thing in words — "a 9px outlined square,
+    /// top-left" — and the artboard draws it, so this is a transcription rather than a
+    /// decision. The stroke is solid: §7 reserves dashed and patterned for predictions.
+    static let positiveTestSize: CGFloat = 9
+    static let positiveTestRadius: CGFloat = 3
+    static let positiveTestStrokeWidth: CGFloat = 1.5
+
     /// Where each mark sits inside its cell, as the inset from the edges it hugs.
     ///
     /// `left:8px;bottom:6px` · `bottom:6px` centred · `right:8px;bottom:5px` ·
-    /// `right:4px;top:3px`.
+    /// `right:4px;top:3px` · `left:4px;top:3px`.
     static func inset(for glyph: EvaEventGlyph) -> EdgeInsets {
         switch glyph.position {
         case .bottomLeading: EdgeInsets(top: 0, leading: 8, bottom: 6, trailing: 0)
         case .bottomCenter: EdgeInsets(top: 0, leading: 0, bottom: 6, trailing: 0)
         case .bottomTrailing: EdgeInsets(top: 0, leading: 0, bottom: 5, trailing: 8)
         case .topTrailing: EdgeInsets(top: 3, leading: 0, bottom: 0, trailing: 4)
+        case .topLeading: EdgeInsets(top: 3, leading: 4, bottom: 0, trailing: 0)
         }
     }
 
@@ -79,6 +88,7 @@ enum EvaCalendarMetrics {
         case .bottomCenter: .bottom
         case .bottomTrailing: .bottomTrailing
         case .topTrailing: .topTrailing
+        case .topLeading: .topLeading
         }
     }
 

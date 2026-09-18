@@ -24,14 +24,16 @@ struct CalendarEventTests {
     }
 
     /// The artboard, cell by cell: sex bottom-left dot, body signals bottom-centre square,
-    /// sport bottom-right diamond, appointment top-right badge.
+    /// sport bottom-right diamond, appointment top-right badge, positive test top-left
+    /// outlined square (#80, DESIGN.md §7).
     @Test(
         "Each type draws the mark the artboard gives it",
         arguments: [
             (EvaEventType.sex, EvaEventGlyph.sex, EvaEventGlyph.Position.bottomLeading, EvaEventGlyph.Shape.dot),
             (.bodySignals, .bodySignals, .bottomCenter, .square),
             (.sport, .sport, .bottomTrailing, .diamond),
-            (.appointment, .appointment, .topTrailing, .badge)
+            (.appointment, .appointment, .topTrailing, .badge),
+            (.positiveTest, .positiveTest, .topLeading, .outlinedSquare)
         ]
     )
     func typeMapsToItsMark(
@@ -50,7 +52,13 @@ struct CalendarEventTests {
     @Test("A cycle entry draws no corner mark")
     func cycleHasNoGlyph() {
         #expect(EvaEventType.cycle.glyph == nil)
-        #expect(EvaEventGlyph.allCases.count == 4)
+        // Five marks for six types: every type but `cycle`, which is the cell's wash. The
+        // count is here so adding a type without deciding how it is drawn fails.
+        #expect(EvaEventGlyph.allCases.count == 5)
+        #expect(EvaEventType.allCases.count == 6)
+        for type in EvaEventType.allCases where type != .cycle {
+            #expect(type.glyph != nil, "\(type) draws neither a mark nor a wash")
+        }
     }
 
     @Test("Every mark names its shape and its corner in the legend and to VoiceOver")
@@ -59,6 +67,8 @@ struct CalendarEventTests {
             #expect(!glyph.legendLabel.isEmpty)
             #expect(!glyph.accessibilityLabel.isEmpty)
             // The legend has to work in greyscale, so each row names its own geometry.
+            // The artboard's own positive-test row does not — it says "top-left mark" —
+            // which is why `legendLabel` deviates from it and says "outlined square".
             let names = ["dot", "square", "diamond", "badge"]
             #expect(names.contains { glyph.legendLabel.localizedCaseInsensitiveContains($0) },
                     "\(glyph.legendLabel) does not say what shape it is")
@@ -175,6 +185,50 @@ struct CalendarEventTests {
         """#)
         #expect(event.detail == .sex)
         #expect(event.type.glyph == .sex)
+    }
+
+    /// #80. The payload is `{}` on the wire and carries nothing, so the only thing that can
+    /// go wrong in decoding is the entry being dropped — which `EvaEventsResponse` does
+    /// **silently**, so an entry that stopped decoding would show up as a mark quietly
+    /// missing from the grid rather than as a failure.
+    @Test(
+        "A positive test decodes from an empty payload, and from none at all",
+        arguments: [#""payload":{},"#, ""]
+    )
+    func decodesPositiveTest(payloadField: String) throws {
+        let event = try Self.decode(#"""
+        {"id":"e10","type":"positiveTest","localDate":"2026-08-12",
+         "loggedAt":"2026-08-12T07:40:00","note":null,"source":"user",
+         \#(payloadField)"idempotencyKey":null}
+        """#)
+        #expect(event.detail == .positiveTest)
+        #expect(event.type == .positiveTest)
+        #expect(event.type.glyph == .positiveTest)
+        #expect(event.localDate == EvaDay(year: 2026, month: 8, day: 12))
+    }
+
+    /// A field the API refuses today and a later one might add. Dropping the entry over it
+    /// would take the mark off a day she logged, so the payload is not read at all.
+    @Test("A positive test carrying an unexpected field still decodes")
+    func decodesPositiveTestWithAnUnknownField() throws {
+        let event = try Self.decode(#"""
+        {"id":"e11","type":"positiveTest","localDate":"2026-08-12",
+         "loggedAt":"2026-08-12T07:40:00","note":null,"source":"user",
+         "idempotencyKey":null,"payload":{"somethingLater":1}}
+        """#)
+        #expect(event.detail == .positiveTest)
+    }
+
+    /// One per day on the server (`ONE_PER_DAY` in `api/src/events.ts`), and the app has to
+    /// agree: the day is the document id, so a second save replaces the first rather than
+    /// adding to it.
+    @Test("The app agrees with the server about which types hold one entry per day")
+    func onePerDayMatchesTheServer() {
+        #expect(EvaEventType.positiveTest.isOnePerDay)
+        #expect(EvaEventType.cycle.isOnePerDay)
+        #expect(EvaEventType.bodySignals.isOnePerDay)
+        #expect(!EvaEventType.sport.isOnePerDay)
+        #expect(!EvaEventType.appointment.isOnePerDay)
     }
 
     @Test("A localDate that is not a real day is refused")
@@ -341,6 +395,44 @@ struct CalendarEventTests {
         )
         #expect(presentation.typeName == "Sex")
         #expect(presentation.summary.isEmpty)
+    }
+
+    /// #80. Neutral in words as well as in the mark: the row says what it is and stops.
+    /// DESIGN.md §8 rules out the congratulation an app would otherwise put here, and the
+    /// entry has no payload to describe even if it did not.
+    ///
+    /// It also offers **no Edit** — there is no form behind it, so the button would open a
+    /// sheet with nothing on it. Delete stays, which is the whole of PRD §Positive test's
+    /// "one tap, no questions".
+    @Test("A positive test names itself, adds nothing, and offers nothing to edit")
+    func positiveTestPresentation() {
+        let presentation = CalendarEntryPresentation(
+            event: EvaEvent(
+                id: "4",
+                detail: .positiveTest,
+                localDate: EvaDay(year: 2026, month: 8, day: 12),
+                loggedAt: "2026-08-12T07:40:00"
+            ),
+            refData: nil
+        )
+        #expect(presentation.typeName == "Positive test")
+        #expect(presentation.summary.isEmpty)
+        #expect(presentation.glyph == .positiveTest)
+        #expect(presentation.cycleMark == nil)
+        #expect(!presentation.isEditable)
+
+        // The control: the entries that do have a form keep theirs, so the line above is
+        // about this type rather than about Edit having been turned off everywhere.
+        let flow = CalendarEntryPresentation(
+            event: EvaEvent(
+                id: "5",
+                detail: .cycle(.flow(.light)),
+                localDate: EvaDay(year: 2026, month: 8, day: 12),
+                loggedAt: "2026-08-12T07:40:00"
+            ),
+            refData: nil
+        )
+        #expect(flow.isEditable)
     }
 
     /// `loggedAt` is a wall clock with no zone. Reading it as an instant would attach the

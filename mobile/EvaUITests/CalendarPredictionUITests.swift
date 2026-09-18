@@ -314,6 +314,22 @@ final class CalendarPredictionUITests: EvaUITestCase {
         )
     }
 
+    // **The legend's own rows cannot be asserted from here, and that is a finding rather
+    // than a gap in this suite.** #80 added a check that the card lists all three of the
+    // artboard's previously-undrawn entries, and it could not be made to pass: the legend's
+    // rows are not published as accessibility elements at all. Probed on a running app —
+    // `app.descendants(matching: .any).matching(identifier: "calendar.legend")` returns
+    // three elements ("LEGEND", the notice, and one with an empty label), and **no** row
+    // label appears anywhere in `app.staticTexts`, not the positive test's and not the four
+    // that have been on this card since C1.
+    //
+    // So VoiceOver cannot reach them either, on the one card whose entire job is to explain
+    // marks to a reader who cannot tell them apart by colour. That is its own issue and is
+    // not #80's to fix here — it predates it and affects every row. What holds the legend's
+    // completeness meanwhile is structural: the rows are a `ForEach` over
+    // `EvaPredictionMark.allCases` and `EvaEventGlyph.allCases`, so a row and its mark are
+    // the same list, and `CalendarEventTests` pins that every case names its own shape.
+
     // MARK: - Navigation
 
     private func openCalendar(_ app: XCUIApplication) {

@@ -1,29 +1,35 @@
 import Foundation
 
-/// The five things a calendar entry can be — `EventType` in `api/src/events.ts`.
+/// The six things a calendar entry can be — `EventType` in `api/src/events.ts`.
 ///
 /// `sex` is on the wire and is not yet writable: the route reserves the case and rejects
 /// it until C10 ships it with its privacy switch. The app decodes it because the calendar
 /// has to be able to *draw* one the moment the server can store one, and because the
 /// artboard already gives it a glyph.
+///
+/// `positiveTest` (#80) is writable at the route and is not offered by this build's log
+/// picker — the row and the sheet that write one are the next slice. It is decoded and
+/// drawn for the same reason `sex` is: the grid has to show an entry the account already
+/// carries, and DESIGN.md §7 has specified its mark since C1.
 enum EvaEventType: String, Codable, Sendable, CaseIterable {
     case cycle
     case bodySignals
     case sport
     case appointment
     case sex
+    case positiveTest
 
     /// Whether the server keeps at most one of these per day.
     ///
     /// Mirrors `ONE_PER_DAY` in `api/src/events.ts`, and it is a *contract* rather than a
-    /// convenience: these two live at a deterministic document id, so logging one replaces
+    /// convenience: these three live at a deterministic document id, so logging one replaces
     /// the day's entry instead of adding to it. Three behaviours follow from it and none of
     /// them is optional — the picker edits the day's entry instead of offering a second,
     /// `PATCH` refuses to move one to another day, and `restore` answers `409
     /// DAY_ALREADY_LOGGED` once the day has been re-logged (#50).
     var isOnePerDay: Bool {
         switch self {
-        case .cycle, .bodySignals: true
+        case .cycle, .bodySignals, .positiveTest: true
         case .sport, .appointment, .sex: false
         }
     }
@@ -208,6 +214,10 @@ enum EvaEventDetail: Hashable, Sendable {
     case appointment(EvaAppointmentPayload)
     /// Reserved (C10). The wire type carries no payload.
     case sex
+    /// A positive pregnancy test on this day (#80). Payload-less on the wire and here:
+    /// PRD §Positive test is "marks the day", so the entry is the whole of the fact and
+    /// there is nothing to model. The API refuses any key on it.
+    case positiveTest
 
     var type: EvaEventType {
         switch self {
@@ -216,11 +226,12 @@ enum EvaEventDetail: Hashable, Sendable {
         case .sport: .sport
         case .appointment: .appointment
         case .sex: .sex
+        case .positiveTest: .positiveTest
         }
     }
 
-    /// This entry as something that could be written back, or `nil` for a type the API
-    /// will not store. See `EvaEventPayload`.
+    /// This entry as something that could be written back, or `nil` for a type this build
+    /// does not write. See `EvaEventPayload`.
     var payload: EvaEventPayload? {
         switch self {
         case .cycle(let mark): .cycle(mark)
@@ -228,6 +239,25 @@ enum EvaEventDetail: Hashable, Sendable {
         case .sport(let payload): .sport(payload)
         case .appointment(let payload): .appointment(payload)
         case .sex: nil
+        // `nil` for a different reason from `sex`, and it is worth keeping the two apart:
+        // the route stores this one. What is missing is the picker row and the sheet that
+        // would write it — #80 ships the type, the mark and the legend row, and the
+        // logging affordance is its own slice.
+        case .positiveTest: nil
+        }
+    }
+
+    /// Whether re-opening this entry in the log sheet would show anything to change.
+    ///
+    /// False for the two entries that are their own whole content: a `sex` entry is a
+    /// neutral dot with no label, and a positive test is a day and nothing else (#80). The
+    /// day list hides Edit on those rather than offering a button that opens a form with no
+    /// fields in it — `LogSheet.step(editing:)` has nowhere to send either. Delete is still
+    /// there, which is what PRD §Positive test asks undo to be: one tap, no questions.
+    var isEditable: Bool {
+        switch self {
+        case .cycle, .bodySignals, .sport, .appointment: true
+        case .sex, .positiveTest: false
         }
     }
 }
@@ -351,6 +381,12 @@ struct EvaEvent: Identifiable, Hashable, Sendable, Decodable {
             // Reserved, and payload-less on the wire. Decoded tolerantly rather than not
             // at all, so the day this type starts arriving the calendar draws it.
             detail = .sex
+        case .positiveTest:
+            // `payload` is `{}` on the wire and is not read: the API refuses every key on
+            // it, so there is nothing here that a stricter decode could check. Decoding it
+            // as a value would only give a future server's extra field a way to drop the
+            // whole entry — and `EvaEventsResponse` drops entries silently.
+            detail = .positiveTest
         }
     }
 
