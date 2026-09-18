@@ -371,6 +371,13 @@ class EvaUITestCase: XCTestCase {
         tap(app.buttons["primary.Continue"], in: app)
         tap(app.buttons["chip.None of these"], in: app)   // health
         tap(app.buttons["chip.None"], in: app)            // hormonal medication (#81)
+        // That question holds this step's CTA (#215). Asserted here so a chip tap that does
+        // not register fails on the step that asked, instead of three screens later as a
+        // submission that never reaches the done screen — which is how #215 presented.
+        XCTAssertTrue(
+            app.buttons["primary.Continue"].isEnabled,
+            "The health step's CTA stayed held — the medication chip tap did not register"
+        )
         tap(app.buttons["primary.Continue"], in: app)
         tap(app.buttons["chip.Active"], in: app)          // lifestyle
         tap(app.buttons["chip.Yoga"], in: app)

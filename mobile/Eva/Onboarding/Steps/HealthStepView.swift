@@ -12,7 +12,15 @@ struct HealthStepView: View {
     ]
 
     var body: some View {
-        OnboardingStepLayout(buttonTitle: "Continue", onContinue: onContinue) {
+        // Continue is held until the medication question is answered (#215). The API has no
+        // code for "unanswered" and refuses the empty string the payload would otherwise
+        // send, so without this the only place she learns the question was required is a
+        // failed submission three screens later, in the API's own words.
+        OnboardingStepLayout(
+            buttonTitle: "Continue",
+            isEnabled: model.hasMedicationAnswer,
+            onContinue: onContinue
+        ) {
             QuestionnaireHeading(title: "Your health")
 
             sectionLabel("Any conditions we should know about?")
@@ -43,7 +51,41 @@ struct HealthStepView: View {
                 }
             }
             .padding(.top, 12)
+
+            medicationRule
+                .padding(.top, EvaSpacing.sm)
         }
+    }
+
+    /// The rule stated up front, in the treatment `EvaInputField` gives §6's password
+    /// helper — `inputHelper` text that recolours to `evaErrorInk` and gains the `!` mark
+    /// while it is unmet (DESIGN.md §2: a semantic state never rides on colour alone).
+    ///
+    /// It is a helper and not an error, and the difference is the point: an error under an
+    /// untouched question accuses her of getting something wrong when all she has done is
+    /// not answered yet. The chips themselves are never recoloured for the same reason.
+    private var medicationRule: some View {
+        HStack(alignment: .firstTextBaseline, spacing: EvaSpacing.xxs) {
+            if !model.hasMedicationAnswer {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.evaError)
+                    .accessibilityHidden(true)
+            }
+            Text(OnboardingModel.medicationRule)
+                .evaTextStyle(.inputHelper)
+                .fixedSize(horizontal: false, vertical: true)
+                // The words do not change with the state, so VoiceOver would otherwise be
+                // told nothing about it — the same reason `EvaInputField`'s helper says it.
+                .accessibilityLabel(
+                    model.hasMedicationAnswer
+                        ? OnboardingModel.medicationRule
+                        : "Not met yet: \(OnboardingModel.medicationRule)"
+                )
+                .accessibilityIdentifier("questionnaire.medications.rule")
+        }
+        .foregroundStyle(
+            model.hasMedicationAnswer ? Color.evaSecondaryText : Color.evaErrorInk
+        )
     }
 
     private func sectionLabel(_ text: String) -> some View {

@@ -35,6 +35,9 @@ struct APIUserDecodingTests {
         #expect(try !Self.user(json.replacingOccurrences(of: "%@", with: "false")).activated)
     }
 
+    /// The non-null half of this is in `QuestionnaireContractTests`, and was not written
+    /// until #215 — a profile with something in it stopped decoding for four commits while
+    /// this case stayed green.
     @Test("a null profile still decodes, alongside the new field")
     func nullProfileDecodes() throws {
         let user = try Self.user(
