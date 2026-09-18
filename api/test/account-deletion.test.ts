@@ -195,12 +195,12 @@ const authenticatedRoutes = (): { name: string; call: (token: string) => Promise
                     method: "PUT",
                     token: t,
                     body: JSON.stringify({
-                        age: 30,
+                        dateOfBirth: "1996-03-14",
                         weightKg: 60,
                         heightCm: 170,
                         goals: [],
                         conditions: [],
-                        medications: "",
+                        medications: "none",
                         lifestyle: "active",
                         sports: [],
                     }),
@@ -580,12 +580,12 @@ describe("a delete interrupted after the first step", () => {
         expect((await userDoc(uid).get()).get("deletedAt")).not.toBeNull();
 
         const written = await saveQuestionnaire(uid, {
-            age: 30,
+            dateOfBirth: "1996-03-14",
             weightKg: 65,
             heightCm: 170,
             goals: ["energy"],
             conditions: [],
-            medications: "",
+            medications: "none",
             lifestyle: "active",
             sports: ["running"],
         });

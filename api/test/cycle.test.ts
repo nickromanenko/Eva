@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import {
     CycleRulesUnsetError,
+    ImpossibleAgeError,
     InvalidCycleDateError,
+    ageYearsOn,
     analyzeCycles,
     bandForAge,
     cycleRulesProblem,
@@ -93,16 +95,30 @@ const periods = (gaps: readonly number[], daysAgo: number, flowDays = 4): CycleD
     );
 };
 
-const profileAged = (age: number): Profile => ({
-    age,
+/** A profile carrying exactly this date of birth, whatever that turns out to mean. */
+const profileBornOn = (dateOfBirth: string): Profile => ({
+    dateOfBirth,
     weightKg: 62,
     heightCm: 168,
     goals: [],
-    conditions: [],
-    medications: "",
+    conditions: ["noneOfThese"],
+    medications: "none",
     lifestyle: "",
     sports: [],
 });
+
+/**
+ * A date of birth that makes her exactly `age` on `TODAY` (#81 — the profile stores the
+ * date and the maths derives the age).
+ *
+ * Her birthday **is** `TODAY`, deliberately: every band case below therefore sits on the
+ * day the derivation has to get right rather than safely inside a year, so an off-by-one in
+ * `ageYearsOn` moves the band cases and not only the boundary case written for it.
+ */
+const profileAged = (age: number): Profile => {
+    const [year, monthAndDay] = [TODAY.slice(0, 4), TODAY.slice(4)];
+    return profileBornOn(`${Number(year) - age}${monthAndDay}`);
+};
 
 const analyze = (days: readonly CycleDay[], profile: Profile | null = profileAged(30)) =>
     analyzeCycles({ days, today: TODAY, profile }, RULES);
@@ -755,65 +771,69 @@ describe("age unknown takes the tightest band", () => {
     test("no profile: 7 days, the same answer a 26-41-year-old gets", () => {
         expect(analyze(spreadOf(7), null).irregular).toBe(false);
         expect(analyze(spreadOf(8), null).irregular).toBe(true);
-        expect(bandForAge(null, RULES)).toEqual({ ageYears: null, maxVariationDays: 7 });
+        expect(bandForAge(null, RULES, TODAY)).toEqual({ ageYears: null, maxVariationDays: 7 });
     });
 
     test("it does not fall back to the youngest band, which is the permissive one", () => {
         expect(analyze(spreadOf(8), profileAged(20)).irregular).toBe(false);
         expect(analyze(spreadOf(8), null).irregular).toBe(true);
-        expect(bandForAge(null, RULES).maxVariationDays).not.toBe(
+        expect(bandForAge(null, RULES, TODAY).maxVariationDays).not.toBe(
             RULES.irregularity.youngVariationDays,
         );
     });
 
     /**
-     * **A corrupted age must not be trusted more than a missing one**, which is what the
-     * second half of this list is about. `200`, `1e9`, `2.5` and `5` used to fall through
-     * to a real band, and the bands at both ends of the range are the *permissive* ones —
-     * so a nonsense age bought a 9-day tolerance while an absent one got 7. That is the
-     * inverse of the rule this describe block is named for.
+     * **A corrupted date of birth must not be trusted more than a missing one**, which is
+     * what this list is about. Under `profile.age` a stored `200`, `1e9`, `2.5` or `5` fell
+     * through to a real band, and the bands at both ends of the range are the *permissive*
+     * ones — so a nonsense age bought a 9-day tolerance while an absent one got 7. That is
+     * the inverse of the rule this describe block is named for, and the shape of it survives
+     * the move to a date: `"30"`, `true` and `2026-06-31` are all values the field can hold
+     * and none of them is a day.
      *
-     * The route already refuses anything outside 13–99 (`parseProfile`), so reaching these
-     * takes a hand-edited document — the same threat model `dayNumber`'s round-trip check
-     * and `firstFlowDays`' both-markers rule are floors under.
+     * Every entry here is *unreadable* rather than *impossible*. A date that reads fine and
+     * puts her under Eva's floor is the other case entirely and throws — see the block
+     * below, and `ImpossibleAgeError` for why the two ends differ.
+     *
+     * The route already refuses all of these (`parseProfile`), so reaching them takes a
+     * hand-edited document — the same threat model `dayNumber`'s round-trip check and
+     * `firstFlowDays`' both-markers rule are floors under.
      */
-    test("a profile carrying no usable age is the same as no profile", () => {
-        const notAnAge: unknown[] = [
+    test("a profile carrying no usable date of birth is the same as no profile", () => {
+        const notADateOfBirth: unknown[] = [
             undefined,
             null,
-            0,
-            -1,
-            Number.NaN,
+            "",
+            30,
             "30",
             true,
-            Number.POSITIVE_INFINITY,
-            200,
-            1e9,
-            2.5,
-            5,
-            12, // one under the route's floor
-            100, // one over its ceiling
+            "1996-06-15T00:00:00.000Z",
+            "15/06/1996",
+            "1996-6-15", // right day, wrong shape
+            "1996-02-30", // right shape, never a day
+            "1820-06-15", // a real day, and past any plausible age
         ];
-        for (const age of notAnAge) {
-            const profile = { ...profileAged(30), age } as Profile;
-            expect(bandForAge(profile, RULES).maxVariationDays).toBe(7);
-            expect(bandForAge(profile, RULES).ageYears).toBe(null);
+        for (const dateOfBirth of notADateOfBirth) {
+            const profile = { ...profileAged(30), dateOfBirth } as Profile;
+            expect(bandForAge(profile, RULES, TODAY).maxVariationDays).toBe(7);
+            expect(bandForAge(profile, RULES, TODAY).ageYears).toBe(null);
         }
     });
 
-    /** The edges themselves, so "implausible" cannot quietly grow to swallow a real user. */
+    /** The edges themselves, so "implausible" cannot quietly grow to swallow a real user.
+     *  18 is the floor the route enforces; 99 is the last age this module will band. */
     test("the ages the route accepts still get their own band", () => {
-        expect(bandForAge(profileAged(13), RULES)).toEqual({ ageYears: 13, maxVariationDays: 9 });
-        expect(bandForAge(profileAged(99), RULES)).toEqual({ ageYears: 99, maxVariationDays: 9 });
-        expect(bandForAge(profileAged(30), RULES)).toEqual({ ageYears: 30, maxVariationDays: 7 });
+        expect(bandForAge(profileAged(18), RULES, TODAY)).toEqual({ ageYears: 18, maxVariationDays: 9 });
+        expect(bandForAge(profileAged(99), RULES, TODAY)).toEqual({ ageYears: 99, maxVariationDays: 9 });
+        expect(bandForAge(profileAged(30), RULES, TODAY)).toEqual({ ageYears: 30, maxVariationDays: 7 });
     });
 
-    /** And it reaches the gate, not only the band: an implausible age suppresses a window
+    /** And it reaches the gate, not only the band: an unreadable date suppresses a window
      *  a permissive band would have drawn. */
-    test("an implausible age withholds a window the permissive band would have drawn", () => {
+    test("an implausible date of birth withholds a window the permissive band would have drawn", () => {
         const spread8 = spreadOf(8);
         expect(analyze(spread8, profileAged(20)).prediction).not.toBe(null);
-        const corrupted = { ...profileAged(20), age: 200 } as Profile;
+        const corrupted = { ...profileAged(20), dateOfBirth: "1820-06-15" } as Profile;
         const result = analyze(spread8, corrupted);
         expect(result.irregular).toBe(true);
         expect(result.prediction).toBe(null);
@@ -827,7 +847,159 @@ describe("age unknown takes the tightest band", () => {
             ...RULES,
             irregularity: { ...RULES.irregularity, youngVariationDays: 3 },
         };
-        expect(bandForAge(null, tighterYoung).maxVariationDays).toBe(3);
+        expect(bandForAge(null, tighterYoung, TODAY).maxVariationDays).toBe(3);
+    });
+});
+
+/**
+ * **An age below Eva's floor stops; it does not fall back** (#187, closed with #81).
+ *
+ * This is the one place in the file where an age the module cannot use is *not* read as
+ * unknown, and the asymmetry is the point. A25's youngest band is **18**–25, and
+ * `bandForAge` applied it from 13 — so a 13-to-17-year-old drew the *most permissive*
+ * 9-day tolerance at the age when cycles are least regular, which is the inverse of every
+ * other decision here. The fix is not an adolescent band, because FIGO's cited table does
+ * not supply one, and not a clamp to the tightest band either: Eva is 18+ (A12) and
+ * `parseProfile` refuses a date of birth under it, so an age below the floor means a bug of
+ * ours or a minor who got past the account check. Both are conditions to stop on.
+ *
+ * Nothing was ever live in a harmful way — `config.dashboard.pattern` was unset until #191
+ * and no account under 18 exists — so these cases close the door rather than repair damage.
+ */
+describe("an age under the account floor refuses rather than banding", () => {
+    const spreadOf = (spread: number) => periods([28, 28, 28, 28, 28, 28 + spread], 5);
+
+    /** The case #187 was filed for, stated as the band it must not reach. */
+    test("a seventeen-year-old does not get the permissive young band", () => {
+        expect(bandForAge(profileAged(18), RULES, TODAY).maxVariationDays).toBe(
+            RULES.irregularity.youngVariationDays,
+        );
+        expect(() => bandForAge(profileAged(17), RULES, TODAY)).toThrow(ImpossibleAgeError);
+        expect(() => bandForAge(profileAged(13), RULES, TODAY)).toThrow(ImpossibleAgeError);
+    });
+
+    /** It fails **loudly**: the whole analysis refuses, rather than answering over a band
+     *  chosen for somebody else. A spread of 9 is regular on the young band and irregular on
+     *  every other one, so a clamp in either direction would still return an answer here. */
+    test("the refusal reaches the whole analysis, not only the band", () => {
+        expect(analyze(spreadOf(9), profileAged(18)).irregular).toBe(false);
+        expect(() => analyze(spreadOf(9), profileAged(17))).toThrow(ImpossibleAgeError);
+    });
+
+    /**
+     * The boundary is her birthday itself — the same date of birth, read on two consecutive
+     * days. Eighteen today is in; one day short of eighteen is out.
+     */
+    test("eighteen today is in; the day before her birthday is out", () => {
+        const eighteenToday = profileAged(18);
+        expect(bandForAge(eighteenToday, RULES, TODAY).ageYears).toBe(18);
+        expect(() => bandForAge(eighteenToday, RULES, shift(TODAY, -1))).toThrow(
+            ImpossibleAgeError,
+        );
+    });
+
+    /**
+     * The asymmetry, as an assertion rather than a comment: the *upper* end of the range
+     * resolves to the tightest band, and this end resolves to nothing at all. They are
+     * different because only one of them contradicts a check that actually ran — nothing
+     * anywhere refuses a woman of 104, so an age of 206 is a corrupt field, while an age of
+     * 17 is an invariant that has not held.
+     */
+    test("the far end of the range falls back, and this end does not", () => {
+        expect(bandForAge(profileBornOn("1820-06-15"), RULES, TODAY)).toEqual({
+            ageYears: null,
+            maxVariationDays: 7,
+        });
+        expect(() => bandForAge(profileAged(5), RULES, TODAY)).toThrow(ImpossibleAgeError);
+    });
+
+    /** A date of birth after today is impossible, not unknown: it reads as a negative age,
+     *  which is under the floor. */
+    test("a date of birth in the future refuses", () => {
+        expect(() => bandForAge(profileBornOn(shift(TODAY, 1)), RULES, TODAY)).toThrow(
+            ImpossibleAgeError,
+        );
+    });
+
+    /** GUARDRAILS 12: the refusal names our own floor and nothing of hers. An error message
+     *  is as readable as a log line, and a date of birth is profile content. */
+    test("the refusal carries no date of birth and no derived age", () => {
+        const profile = profileAged(17);
+        expect(() => bandForAge(profile, RULES, TODAY)).toThrow(/floor of 18/);
+        try {
+            bandForAge(profile, RULES, TODAY);
+            throw new Error("bandForAge did not throw");
+        } catch (err) {
+            const message = (err as Error).message;
+            expect(message).toContain("18");
+            expect(message).not.toContain(profile.dateOfBirth);
+            expect(message).not.toContain("17");
+        }
+    });
+});
+
+/**
+ * **The floor is one number, declared twice.** `cycle.ts` imports only types — that is what
+ * keeps it pure, and a source scan above pins it — so the route's floor and the maths' floor
+ * cannot be one constant without either a runtime import into the maths or a boundary
+ * violation out of it. This reads both files instead, which is the same idiom
+ * `auth.test.ts` uses to hold the password rule and its Astro page together.
+ *
+ * Only the *floor* is duplicated. The arithmetic is not: `parseProfile` imports
+ * `ageYearsOn` through `today.ts`, because the obvious second implementation disagrees with
+ * this one on 29 February.
+ */
+describe("the account floor is one number", () => {
+    const floorIn = async (file: string): Promise<string | null> => {
+        const source = await Bun.file(`${import.meta.dir}/../src/${file}`).text();
+        return source.match(/const MIN_ACCOUNT_AGE_YEARS = (\d+)/)?.[1] ?? null;
+    };
+
+    test("`cycle.ts` and `index.ts` declare the same one", async () => {
+        const maths = await floorIn("cycle.ts");
+        // Named, so the case fails if the constant is renamed away rather than passing on
+        // two nulls — the way a derived list fails when it derives as empty.
+        expect(maths).toBe("18");
+        expect(await floorIn("index.ts")).toBe(maths);
+    });
+});
+
+/**
+ * `ageYearsOn` on its own, because it is now exported and `parseProfile` is its second
+ * reader (#81). Whole years by calendar parts, not by dividing a day count: 18 years is
+ * 6574 days or 6575 depending on the leap days inside it, and the difference is a day on
+ * somebody's birthday.
+ */
+describe("whole years between two calendar dates", () => {
+    test("the birthday itself is the increment", () => {
+        expect(ageYearsOn("1996-06-15", "2026-06-14")).toBe(29);
+        expect(ageYearsOn("1996-06-15", "2026-06-15")).toBe(30);
+        expect(ageYearsOn("1996-06-15", "2026-06-16")).toBe(30);
+    });
+
+    test("a month boundary is not a year boundary", () => {
+        expect(ageYearsOn("1996-12-31", "2026-01-01")).toBe(29);
+        expect(ageYearsOn("1996-01-01", "2026-12-31")).toBe(30);
+    });
+
+    /** A leap-day birth date has its birthday on 1 March in a non-leap year — a day later
+     *  rather than a day earlier, which is the direction an age floor should err in. */
+    test("29 February turns a year older on 1 March in a non-leap year", () => {
+        expect(ageYearsOn("2008-02-29", "2026-02-28")).toBe(17);
+        expect(ageYearsOn("2008-02-29", "2026-03-01")).toBe(18);
+        // …and on 29 February itself in a leap year.
+        expect(ageYearsOn("2008-02-29", "2028-02-29")).toBe(20);
+        expect(ageYearsOn("2008-02-29", "2028-02-28")).toBe(19);
+    });
+
+    test("a date of birth after the day it is measured on reads as negative", () => {
+        expect(ageYearsOn("2030-06-15", "2026-06-15")).toBe(-4);
+    });
+
+    /** `today` is the caller's to get right on every path in this file, so a bad one throws
+     *  rather than resolving to anything. */
+    test("a today that is not a calendar date throws", () => {
+        expect(() => ageYearsOn("1996-06-15", "2026-02-30")).toThrow(InvalidCycleDateError);
     });
 });
 

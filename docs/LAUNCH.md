@@ -100,7 +100,11 @@ the product:
   explicitly covers health apps. "Breach" includes **unauthorised disclosure**, not only
   hacking; a data-sharing mistake is a breach. Notification to individuals *and* the FTC
   **within 60 days** of discovery (and to media for ≥500 people in a state).
-- **COPPA** — not applicable at 18+ (A12), provided age is actually enforced (DOB gate).
+- **COPPA** — not applicable at 18+ (A12), provided age is actually enforced. The DOB gate
+  is in (#81): `profile.dateOfBirth` replaced `profile.age`, and `parseProfile` refuses a
+  date of birth under 18 against the caller's own day. What is *not* in is the consent
+  screen (#86) or any claim about accounts created before it — the gate applies to a profile
+  when it is saved, and an account that predates #81 is asked for its date of birth again.
 - **CAN-SPAM** — for the transactional and any marketing email (#6).
 
 ### 2.2 United States — states

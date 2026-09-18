@@ -3,7 +3,12 @@ import { verify } from "hono/jwt";
 import { config } from "../src/config";
 import { issueToken } from "../src/email-tokens";
 import { adminAuth, firestore } from "../src/firebase";
-import { activateAccount, createLegacyAccount, createUnactivatedAccount } from "./support/session";
+import {
+    activateAccount,
+    createLegacyAccount,
+    createPreDateOfBirthAccount,
+    createUnactivatedAccount,
+} from "./support/session";
 
 /**
  * Integration tests against the REAL Firebase project (per spec §6).
@@ -51,6 +56,8 @@ interface UserBody {
     email: string;
     questionnaireCompleted: boolean;
     activated: boolean;
+    /** Never carries `age` since #81 — asserted as raw JSON, not through this shape. */
+    profile: Record<string, unknown> | null;
 }
 interface UserResponse {
     user: UserBody;
@@ -68,6 +75,19 @@ interface ErrorResponse {
 
 /** Typed `res.json()` — the API contract is documented in docs/ARCHITECTURE.md §3. */
 const json = <T>(res: Response): Promise<T> => res.json() as Promise<T>;
+
+/** A complete, valid questionnaire payload for one date of birth (#81). Every field is the
+ *  current vocabulary, so a case that overrides one field is testing only that field. */
+const profileBornOn = (dateOfBirth: string) => ({
+    dateOfBirth,
+    weightKg: 64,
+    heightCm: 168,
+    goals: ["Energy", "Sleep"],
+    conditions: ["noneOfThese"],
+    medications: "none",
+    lifestyle: "Active",
+    sports: ["Yoga"],
+});
 
 afterAll(async () => {
     // **By address, and that half is not redundant.** This file does most of the suite's
@@ -303,20 +323,10 @@ describe("auth", () => {
     });
 
     test("questionnaire submission completes the profile", async () => {
-        const profile = {
-            age: 28,
-            weightKg: 64,
-            heightCm: 168,
-            goals: ["Energy", "Sleep"],
-            conditions: ["None of these"],
-            medications: "No",
-            lifestyle: "Active",
-            sports: ["Yoga"],
-        };
         const res = await api("/me/questionnaire", {
             method: "PUT",
             token,
-            body: JSON.stringify(profile),
+            body: JSON.stringify(profileBornOn("1996-06-15")),
         });
         expect(res.status).toBe(200);
         expect(
@@ -325,7 +335,11 @@ describe("auth", () => {
 
         const doc = await firestore.collection("users").doc(uid).get();
         expect(doc.data()!.questionnaireCompleted).toBe(true);
-        expect(doc.data()!.profile.age).toBe(28);
+        // The date, not an age (#81). A stored age is wrong within a year and wrong
+        // silently, and it is what the FIGO band — a gate on whether a fertile window is
+        // drawn at all — is chosen from.
+        expect(doc.data()!.profile.dateOfBirth).toBe("1996-06-15");
+        expect("age" in doc.data()!.profile).toBe(false);
 
         // Returning user now routes as completed.
         const signin = await api("/auth/signin", {
@@ -341,9 +355,241 @@ describe("auth", () => {
         const res = await api("/me/questionnaire", {
             method: "PUT",
             token,
-            body: JSON.stringify({ age: 5 }),
+            body: JSON.stringify({ dateOfBirth: "1996-06-15" }),
         });
         expect(res.status).toBe(400);
+    });
+
+    /**
+     * **Eva is 18+ (A12, decided on #81), enforced where the date is captured.**
+     *
+     * The boundary is pinned against the *caller's* day rather than the test's idea of one:
+     * every case here sends `timeZone: "UTC"`, which takes `resolveClock`'s slack to zero and
+     * makes the server's "today" exactly the UTC date this process can compute. Without that
+     * the two could sit either side of midnight and the case would fail once a day, somewhere.
+     */
+    test("a date of birth under 18 is refused, and her birthday is the boundary", async () => {
+        const todayUtc = new Date().toISOString().slice(0, 10);
+        const [year, monthAndDay] = [Number(todayUtc.slice(0, 4)), todayUtc.slice(4)];
+        const submit = (dateOfBirth: string) =>
+            api("/me/questionnaire", {
+                method: "PUT",
+                token,
+                body: JSON.stringify({ ...profileBornOn(dateOfBirth), timeZone: "UTC" }),
+            });
+
+        // Eighteen today: in, on the day itself and not the day after.
+        expect((await submit(`${year - 18}${monthAndDay}`)).status).toBe(200);
+        // Eighteen tomorrow: out. One day of difference either side of the same number.
+        const eighteenTomorrow = new Date(Date.parse(`${todayUtc}T00:00:00.000Z`) + 86_400_000)
+            .toISOString()
+            .slice(0, 10);
+        const refused = await submit(
+            `${Number(eighteenTomorrow.slice(0, 4)) - 18}${eighteenTomorrow.slice(4)}`,
+        );
+        expect(refused.status).toBe(400);
+        const body = await json<ErrorResponse>(refused);
+        expect(body.error.code).toBe("VALIDATION");
+        expect(body.error.message).toContain("18");
+    });
+
+    /**
+     * **Which way the slack runs when the client does not say where it is.**
+     *
+     * The calendar routes give a logged date a day of tolerance in *both* directions so an
+     * entry is never refused for the server's idea of today. The floor cannot take that
+     * trade: a day of tolerance towards the caller admits somebody a day short of eighteen
+     * every time a client forgets to send `timeZone`. So the age is measured against the
+     * earliest day it could currently be anywhere, and the same date of birth that passes
+     * with a zone is refused without one.
+     *
+     * This is the case that fails if the slack is dropped or reversed — the boundary case
+     * above sends `timeZone: "UTC"`, which takes the slack to zero and cannot see it.
+     */
+    test("without a timeZone the floor is measured a day earlier, not a day later", async () => {
+        const todayUtc = new Date().toISOString().slice(0, 10);
+        const eighteenToday = `${Number(todayUtc.slice(0, 4)) - 18}${todayUtc.slice(4)}`;
+        const withZone = await api("/me/questionnaire", {
+            method: "PUT",
+            token,
+            body: JSON.stringify({ ...profileBornOn(eighteenToday), timeZone: "UTC" }),
+        });
+        expect(withZone.status).toBe(200);
+
+        const withoutZone = await api("/me/questionnaire", {
+            method: "PUT",
+            token,
+            body: JSON.stringify(profileBornOn(eighteenToday)),
+        });
+        expect(withoutZone.status).toBe(400);
+        expect((await json<ErrorResponse>(withoutZone)).error.message).toContain("18");
+    });
+
+    test("a date of birth in the future is refused", async () => {
+        const res = await api("/me/questionnaire", {
+            method: "PUT",
+            token,
+            body: JSON.stringify({ ...profileBornOn("2099-01-01"), timeZone: "UTC" }),
+        });
+        expect(res.status).toBe(400);
+        expect((await json<ErrorResponse>(res)).error.code).toBe("VALIDATION");
+    });
+
+    /** An un-updated client still sends `age`. Refused rather than ignored: accepting the
+     *  rest would write a profile with no date of birth in it, which is the one field the
+     *  18+ floor and the FIGO band are both read from. */
+    test("an age key is refused outright", async () => {
+        const res = await api("/me/questionnaire", {
+            method: "PUT",
+            token,
+            body: JSON.stringify({ ...profileBornOn("1996-06-15"), age: 28 }),
+        });
+        expect(res.status).toBe(400);
+        expect((await json<ErrorResponse>(res)).error.code).toBe("VALIDATION");
+    });
+
+    /** The enumerations (A8). Codes, not labels — so the labels the app used to send are
+     *  exactly what must not be accepted, or the vocabulary is decided by whoever typed
+     *  first and changing a label becomes a data migration. */
+    test("medications and conditions are validated against their enumerations", async () => {
+        const submit = (over: Record<string, unknown>) =>
+            api("/me/questionnaire", {
+                method: "PUT",
+                token,
+                body: JSON.stringify({ ...profileBornOn("1996-06-15"), ...over }),
+            });
+
+        expect((await submit({ medications: "combinedPill" })).status).toBe(200);
+        expect((await submit({ conditions: ["pcos", "diabetes"] })).status).toBe(200);
+        // The three #81 adds, each accepted by name so "extended" is asserted rather than
+        // assumed.
+        expect((await submit({ conditions: ["coeliacDisease", "foodAllergies"] })).status).toBe(
+            200,
+        );
+
+        for (const over of [
+            { medications: "No" }, // the label the app used to send
+            { medications: "" },
+            { medications: ["none"] },
+            { conditions: ["None of these"] },
+            { conditions: ["pcos", "not-a-condition"] },
+            { conditions: "pcos" },
+        ]) {
+            const res = await submit(over);
+            expect(res.status).toBe(400);
+            expect((await json<ErrorResponse>(res)).error.code).toBe("VALIDATION");
+        }
+    });
+
+    /** And the refusal says which rule was broken without repeating what was sent: an error
+     *  body is as readable as a log line, and a profile field is health data (GUARDRAILS 12). */
+    test("a refusal names the field and not the value", async () => {
+        const res = await api("/me/questionnaire", {
+            method: "PUT",
+            token,
+            body: JSON.stringify({
+                ...profileBornOn("1996-06-15"),
+                conditions: ["a-condition-nobody-should-see-echoed"],
+            }),
+        });
+        const body = await json<ErrorResponse>(res);
+        expect(body.error.message).toContain("conditions");
+        expect(body.error.message).not.toContain("a-condition-nobody-should-see-echoed");
+    });
+});
+
+/**
+ * **The migration (#81), which is a read and not a write.**
+ *
+ * Documents written before this carry `profile.age`, and there is no date of birth
+ * derivable from an age — 28 is any of 366 days — so nothing is backfilled, nothing is
+ * deleted, and no date is invented. A profile with no `dateOfBirth` is simply not a profile
+ * under this schema: it is served as none, `questionnaireCompleted` follows it, and the app
+ * asks the four questionnaire steps again.
+ *
+ * What these cases hold is the half that is easy to lose: **she is not locked out.** Her
+ * account opens, her token works, and answering the questionnaire replaces the old map
+ * outright — which is also the only thing that ever removes the stored `age`.
+ */
+describe("an account created before dateOfBirth", () => {
+    let legacyUid = "";
+    let legacyToken = "";
+    const legacyEmail = address();
+
+    test("its stored age never reaches the client, and the questionnaire is re-asked", async () => {
+        legacyUid = await createPreDateOfBirthAccount(legacyEmail, password);
+        createdUids.push(legacyUid);
+        legacyToken = (
+            await json<AuthResponse>(
+                await api("/auth/signin", {
+                    method: "POST",
+                    body: JSON.stringify({ email: legacyEmail, password }),
+                }),
+            )
+        ).token;
+        // Signing in at all is half the assertion: a migration that locked her out would
+        // fail here rather than below.
+        expect(legacyToken.length).toBeGreaterThan(0);
+
+        const res = await api("/me", { token: legacyToken });
+        expect(res.status).toBe(200);
+        const raw = await res.text();
+        // Raw text, not a parse: the claim is that the string does not leave the API, and a
+        // typed read of a field we just removed from the type would assert nothing.
+        expect(raw).not.toContain('"age"');
+        const { user } = JSON.parse(raw) as UserResponse;
+        expect(user.profile).toBe(null);
+        expect(user.questionnaireCompleted).toBe(false);
+
+        // And the document is untouched — this is a read-time answer, not a rewrite.
+        const doc = await firestore.collection("users").doc(legacyUid).get();
+        expect(doc.data()!.profile.age).toBe(28);
+        expect(doc.data()!.questionnaireCompleted).toBe(true);
+    });
+
+    test("answering the questionnaire replaces the old map, age and all", async () => {
+        const res = await api("/me/questionnaire", {
+            method: "PUT",
+            token: legacyToken,
+            body: JSON.stringify(profileBornOn("1996-06-15")),
+        });
+        expect(res.status).toBe(200);
+        expect((await json<UserResponse>(res)).user.questionnaireCompleted).toBe(true);
+
+        const doc = await firestore.collection("users").doc(legacyUid).get();
+        expect(doc.data()!.profile.dateOfBirth).toBe("1996-06-15");
+        expect("age" in doc.data()!.profile).toBe(false);
+    });
+
+    /**
+     * A document carrying **both** — a `dateOfBirth` and a stale `age` beside it.
+     *
+     * Nothing in `src/` writes that shape: `saveQuestionnaire` replaces the whole `profile`
+     * map, so an answered questionnaire drops the legacy key outright. This is the floor
+     * under a hand-edited or half-migrated document, held to the same standard as
+     * `dayNumber`'s date round trip — the profile is valid under this schema and is served,
+     * and the age still does not leave the API.
+     *
+     * It is here because the probe found it missing: removing the `delete` in `users.ts`
+     * left the whole suite green, since a document with no `dateOfBirth` is answered `null`
+     * before the drop can matter.
+     */
+    test("a half-migrated profile is served, and its stale age still is not", async () => {
+        await firestore
+            .collection("users")
+            .doc(legacyUid)
+            .update({ "profile.age": 28 });
+
+        const res = await api("/me", { token: legacyToken });
+        const raw = await res.text();
+        expect(raw).not.toContain('"age"');
+        const { user } = JSON.parse(raw) as UserResponse;
+        expect(user.profile?.dateOfBirth).toBe("1996-06-15");
+        expect(user.questionnaireCompleted).toBe(true);
+        // …and it is still on the document, because this is a read and not a rewrite.
+        expect((await firestore.collection("users").doc(legacyUid).get()).data()!.profile.age).toBe(
+            28,
+        );
     });
 });
 

@@ -68,9 +68,11 @@ export interface CycleInput {
   /**
    * The profile the age band is read from, or `null` when there is none.
    *
-   * **Read through `bandForAge` and nowhere else.** #81 replaces `profile.age` with
-   * `dateOfBirth`; when it lands, that one function changes and nothing else here does.
-   * This module reads exactly one field of the profile and stores none of it.
+   * **Read through `bandForAge` and nowhere else.** #81 replaced `profile.age` with
+   * `dateOfBirth` and that one function is what changed — which is the whole reason the
+   * rule was written down before there was a second reader to break. This module reads
+   * exactly one field of the profile, derives the age from it against `today`, and stores
+   * none of it.
    */
   profile: Profile | null
 }
@@ -143,6 +145,31 @@ export class InvalidCycleDateError extends Error {
   constructor(field: string) {
     super(`the cycle maths' ${field} must be a YYYY-MM-DD calendar date`)
     this.name = 'InvalidCycleDateError'
+  }
+}
+
+/**
+ * Thrown when the derived age is below Eva's account floor (#187).
+ *
+ * **It fails rather than clamping, and that is the point of it.** Everything else in this
+ * file treats an age it cannot use as *unknown* and falls to the tightest band — the right
+ * answer for a fact that is missing, and the wrong one for a fact that is impossible. Eva
+ * is 18+ (A12) and `parseProfile` refuses a date of birth under it, so an age below the
+ * floor did not arrive through the API. It is a bug of ours, or a minor who got past the
+ * account check, and neither is a condition to smooth over into a slightly safer number.
+ *
+ * Deliberately **not** re-exported from `today.ts`, so it is not one of the route's `503`
+ * refusals: nothing about this resolves by retrying later, and there is no configuration to
+ * set. It lands in `app.onError` as a `500` with a `ref` and no detail — the same place
+ * `InvalidCycleDateError` lands, for the same reason.
+ *
+ * Names the floor, which is a constant of ours, and never her age or her date of birth
+ * (GUARDRAILS 12).
+ */
+export class ImpossibleAgeError extends Error {
+  constructor(minYears: number) {
+    super(`the cycle maths was given an age below Eva's floor of ${minYears}`)
+    this.name = 'ImpossibleAgeError'
   }
 }
 
@@ -285,17 +312,27 @@ const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/
  *  process timezone. Local dates are calendar labels here, not instants. */
 const dateFor = (day: number): string => new Date(day * 86_400_000).toISOString().slice(0, 10)
 
-const dayNumber = (localDate: string, field: string): number => {
-  if (!LOCAL_DATE.test(localDate)) throw new InvalidCycleDateError(field)
+/** The day number for a `YYYY-MM-DD` calendar date, or `null` when the string is not one.
+ *
+ *  Split out of `dayNumber` for `bandForAge`, which is the one reader that must *not*
+ *  throw on a bad date: a stored date of birth it cannot parse is an unknown age, and an
+ *  unknown age is a band rather than a refusal. Every other reader wants the throw. */
+const dayNumberOrNull = (localDate: string): number | null => {
+  if (!LOCAL_DATE.test(localDate)) return null
   const parsed = Date.parse(`${localDate}T00:00:00.000Z`)
-  if (Number.isNaN(parsed)) throw new InvalidCycleDateError(field)
+  if (Number.isNaN(parsed)) return null
   const day = Math.round(parsed / 86_400_000)
   // The round trip, because `Date.parse` rolls a day that does not exist forward rather
   // than refusing it: `2026-02-30` is 2 March, two days from where it was written, and a
   // period start moved two days moves every cycle length around it. `isCalendarDate` at
   // the route edge already refuses one, so nothing stored through the API reaches here —
   // this is the floor under a hand-edited document, held to the same standard.
-  if (dateFor(day) !== localDate) throw new InvalidCycleDateError(field)
+  return dateFor(day) === localDate ? day : null
+}
+
+const dayNumber = (localDate: string, field: string): number => {
+  const day = dayNumberOrNull(localDate)
+  if (day === null) throw new InvalidCycleDateError(field)
   return day
 }
 
@@ -447,23 +484,73 @@ const median = (lengths: readonly number[]): number | null => {
 }
 
 /**
- * The ages this function will read a band for. Outside it, the stored value is not an age
- * and is treated as absent.
+ * Eva's account floor, in years (A12, #81). An age below it is refused outright — see
+ * `ImpossibleAgeError` for why this end fails where the other end falls back.
  *
- * It is `parseProfile`'s own range (`index.ts`, `inRange(age, 13, 99)`) rather than a
- * second opinion about it, and it is a floor under a hand-edited document exactly as the
- * date round-trip in `dayNumber` is: nothing stored through the API can be outside it, and
- * an `age` of 200 that arrived some other way must not be *trusted more* than a missing
- * one. It is not a clinical constant — it decides nothing about the maths, only whether
- * the field is an age at all — which is why it is not in `CycleRules`.
+ * It is `parseProfile`'s own floor (`index.ts`, `MIN_ACCOUNT_AGE_YEARS`) rather than a
+ * second opinion about it, and it is the floor under a hand-edited document exactly as the
+ * date round-trip in `dayNumber` is: nothing stored through the API can be under it.
+ * `cycle.ts` imports only types, so the two literals cannot be one constant — `the account
+ * floor is one number` in `cycle.test.ts` reads both files and pins them equal instead.
+ *
+ * It is not a clinical constant. The FIGO bands happen to start at 18 too, and that is a
+ * coincidence of two different decisions rather than one fact: A25's youngest band is
+ * sourced from FIGO AUB System 1, and this is Eva's own line under GDPR Article 8 and the
+ * App Store age rating. Neither may be re-tuned by editing the other, which is why this is
+ * here and not in `CycleRules`.
  */
-const PLAUSIBLE_AGE_YEARS = { min: 13, max: 99 }
+const MIN_ACCOUNT_AGE_YEARS = 18
+
+/**
+ * Past this, the stored date of birth is not a date of birth and is treated as absent.
+ *
+ * **The asymmetry with the floor above is deliberate.** Nothing enforces an upper bound
+ * anywhere — a woman of 104 is unlikely, not impossible, and no route refuses her — so a
+ * derived age of 200 is evidence the field is corrupt, not evidence of a broken invariant.
+ * Corrupt reads as unknown and takes the tightest band, because a corrupted age must never
+ * be *trusted more* than a missing one. Under 18 is the opposite case: it contradicts a
+ * check that did run, so it stops.
+ */
+const MAX_PLAUSIBLE_AGE_YEARS = 99
+
+/**
+ * Whole years from a date of birth to a date, both `YYYY-MM-DD` calendar labels.
+ *
+ * Calendar parts rather than the day numbers everything else here counts in, because a
+ * difference in days is not an age: 18 years is 6574 days or 6575 depending on how many
+ * leap days fell inside it, and dividing by 365.25 puts the boundary hours away from
+ * midnight on somebody's birthday.
+ *
+ * A 29 February birth date has its birthday on 1 March in a non-leap year, which is the
+ * strict reading — a day later rather than a day earlier — and the direction an age floor
+ * should err in.
+ *
+ * `dateOfBirth` is the caller's to check (`bandForAge` does, with `dayNumberOrNull`, because
+ * a date it cannot read is an unknown age rather than a refusal). `today` is not: a `today`
+ * that is not a calendar date is the caller's bug on every path in this file, and throws.
+ *
+ * **Exported, and the only reason it is.** `parseProfile` enforces Eva's 18+ floor at the
+ * route edge and needs the same arithmetic, and it reaches it through `today.ts` for the
+ * reason that file's re-export block gives. Two implementations of "how old is she" is not
+ * a theoretical drift: the obvious `Date.UTC(year - years, …)` spelling disagrees with this
+ * one on 29 February, admitting somebody a day under the floor once every four years, and a
+ * second copy is where that lands. This function decides no policy — the floor itself is
+ * declared on each side, because one is a clinical band's edge and the other is a legal line.
+ */
+export const ageYearsOn = (dateOfBirth: string, today: string): number => {
+  dayNumber(today, 'today')
+  const [birthYear, birthMonth, birthDay] = dateOfBirth.split('-').map(Number)
+  const [year, month, day] = today.split('-').map(Number)
+  const hadBirthday = month! > birthMonth! || (month === birthMonth && day! >= birthDay!)
+  return year! - birthYear! - (hadBirthday ? 0 : 1)
+}
 
 /**
  * The FIGO band for an age, and the age it was chosen for.
  *
- * **The one place age is read** (#176 Risks; #81 replaces `profile.age` with `dateOfBirth`
- * and changes this function alone).
+ * **The one place age is read** (#176 Risks). #81 replaced `profile.age` with
+ * `dateOfBirth` and this function is the whole of the change: the age is derived here,
+ * against the caller's own `today`, and nowhere else.
  *
  * **Age unknown → the tightest band.** Not the youngest band and not a permissive one:
  * suppressing more is the safe direction, and a fallback that happened to be lenient would
@@ -471,24 +558,38 @@ const PLAUSIBLE_AGE_YEARS = { min: 13, max: 99 }
  * computed from the configured bands rather than named, so it cannot drift if a band is
  * re-tuned to be tighter than the one written down here.
  *
- * **And an age that is not one counts as unknown**, for the same reason and in the same
- * direction. A stored `200`, `1e9`, `2.5` or `5` used to fall through to a real band — and
- * the bands at both ends are the permissive ones, so a corrupted age was trusted *more*
- * than an absent one. That is the inverse of the rule this paragraph is named for.
+ * **And a date of birth that is not one counts as unknown**, for the same reason and in the
+ * same direction. A stored `null`, `""`, `2026-02-30` or a date that makes her 200 falls
+ * here rather than into a real band — and the bands at both ends are the permissive ones,
+ * so a corrupted value trusted as an age would be trusted *more* than an absent one. That
+ * is the inverse of the rule this paragraph is named for.
+ *
+ * **Under 18 throws** (#187), and is the one case that does not resolve to a band at all.
+ * A25's youngest band is *18*–25, so reading it from 13 handed a 13-to-17-year-old the most
+ * permissive 9-day tolerance at the age when cycles are least regular — the inverse of
+ * every other decision in this file. The fix is not an adolescent band, which FIGO's cited
+ * table does not supply, and not a clamp either: Eva is 18+ and `parseProfile` enforces it
+ * where the date is captured, so nothing under the floor can have come through the API.
+ * See `ImpossibleAgeError`.
  */
 export const bandForAge = (
   profile: Profile | null,
   rules: CycleRules,
+  today: string,
 ): { ageYears: number | null; maxVariationDays: number } => {
   const bands = rules.irregularity
-  const raw = profile?.age
-  const ageYears =
-    typeof raw === 'number' &&
-    Number.isFinite(raw) &&
-    raw >= PLAUSIBLE_AGE_YEARS.min &&
-    raw <= PLAUSIBLE_AGE_YEARS.max
-      ? raw
+  const dateOfBirth = profile?.dateOfBirth
+  // Parsed before it is used, so a stored value that is not a real calendar day reads as an
+  // absent one rather than throwing out of `ageYearsOn` — the same "corrupt is unknown"
+  // direction the paragraph above argues, applied one step earlier.
+  const derived =
+    typeof dateOfBirth === 'string' && dayNumberOrNull(dateOfBirth) !== null
+      ? ageYearsOn(dateOfBirth, today)
       : null
+  if (derived !== null && derived < MIN_ACCOUNT_AGE_YEARS) {
+    throw new ImpossibleAgeError(MIN_ACCOUNT_AGE_YEARS)
+  }
+  const ageYears = derived !== null && derived <= MAX_PLAUSIBLE_AGE_YEARS ? derived : null
   if (ageYears === null) {
     return {
       ageYears: null,
@@ -592,11 +693,15 @@ export interface CycleAnalysis {
  * Throws `CycleRulesUnsetError` when the constants are missing or unusable, and
  * `InvalidCycleDateError` when a date is not `YYYY-MM-DD`. Both are refusals rather than
  * failures: an answer past either would be a prediction that looks live and is not.
+ *
+ * And `ImpossibleAgeError` (#187) when the profile's date of birth puts her under Eva's
+ * account floor. That one is not a refusal in the same sense — it says an invariant the
+ * account check is supposed to hold has not held, and there is nothing to answer.
  */
 export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): CycleAnalysis => {
   const settings = requireCycleRules(rules)
   const today = dayNumber(input.today, 'today')
-  const band = bandForAge(input.profile, settings)
+  const band = bandForAge(input.profile, settings, input.today)
 
   const periods = loggedPeriods(input.days, settings.minPeriodGapDays)
   const cycles = toCycles(periods.map((period) => period.start), settings)

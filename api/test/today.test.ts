@@ -276,6 +276,30 @@ const sportOn = (localDate: string) => ({
 });
 
 const todayDocs = () => firestore.collection("users").doc(uid).collection("today");
+
+/**
+ * A questionnaire payload for someone exactly this old in UTC today (#81 — the profile
+ * stores a date of birth and `bandForAge` derives the age from it).
+ *
+ * Her birthday is today, so the payload sits on the boundary the derivation has to get
+ * right, and `timeZone: "UTC"` takes `resolveClock`'s slack to zero — without it the 18+
+ * floor is measured a day earlier than this computes and an exactly-18 fixture would be
+ * refused.
+ */
+const profileAged = (years: number) => {
+    const today = todayIn("UTC");
+    return {
+        dateOfBirth: `${Number(today.slice(0, 4)) - years}${today.slice(4)}`,
+        weightKg: 62,
+        heightCm: 170,
+        goals: ["energy"],
+        conditions: [],
+        medications: "none",
+        lifestyle: "active",
+        sports: ["running"],
+        timeZone: "UTC",
+    };
+};
 const storedDays = async () => (await todayDocs().get()).docs;
 const eventDocs = () => firestore.collection("users").doc(uid).collection("events");
 
@@ -772,16 +796,7 @@ describe.skipIf(!onEmulators)("GET /me/today, served", () => {
         const before = await fetchToday();
         const saved = await api("/me/questionnaire", {
             method: "PUT",
-            body: JSON.stringify({
-                age: 30,
-                weightKg: 62,
-                heightCm: 170,
-                goals: ["energy"],
-                conditions: [],
-                medications: "",
-                lifestyle: "active",
-                sports: ["running"],
-            }),
+            body: JSON.stringify(profileAged(30)),
         });
         expect(saved.status).toBe(200);
         expect((await fetchToday()).body).not.toBe(before.body);
@@ -1106,16 +1121,7 @@ describe.skipIf(!onEmulators)("GET /me/today, over a logged cycle history", () =
         await startFresh();
         const saved = await api("/me/questionnaire", {
             method: "PUT",
-            body: JSON.stringify({
-                age: 20,
-                weightKg: 62,
-                heightCm: 170,
-                goals: ["energy"],
-                conditions: [],
-                medications: "",
-                lifestyle: "active",
-                sports: ["running"],
-            }),
+            body: JSON.stringify(profileAged(20)),
         });
         expect(saved.status).toBe(200);
 

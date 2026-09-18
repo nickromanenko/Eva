@@ -182,10 +182,18 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   them, so that interval still closes the gate. A25 item 2's literal "over the last 6
   counted cycles" would hand a woman whose cycles alternate 28 and 60 days a fertile window
   over a variation of zero — the fail-open §Phase 1 rules 4 and 5 and #176's Risks each
-  forbid. Age is read in `bandForAge` and nowhere else, so #81 (`profile.age` →
-  `dateOfBirth`) changes one function; an age outside the range the route accepts (13–99) is
-  read as *unknown* there, because the bands at both ends are the permissive ones and a
-  corrupted age must never be trusted more than a missing one.
+  forbid. Age is read in `bandForAge` and nowhere else, which is what made #81
+  (`profile.age` → `dateOfBirth`) one function's worth of change: the date arrives in the
+  profile and the age is derived there, against the caller's own `today`. A date of birth it
+  cannot read — nonsense, or one that makes her over 99 — is *unknown*, because the bands at
+  both ends are the permissive ones and a corrupted value must never be trusted more than a
+  missing one. **An age under 18 is the one exception and throws** (`ImpossibleAgeError`,
+  #187): Eva is 18+ and `parseProfile` enforces it, so under the floor means a bug or a minor
+  past the account check, and neither is a thing to clamp. It is deliberately not re-exported
+  from `today.ts`, so it is a 500 through `app.onError` rather than one of the route's 503s —
+  nothing about it resolves by retrying. `ageYearsOn` is the other half of #81 and the only
+  other export: `parseProfile` reads it through `today.ts` so the floor and the band measure
+  an age the same way, which they do not if each spells the arithmetic itself (29 February).
   `toCycleEstimate` projects the result into the `CycleEstimate` D1 already consumes.
 - `firebase.ts` — Admin SDK singleton. Never initialize a second app.
 - `config.ts` — required env vars, fail-fast. It carries one import that points *up* this
