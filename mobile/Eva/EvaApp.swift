@@ -3,6 +3,8 @@ import SwiftUI
 @main
 struct EvaApp: App {
     @State private var session = AppSession()
+    /// Metric or imperial, from the device locale until Settings overrides it (#82).
+    @State private var units = EvaUnitPreference.shared
 
     var body: some Scene {
         WindowGroup {
@@ -17,10 +19,10 @@ struct EvaApp: App {
             if EvaSpecimenLaunch.isEnabled {
                 EvaSpecimenView()
             } else {
-                EvaRootView(session: session)
+                EvaRootView(session: session, units: units)
             }
             #else
-            EvaRootView(session: session)
+            EvaRootView(session: session, units: units)
             #endif
         }
     }

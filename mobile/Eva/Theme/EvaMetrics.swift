@@ -51,6 +51,10 @@ enum EvaRadius {
     static let chip: CGFloat = 14
     /// 17 — controls: primary/secondary buttons, inputs, dropdowns (§5, §6).
     static let control: CGFloat = 17
+    /// 18 — the radio row (§6). Off the 14/17/24/30 ladder for the same reason
+    /// `destructiveRow` and `banner` are: it is what the design-system artboard draws
+    /// (`min-height:56px;…;border-radius:18px`), and the nearest named value is not it.
+    static let radioRow: CGFloat = 18
     /// 20 — the info banner (§7). Off the 14/17/24/30 scale like `destructiveRow`, and
     /// like it this is what the artboard draws: the design system's information banner is
     /// `padding:14px;border-radius:20px`. The sign-up screen's account-linking card in
@@ -68,6 +72,9 @@ enum EvaRadius {
 
 /// Sizing rules that are neither spacing nor radius.
 enum EvaMetrics {
+    /// 56 — the radio row's minimum height (DESIGN.md §6). Above the 44pt floor because
+    /// the row carries a title *and* a description.
+    static let radioRowHeight: CGFloat = 56
     /// 44 — minimum touch target on every interactive element (DESIGN.md §1).
     /// Apply with `.frame(minWidth:minHeight:)` when the visual size is smaller;
     /// the tappable area grows, the artwork does not.

@@ -2,6 +2,9 @@ import SwiftUI
 
 struct AboutYouStepView: View {
     @Bindable var model: OnboardingModel
+    /// Which system the two body metrics are typed in (#82). The values themselves are
+    /// kilograms and centimeters whichever way this reads.
+    let units: EvaUnitPreference
     let onContinue: () -> Void
 
     var body: some View {
@@ -23,8 +26,8 @@ struct AboutYouStepView: View {
                     value: $model.dateOfBirth,
                     errorMessage: model.dateOfBirthError
                 )
-                StepperCard(title: "Weight · kg", value: $model.weightKg, range: 30...200)
-                StepperCard(title: "Height · cm", value: $model.heightCm, range: 120...220)
+                WeightEntryCard(kilograms: $model.weightKg, system: units.system)
+                HeightEntryCard(centimeters: $model.heightCm, system: units.system)
             }
             .padding(.top, 22)
         }
@@ -32,6 +35,6 @@ struct AboutYouStepView: View {
 }
 
 #Preview {
-    AboutYouStepView(model: OnboardingModel(), onContinue: {})
+    AboutYouStepView(model: OnboardingModel(), units: EvaUnitPreference(), onContinue: {})
         .background(LinearGradient.evaScreenBackground)
 }

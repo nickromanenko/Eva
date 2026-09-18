@@ -184,6 +184,28 @@ struct EvaSpecimenInputSection: View {
                 EvaSpecimenInputBorderTile(name: "Border · error", color: .evaError)
                 EvaSpecimenInputBorderTile(name: "Border · disabled", color: .evaInputBorderDisabled)
             }
+
+            EvaSpecimenGroupLabel(title: "Radio row")
+            EvaSpecimenNote(
+                text: "\(EvaSpecimenNumber.string(EvaMetrics.radioRowHeight)) min-height · "
+                    + "radius \(EvaSpecimenNumber.string(EvaRadius.radioRow)) · title over "
+                    + "description. Selected and unselected differ in the mark's shape — a "
+                    + "6pt annulus against a 1.5pt hairline — as well as in fill and border, "
+                    + "so §1's \"never colour alone\" holds at any tint. Built for the units "
+                    + "setting (#82); the artboard draws it for sport intensity too."
+            )
+            VStack(spacing: EvaSpacing.xs) {
+                EvaRadioRow(
+                    title: "Metric",
+                    detail: "Kilograms and centimeters",
+                    isSelected: true
+                ) {}
+                EvaRadioRow(
+                    title: "Imperial",
+                    detail: "Pounds, feet and inches",
+                    isSelected: false
+                ) {}
+            }
         }
     }
 }

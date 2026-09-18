@@ -489,6 +489,31 @@ class EvaUITestCase: XCTestCase {
     /// nothing here can dismiss a keyboard and quietly turn an unreachable footer into a
     /// reachable one. That the footer needs neither is asserted directly, in
     /// `testTheFooterStaysReachableWithTheKeyboardUp`.
+    ///
+    /// ## `isHittable` alone is not enough, and the way it fails is silent (#82)
+    ///
+    /// The loop used to stop as soon as `isHittable` was true. It is true for an element
+    /// that only *overhangs* the bottom of the window: XCUITest clamps the hit point into
+    /// the visible sliver, reports the element hittable, and then `tap()` sends the touch
+    /// to a point the tab bar is sitting on. Nothing errors — the tap lands, on the wrong
+    /// view — and the test fails several assertions later on a screen that never changed.
+    ///
+    /// That is exactly what #82 hit: one settings row on Profile pushed
+    /// `destructive.Delete profile` to `y 827…879` in an 874-point window, and
+    /// `DeleteAccountUITests` failed 3 runs in 3 with "the danger card did not open the
+    /// confirmation modal". The content scrolled perfectly well; nothing ever scrolled it.
+    ///
+    /// So the loop also runs while the element's `maxY` is past the window's. A swipe is
+    /// what fixes that case, and an element that genuinely cannot move any further falls
+    /// out after four and meets the same `isHittable` assertion it always did — so this
+    /// only ever adds scrolling, never a new way to fail.
+    ///
+    /// It does **not** also scroll to make an element *exist*. That is the neighbouring
+    /// hole, it is real — a `LazyVGrid`'s cells are absent from the hierarchy until the
+    /// scroll comes near them, which is why `chip.None` breaks `completeQuestionnaire` on
+    /// `main` since #211 — and it is not this branch's to close. Verified separately, not
+    /// assumed: `CalendarLoggingUITests` fails identically on `origin/main` at 73cf0d6
+    /// with none of #82 present.
     func scrollIntoView(
         _ element: XCUIElement,
         in app: XCUIApplication,
@@ -524,12 +549,8 @@ class EvaUITestCase: XCTestCase {
             "Missing element: \(element)", file: file, line: line
         )
         var swipes = 0
-        while !element.isHittable && swipes < 4 {
-            if column.exists {
-                column.swipeUp()
-            } else {
-                app.swipeUp()
-            }
+        while (!element.isHittable || element.frame.maxY > app.frame.maxY) && swipes < 4 {
+            swipeColumn(in: app)
             swipes += 1
         }
         XCTAssertTrue(
@@ -542,6 +563,19 @@ class EvaUITestCase: XCTestCase {
             """,
             file: file, line: line
         )
+    }
+
+    /// One swipe of the screen's scrolling column.
+    ///
+    /// The scroll view rather than the application, for the reason `scrollIntoView`
+    /// gives: a pinned footer takes `app.swipeUp()`'s drag and scrolls nothing.
+    private func swipeColumn(in app: XCUIApplication) {
+        let column = app.scrollViews.firstMatch
+        if column.exists {
+            column.swipeUp()
+        } else {
+            app.swipeUp()
+        }
     }
 
     /// Scrolls the element into view and taps its centre.
