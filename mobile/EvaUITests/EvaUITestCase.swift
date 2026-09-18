@@ -496,11 +496,33 @@ class EvaUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
+        let column = app.scrollViews.firstMatch
+
+        // **Existence can depend on scrolling, not just hittability.** A lazy container
+        // never instantiates its off-screen children, so an element below the fold is
+        // *absent from the hierarchy* rather than present and out of reach — and scrolling
+        // *to* an element cannot find one that does not exist yet.
+        //
+        // #211 is what taught this: it put the medication chips in a `LazyVGrid` on the
+        // health step, and eight of sixteen UI tests went red on `chip.None` while
+        // `chip.None of these` one section above — a plain `VStack` — resolved fine. Every
+        // account-creating suite runs `completeQuestionnaire`, so one absent chip read as
+        // something systemic.
+        //
+        // A short probe first so the common case stays fast, then swipes, then the full
+        // wait as the assertion. An element that is genuinely missing still fails, with the
+        // same message it failed with before.
+        if !element.waitForExistence(timeout: 1) {
+            var reveals = 0
+            while !element.exists && reveals < 4 {
+                if column.exists { column.swipeUp() } else { app.swipeUp() }
+                reveals += 1
+            }
+        }
         XCTAssertTrue(
             element.waitForExistence(timeout: timeout),
             "Missing element: \(element)", file: file, line: line
         )
-        let column = app.scrollViews.firstMatch
         var swipes = 0
         while !element.isHittable && swipes < 4 {
             if column.exists {
