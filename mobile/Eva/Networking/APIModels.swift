@@ -60,8 +60,14 @@ struct APIUser: Codable {
     }
 }
 
+/// `PUT /me/questionnaire`'s body.
+///
+/// **A date of birth, not an age** (#81): the API stores the date and derives the age, so a
+/// profile cannot go quietly stale between birthdays. `conditions` and `medications` carry
+/// `ProfileOption` codes, never the labels the chips draw. `timeZone` is not stored — the
+/// API uses it to resolve which day "today" is when it checks the 18+ floor.
 struct ProfilePayload: Codable {
-    let age: Int
+    let dateOfBirth: String
     let weightKg: Int
     let heightCm: Int
     let goals: [String]
@@ -69,6 +75,7 @@ struct ProfilePayload: Codable {
     let medications: String
     let lifestyle: String
     let sports: [String]
+    let timeZone: String
 }
 
 struct AuthResponse: Decodable {

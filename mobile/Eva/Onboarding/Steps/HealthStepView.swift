@@ -4,8 +4,9 @@ struct HealthStepView: View {
     @Bindable var model: OnboardingModel
     let onContinue: () -> Void
 
+    // Two columns, not three. The options name a medication now rather than answering
+    // yes/no (#81), and "Progestogen-only pill" does not fit a third of the width.
     private let medsColumns = [
-        GridItem(.flexible(), spacing: 10),
         GridItem(.flexible(), spacing: 10),
         GridItem(.flexible(), spacing: 10),
     ]
@@ -17,27 +18,27 @@ struct HealthStepView: View {
             sectionLabel("Any conditions we should know about?")
                 .padding(.top, 22)
             VStack(spacing: 10) {
-                ForEach(OnboardingModel.conditionOptions, id: \.self) { condition in
+                ForEach(OnboardingModel.conditionOptions) { condition in
                     ChipToggleButton(
-                        label: condition,
-                        isSelected: model.conditions.contains(condition)
+                        label: condition.label,
+                        isSelected: model.conditions.contains(condition.code)
                     ) {
-                        toggleCondition(condition)
+                        toggleCondition(condition.code)
                     }
                 }
             }
             .padding(.top, 12)
 
-            sectionLabel("Do you take medications affecting hormones?")
+            sectionLabel("Do you take any hormonal medication?")
                 .padding(.top, 24)
             LazyVGrid(columns: medsColumns, spacing: 10) {
-                ForEach(OnboardingModel.medicationOptions, id: \.self) { option in
+                ForEach(OnboardingModel.medicationOptions) { option in
                     ChipToggleButton(
-                        label: option,
-                        isSelected: model.medications == option,
+                        label: option.label,
+                        isSelected: model.medications == option.code,
                         isCentered: true
                     ) {
-                        model.medications = option
+                        model.medications = option.code
                     }
                 }
             }
@@ -51,14 +52,20 @@ struct HealthStepView: View {
             .foregroundStyle(Color.evaPlum)
     }
 
-    private func toggleCondition(_ condition: String) {
-        if model.conditions.contains(condition) {
-            model.conditions.remove(condition)
-        } else if condition == "None of these" {
-            model.conditions = [condition]
+    /// "None of these" is exclusive in both directions: choosing it clears the rest, and
+    /// choosing anything else clears it. It is a real answer rather than an empty list —
+    /// "I have none of these" and "I did not say" are different facts, which is why the API
+    /// keeps a `noneOfThese` code for it.
+    private static let noConditions = "noneOfThese"
+
+    private func toggleCondition(_ code: String) {
+        if model.conditions.contains(code) {
+            model.conditions.remove(code)
+        } else if code == Self.noConditions {
+            model.conditions = [code]
         } else {
-            model.conditions.remove("None of these")
-            model.conditions.insert(condition)
+            model.conditions.remove(Self.noConditions)
+            model.conditions.insert(code)
         }
     }
 }

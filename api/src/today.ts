@@ -643,6 +643,20 @@ export { PatternRuleUnsetError }
 export { CycleRulesUnsetError } from './cycle'
 
 /**
+ * Whole years from a date of birth to a date (#81), re-exported for the same reason the
+ * refusal above is: `parseProfile` enforces Eva's 18+ floor at the route edge and must
+ * measure the age exactly as `bandForAge` does, and `index.ts` reaches `cycle.ts` through
+ * this module or not at all.
+ *
+ * One implementation rather than two, because the two disagree. The spelling a route would
+ * reach for — subtract 18 from the year and compare — rolls 29 February forward into 1
+ * March, so on a leap day it admits somebody a day under the floor while the maths reads her
+ * as 17 and refuses to band her. Neither half decides the floor: each side declares its own,
+ * because one is a legal line and the other is a clinical band's edge.
+ */
+export { ageYearsOn } from './cycle'
+
+/**
  * The vocabulary `GET /me/cycle/predictions` answers in (#205), re-exported for the same
  * reason the refusal above is: the route reads C11's answers through this module, so the
  * confidence class and the withheld reason it puts on the wire are `cycle.ts`'s own names

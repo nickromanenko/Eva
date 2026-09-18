@@ -1,13 +1,66 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { firestore } from './firebase'
 
+/**
+ * Hormonal medication, as one opaque code (PRD §Sign Up, Profile fields 4; review §8 A8).
+ *
+ * **Codes, not labels, and permanent** — the rule `refdata.ts` states for its own
+ * catalogues, and for the same reason: the client renders a label, the document stores a
+ * code, and editing the wording must never be a data migration. A code is never reused for
+ * a different meaning.
+ *
+ * **One value, not a list.** The PRD's own list ends in "None", which a multi-select cannot
+ * hold without contradicting itself, and the field was already a single `string`. Widening
+ * it later is a migration; narrowing it now is not.
+ */
+export const MEDICATION_CODES = [
+  'combinedPill',
+  'progestogenOnlyPill',
+  'hormonalIud',
+  'implant',
+  'hrt',
+  'none',
+] as const
+
+export type MedicationCode = (typeof MEDICATION_CODES)[number]
+
+/** Conditions (PRD §Sign Up, Profile fields 5; A8), extended past the four the app shipped
+ *  with by Diabetes, Coeliac disease and Food allergies. Same rule as the medications above:
+ *  opaque, permanent, never reused. `noneOfThese` is a real answer and not an empty list —
+ *  "I have none of these" and "I did not say" are different facts. */
+export const CONDITION_CODES = [
+  'pcos',
+  'endometriosis',
+  'thyroidCondition',
+  'anaemia',
+  'diabetes',
+  'coeliacDisease',
+  'foodAllergies',
+  'noneOfThese',
+] as const
+
+export type ConditionCode = (typeof CONDITION_CODES)[number]
+
 export interface Profile {
-  age: number
+  /**
+   * The user's date of birth, `YYYY-MM-DD` — a calendar label, never an instant, exactly as
+   * an event's `localDate` is.
+   *
+   * **Stored; age is derived from it and never stored** (#81, A8): a stored age is wrong
+   * within a year of being written and wrong silently, and the one thing it is read for —
+   * `bandForAge` in `cycle.ts` — is a gate on whether a fertile window is drawn at all.
+   *
+   * It is also what Eva's 18+ floor (A12) is enforced against, at the route edge in
+   * `parseProfile` where the date is captured. Nothing here re-checks it: a document that
+   * carries a date of birth under 18 did not come through that route, and `bandForAge`
+   * refuses rather than guessing which of the two it is (#187).
+   */
+  dateOfBirth: string
   weightKg: number
   heightCm: number
   goals: string[]
-  conditions: string[]
-  medications: string
+  conditions: ConditionCode[]
+  medications: MedicationCode
   lifestyle: string
   sports: string[]
 }
@@ -36,14 +89,50 @@ const users = () => firestore.collection('users')
 const isActivatedData = (data: FirebaseFirestore.DocumentData): boolean =>
   data.activatedAt !== null
 
-const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => ({
-  id,
-  email: data.email,
-  questionnaireCompleted: data.questionnaireCompleted ?? false,
-  profile: data.profile ?? null,
-  authProviders: data.authProviders ?? [],
-  activated: isActivatedData(data),
-})
+/**
+ * The stored `profile` map read as *this* schema, or `null`.
+ *
+ * **This is #81's migration, and it is a read rather than a write.** Documents written
+ * before it carry `profile.age` and no `dateOfBirth`, and there is no date of birth
+ * derivable from an age — 28 is any of 366 days — so nothing is backfilled and nothing is
+ * deleted. A profile with no `dateOfBirth` is simply not a profile under this schema: it is
+ * served as none, `questionnaireCompleted` follows it (see `toUser`), and the app asks the
+ * four questionnaire steps again. Nobody is locked out and no date is invented.
+ *
+ * The stored document keeps its old `profile` map untouched until she answers, at which
+ * point `saveQuestionnaire` replaces the whole map and the legacy key goes with it. What
+ * this guarantees in the meantime is that `age` never leaves the API: it is dropped here,
+ * which is the one place every read passes through.
+ *
+ * `dateOfBirth` alone is the discriminator, deliberately. It is present on every document
+ * this schema writes and absent from every document it does not, so the test is exact —
+ * where "does every field still validate?" would quietly discard a profile the day an
+ * enumeration is extended.
+ */
+const storedProfile = (raw: unknown): Profile | null => {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const fields: Record<string, unknown> = { ...(raw as Record<string, unknown>) }
+  delete fields.age
+  return typeof fields.dateOfBirth === 'string' ? (fields as unknown as Profile) : null
+}
+
+const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => {
+  const profile = storedProfile(data.profile)
+  return {
+    id,
+    email: data.email,
+    // **Derived, not just read** (#81). A pre-migration document says `true` over a profile
+    // this schema cannot serve, and the app routes on this flag alone — so reporting it
+    // verbatim would leave that account permanently without a date of birth, which is
+    // permanently un-age-verified and permanently on the tightest irregularity band. The
+    // stored flag is untouched; what changes is what it is worth without a profile to go
+    // with it.
+    questionnaireCompleted: (data.questionnaireCompleted ?? false) && profile !== null,
+    profile,
+    authProviders: data.authProviders ?? [],
+    activated: isActivatedData(data),
+  }
+}
 
 /** gRPC NOT_FOUND — the document the write was aimed at is not there. */
 const NOT_FOUND = 5

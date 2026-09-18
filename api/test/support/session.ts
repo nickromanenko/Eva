@@ -106,3 +106,42 @@ export const createLegacyAccount = async (email: string, password: string): Prom
     });
     return uid;
 };
+
+/**
+ * An activated account whose profile is the shape every one written before #81 has:
+ * `profile.age`, no `dateOfBirth`, and `questionnaireCompleted: true`.
+ *
+ * Written directly, for `createLegacyAccount`'s reason — nothing in `src/` can produce that
+ * shape any more, which is the point of having it. It is the fixture #81's migration answer
+ * is asserted against: there is no date of birth derivable from an age, so nothing is
+ * backfilled and nothing is deleted, and what has to be true is that the account still opens
+ * and the questionnaire is asked again.
+ */
+export const createPreDateOfBirthAccount = async (
+    email: string,
+    password: string,
+): Promise<string> => {
+    const { uid } = await adminAuth.createUser({ email, password, emailVerified: true });
+    await firestore
+        .collection("users")
+        .doc(uid)
+        .set({
+            email,
+            authProviders: ["password"],
+            questionnaireCompleted: true,
+            profile: {
+                age: 28,
+                weightKg: 64,
+                heightCm: 168,
+                goals: ["Energy"],
+                conditions: ["None of these"],
+                medications: "No",
+                lifestyle: "Active",
+                sports: ["Yoga"],
+            },
+            activatedAt: FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+    return uid;
+};

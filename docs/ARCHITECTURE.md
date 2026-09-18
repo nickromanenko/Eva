@@ -111,16 +111,19 @@ Firestore document.
 
 `cycle.ts` (C11, #176) is a leaf on the same terms, and shares vocabulary the same way: its
 two imports are `import type`, one from `dashboard-rules.ts` for the `CycleEstimate` D1
-consumes and one from `users.ts` for the `Profile` the age band is read from. Neither exists
+consumes and one from `users.ts` for the `Profile` the age band is derived from. Neither exists
 at runtime, so the maths still reaches nothing — the caller reads the flow entries and hands
 them in, which is what makes "recomputed on every edit to a flow entry, never a nightly
 batch" a property of the design rather than a job. Producing D1's shape rather than a parallel
 one is the same mechanism as sharing `Slot`: the ≥3-cycle gate and the irregularity band have
 exactly one definition, so the number the Today card speaks from cannot drift from the number
-the calendar draws. `today.ts` carries one *value* import from it — `CycleRulesUnsetError`,
+the calendar draws. `today.ts` carries two *value* imports from it. `CycleRulesUnsetError` is
 re-exported so the route can map that refusal to a 503 rather than letting it fall through to
-`app.onError` as a 500. It is a downward call to a leaf, the same shape as
-`today.ts → dashboard-rules.ts`, and it costs nothing at runtime.
+`app.onError` as a 500. `ageYearsOn` is re-exported for a different reason (#81): `parseProfile`
+enforces the 18+ floor at the route edge and has to measure an age exactly as `bandForAge`
+does, and a second implementation of that is not a theoretical drift — the spelling a route
+would reach for disagrees with this one on 29 February. Both are downward calls to a leaf, the
+same shape as `today.ts → dashboard-rules.ts`, and they cost nothing at runtime.
 
 **There is one import that points the other way**, and it is worth stating because the rule
 above forbids it in general: `config.ts` imports `cycleRulesProblem` from `cycle.ts`. Those
@@ -831,9 +834,35 @@ about it: `null` means the address has not been confirmed, a timestamp means it 
 **absent means confirmed too** — every document written before #6 lacks the field and those
 accounts must keep signing in. A truthiness test would lock them out.
 
-`Profile` is validated at the edge in `parseProfile` (`index.ts`) with hard ranges:
-age 13–99, weight 30–200 kg, height 120–220 cm. Widening a range is a product
-decision, not a bug fix.
+`Profile` is validated at the edge in `parseProfile` (`index.ts`): weight 30–200 kg,
+height 120–220 cm, `medications` one of `MEDICATION_CODES` and `conditions` a list drawn
+from `CONDITION_CODES` (both in `users.ts` — opaque, permanent codes, the rule `refdata.ts`
+follows and for the same reason). Widening a range or adding a code is a product decision,
+not a bug fix; changing an existing code is a data migration.
+
+**The profile stores a date of birth; the age is derived and never stored** (#81, A8). A
+stored age is wrong within a year of being written and wrong silently, and the one thing it
+is read for — `bandForAge` in `cycle.ts`, the FIGO irregularity band — is a gate on whether
+a fertile window is drawn at all. `dateOfBirth` is a `YYYY-MM-DD` calendar label, never an
+instant, exactly as an event's `localDate` is.
+
+**Eva is 18+** (A12), enforced in `parseProfile` against the caller's own day — the route
+takes the same optional `timeZone` the calendar routes do, and without one measures against
+the earliest day it could currently be anywhere, so a missing zone can delay somebody's
+eighteenth birthday by a day but never admit a seventeen-year-old. The floor stays at the
+point the date is captured even after #19 moves the rest of the questionnaire into Profile:
+it gates the account, not the personalisation. `cycle.ts` holds the other half — an age
+below the floor **throws** (`ImpossibleAgeError`) rather than falling back to a band, which
+is the one place in that module where an unusable age is not read as unknown. The asymmetry
+is deliberate and argued where it lives: absent is a fact we do not have, and under-18 is a
+fact that contradicts a check that ran.
+
+**Documents written before #81 carry `profile.age`, and nothing rewrites them.** There is no
+date of birth derivable from an age, so the migration is a read: `users.ts` drops the legacy
+key, serves a profile with no `dateOfBirth` as no profile at all, and reports
+`questionnaireCompleted` as false over it — so the app asks the four steps again and the 18+
+floor is applied to the answer. The account still opens and nothing is deleted; the stored
+map is replaced the next time she saves the questionnaire.
 
 `authTokens/{sha256(token)}` — the activation and password-reset links (#6). Top-level
 rather than under `users/`, because the document is looked up by the token alone, before

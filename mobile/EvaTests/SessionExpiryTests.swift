@@ -317,9 +317,9 @@ struct SessionExpiryTests {
         }
 
         static let profile = ProfilePayload(
-            age: 30, weightKg: 60, heightCm: 165,
-            goals: ["Energy"], conditions: [], medications: "",
-            lifestyle: "Active", sports: ["Yoga"]
+            dateOfBirth: "1996-03-14", weightKg: 60, heightCm: 165,
+            goals: ["Energy"], conditions: ["noneOfThese"], medications: "none",
+            lifestyle: "Active", sports: ["Yoga"], timeZone: "UTC"
         )
     }
 }

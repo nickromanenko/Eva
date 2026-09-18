@@ -370,7 +370,7 @@ class EvaUITestCase: XCTestCase {
         tap(app.buttons["chip.Energy"], in: app)          // goals
         tap(app.buttons["primary.Continue"], in: app)
         tap(app.buttons["chip.None of these"], in: app)   // health
-        tap(app.buttons["chip.No"], in: app)
+        tap(app.buttons["chip.None"], in: app)            // hormonal medication (#81)
         tap(app.buttons["primary.Continue"], in: app)
         tap(app.buttons["chip.Active"], in: app)          // lifestyle
         tap(app.buttons["chip.Yoga"], in: app)

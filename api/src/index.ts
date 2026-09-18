@@ -61,6 +61,7 @@ import {
     CycleRulesUnsetError,
     PatternRuleUnsetError,
     TemplateUnavailableError,
+    ageYearsOn,
     cycleAnalysisFor,
     deleteAllUserToday,
     getToday,
@@ -68,6 +69,8 @@ import {
     type EstimateWithheld,
 } from "./today";
 import {
+    CONDITION_CODES,
+    MEDICATION_CODES,
     deleteUserDocument,
     ensureUser,
     getUser,
@@ -76,6 +79,7 @@ import {
     markUserDeleted,
     readUser,
     saveQuestionnaire,
+    type ConditionCode,
     type Profile,
     type User,
 } from "./users";
@@ -1511,26 +1515,60 @@ app.delete("/me", requireAuth, async (c) => {
 
 app.put("/me/questionnaire", requireAuth, requireAccount, async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const profile = parseProfile(body);
-    if (!profile)
-        return c.json(
-            error("VALIDATION", "Invalid questionnaire payload"),
-            400,
-        );
+    // The caller's own day, the way every calendar route resolves it, because the 18+ floor
+    // is measured against it: UTC-12..UTC+14 means the server's date is a different day from
+    // hers for several hours out of every twenty-four, and a birthday is exactly the kind of
+    // boundary that falls in them. `timeZone` is optional here as it is there.
+    const clock = resolveClock(body.timeZone);
+    if (!clock.ok) return c.json(error(clock.code, clock.message), 400);
+    const profile = parseProfile(body, clock.value);
+    if (!profile.ok) return c.json(error(profile.code, profile.message), 400);
 
-    const user = await saveQuestionnaire(c.get("claims").sub, profile);
+    const user = await saveQuestionnaire(c.get("claims").sub, profile.value);
     if (!user) return c.json(error("UNAUTHORIZED", "User not found"), 401);
     return c.json({ user });
 });
 
-const parseProfile = (body: Record<string, unknown>): Profile | null => {
+/**
+ * Eva's account floor, in years (A12, decided on #81).
+ *
+ * Enforced here, where the date of birth is captured, and **enforced here even after #19
+ * moves the rest of the questionnaire into Profile** — it is the one question that cannot
+ * move with the others, because it gates the account rather than the personalisation.
+ *
+ * `cycle.ts` declares the same number as the floor `bandForAge` refuses under. It cannot be
+ * one constant: that module imports only types, which is what keeps it pure and testable
+ * against fixtures, and a runtime import from here would be a cycle as well as a boundary
+ * violation. `the account floor is one number` in `cycle.test.ts` reads both files and pins
+ * them equal instead, so the two cannot drift silently.
+ */
+const MIN_ACCOUNT_AGE_YEARS = 18;
+
+/** Membership in one of `users.ts`' profile enumerations, narrowing to the code union. */
+const isOneOf = <T extends string>(value: unknown, codes: readonly T[]): value is T =>
+    typeof value === "string" && (codes as readonly string[]).includes(value);
+
+/**
+ * The questionnaire payload, validated (#81).
+ *
+ * **`dateOfBirth`, never `age`.** A stored age is wrong within a year of being written and
+ * wrong silently, and the thing it feeds — the FIGO irregularity band — decides whether a
+ * fertile window is drawn at all. An `age` key is refused outright rather than ignored: a
+ * client still sending one is a client that has not been updated, and accepting the rest of
+ * its payload would write a profile with no date of birth in it.
+ *
+ * **No message repeats what was sent.** Every refusal below names the field and the rule,
+ * never the value — a date of birth, a condition and a medication are all profile contents,
+ * and an error body is as readable as a log line (GUARDRAILS 12).
+ */
+const parseProfile = (body: Record<string, unknown>, clock: Clock): Parsed<Profile> => {
     const isStringArray = (v: unknown): v is string[] =>
         Array.isArray(v) && v.every((x) => typeof x === "string");
     const inRange = (v: unknown, min: number, max: number): v is number =>
         typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
 
     const {
-        age,
+        dateOfBirth,
         weightKg,
         heightCm,
         goals,
@@ -1539,28 +1577,58 @@ const parseProfile = (body: Record<string, unknown>): Profile | null => {
         lifestyle,
         sports,
     } = body;
-    if (
-        !inRange(age, 13, 99) ||
-        !inRange(weightKg, 30, 200) ||
-        !inRange(heightCm, 120, 220) ||
-        !isStringArray(goals) ||
-        !isStringArray(conditions) ||
-        typeof medications !== "string" ||
-        typeof lifestyle !== "string" ||
-        !isStringArray(sports)
-    ) {
-        return null;
+
+    if ("age" in body) {
+        return bad("age is no longer accepted; send dateOfBirth instead");
     }
-    return {
-        age,
+    if (!isCalendarDate(dateOfBirth)) {
+        return bad("dateOfBirth must be a YYYY-MM-DD calendar date");
+    }
+    // Slack in the strict direction, and only when the caller did not name its zone. A day
+    // of tolerance is what the calendar routes give a *logged date* so an entry is never
+    // refused for the server's idea of today; extending the same courtesy here would admit
+    // somebody a day short of 18 whenever a client forgets to say where it is. So the age is
+    // measured against the earliest day it could currently be anywhere — she is 18 in every
+    // zone, or she waits a day. A client that sends `timeZone` gets the exact boundary.
+    const asOf = shiftDays(clock.today, -clock.slackDays);
+    if (dateOfBirth > asOf) {
+        return bad("dateOfBirth cannot be in the future");
+    }
+    if (ageYearsOn(dateOfBirth, asOf) < MIN_ACCOUNT_AGE_YEARS) {
+        return bad(`You must be ${MIN_ACCOUNT_AGE_YEARS} or over to use Eva`);
+    }
+
+    if (!inRange(weightKg, 30, 200)) return bad("weightKg must be 30–200");
+    if (!inRange(heightCm, 120, 220)) return bad("heightCm must be 120–220");
+    if (!isStringArray(goals)) return bad("goals must be a list of strings");
+    if (typeof lifestyle !== "string") return bad("lifestyle must be a string");
+    if (!isStringArray(sports)) return bad("sports must be a list of strings");
+
+    // The two enumerated fields (A8). Codes, not labels — `users.ts` says why — so an
+    // unrecognised value is a client sending a vocabulary this version does not have, which
+    // is a 400 and not something to store and puzzle over later.
+    if (!isOneOf(medications, MEDICATION_CODES)) {
+        return bad(`medications must be one of: ${MEDICATION_CODES.join(", ")}`);
+    }
+    if (!isStringArray(conditions)) return bad("conditions must be a list of strings");
+    const conditionCodes: ConditionCode[] = [];
+    for (const value of conditions) {
+        if (!isOneOf(value, CONDITION_CODES)) {
+            return bad(`conditions must be a list of: ${CONDITION_CODES.join(", ")}`);
+        }
+        conditionCodes.push(value);
+    }
+
+    return good({
+        dateOfBirth,
         weightKg,
         heightCm,
         goals,
-        conditions,
+        conditions: conditionCodes,
         medications,
         lifestyle,
         sports,
-    };
+    });
 };
 
 // ── Reference data ─────────────────────────────────────────────────────────────
