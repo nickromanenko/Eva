@@ -437,6 +437,24 @@ final class CalendarLoggingUITests: EvaUITestCase {
 
     /// Opens the log picker from the calendar's floating button, waiting out whatever
     /// toast the previous step left over it.
+    ///
+    /// **Through `tap(_:in:)` rather than `XCUIElement.tap()`.** This was the one call site
+    /// in the target that tapped bare, and a bare tap is the gap #82 and #214 closed
+    /// everywhere else: it sends a touch to wherever the last snapshot put the element,
+    /// having asserted nothing about whether the element can actually receive one. The
+    /// shared helper checks `isHittable` and the window's bottom edge first. On this screen
+    /// the FAB is always hittable and well clear of the bar — measured at
+    /// `(356, 782, 60, 60)` in a 440×956 window, 16pt above a bar that starts at 858 — so
+    /// the helper does no scrolling here. What it adds is the assertion, and a failure that
+    /// names an unreachable button instead of one that says the sheet did not open.
+    ///
+    /// **The failure carries the screen with it (#192).** "Tapping Log did not open the
+    /// picker sheet" says what did not happen and nothing about why, and the state that
+    /// would answer it — where the button was, which tab ended up selected, whether the
+    /// calendar had finished loading — is gone by the time anyone reads a CI log. The
+    /// accessibility snapshot XCTest captures on failure goes into an xcresult that
+    /// `test-mobile.yml` does not upload, so on CI there is nothing to read at all. That
+    /// cost this issue two days, and `pickerFailure` is what it should have said.
     private func openPicker(
         _ app: XCUIApplication,
         file: StaticString = #filePath,
@@ -452,11 +470,44 @@ final class CalendarLoggingUITests: EvaUITestCase {
             "The Log button is still disabled — C2 is what turns it on",
             file: file, line: line
         )
-        button.tap()
+        tap(button, in: app, file: file, line: line)
         XCTAssertTrue(
             app.staticTexts["log.targetDay"].waitForExistence(timeout: 10),
-            "Tapping Log did not open the picker sheet", file: file, line: line
+            "Tapping Log did not open the picker sheet.\n\(pickerFailure(app, button))",
+            file: file, line: line
         )
+    }
+
+    /// What was on screen when the picker did not open.
+    ///
+    /// Three questions, because #192 could not answer any of them from a CI log and each
+    /// points at a different bug. **Did the touch land somewhere else** — the FAB is the
+    /// trailing-most control above the bar, so a tap that missed low lands on Profile, and
+    /// `tapOnCalendar` records that exact thing happening once already. **Was the button
+    /// where the test thought it was** — its frame against the window's, which is what
+    /// #214's clamping trap hides. **Had the calendar finished loading** — `calendar.empty`
+    /// needs `hasHistory`, which is `nil` until the first read answers, so neither it nor
+    /// the summary being on screen means the load is still in flight.
+    ///
+    /// Matched on identifier through `descendants(matching: .any)` rather than by element
+    /// type, the way `entryRow` and `firstChip` do: a diagnostic that reports `false`
+    /// because it guessed `otherElements` for a `staticText` is worse than no diagnostic.
+    private func pickerFailure(_ app: XCUIApplication, _ button: XCUIElement) -> String {
+        func onScreen(_ identifier: String) -> Bool {
+            app.descendants(matching: .any).matching(identifier: identifier).firstMatch.exists
+        }
+        let selected = ["home", "calendar", "profile"]
+            .first { app.buttons["tab.\($0)"].isSelected } ?? "none"
+        return """
+          Log button:   \(button.frame) hittable=\(button.isHittable) \
+        enabled=\(button.isEnabled)
+          window:       \(app.frame)
+          selected tab: \(selected) — "profile" means the touch landed on the tab bar
+          calendar:     grid=\(onScreen("calendar.grid")) \
+        loaded=\(onScreen("calendar.empty") || onScreen("calendar.summary")) \
+        loadError=\(onScreen("calendar.loadError"))
+          log sheet:    \(onScreen("log.sheet"))
+        """
     }
 
     // MARK: - Elements
