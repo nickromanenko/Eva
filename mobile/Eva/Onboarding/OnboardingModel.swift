@@ -63,8 +63,13 @@ final class OnboardingModel {
     // sports, meds). `conditions` and `medications` hold **codes**, not the labels drawn on
     // the chips — see `ProfileOption`.
     var dateOfBirth = OnboardingModel.defaultDateOfBirth
-    var weightKg = 64
-    var heightCm = 168
+    // **The canonical units, whatever the device is set to show** (#82). A weight typed as
+    // 150 lb is stored here as 68.04, and switching the setting changes the screen and not
+    // this. `Double` rather than `Int` because a kilogram is 2.2 lb: at whole kilograms,
+    // 150 lb and 151 lb are the same stored number and both come back as 150. See
+    // `EvaBodyUnits`.
+    var weightKg = 64.0
+    var heightCm = 168.0
     var goals: Set<String> = []
     var conditions: Set<String> = []
     var medications: String?

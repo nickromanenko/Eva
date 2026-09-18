@@ -87,9 +87,11 @@ struct DateOfBirthCard: View {
 }
 
 #Preview("Date of birth") {
+    @Previewable @State var kilograms = 64.0
+
     VStack(spacing: 14) {
         DateOfBirthCard(value: .constant(.now), errorMessage: OnboardingModel.minimumAgeMessage)
-        StepperCard(title: "Weight · kg", value: .constant(64), range: 30...200)
+        WeightEntryCard(kilograms: $kilograms, system: .metric)
     }
     .padding()
     .background(LinearGradient.evaScreenBackground)

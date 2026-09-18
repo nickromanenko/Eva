@@ -38,6 +38,9 @@ import SwiftUI
 struct ProfileView: View {
 
     let session: AppSession
+    /// The device's units setting (#82). The artboard's `Eva experience ▸ Units` row is
+    /// the first settings row this screen has, and the first piece of #19 to land here.
+    let units: EvaUnitPreference
 
     @State private var isConfirmingDeletion = false
 
@@ -54,6 +57,7 @@ struct ProfileView: View {
 
                     identityCard
                     connectedAccountsCard
+                    evaExperienceSection
                     logOutCard
                     dangerZone
                         // The artboard sets the danger zone further off than it sets the
@@ -196,6 +200,25 @@ struct ProfileView: View {
         return EvaAuthProvider.allCases.filter { !user.isConnected($0) }
     }
 
+    /// The artboard's **Eva experience** section, with the one row #82 builds.
+    ///
+    /// The section title, the row label and its meta line are the artboard's own strings.
+    /// Everything else in the section — Pregnancy Mode, Language, Personalization,
+    /// Content preferences — is #19; this is the shape they slot into, not a detour
+    /// around it.
+    private var evaExperienceSection: some View {
+        ProfileSettingsSection(title: "Eva experience") {
+            ProfileSettingsRow(
+                label: "Units",
+                meta: "Follows your region by default",
+                value: units.system.title,
+                identifier: "profile.units"
+            ) {
+                UnitsSettingsView(units: units)
+            }
+        }
+    }
+
     /// Log out, in the artboard's own shape: a 52-high row filling a glass card of its
     /// own, label in the 14/600 row, left-aligned, no chevron.
     ///
@@ -263,6 +286,6 @@ struct ProfileView: View {
 
 #Preview("Profile") {
     NavigationStack {
-        ProfileView(session: AppSession())
+        ProfileView(session: AppSession(), units: EvaUnitPreference())
     }
 }

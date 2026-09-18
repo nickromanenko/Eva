@@ -154,7 +154,11 @@ Destructive-confirmed stays disabled until `DELETE` is typed.
 - **Toggle**: 52×32, pistachio gradient when on.
 - **Checkbox**: 22×22, radius 7, `#C95F86` when checked.
 - **Radio row**: min-height 56, radius 18, title + description, selected fill
-  `rgba(233,130,165,.14)` with `rgba(201,95,134,.45)` border.
+  `rgba(233,130,165,.14)` with `rgba(201,95,134,.45)` border. **Built as `EvaRadioRow` in
+  #82**, where the units setting needed a single-choice list. The marks are the artboard's
+  and not §6's prose: a 20×20 circle with a 6pt `#C95F86` annulus when selected and a
+  1.5pt `rgba(40,33,38,.25)` hairline when not, so the two states differ in shape as well
+  as in tint. The description takes Input helper (12/18) — the scale has no 11.5 row.
 - **Chips**: min-height 44, radius 14. Default glass · selected pink gradient ·
   severe solid `#C95F86` with a bar glyph · disabled muted.
 - **Five-point scale**: five 54-high cells, each an emoji with a word (Depleted · Low ·
@@ -302,6 +306,14 @@ field in error drew the message under the 7% disabled hairline with no ring at a
 which is the artboard's own value in that cell (`#C8BFC3`). It previously had no disabled
 appearance: `.plain` faded the action pink to half, so the colour was a side effect of the
 button style rather than a chosen ink.
+
+**Settings-row meta and value take Secondary Text, where the artboard draws Muted.**
+`#9A9095` measures **2.96:1** on the warm background, against the 4.5:1 WCAG 2.1 SC 1.4.3
+asks of normal text; Secondary Text measures 5.37:1. Same deviation and same reason as
+the input placeholder above — the row's meta line is informative text, not a placeholder,
+so it is the more clear-cut of the two. The row's chevron keeps the artboard's `#C8BFC3`:
+it is a mark, not text, and the row is announced as a button with or without it. (#82,
+`ProfileSettingsRow`.)
 
 **Display** is 46/56 — see §3.
 

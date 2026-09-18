@@ -98,7 +98,9 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar |
 | `Eva/Calendar/` | `CalendarView`, the month grid, the event model and its glyphs, the prediction overlay (#206) and the summary card |
 | `Eva/Calendar/Logging/` | The log picker sheet and its four forms, the write payloads, the date policy |
-| `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field |
+| `Eva/Units/` | The units setting (#82): `EvaUnitSystem`, `EvaUnitPreference`, and the conversion boundary — SI in, feet/inches and stones/pounds out |
+| `Eva/Profile/` | `ProfileView`, the delete modal, and the settings rows it carries — `Eva experience ▸ Units` is the first |
+| `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field, radio row |
 | `Eva/Theme/Specimen/` | DEBUG-only design specimen — see above |
 | `EvaUITests/` | XCUITest — sign-up → activation gate → questionnaire → the tab bar |
 
@@ -122,6 +124,11 @@ Adding a token or a component means adding it to the specimen too.
 - UI tests reach an activated account through `signUpAndActivate`, which asks the
   loopback mailbox `scripts/verify-mobile.sh` starts. Do not add an app-side way to skip
   the gate.
+- **Body measurements are stored in SI and converted only at the edge** (#82,
+  ARCHITECTURE §5). `weightKg` is kilograms and `heightCm` is centimeters whatever the
+  units setting says; nothing persisted may depend on a display preference. Conversion
+  goes through `EvaBodyUnits`, and a compound unit is two fields — feet *and* inches,
+  stones *and* pounds — never one decimal.
 - Use the tokens and components in DESIGN.md. No literal hex, no ad-hoc font sizes,
   no second primary button.
 - User-facing strings follow the voice rules in DESIGN.md §8 — no diagnosis, no false

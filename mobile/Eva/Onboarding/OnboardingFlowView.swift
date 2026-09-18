@@ -10,9 +10,14 @@ import SwiftUI
 struct OnboardingFlowView: View {
     @State private var model = OnboardingModel()
     let session: AppSession
+    /// Which units the questionnaire's body metrics are typed in (#82). Passed the way
+    /// `session` is rather than put in the environment — this app hands its state down
+    /// explicitly, and one screen needing it is not a reason to change that.
+    let units: EvaUnitPreference
 
-    init(session: AppSession) {
+    init(session: AppSession, units: EvaUnitPreference) {
         self.session = session
+        self.units = units
         // Returning user with an unfinished questionnaire lands directly on it.
         if session.state == .needsQuestionnaire {
             _model = State(initialValue: {
@@ -101,7 +106,7 @@ struct OnboardingFlowView: View {
                 onBackToLogIn: model.back
             )
         case .aboutYou:
-            AboutYouStepView(model: model, onContinue: model.next)
+            AboutYouStepView(model: model, units: units, onContinue: model.next)
         case .goals:
             GoalsStepView(model: model, onContinue: model.next)
         case .health:
@@ -199,5 +204,5 @@ struct OnboardingFlowView: View {
 }
 
 #Preview {
-    OnboardingFlowView(session: AppSession())
+    OnboardingFlowView(session: AppSession(), units: EvaUnitPreference())
 }

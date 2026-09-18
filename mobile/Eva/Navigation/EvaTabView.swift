@@ -20,6 +20,8 @@ import SwiftUI
 struct EvaTabView: View {
 
     let session: AppSession
+    /// Passed through to Profile, where the Units row lives (#82).
+    let units: EvaUnitPreference
 
     /// Tab selection, plus the one request a tab can make of another: the Today card's
     /// `Log now` opens the calendar's picker. See `EvaTabRouter`.
@@ -57,7 +59,7 @@ struct EvaTabView: View {
         case .profile:
             // A stack of its own, so #19's settings detail screens push inside the tab
             // the way the canvas draws them.
-            NavigationStack { ProfileView(session: session) }
+            NavigationStack { ProfileView(session: session, units: units) }
         }
     }
 }
@@ -177,5 +179,5 @@ struct EvaTabBar: View {
 }
 
 #Preview {
-    EvaTabView(session: AppSession())
+    EvaTabView(session: AppSession(), units: EvaUnitPreference())
 }

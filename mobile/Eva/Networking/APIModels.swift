@@ -68,8 +68,13 @@ struct APIUser: Codable {
 /// API uses it to resolve which day "today" is when it checks the 18+ floor.
 struct ProfilePayload: Codable {
     let dateOfBirth: String
-    let weightKg: Int
-    let heightCm: Int
+    /// SI, always — the device converts at the edge and never stores what it displayed
+    /// (#82, `EvaBodyUnits`). `Double` because whole kilograms cannot represent a pound:
+    /// `parseProfile` has always validated these as finite numbers in a range rather than
+    /// as integers, and `JSONEncoder` writes a whole `Double` as `64`, so a metric entry
+    /// sends the bytes it always sent.
+    let weightKg: Double
+    let heightCm: Double
     let goals: [String]
     let conditions: [String]
     let medications: String

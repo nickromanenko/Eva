@@ -1315,6 +1315,7 @@ adding it to the delete is the way health-adjacent identifiers outlive their own
 | `Navigation/` | `EvaTabView` and `EvaTabBar` — the signed-in shell — and `EvaTabRouter`, which holds the tab selection and the one request a tab makes of another |
 | `Home/` | The Dashboard's Home tab (#99, D4): `HomeModel` and its `TodayCardSource`, `EvaTodayCard` (the `GET /me/today` wire types), `TodayCardView` in its four tones, the header and the offline bar |
 | `Calendar/` | `CalendarModel` and its `CalendarEventSource`, the month grid and its marks, and the prediction overlay (#206): `EvaCyclePredictions` (the `GET /me/cycle/predictions` wire types) with `EvaPredictionOverlay`, the dashed-and-patterned `EvaPredictionMark`, and the summary card |
+| `Units/` | The units setting (#82): `EvaUnitSystem`, `EvaUnitPreference`, and the conversion boundary — `EvaBodyUnits`, `EvaBodyRange`, `EvaMassInput`, `EvaHeightInput` |
 | `Theme/` | Colors, gradients, `PrimaryButton`, progress style — see [DESIGN.md](DESIGN.md) |
 
 **The Home tab reads through a protocol, not through `AppSession` directly.**
@@ -1326,6 +1327,39 @@ engine talks to the API" — with `AppSession` standing in as its only implement
 `AppSession.State` (`loading → signedOut | needsQuestionnaire | ready | unreachable`)
 drives the root view. **The server is the source of truth for `questionnaireCompleted`** — never
 reintroduce a local `@AppStorage` flag for it.
+
+### The canonical unit: SI, always (#82)
+
+**Every body measurement Eva stores is metric — `weightKg` in kilograms, `heightCm` in
+centimeters — whatever the device is set to display.** The units setting
+(`EvaUnitPreference`) decides what a screen draws and what an entry control hands back,
+and nothing else. It is a device preference in `UserDefaults`, not a field on
+`users/{uid}`; a second device does not follow it yet, and moving it onto the account
+(the canvas' "account preference") is an always-human schema gate that should ride with
+the A8/A12 change rather than open the document twice.
+
+**No stored value may depend on a display preference.** If one did, changing the setting
+would rewrite history — a weight logged as 150 lb would become 150 kg — and the rewrite
+would be invisible, because the wrong number is a plausible number. So conversion is a
+**boundary**: `EvaBodyUnits` holds two functions per quantity, one each way, and they are
+the only place in the app where SI meets imperial.
+
+Two consequences worth stating, because both look like details and are not:
+
+* **The canonical value is a `Double`, not an `Int`.** A kilogram is 2.2 lb, so at whole
+  kilograms 150 lb and 151 lb are the same stored number and both come back as 150.
+  Stored values land on a 0.01 kg / 0.1 cm grid, which is fine enough that every pound
+  and every inch round-trips exactly and coarse enough that nothing drifts across edits.
+  The wire format did not change: `parseProfile` has always validated these as finite
+  numbers in a range rather than as integers, and `JSONEncoder` writes a whole `Double`
+  as `64`, so a metric profile sends the bytes it always sent.
+* **A compound unit is two fields.** Feet and inches, stones and pounds — never one
+  decimal. `5.75` for 5'9" is how a height silently becomes wrong by two inches
+  ([LAUNCH.md](LAUNCH.md) §4.2).
+
+`EvaBodyRange` derives the imperial input ranges from §4's SI ranges (30–200 kg,
+120–220 cm) by rounding inward, so an imperial control can never reach a value the
+server would refuse with a message in kilograms.
 
 ### Apple and Google, without an SDK and without a Firebase token (#7)
 

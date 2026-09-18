@@ -8,6 +8,9 @@ import SwiftUI
 /// `bootstrap()` on appear.
 struct EvaRootView: View {
     let session: AppSession
+    /// The device's units setting (#82). Owned by `EvaApp` for the same reason `session`
+    /// is: one instance for the app, handed to the two screens that read it.
+    let units: EvaUnitPreference
 
     var body: some View {
         Group {
@@ -17,9 +20,9 @@ struct EvaRootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(LinearGradient.evaScreenBackground.ignoresSafeArea())
             case .signedOut, .needsQuestionnaire:
-                OnboardingFlowView(session: session)
+                OnboardingFlowView(session: session, units: units)
             case .ready:
-                EvaTabView(session: session)
+                EvaTabView(session: session, units: units)
             case .unreachable:
                 UnreachableView(session: session)
             }
@@ -29,5 +32,5 @@ struct EvaRootView: View {
 }
 
 #Preview {
-    EvaRootView(session: AppSession())
+    EvaRootView(session: AppSession(), units: EvaUnitPreference())
 }

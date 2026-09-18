@@ -224,6 +224,22 @@ extension Color {
     static let evaChipSevere = Color(hex: 0x7E3B58)
     /// `rgba(248,243,240,.8)` — disabled chip fill; label is `evaDisabledText`.
     static let evaChipFillDisabled = Color(hex: 0xF8F3F0).opacity(0.8)
+
+    // MARK: Radio row (§6)
+    //
+    // The design-system artboard draws the selected and unselected rows in full:
+    // `background:rgba(233,130,165,.14);border:1px solid rgba(201,95,134,.45)` selected,
+    // `background:rgba(255,255,255,.66);border:1px solid rgba(255,255,255,.9)` not.
+
+    /// Radio row, selected fill — `rgba(233,130,165,.14)`.
+    static let evaRadioSelectedFill = Color.evaPrimaryPink.opacity(0.14)
+    /// Radio row, selected border — `rgba(201,95,134,.45)`.
+    static let evaRadioSelectedBorder = Color.evaDeepPink.opacity(0.45)
+    /// Radio row, unselected border — `rgba(255,255,255,.9)`. The fill is
+    /// `evaGlassSurface`, which is already the artboard's `rgba(255,255,255,.66)`.
+    static let evaRadioBorder = Color.white.opacity(0.9)
+    /// The unselected mark's ring — `rgba(40,33,38,.25)`.
+    static let evaRadioMarkBorder = Color.evaPrimaryText.opacity(0.25)
 }
 
 // MARK: - Action pink — the ramp that carries a white label
