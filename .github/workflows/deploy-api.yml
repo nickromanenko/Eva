@@ -68,10 +68,39 @@ jobs:
             echo "::error::APPLE_CLIENT_ID, APPLE_TEAM_ID and APPLE_KEY_ID must be set together or not at all ($apple_set of 3 set); Apple token revocation would be silently disabled"
             exit 1
           fi
+          # The two clinical-constant groups (#191). Both are all-or-nothing at boot, so a
+          # missing one is loud — but *absent* is silent and looks identical to working:
+          # with no DASHBOARD_PATTERN_*, `patternRung` throws on its first statement and
+          # `GET /me/today` answered 503 to every user for weeks while every check was green.
+          #
+          # Values, not repo variables, and deliberately: these are published constants with
+          # citations (A25-A27 from FIGO AUB System 1 and Wilcox BMJ 2000; A32 from the card
+          # copy itself), not secrets, and they already live in api/.env.example. A clinical
+          # threshold should change in a reviewed diff, not in a settings page nobody diffs.
+          CYCLE_ENV="CYCLE_MIN_LENGTH_DAYS=21,CYCLE_MAX_LENGTH_DAYS=45,CYCLE_HISTORY_CYCLES=6,CYCLE_MIN_CYCLES_FOR_ESTIMATE=3,CYCLE_NARROW_BAND_MIN_CYCLES=6,CYCLE_LUTEAL_PHASE_DAYS=14,CYCLE_FERTILE_DAYS_BEFORE_OVULATION=5,CYCLE_FERTILE_DAYS_AFTER_OVULATION=1,CYCLE_PEAK_DAYS_BEFORE_OVULATION=2,CYCLE_MIN_PERIOD_GAP_DAYS=2,CYCLE_IRREGULAR_YOUNG_MAX_AGE=25,CYCLE_IRREGULAR_MID_MAX_AGE=41,CYCLE_IRREGULAR_YOUNG_VARIATION_DAYS=9,CYCLE_IRREGULAR_MID_VARIATION_DAYS=7,CYCLE_IRREGULAR_OLDER_VARIATION_DAYS=9"
+          PATTERN_ENV="DASHBOARD_PATTERN_LOW_SIGNAL_DAYS=3,DASHBOARD_PATTERN_LOW_AT_OR_BELOW=2,DASHBOARD_PATTERN_SEVERE_SYMPTOM_DAYS=3"
+
+          # Drift check. GUARDRAILS 2 requires every var to be declared in api/.env.example,
+          # so that file is the surface to compare against: a fifteenth CYCLE_* added to
+          # config.ts and declared there, but not set here, makes the group partial and the
+          # container fail to start. Catching it at deploy says which variable, while someone
+          # is watching, instead of in a crash loop.
+          for group in CYCLE DASHBOARD_PATTERN; do
+            case "$group" in
+              CYCLE) set_here=$(echo "$CYCLE_ENV" | tr ',' '\n' | cut -d= -f1 | sort) ;;
+              *)     set_here=$(echo "$PATTERN_ENV" | tr ',' '\n' | cut -d= -f1 | sort) ;;
+            esac
+            declared=$(grep -oE "^${group}_[A-Z_]+" api/.env.example | sort)
+            if [ "$set_here" != "$declared" ]; then
+              echo "::error::${group}_* in api/.env.example and in this workflow disagree; the group is all-or-nothing and the container will not start"
+              diff <(echo "$declared") <(echo "$set_here") | sed 's/^/::error::/' || true
+              exit 1
+            fi
+          done
           gcloud run deploy eva-api \
             --source api \
             --project ${{ vars.GCP_PROJECT_ID }} \
             --region ${{ vars.GCP_REGION }} \
             --allow-unauthenticated \
-            --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }},EMAIL_TRANSPORT=postmark,POSTMARK_FROM=$POSTMARK_FROM,PUBLIC_WEB_URL=$PUBLIC_WEB_URL,GOOGLE_IOS_CLIENT_ID=$GOOGLE_IOS_CLIENT_ID,APPLE_CLIENT_ID=$APPLE_CLIENT_ID,APPLE_TEAM_ID=$APPLE_TEAM_ID,APPLE_KEY_ID=$APPLE_KEY_ID" \
+            --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }},EMAIL_TRANSPORT=postmark,POSTMARK_FROM=$POSTMARK_FROM,PUBLIC_WEB_URL=$PUBLIC_WEB_URL,GOOGLE_IOS_CLIENT_ID=$GOOGLE_IOS_CLIENT_ID,APPLE_CLIENT_ID=$APPLE_CLIENT_ID,APPLE_TEAM_ID=$APPLE_TEAM_ID,APPLE_KEY_ID=$APPLE_KEY_ID,$CYCLE_ENV,$PATTERN_ENV" \
             --set-secrets "JWT_SECRET=eva-jwt-secret:latest,POSTMARK_API_KEY=eva-postmark-key:latest,APPLE_SIGNIN_KEY=eva-apple-signin-key:latest"
