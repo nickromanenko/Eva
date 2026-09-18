@@ -59,8 +59,10 @@ final class OnboardingModel {
     /// Set when `showActivation(after:)` routes here. Read by `back()` and the screen.
     private(set) var activationOrigin: ActivationOrigin = .signUp
 
-    // Questionnaire answers (PRD: age, weight/height, goals, health, lifestyle, sports, meds)
-    var age = 28
+    // Questionnaire answers (PRD: date of birth, weight/height, goals, health, lifestyle,
+    // sports, meds). `conditions` and `medications` hold **codes**, not the labels drawn on
+    // the chips — see `ProfileOption`.
+    var dateOfBirth = OnboardingModel.defaultDateOfBirth
     var weightKg = 64
     var heightCm = 168
     var goals: Set<String> = []
@@ -70,10 +72,61 @@ final class OnboardingModel {
     var sports: Set<String> = []
 
     static let goalOptions = ["Energy", "Sleep", "Fitness", "Nutrition", "Stress & mood", "Cycle health", "Focus", "Weight"]
-    static let conditionOptions = ["PCOS", "Endometriosis", "Thyroid condition", "Anemia", "None of these"]
-    static let medicationOptions = ["Yes", "No", "Not sure"]
+    /// PRD §Sign Up, Profile fields 5 (A8) — the four the app shipped with, plus Diabetes,
+    /// Coeliac disease and Food allergies. Codes are `users.ts`' `CONDITION_CODES`.
+    static let conditionOptions = [
+        ProfileOption("pcos", "PCOS"),
+        ProfileOption("endometriosis", "Endometriosis"),
+        ProfileOption("thyroidCondition", "Thyroid condition"),
+        ProfileOption("anaemia", "Anaemia"),
+        ProfileOption("diabetes", "Diabetes"),
+        ProfileOption("coeliacDisease", "Coeliac disease"),
+        ProfileOption("foodAllergies", "Food allergies"),
+        ProfileOption("noneOfThese", "None of these"),
+    ]
+    /// PRD §Sign Up, Profile fields 4 (A8). This replaced a Yes/No/Not sure answer, which
+    /// recorded that something was taken without recording what — and *which* hormonal
+    /// medication is the whole of what the answer is for. Codes are `MEDICATION_CODES`.
+    static let medicationOptions = [
+        ProfileOption("combinedPill", "Combined pill"),
+        ProfileOption("progestogenOnlyPill", "Progestogen-only pill"),
+        ProfileOption("hormonalIud", "Hormonal IUD"),
+        ProfileOption("implant", "Implant"),
+        ProfileOption("hrt", "HRT"),
+        ProfileOption("none", "None"),
+    ]
     static let lifestyleOptions = ["Mostly sitting", "Lightly active", "Active", "Very active"]
     static let sportOptions = ["Strength", "Running", "Yoga", "Pilates", "Cycling", "Swimming", "Dancing", "Walking"]
+
+    // MARK: - Date of birth and the 18+ floor (#81)
+
+    /// Eva is 18 and over (PRD §Product frame, Age; A12). The API enforces the same number
+    /// in `parseProfile` and is the enforcement; this is what puts the rule under the field
+    /// instead of behind a refused request four screens later.
+    static let minimumAgeYears = 18
+
+    static let minimumAgeMessage = "You must be \(minimumAgeYears) or over to use Eva."
+
+    /// Where the picker opens. An adult date rather than today's, so the control does not
+    /// start on a value its own rule rejects — and not the floor either, which would read as
+    /// a suggestion that being exactly 18 is the expected answer.
+    static var defaultDateOfBirth: Date {
+        Calendar.current.date(byAdding: .year, value: -28, to: Date.now) ?? Date.now
+    }
+
+    /// Whole years to today, in the user's own calendar and zone — which is the same
+    /// measurement the API makes, because `profilePayload` sends `timeZone` and the server
+    /// resolves her day from it rather than from UTC.
+    var ageYears: Int {
+        Calendar.current.dateComponents([.year], from: dateOfBirth, to: Date.now).year ?? 0
+    }
+
+    var isOldEnough: Bool { ageYears >= Self.minimumAgeYears }
+
+    /// `nil` until she has actually chosen a date that breaks the rule. The picker opens on
+    /// an adult date, so a message shown before any interaction would be accusing her of
+    /// something she has not done.
+    var dateOfBirthError: String? { isOldEnough ? nil : Self.minimumAgeMessage }
 
     init() {
         #if DEBUG
@@ -115,17 +168,34 @@ final class OnboardingModel {
     }
 
     /// Questionnaire answers as the API payload.
+    ///
+    /// `timeZone` is sent so the 18+ floor is measured against *her* day. Without it the API
+    /// falls back to the earliest day it could currently be anywhere, which is the safe
+    /// direction for a floor and would refuse her on her own eighteenth birthday.
     var profilePayload: ProfilePayload {
         ProfilePayload(
-            age: age,
+            dateOfBirth: Self.wireDate(dateOfBirth),
             weightKg: weightKg,
             heightCm: heightCm,
             goals: goals.sorted(),
             conditions: conditions.sorted(),
             medications: medications ?? "",
             lifestyle: lifestyle ?? "",
-            sports: sports.sorted()
+            sports: sports.sorted(),
+            timeZone: TimeZone.current.identifier
         )
+    }
+
+    /// `YYYY-MM-DD` in the user's own zone — a calendar label, never an instant, which is
+    /// what the API stores. `en_US_POSIX` because a fixed format read under an arbitrary
+    /// locale is the classic way to send a Buddhist-calendar year to a server expecting a
+    /// Gregorian one.
+    static func wireDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 
     /// Progress across the 4 questionnaire steps: 25% → 100%.

@@ -1,18 +1,17 @@
 import SwiftUI
 
-/// Card with −/+ controls for numeric questionnaire values (age, weight, height).
+/// Card with −/+ controls for numeric questionnaire values (weight, height).
+///
+/// The chrome is `QuestionnaireFieldCard`, shared with `DateOfBirthCard` since #81 replaced
+/// the age stepper with a date — two cards in one stack that only nearly matched would be a
+/// design defect waiting to happen.
 struct StepperCard: View {
     let title: String
     @Binding var value: Int
     let range: ClosedRange<Int>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color.evaMuted)
-                .textCase(.uppercase)
-                .kerning(1)
+        QuestionnaireFieldCard(title: title) {
             HStack {
                 bumpButton("minus") { value = max(range.lowerBound, value - 1) }
                 Spacer()
@@ -25,12 +24,6 @@ struct StepperCard: View {
                 bumpButton("plus") { value = min(range.upperBound, value + 1) }
             }
         }
-        .padding(18)
-        .background(.white, in: .rect(cornerRadius: 18))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(Color.evaCardBorder, lineWidth: 1)
-        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue("\(value)")
@@ -60,6 +53,6 @@ struct StepperCard: View {
 }
 
 #Preview {
-    StepperCard(title: "Age", value: .constant(28), range: 13...99)
+    StepperCard(title: "Weight · kg", value: .constant(64), range: 30...200)
         .padding()
 }

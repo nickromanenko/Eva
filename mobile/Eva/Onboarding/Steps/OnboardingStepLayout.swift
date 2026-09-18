@@ -4,6 +4,9 @@ import SwiftUI
 struct OnboardingStepLayout<Content: View>: View {
     let buttonTitle: String
     var isLoading = false
+    /// Holds the CTA while the step's own rule is unmet. Additive and default-`true`, so
+    /// every step that has no such rule is unchanged (#81 — the 18+ floor is the first one).
+    var isEnabled = true
     let onContinue: () -> Void
     @ViewBuilder let content: Content
 
@@ -21,6 +24,7 @@ struct OnboardingStepLayout<Content: View>: View {
             .scrollIndicators(.hidden)
 
             PrimaryButton(title: buttonTitle, isLoading: isLoading, action: onContinue)
+                .disabled(!isEnabled)
                 .padding(.horizontal, 26)
                 .padding(.bottom, 16)
         }
