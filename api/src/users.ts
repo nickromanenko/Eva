@@ -85,6 +85,12 @@ export interface User {
    * the whole point, and a boolean here is the least disclosing form it can take.
    */
   nutritionQualitativeOnly: boolean
+  /**
+   * Whether she dismissed the "complete your profile" nudge (#19). Server-side, so a
+   * dismissal survives reinstall and a second device. `false` when absent — the nudge shows
+   * while it is false and `questionnaireCompleted` is false, and stops once either changes.
+   */
+  profileNudgeDismissed: boolean
 }
 
 /**
@@ -166,6 +172,7 @@ const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => {
     authProviders: data.authProviders ?? [],
     activated: isActivatedData(data),
     nutritionQualitativeOnly: data.nutritionQualitativeOnly ?? false,
+    profileNudgeDismissed: data.profileNudgeDismissed ?? false,
   }
 }
 
@@ -249,6 +256,7 @@ export const ensureUser = async (
       authProviders: [provider],
       activated: false,
       nutritionQualitativeOnly: false,
+      profileNudgeDismissed: false,
     },
     tokenVersion: 0,
   }
@@ -444,6 +452,25 @@ export const saveNutritionSetting = async (
     updatedAt: FieldValue.serverTimestamp(),
   })
   return toUser(uid, { ...snapshot.data()!, nutritionQualitativeOnly: qualitativeOnly })
+}
+
+/**
+ * Marks the "complete your profile" nudge dismissed (#19).
+ *
+ * Server-side rather than device-side, so a dismissal made on one device is not asked again
+ * on a second — the decision recorded on #19. Dismissing never blocks anything: it only
+ * flips this flag, and the Profile route and every other write keep working regardless.
+ * `null` for a missing document or a tombstone, the same answer `saveQuestionnaire` gives.
+ */
+export const dismissProfileNudge = async (uid: string): Promise<User | null> => {
+  const ref = users().doc(uid)
+  const snapshot = await ref.get()
+  if (!snapshot.exists || isTombstone(snapshot)) return null
+  await ref.update({
+    profileNudgeDismissed: true,
+    updatedAt: FieldValue.serverTimestamp(),
+  })
+  return toUser(uid, { ...snapshot.data()!, profileNudgeDismissed: true })
 }
 
 /** Stamps `deletedAt` on the document, which is the moment the account stops existing as

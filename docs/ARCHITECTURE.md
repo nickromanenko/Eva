@@ -181,6 +181,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately; an optional `appleAuthorizationCode` also revokes the Apple token |
 | `PUT /me/questionnaire` | Bearer | `{ user }` |
 | `PUT /me/nutrition-settings` | Bearer | `{ user }` — `{ qualitativeOnly: boolean }`, the self-serve "qualitative mode" toggle (#212, A31) |
+| `POST /me/profile-nudge/dismiss` | Bearer | `{ user }` — marks the "complete your profile" nudge dismissed (#19); server-side, survives reinstall |
 | `GET /me/events?from=&to=` | Bearer | `{ events }` — inclusive `localDate` range, soft-deleted excluded |
 | `POST /me/events` | Bearer | `201 { event }` |
 | `PATCH /me/events/{id}` | Bearer | `{ event }` — body must carry `type` and `localDate` |
@@ -870,6 +871,7 @@ authProviders          string[]        // arrayUnion: "password", "apple.com", "
 questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
 nutritionQualitativeOnly boolean       // #212 (A31): self-serve "qualitative mode". ABSENT = false
+profileNudgeDismissed  boolean         // #19: "complete your profile" nudge dismissed. ABSENT = false
 activatedAt            Timestamp | null  // #6; null = unconfirmed, ABSENT = pre-#6 = confirmed
 tokenVersion           number          // #76; the session generation. ABSENT = 0 = never bumped
 deletedAt              Timestamp       // absent until a delete starts; see below

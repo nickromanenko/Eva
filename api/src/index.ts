@@ -75,6 +75,7 @@ import {
   MEDICATION_CODES,
   bumpTokenVersion,
   deleteUserDocument,
+  dismissProfileNudge,
   ensureUser,
   getAccount,
   getUser,
@@ -1597,6 +1598,19 @@ app.put('/me/nutrition-settings', requireAuth, requireAccount, async (c) => {
     return c.json(error('VALIDATION', 'qualitativeOnly must be a boolean'), 400)
   }
   const user = await saveNutritionSetting(c.get('claims').sub, body.qualitativeOnly)
+  if (!user) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
+  return c.json({ user })
+})
+
+/**
+ * Dismisses the "complete your profile" nudge (#19).
+ *
+ * Idempotent and side-effect-free beyond the flag: dismissing takes "no" for an answer and
+ * never blocks anything, and the flag is server-side so the dismissal survives reinstall.
+ * No body is read — there is nothing to validate.
+ */
+app.post('/me/profile-nudge/dismiss', requireAuth, requireAccount, async (c) => {
+  const user = await dismissProfileNudge(c.get('claims').sub)
   if (!user) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
   return c.json({ user })
 })
