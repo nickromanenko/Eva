@@ -181,6 +181,9 @@ final class CalendarPredictionUITests: EvaUITestCase {
         )
         assertTheLegendCarriesTheNotice(app)
         capture("01-prediction-narrow")
+        // After the capture, because reading the legend's rows means scrolling to them and
+        // the screenshot above is of the top of the calendar. The relaunch below resets it.
+        assertTheLegendListsTheArtboardsThreeMarks(app)
 
         // MARK: The wide band reads differently, and never as a certainty
 
@@ -314,21 +317,50 @@ final class CalendarPredictionUITests: EvaUITestCase {
         )
     }
 
-    // **The legend's own rows cannot be asserted from here, and that is a finding rather
-    // than a gap in this suite.** #80 added a check that the card lists all three of the
-    // artboard's previously-undrawn entries, and it could not be made to pass: the legend's
-    // rows are not published as accessibility elements at all. Probed on a running app —
-    // `app.descendants(matching: .any).matching(identifier: "calendar.legend")` returns
-    // three elements ("LEGEND", the notice, and one with an empty label), and **no** row
-    // label appears anywhere in `app.staticTexts`, not the positive test's and not the four
-    // that have been on this card since C1.
-    //
-    // So VoiceOver cannot reach them either, on the one card whose entire job is to explain
-    // marks to a reader who cannot tell them apart by colour. That is its own issue and is
-    // not #80's to fix here — it predates it and affects every row. What holds the legend's
-    // completeness meanwhile is structural: the rows are a `ForEach` over
-    // `EvaPredictionMark.allCases` and `EvaEventGlyph.allCases`, so a row and its mark are
-    // the same list, and `CalendarEventTests` pins that every case names its own shape.
+    /// The three rows the artboard's legend lists and the grid could not draw.
+    ///
+    /// C1 listed none of them, #206 drew the predicted period and the fertile window, and
+    /// #80 drew the third. The rule `CalendarLegend` has followed since C1 is that a row and
+    /// its mark ship together — so this is the assertion that the legend has stopped
+    /// describing anything the app cannot do, checked on the rendered card rather than on
+    /// the enum, because the enum has listed labels that no `ForEach` reached before.
+    ///
+    /// ## Why it took a second attempt
+    ///
+    /// #80 wrote this check, could not make it pass, and withdrew it — reading the card's
+    /// identifier as resolving to three elements and concluding from that that the rows were
+    /// *not published as accessibility elements at all*, and therefore that VoiceOver could
+    /// not reach them. The three elements were real; both conclusions were wrong, and for
+    /// two unrelated reasons that happened to land together:
+    ///
+    /// - **The card is below the fold and its grid is lazy.** `LazyVGrid` never instantiates
+    ///   off-screen children, and this legend is the last thing in the calendar's scroll
+    ///   column — so its rows were absent from the hierarchy rather than present and
+    ///   unnamed. Probed on a running app: no row label anywhere before a swipe, all nine
+    ///   after one. `scrollIntoView` reveals before it asserts for precisely this reason
+    ///   (#213), and the empty third element was the grid that had drawn nothing yet.
+    /// - **The rows never carried `calendar.legend`.** `children: .combine` builds a new
+    ///   element, which does not inherit an ancestor's identifier, so a query scoped to the
+    ///   card could not have matched a row at any scroll position. They carry their own
+    ///   `calendar.legend.row` now, which is what this reads.
+    ///
+    /// Nothing about VoiceOver was broken: it reaches lazy content by scrolling, the way it
+    /// reaches the rest of this screen. The row identifier is what was missing.
+    private func assertTheLegendListsTheArtboardsThreeMarks(_ app: XCUIApplication) {
+        // `.any` rather than `.staticTexts`, for the reason `summaryCard` gives: what
+        // `.combine` publishes a row as is SwiftUI's choice and not this suite's business.
+        let rows = app.descendants(matching: .any).matching(identifier: "calendar.legend.row")
+        scrollIntoView(rows.firstMatch, in: app)
+        let lines = rows.allElementsBoundByIndex.map(\.label)
+        // Substrings the notice under the fertile-window row cannot also satisfy — it names
+        // the window in prose, so a bare "fertile window" would pass with the row deleted.
+        for row in ["Predicted period", "Fertile window (predicted", "Positive test"] {
+            XCTAssertTrue(
+                lines.contains { $0.localizedCaseInsensitiveContains(row) },
+                "The legend has no row for \(row). Legend rows: \(lines)"
+            )
+        }
+    }
 
     // MARK: - Navigation
 

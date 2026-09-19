@@ -51,6 +51,19 @@ struct CalendarLegend: View {
                 .textCase(.uppercase)
                 .foregroundStyle(Color.evaMutedText)
 
+            // **Nine fixed rows do not need deferring, and being lazy is not free here.** A
+            // `LazyVGrid` never instantiates children that are off-screen, and this card is
+            // the last thing in the calendar's scroll column — so until something scrolls to
+            // it the rows are *absent from the accessibility hierarchy* rather than present
+            // and out of reach. Measured, not guessed: no row label anywhere before a swipe,
+            // all nine after one. That is #213's finding met a second time, and it is why
+            // `CalendarPredictionUITests` reveals this card before reading it.
+            //
+            // Left lazy all the same. VoiceOver reaches these rows by scrolling, the way it
+            // reaches any lazy content on any screen, so nothing a reader does is blocked by
+            // it; and the two-column geometry here is the artboard's, which a hand-rolled
+            // stack of `HStack`s would have to reproduce by eye. If a row ever has to be
+            // readable without scrolling, that is the trade to revisit.
             LazyVGrid(columns: columns, alignment: .leading, spacing: EvaSpacing.xs) {
                 row {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -98,12 +111,14 @@ struct CalendarLegend: View {
             }
 
             // No identifier of its own, and not for want of trying: `accessibilityIdentifier`
-            // on the card propagates to every element inside it and the **outer** one wins,
-            // so an inner `calendar.legend.notContraceptive` never reaches the tree. Read
-            // off a UI hierarchy dump, not guessed at. `CalendarPredictionUITests` finds
-            // this line by its words among the legend's elements instead, which is the
-            // stronger assertion anyway: what PRD §Phase 1 requires is the sentence, at the
-            // point of use, not an identifier.
+            // on the card propagates to the plain `Text`s inside it and the **outer** one
+            // wins, so an inner `calendar.legend.notContraceptive` never reaches the tree.
+            // Read off a UI hierarchy dump, not guessed at. A combined row is the exception
+            // — it is a new element and inherits nothing, which is what lets `row` carry an
+            // identifier of its own; see there. `CalendarPredictionUITests` finds this line
+            // by its words among the legend's elements instead, which is the stronger
+            // assertion anyway: what PRD §Phase 1 requires is the sentence, at the point of
+            // use, not an identifier.
             Text(Self.notContraceptive)
                 .evaTextStyle(.inputHelper)
                 .foregroundStyle(Color.evaMutedText)
@@ -121,6 +136,19 @@ struct CalendarLegend: View {
         .accessibilityIdentifier("calendar.legend")
     }
 
+    /// One row: the mark, then what it means.
+    ///
+    /// `children: .combine` so the pair reads as a single phrase — a swatch and a sentence
+    /// announced separately would leave the reader to join them up, which is the one job
+    /// this card has.
+    ///
+    /// **The identifier is on the row, and unlike the notice's it survives.** Combining
+    /// builds a *new* element, and a new element does not inherit the card's
+    /// `calendar.legend` — read off a running app, where that identifier resolves to the
+    /// overline, the notice and the grid, and to no row at any scroll position. So before
+    /// this the rows were unaddressable from both directions at once: invisible to a query
+    /// scoped to the card, and nameless outside it. That, and not anything about what
+    /// VoiceOver can read, is why #80's assertion could not be written.
     private func row(
         @ViewBuilder swatch: () -> some View,
         label: () -> String
@@ -133,6 +161,7 @@ struct CalendarLegend: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("calendar.legend.row")
     }
 }
 
