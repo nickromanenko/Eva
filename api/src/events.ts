@@ -247,15 +247,12 @@ export const createEvent = async (uid: string, input: NewEvent): Promise<EvaEven
   return read(ref)
 }
 
-/** Inclusive range read on the stored `localDate`, soft-deleted entries excluded.
- *
- *  `deletedAt` is filtered here rather than in the query on purpose: adding
- *  `.where('deletedAt', '==', null)` turns this into a composite query, and the
- *  composite index in firestore.indexes.json is not deployed (GUARDRAILS rule 7 —
- *  a human deploys indexes). A range is one user's calendar window, so the rows
- *  discarded here are a handful. Move the filter into the query once the index is live. */
+/** Inclusive range read on the stored `localDate`, soft-deleted entries excluded in the
+ *  query itself. That needs the composite index on `deletedAt` + `localDate`, which sits in
+ *  firestore.indexes.json and is deployed (#27). */
 export const listEvents = async (uid: string, from: string, to: string): Promise<EvaEvent[]> => {
   const snapshot = await events(uid)
+    .where('deletedAt', '==', null)
     .where('localDate', '>=', from)
     .where('localDate', '<=', to)
     .orderBy('localDate', 'asc')
@@ -263,7 +260,6 @@ export const listEvents = async (uid: string, from: string, to: string): Promise
 
   return snapshot.docs
     .map(toEvent)
-    .filter((event) => event.deletedAt === null)
     .sort((a, b) => a.localDate.localeCompare(b.localDate) || a.loggedAt.localeCompare(b.loggedAt))
 }
 
