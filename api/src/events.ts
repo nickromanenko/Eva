@@ -13,13 +13,7 @@ import { firestore } from './firebase'
 
 /** `sex` is reserved so the enum is stable when C10 ships it with its privacy switch.
  *  It has no payload and no validator yet — the route rejects it. */
-export type EventType =
-  | 'cycle'
-  | 'bodySignals'
-  | 'sport'
-  | 'appointment'
-  | 'sex'
-  | 'positiveTest'
+export type EventType = 'cycle' | 'bodySignals' | 'sport' | 'appointment' | 'sex' | 'positiveTest'
 export type LoggableEventType = Exclude<EventType, 'sex'>
 export type EventSource = 'user' | 'eva'
 export type FlowLevel = 'light' | 'medium' | 'heavy'
@@ -312,10 +306,7 @@ const LAST_LOG_SCAN = 50
  * shows the card that explains what to log — and it is unreachable for anyone who has not
  * deleted fifty entries without logging since.
  */
-export const lastLoggedDate = async (
-  uid: string,
-  onOrBefore: string,
-): Promise<string | null> => {
+export const lastLoggedDate = async (uid: string, onOrBefore: string): Promise<string | null> => {
   const snapshot = await events(uid)
     .where('localDate', '<=', onOrBefore)
     .orderBy('localDate', 'desc')
@@ -336,7 +327,8 @@ export const updateEvent = async (
   const snapshot = await ref.get()
   // A soft-deleted event is gone as far as the API is concerned; `restoreEvent` is
   // the one way back, so editing one must not silently resurrect it as a side effect.
-  if (!snapshot.exists || snapshot.get('deletedAt') !== null) return { ok: false, reason: 'not-found' }
+  if (!snapshot.exists || snapshot.get('deletedAt') !== null)
+    return { ok: false, reason: 'not-found' }
   if (snapshot.get('type') !== patch.type) return { ok: false, reason: 'type-mismatch' }
   // The day is part of the document ID for these, so moving one would mean a new event.
   if (patch.localDate && patch.localDate !== snapshot.get('localDate') && isOnePerDay(patch.type)) {
@@ -360,7 +352,10 @@ export const softDeleteEvent = async (uid: string, id: string): Promise<boolean>
   const snapshot = await ref.get()
   if (!snapshot.exists) return false
   if (snapshot.get('deletedAt') !== null) return true // already deleted: idempotent
-  await ref.update({ deletedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+  await ref.update({
+    deletedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  })
   return true
 }
 
@@ -458,7 +453,8 @@ export const restoreEvent = async (uid: string, id: string): Promise<RestoreResu
     const deletedAt = snapshot.get('deletedAt')
     if (!(deletedAt instanceof Timestamp)) {
       const type = snapshot.get('type') as LoggableEventType
-      const takesTheDay = isOnePerDay(type) && snapshot.id === dayDocId(type, snapshot.get('localDate'))
+      const takesTheDay =
+        isOnePerDay(type) && snapshot.id === dayDocId(type, snapshot.get('localDate'))
       return takesTheDay ? 'day-taken' : 'not-found'
     }
     if (deletedAt.toMillis() < cutoffMs) return 'expired'

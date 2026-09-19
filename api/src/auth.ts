@@ -28,11 +28,7 @@ export interface TokenClaims {
  * sign-in get it back from `ensureUser`, and `/auth/password/reset` gets it back from the
  * bump it just performed. There is no call site that has to read anything to supply it.
  */
-export const mintToken = (
-  uid: string,
-  email: string,
-  tokenVersion: number,
-): Promise<string> => {
+export const mintToken = (uid: string, email: string, tokenVersion: number): Promise<string> => {
   const now = Math.floor(Date.now() / 1000)
   return sign(
     {

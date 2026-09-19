@@ -452,8 +452,7 @@ const toCycles = (starts: readonly number[], rules: CycleRules): ObservedCycle[]
   starts.slice(0, -1).map((start, index) => {
     const end = starts[index + 1]!
     const lengthDays = end - start
-    const counted =
-      lengthDays >= rules.minCycleLengthDays && lengthDays <= rules.maxCycleLengthDays
+    const counted = lengthDays >= rules.minCycleLengthDays && lengthDays <= rules.maxCycleLengthDays
     return {
       startDate: dateFor(start),
       endDate: dateFor(end),
@@ -725,7 +724,10 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
   const band = bandForAge(input.profile, settings, input.today)
 
   const periods = loggedPeriods(input.days, settings.minPeriodGapDays)
-  const cycles = toCycles(periods.map((period) => period.start), settings)
+  const cycles = toCycles(
+    periods.map((period) => period.start),
+    settings,
+  )
   const countedAt = cycles.flatMap((cycle, index) => (cycle.counted ? [index] : []))
   const countedCycles = countedAt.length
   // The median's sample: the last `historyCycles` *counted* cycles, so a 60-day interval

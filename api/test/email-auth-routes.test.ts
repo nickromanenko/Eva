@@ -1,10 +1,10 @@
-import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { applicationDefault } from "firebase-admin/app";
-import { config } from "../src/config";
-import { ACTIVATION_TTL_SECONDS, RESET_TTL_SECONDS, issueToken } from "../src/email-tokens";
-import { adminAuth, firestore } from "../src/firebase";
-import { markUserDeleted } from "../src/users";
-import { createUnactivatedAccount, signIn } from "./support/session";
+import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { applicationDefault } from 'firebase-admin/app'
+import { config } from '../src/config'
+import { ACTIVATION_TTL_SECONDS, RESET_TTL_SECONDS, issueToken } from '../src/email-tokens'
+import { adminAuth, firestore } from '../src/firebase'
+import { markUserDeleted } from '../src/users'
+import { createUnactivatedAccount, signIn } from './support/session'
 
 /**
  * The four routes that activation and password reset are made of (#6), driven live:
@@ -28,55 +28,55 @@ import { createUnactivatedAccount, signIn } from "./support/session";
 
 // Every case here stands up an account and makes several live round trips, and the sweep
 // at the end deletes them all; 20s is the same ceiling events.test.ts uses (#31).
-setDefaultTimeout(20_000);
+setDefaultTimeout(20_000)
 
-const BASE = process.env.EVA_API_URL ?? "http://localhost:3003";
-const PASSWORD = "correct-horse-8";
-const createdUids: string[] = [];
-const createdEmails: string[] = [];
+const BASE = process.env.EVA_API_URL ?? 'http://localhost:3003'
+const PASSWORD = 'correct-horse-8'
+const createdUids: string[] = []
+const createdEmails: string[] = []
 
-const address = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
+const address = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
 
 /** An API-made account that has never confirmed its address. */
 const unactivated = async (): Promise<{ email: string; uid: string }> => {
-    const email = address();
-    const uid = await createUnactivatedAccount(email, PASSWORD);
-    createdUids.push(uid);
-    createdEmails.push(email);
-    return { email, uid };
-};
+  const email = address()
+  const uid = await createUnactivatedAccount(email, PASSWORD)
+  createdUids.push(uid)
+  createdEmails.push(email)
+  return { email, uid }
+}
 
 interface Answer {
-    status: number;
-    /** The raw bytes, not a parse of them — the comparison two branches have to survive. */
-    text: string;
-    headers: string;
-    body: Record<string, unknown>;
-    error?: { code: string; message: string };
+  status: number
+  /** The raw bytes, not a parse of them — the comparison two branches have to survive. */
+  text: string
+  headers: string
+  body: Record<string, unknown>
+  error?: { code: string; message: string }
 }
 
 const answer = async (res: Response): Promise<Answer> => {
-    const text = await res.text();
-    const body = JSON.parse(text) as Record<string, unknown>;
-    return {
-        status: res.status,
-        text,
-        headers: JSON.stringify([...res.headers]),
-        body,
-        error: body.error as { code: string; message: string } | undefined,
-    };
-};
+  const text = await res.text()
+  const body = JSON.parse(text) as Record<string, unknown>
+  return {
+    status: res.status,
+    text,
+    headers: JSON.stringify([...res.headers]),
+    body,
+    error: body.error as { code: string; message: string } | undefined,
+  }
+}
 
 const post = async (path: string, body: unknown): Promise<Answer> =>
-    answer(
-        await fetch(`${BASE}${path}`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-        }),
-    );
+  answer(
+    await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  )
 
-const get = async (path: string): Promise<Answer> => answer(await fetch(`${BASE}${path}`));
+const get = async (path: string): Promise<Answer> => answer(await fetch(`${BASE}${path}`))
 
 /**
  * Spends an activation token. POST, with the token in the body: the route takes it no other
@@ -88,17 +88,25 @@ const get = async (path: string): Promise<Answer> => answer(await fetch(`${BASE}
  * `auth.test.ts` is where the rule itself is pinned.
  */
 const activate = (token: string, password: string = PASSWORD): Promise<Answer> =>
-    post("/auth/activate", { token, password });
+  post('/auth/activate', { token, password })
 
 /** The response headers minus `date`, which ticks between two requests and would make a
  *  byte-for-byte comparison depend on which second each landed in. */
 const headersWithoutClock = (a: Answer): string =>
-    JSON.stringify((JSON.parse(a.headers) as [string, string][]).filter(([k]) => k !== "date"));
+  JSON.stringify((JSON.parse(a.headers) as [string, string][]).filter(([k]) => k !== 'date'))
 
 /** A token whose expiry is already in the past, issued against the same Firestore the
  *  server reads. Cheaper than waiting a day, and it exercises the real expiry branch. */
-const expiredToken = (uid: string, email: string, kind: "activation" | "reset") =>
-    issueToken(uid, email, kind, () => Date.now() - (kind === "activation" ? ACTIVATION_TTL_SECONDS : RESET_TTL_SECONDS) * 1000 - 1000);
+const expiredToken = (uid: string, email: string, kind: 'activation' | 'reset') =>
+  issueToken(
+    uid,
+    email,
+    kind,
+    () =>
+      Date.now() -
+      (kind === 'activation' ? ACTIVATION_TTL_SECONDS : RESET_TTL_SECONDS) * 1000 -
+      1000,
+  )
 
 /**
  * Whether a password opens an account, asked of Identity Toolkit rather than of
@@ -108,474 +116,473 @@ const expiredToken = (uid: string, email: string, kind: "activation" | "reset") 
  * a hardcoded Google URL reports every emulator account's password dead.
  */
 const passwordOpens = async (email: string, password: string): Promise<boolean> => {
-    const res = await fetch(
-        `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
-        {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ email, password, returnSecureToken: true }),
-        },
-    );
-    return res.ok;
-};
+  const res = await fetch(
+    `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, returnSecureToken: true }),
+    },
+  )
+  return res.ok
+}
 
-const userDoc = (uid: string) => firestore.collection("users").doc(uid);
+const userDoc = (uid: string) => firestore.collection('users').doc(uid)
 
-const tokenDocs = (uid: string) =>
-    firestore.collection("authTokens").where("uid", "==", uid).get();
+const tokenDocs = (uid: string) => firestore.collection('authTokens').where('uid', '==', uid).get()
 
 /** Tokens found by address rather than uid. Activation tokens are issued **before** the
  *  account exists (#120), so they carry `uid: null` and only the address identifies them. */
 const tokenDocsByEmail = (value: string) =>
-    firestore.collection("authTokens").where("email", "==", value).get();
+  firestore.collection('authTokens').where('email', '==', value).get()
 
 // Its own budget: this suite stands up an account per case and the sweep is one Firestore
 // query and three deletes each, well past the 20s the cases get.
 afterAll(async () => {
-    // Tokens issued before an account exists have no uid, so the uid sweep below cannot see
-    // them (#120). Swept by address as well, or `authTokens/` accumulates e2e rows forever.
-    for (const value of createdEmails) {
-        const byEmail = await tokenDocsByEmail(value).catch(() => null);
-        if (byEmail) await Promise.all(byEmail.docs.map((d) => d.ref.delete().catch(() => {})));
+  // Tokens issued before an account exists have no uid, so the uid sweep below cannot see
+  // them (#120). Swept by address as well, or `authTokens/` accumulates e2e rows forever.
+  for (const value of createdEmails) {
+    const byEmail = await tokenDocsByEmail(value).catch(() => null)
+    if (byEmail) await Promise.all(byEmail.docs.map((d) => d.ref.delete().catch(() => {})))
+  }
+  for (const uid of createdUids) {
+    const tokens = await tokenDocs(uid).catch(() => null)
+    if (tokens) await Promise.all(tokens.docs.map((doc) => doc.ref.delete().catch(() => {})))
+    await userDoc(uid)
+      .delete()
+      .catch(() => {})
+    await adminAuth.deleteUser(uid).catch(() => {})
+  }
+}, 180_000)
+
+describe('POST /auth/activate', () => {
+  test('a good link activates the account and says so', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'activation')
+
+    const res = await activate(token)
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ activated: true })
+    expect((await userDoc(uid).get()).data()!.activatedAt).not.toBeNull()
+  })
+
+  test('the same link twice is a dead link, not a second activation', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'activation')
+
+    expect((await activate(token)).status).toBe(200)
+    const replay = await activate(token)
+    expect(replay.status).toBe(400)
+    expect(replay.error!.code).toBe('INVALID_TOKEN')
+  })
+
+  test('a token that never existed and one that was spent answer identically', async () => {
+    // Folded together on purpose: telling them apart would let whoever holds a link
+    // learn whether somebody else has already clicked it.
+    const { email, uid } = await unactivated()
+    const spent = await issueToken(uid, email, 'activation')
+    await activate(spent)
+
+    // Well-formed and never issued: same shape, so it gets as far as the lookup.
+    const neverIssued = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString(
+      'base64url',
+    )
+    const unknownRes = await activate(neverIssued)
+    const spentRes = await activate(spent)
+
+    expect(unknownRes.status).toBe(spentRes.status)
+    expect(unknownRes.text).toBe(spentRes.text)
+  })
+
+  test('an expired link is told apart, because the user can act on it', async () => {
+    const { email, uid } = await unactivated()
+    const token = await expiredToken(uid, email, 'activation')
+
+    const res = await activate(token)
+    expect(res.status).toBe(400)
+    expect(res.error!.code).toBe('TOKEN_EXPIRED')
+    expect((await userDoc(uid).get()).data()!.activatedAt).toBeNull()
+  })
+
+  test('a malformed token is a dead link; no token at all is a client mistake', async () => {
+    expect((await activate('nonsense')).error!.code).toBe('INVALID_TOKEN')
+    expect((await post('/auth/activate', {})).error!.code).toBe('VALIDATION')
+  })
+
+  test('a reset token does not open the activation route', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'reset')
+    expect((await activate(token)).error!.code).toBe('INVALID_TOKEN')
+  })
+
+  test('a token in the query string is not a way in', async () => {
+    // The route is POST-only on purpose: `GET /auth/activate?token=…` would write the
+    // raw token into Cloud Run's request log. A GET must not quietly start working.
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'activation')
+    // A raw fetch: an unmatched route answers plain text, not the error shape.
+    const viaQuery = await fetch(`${BASE}/auth/activate?token=${token}`)
+    expect(viaQuery.status).toBe(404)
+    // And the token is untouched, so the real route still takes it.
+    expect((await activate(token)).status).toBe(200)
+  })
+
+  test('the answer is never cached', async () => {
+    const { email, uid } = await unactivated()
+    const res = await activate(await issueToken(uid, email, 'activation'))
+    expect(JSON.parse(res.headers) as [string, string][]).toContainEqual([
+      'cache-control',
+      'no-store',
+    ])
+  })
+})
+
+describe('the two send-a-link routes', () => {
+  test('a registered address and an unknown one get the same answer, byte for byte', async () => {
+    // The property `/auth/signin` has, extended to the routes that would otherwise
+    // give it away for free: whether an address has an Eva account is not the
+    // caller's to learn. Separate addresses because the throttle is per address.
+    const { email } = await unactivated()
+    const registered = await post('/auth/activation/resend', { email })
+    const unknown = await post('/auth/activation/resend', { email: address() })
+
+    expect(registered.status).toBe(200)
+    expect(registered.body).toEqual({ sent: true })
+    expect(registered.text).toBe(unknown.text)
+    expect(headersWithoutClock(registered)).toBe(headersWithoutClock(unknown))
+  })
+
+  test('forgot answers the same for both, and for an unactivated account too', async () => {
+    const { email } = await unactivated()
+    const registered = await post('/auth/password/forgot', { email })
+    const unknown = await post('/auth/password/forgot', { email: address() })
+
+    expect(registered.status).toBe(200)
+    expect(registered.text).toBe(unknown.text)
+    expect(headersWithoutClock(registered)).toBe(headersWithoutClock(unknown))
+  })
+
+  test('neither answer carries the address', async () => {
+    const { email } = await unactivated()
+    for (const res of [
+      await post('/auth/activation/resend', { email }),
+      await post('/auth/password/forgot', { email: address() }),
+    ]) {
+      const whole = `${res.text} ${res.headers}`.toLowerCase()
+      expect(whole).not.toContain('evaapp.dev')
+      expect(whole).not.toContain(email.toLowerCase())
     }
-    for (const uid of createdUids) {
-        const tokens = await tokenDocs(uid).catch(() => null);
-        if (tokens) await Promise.all(tokens.docs.map((doc) => doc.ref.delete().catch(() => {})));
-        await userDoc(uid).delete().catch(() => {});
-        await adminAuth.deleteUser(uid).catch(() => {});
+  })
+
+  test('the send-link routes hold both branches to one floor', async () => {
+    // The bytes matching is half the property; the other half is that the branches
+    // answer in the same *time*. They do not naturally: sending costs a Firestore write
+    // and a Postmark POST, not sending costs a lookup — hundreds of milliseconds against
+    // tens, readable from one request. `atLeast(SEND_LINK_FLOOR_MS, …)` in `index.ts` is
+    // what equalises them.
+    //
+    // **This asserts the mechanism, not the timing.** A wall-clock floor assertion (the
+    // previous `>= 750` pair) is load-*fragile* in one direction: under enough concurrent
+    // load the work itself slows, and a case that races `Date.now()` against the suite's
+    // 20s ceiling reddens at random on a machine running several agents — indistinguishable
+    // from a regression, which is how a guard on a security property gets muted. A source
+    // scan is weaker evidence than a measurement but never mutates with the load; and it
+    // still catches the mutation that matters, because removing the wrapper (or lowering
+    // the floor) fails the scan. #185 records the trade and the decision.
+    const source = await Bun.file(`${import.meta.dir}/../src/index.ts`).text()
+
+    // The floor, named once and pinned. Below the slow branch it stops equalising.
+    expect(source.match(/const SEND_LINK_FLOOR_MS = (\d+)/)?.[1]).toBe('800')
+
+    // Both routes wrap their work in the floor, not just one of them.
+    for (const route of [
+      `app.post('/auth/activation/resend'`,
+      `app.post('/auth/password/forgot'`,
+    ]) {
+      const from = source.indexOf(route)
+      expect(from).toBeGreaterThan(-1)
+      const body = source.slice(from, source.indexOf('app.post(', from + 1))
+      expect(body).toContain('atLeast(SEND_LINK_FLOOR_MS')
     }
-}, 180_000);
+  })
 
-describe("POST /auth/activate", () => {
-    test("a good link activates the account and says so", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "activation");
+  test('an address that is not one is a 400, before anything is looked up', async () => {
+    expect((await post('/auth/activation/resend', { email: 'not-an-email' })).error!.code).toBe(
+      'VALIDATION',
+    )
+    expect((await post('/auth/password/forgot', {})).error!.code).toBe('VALIDATION')
+    // Long enough to be a throttle key nobody wants to keep: refused at the edge.
+    const huge = `e2e+${'a'.repeat(300)}@e2e.evaapp.dev`
+    expect((await post('/auth/password/forgot', { email: huge })).error!.code).toBe('VALIDATION')
+  })
 
-        const res = await activate(token);
-        expect(res.status).toBe(200);
-        expect(res.body).toEqual({ activated: true });
-        expect((await userDoc(uid).get()).data()!.activatedAt).not.toBeNull();
-    });
+  test('resend issues a fresh activation token for an unactivated account', async () => {
+    const { email, uid } = await unactivated()
+    // Found by address: a resend issues the same shape sign-up does, and that token is
+    // minted before any account exists (#120), so it carries no uid to look it up by.
+    expect((await tokenDocsByEmail(email)).size).toBe(0)
+    expect((await post('/auth/activation/resend', { email })).status).toBe(200)
 
-    test("the same link twice is a dead link, not a second activation", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "activation");
+    const tokens = await tokenDocsByEmail(email)
+    expect(tokens.size).toBe(1)
+    expect(tokens.docs[0]!.data().kind).toBe('activation')
+    // The document is keyed by the hash and holds no copy of the token itself.
+    expect(Object.keys(tokens.docs[0]!.data()).sort()).toEqual([
+      'createdAt',
+      'email',
+      'expiresAt',
+      'kind',
+      'uid',
+      'usedAt',
+    ])
+  })
 
-        expect((await activate(token)).status).toBe(200);
-        const replay = await activate(token);
-        expect(replay.status).toBe(400);
-        expect(replay.error!.code).toBe("INVALID_TOKEN");
-    });
+  test('resend on an already-activated account sends nothing', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'activation')
+    await activate(token)
 
-    test("a token that never existed and one that was spent answer identically", async () => {
-        // Folded together on purpose: telling them apart would let whoever holds a link
-        // learn whether somebody else has already clicked it.
-        const { email, uid } = await unactivated();
-        const spent = await issueToken(uid, email, "activation");
-        await activate(spent);
+    expect((await post('/auth/activation/resend', { email })).status).toBe(200)
+    // **By address, not by uid, and that is the whole test.** It counted `tokenDocs(uid)`
+    // and could not fail: resend issues its tokens with `uid: null` since #120, so a
+    // link wrongly mailed to an activated account's address is invisible to a uid query.
+    // Deleting the guard this test is named for left the suite fully green.
+    const tokens = await tokenDocsByEmail(email)
+    // Only the one that was spent above; the route had nothing to confirm.
+    expect(tokens.size).toBe(1)
+    expect(tokens.docs[0]!.data().usedAt).not.toBeNull()
+  })
 
-        // Well-formed and never issued: same shape, so it gets as far as the lookup.
-        const neverIssued = Buffer.from(crypto.getRandomValues(new Uint8Array(32)))
-            .toString("base64url");
-        const unknownRes = await activate(neverIssued);
-        const spentRes = await activate(spent);
+  test('a second request inside the window is refused, and says how long to wait', async () => {
+    expect(config.rateLimit.resendPerEmailSeconds).toBeGreaterThan(0)
+    const { email } = await unactivated()
+    expect((await post('/auth/password/forgot', { email })).status).toBe(200)
 
-        expect(unknownRes.status).toBe(spentRes.status);
-        expect(unknownRes.text).toBe(spentRes.text);
-    });
+    const again = await post('/auth/password/forgot', { email })
+    expect(again.status).toBe(429)
+    expect(again.error!.code).toBe('RATE_LIMITED')
+    expect(JSON.parse(again.headers) as [string, string][]).toContainEqual([
+      'retry-after',
+      String(config.rateLimit.resendPerEmailSeconds),
+    ])
+  })
 
-    test("an expired link is told apart, because the user can act on it", async () => {
-        const { email, uid } = await unactivated();
-        const token = await expiredToken(uid, email, "activation");
+  test('resend and forgot hold separate budgets for the same address', async () => {
+    const { email } = await unactivated()
+    expect((await post('/auth/activation/resend', { email })).status).toBe(200)
+    // Asking for a reset must not have been spent by the activation Resend.
+    expect((await post('/auth/password/forgot', { email })).status).toBe(200)
+  })
 
-        const res = await activate(token);
-        expect(res.status).toBe(400);
-        expect(res.error!.code).toBe("TOKEN_EXPIRED");
-        expect((await userDoc(uid).get()).data()!.activatedAt).toBeNull();
-    });
+  test('the refused answer is the same for both, too — the throttle runs before the lookup', async () => {
+    // The 200s above only close the leak for the first request. GUARDRAILS 12b asks
+    // for "throttled the same way in both branches": if the throttle sat *after*
+    // `findAuthUidByEmail`, an unknown address would never be refused and a
+    // registered one would be, and the second request would answer the question the
+    // first refuses. Both routes, because both are written the same way and either
+    // could drift alone.
+    for (const path of ['/auth/activation/resend', '/auth/password/forgot']) {
+      const { email } = await unactivated()
+      const stranger = address()
+      expect((await post(path, { email })).status).toBe(200)
+      expect((await post(path, { email: stranger })).status).toBe(200)
 
-    test("a malformed token is a dead link; no token at all is a client mistake", async () => {
-        expect((await activate("nonsense")).error!.code).toBe("INVALID_TOKEN");
-        expect((await post("/auth/activate", {})).error!.code).toBe("VALIDATION");
-    });
+      const registered = await post(path, { email })
+      const unknown = await post(path, { email: stranger })
 
-    test("a reset token does not open the activation route", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "reset");
-        expect((await activate(token)).error!.code).toBe("INVALID_TOKEN");
-    });
+      expect(registered.status).toBe(429)
+      expect(unknown.status).toBe(429)
+      expect(registered.text).toBe(unknown.text)
+      expect(headersWithoutClock(registered)).toBe(headersWithoutClock(unknown))
+    }
+  })
+})
 
-    test("a token in the query string is not a way in", async () => {
-        // The route is POST-only on purpose: `GET /auth/activate?token=…` would write the
-        // raw token into Cloud Run's request log. A GET must not quietly start working.
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "activation");
-        // A raw fetch: an unmatched route answers plain text, not the error shape.
-        const viaQuery = await fetch(`${BASE}/auth/activate?token=${token}`);
-        expect(viaQuery.status).toBe(404);
-        // And the token is untouched, so the real route still takes it.
-        expect((await activate(token)).status).toBe(200);
-    });
+describe('an account that went away between the email and the click', () => {
+  // `DELETE /me` writes a tombstone first and removes the document last, so a link can
+  // land on either shape. Both are dead links — an activation must not stamp an account
+  // mid-delete, and a reset must not set credentials on one.
+  test('a tombstoned account cannot be activated and cannot have its password reset', async () => {
+    const { email, uid } = await unactivated()
+    const activation = await issueToken(uid, email, 'activation')
+    const reset = await issueToken(uid, email, 'reset')
+    expect(await markUserDeleted(uid)).toBe(true)
 
-    test("the answer is never cached", async () => {
-        const { email, uid } = await unactivated();
-        const res = await activate(await issueToken(uid, email, "activation"));
-        expect(JSON.parse(res.headers) as [string, string][]).toContainEqual([
-            "cache-control",
-            "no-store",
-        ]);
-    });
-});
+    // **A password the account does not already have.** Defaulting to `PASSWORD` here
+    // made the assertions below unfalsifiable: with the `deleted` guard removed the
+    // route runs `setPassword` with whatever this sends, so sending the current password
+    // rewrites it to itself and nothing observable changes.
+    expect((await activate(activation, 'set-by-a-dead-link-31')).error!.code).toBe('INVALID_TOKEN')
+    const res = await post('/auth/password/reset', { token: reset, password: 'brand-new-42' })
+    expect(res.status).toBe(400)
+    expect(res.error!.code).toBe('INVALID_TOKEN')
+    // And the sign-in credentials are untouched: the reset never reached `setPassword`.
+    expect((await post('/auth/signin', { email, password: 'brand-new-42' })).status).toBe(401)
+    // **The same question of the activation link, which needed asking separately.** Both
+    // halves above answer `INVALID_TOKEN` with the `deleted` guard removed, because
+    // `ensureUser` refuses a tombstone a moment later and the route reports that as a
+    // dead link either way. What the guard is actually for is everything that would
+    // already have happened by then: without it, activation runs `setPassword` on an
+    // account that is mid-delete, so a stale link silently rewrites the credential of an
+    // account its owner has asked to be destroyed. The status cannot see that; the
+    // credential can.
+    expect(await passwordOpens(email, PASSWORD)).toBe(true)
+    expect(await passwordOpens(email, 'set-by-a-dead-link-31')).toBe(false)
+    expect(await passwordOpens(email, 'brand-new-42')).toBe(false)
+  })
 
-describe("the two send-a-link routes", () => {
-    test("a registered address and an unknown one get the same answer, byte for byte", async () => {
-        // The property `/auth/signin` has, extended to the routes that would otherwise
-        // give it away for free: whether an address has an Eva account is not the
-        // caller's to learn. Separate addresses because the throttle is per address.
-        const { email } = await unactivated();
-        const registered = await post("/auth/activation/resend", { email });
-        const unknown = await post("/auth/activation/resend", { email: address() });
+  test('deleting the account takes its tokens with it', async () => {
+    // `deleteTokensForAccount` is unit-tested in email-tokens.test.ts; this pins that
+    // `DELETE /me` actually calls it. A token document carries the account's address,
+    // and a deleted account keeps nothing (GUARDRAILS, ARCHITECTURE §3).
+    const { email, uid } = await unactivated()
+    const activation = await issueToken(uid, email, 'activation')
+    expect((await activate(activation)).status).toBe(200)
+    await issueToken(uid, email, 'reset')
+    expect((await tokenDocs(uid)).size).toBe(2)
 
-        expect(registered.status).toBe(200);
-        expect(registered.body).toEqual({ sent: true });
-        expect(registered.text).toBe(unknown.text);
-        expect(headersWithoutClock(registered)).toBe(headersWithoutClock(unknown));
-    });
+    const session = await signIn(BASE, email, PASSWORD)
+    const res = await fetch(`${BASE}/me`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${session}` },
+    })
+    expect(res.status).toBe(200)
 
-    test("forgot answers the same for both, and for an unactivated account too", async () => {
-        const { email } = await unactivated();
-        const registered = await post("/auth/password/forgot", { email });
-        const unknown = await post("/auth/password/forgot", { email: address() });
+    expect((await tokenDocs(uid)).size).toBe(0)
+  })
 
-        expect(registered.status).toBe(200);
-        expect(registered.text).toBe(unknown.text);
-        expect(headersWithoutClock(registered)).toBe(headersWithoutClock(unknown));
-    });
+  test('including the ones issued before the account existed', async () => {
+    // **The half the uid sweep cannot reach, and the half that was broken.** The case
+    // above stands its account up with the Admin SDK and issues both tokens *with* a
+    // uid, so it stayed green the whole time `DELETE /me` was leaving every real
+    // sign-up's activation token behind — since #120 those are issued before any account
+    // exists and carry `uid: null`. This one goes through `POST /auth/signup`, which is
+    // the only way to produce that shape, and asks by address.
+    const pending = address()
+    createdEmails.push(pending)
+    expect((await post('/auth/signup', { email: pending })).status).toBe(201)
+    const issued = await tokenDocsByEmail(pending)
+    expect(issued.size).toBe(1)
+    expect(issued.docs[0]!.data().uid).toBeNull()
 
-    test("neither answer carries the address", async () => {
-        const { email } = await unactivated();
-        for (const res of [
-            await post("/auth/activation/resend", { email }),
-            await post("/auth/password/forgot", { email: address() }),
-        ]) {
-            const whole = `${res.text} ${res.headers}`.toLowerCase();
-            expect(whole).not.toContain("evaapp.dev");
-            expect(whole).not.toContain(email.toLowerCase());
-        }
-    });
+    // Activate it so there is an account to delete, with a *second* pending-shaped token
+    // still unspent — a Resend before the delete, which is the ordinary case.
+    const token = await issueToken(null, pending, 'activation')
+    expect((await activate(token)).status).toBe(200)
+    const uid = (await adminAuth.getUserByEmail(pending)).uid
+    createdUids.push(uid)
+    await issueToken(null, pending, 'activation')
 
-    test("the send-link routes hold both branches to one floor", async () => {
-        // The bytes matching is half the property; the other half is that the branches
-        // answer in the same *time*. They do not naturally: sending costs a Firestore write
-        // and a Postmark POST, not sending costs a lookup — hundreds of milliseconds against
-        // tens, readable from one request. `atLeast(SEND_LINK_FLOOR_MS, …)` in `index.ts` is
-        // what equalises them.
-        //
-        // **This asserts the mechanism, not the timing.** A wall-clock floor assertion (the
-        // previous `>= 750` pair) is load-*fragile* in one direction: under enough concurrent
-        // load the work itself slows, and a case that races `Date.now()` against the suite's
-        // 20s ceiling reddens at random on a machine running several agents — indistinguishable
-        // from a regression, which is how a guard on a security property gets muted. A source
-        // scan is weaker evidence than a measurement but never mutates with the load; and it
-        // still catches the mutation that matters, because removing the wrapper (or lowering
-        // the floor) fails the scan. #185 records the trade and the decision.
-        const source = await Bun.file(`${import.meta.dir}/../src/index.ts`).text();
+    const session = await signIn(BASE, pending, PASSWORD)
+    const res = await fetch(`${BASE}/me`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${session}` },
+    })
+    expect(res.status).toBe(200)
 
-        // The floor, named once and pinned. Below the slow branch it stops equalising.
-        expect(source.match(/const SEND_LINK_FLOOR_MS = (\d+)/)?.[1]).toBe("800");
+    // Nothing holding this address is left. Asked by address, because by uid is exactly
+    // the question that could not see them.
+    expect((await tokenDocsByEmail(pending)).size).toBe(0)
+  })
+})
 
-        // Both routes wrap their work in the floor, not just one of them.
-        for (const route of [
-            'app.post("/auth/activation/resend"',
-            'app.post("/auth/password/forgot"',
-        ]) {
-            const from = source.indexOf(route);
-            expect(from).toBeGreaterThan(-1);
-            const body = source.slice(from, source.indexOf("app.post(", from + 1));
-            expect(body).toContain("atLeast(SEND_LINK_FLOOR_MS");
-        }
-    });
+describe('POST /auth/password/reset', () => {
+  const NEW_PASSWORD = 'brand-new-42'
 
-    test("an address that is not one is a 400, before anything is looked up", async () => {
-        expect((await post("/auth/activation/resend", { email: "not-an-email" })).error!.code)
-            .toBe("VALIDATION");
-        expect((await post("/auth/password/forgot", {})).error!.code).toBe("VALIDATION");
-        // Long enough to be a throttle key nobody wants to keep: refused at the edge.
-        const huge = `e2e+${"a".repeat(300)}@e2e.evaapp.dev`;
-        expect((await post("/auth/password/forgot", { email: huge })).error!.code)
-            .toBe("VALIDATION");
-    });
+  test('a good token sets the password and hands back a session', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'reset')
 
-    test("resend issues a fresh activation token for an unactivated account", async () => {
-        const { email, uid } = await unactivated();
-        // Found by address: a resend issues the same shape sign-up does, and that token is
-        // minted before any account exists (#120), so it carries no uid to look it up by.
-        expect((await tokenDocsByEmail(email)).size).toBe(0);
-        expect((await post("/auth/activation/resend", { email })).status).toBe(200);
+    const res = await post('/auth/password/reset', { token, password: NEW_PASSWORD })
+    expect(res.status).toBe(200)
+    expect(typeof res.body.token).toBe('string')
+    expect(res.body.user).toMatchObject({ id: uid, email, activated: true })
 
-        const tokens = await tokenDocsByEmail(email);
-        expect(tokens.size).toBe(1);
-        expect(tokens.docs[0]!.data().kind).toBe("activation");
-        // The document is keyed by the hash and holds no copy of the token itself.
-        expect(Object.keys(tokens.docs[0]!.data()).sort()).toEqual([
-            "createdAt",
-            "email",
-            "expiresAt",
-            "kind",
-            "uid",
-            "usedAt",
-        ]);
-    });
+    // The new password works and the old one does not.
+    expect(typeof (await signIn(BASE, email, NEW_PASSWORD))).toBe('string')
+    expect((await post('/auth/signin', { email, password: PASSWORD })).status).toBe(401)
+  })
 
-    test("resend on an already-activated account sends nothing", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "activation");
-        await activate(token);
+  test('a reset proves the address, so it activates an account that never confirmed', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'reset')
+    expect((await post('/auth/password/reset', { token, password: NEW_PASSWORD })).status).toBe(200)
+    expect((await userDoc(uid).get()).data()!.activatedAt).not.toBeNull()
+  })
 
-        expect((await post("/auth/activation/resend", { email })).status).toBe(200);
-        // **By address, not by uid, and that is the whole test.** It counted `tokenDocs(uid)`
-        // and could not fail: resend issues its tokens with `uid: null` since #120, so a
-        // link wrongly mailed to an activated account's address is invisible to a uid query.
-        // Deleting the guard this test is named for left the suite fully green.
-        const tokens = await tokenDocsByEmail(email);
-        // Only the one that was spent above; the route had nothing to confirm.
-        expect(tokens.size).toBe(1);
-        expect(tokens.docs[0]!.data().usedAt).not.toBeNull();
-    });
+  test('a password past the ceiling is refused before the token is spent', async () => {
+    // Identity Platform has a ceiling of its own and enforces it in `setPassword` —
+    // after `consumeToken`. Without the edge check the user would get a 500 and a
+    // dead link, which is the outcome checking the rule first exists to prevent.
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'reset')
 
-    test("a second request inside the window is refused, and says how long to wait", async () => {
-        expect(config.rateLimit.resendPerEmailSeconds).toBeGreaterThan(0);
-        const { email } = await unactivated();
-        expect((await post("/auth/password/forgot", { email })).status).toBe(200);
+    const long = await post('/auth/password/reset', {
+      token,
+      password: `${'a'.repeat(400)}1`,
+    })
+    expect(long.status).toBe(400)
+    expect(long.error!.code).toBe('WEAK_PASSWORD')
+    // Not the "at least 8 characters" rule, which they had satisfied.
+    expect(long.error!.message).not.toContain('At least 8')
 
-        const again = await post("/auth/password/forgot", { email });
-        expect(again.status).toBe(429);
-        expect(again.error!.code).toBe("RATE_LIMITED");
-        expect(JSON.parse(again.headers) as [string, string][]).toContainEqual([
-            "retry-after",
-            String(config.rateLimit.resendPerEmailSeconds),
-        ]);
-    });
+    expect((await post('/auth/password/reset', { token, password: NEW_PASSWORD })).status).toBe(200)
+  })
 
-    test("resend and forgot hold separate budgets for the same address", async () => {
-        const { email } = await unactivated();
-        expect((await post("/auth/activation/resend", { email })).status).toBe(200);
-        // Asking for a reset must not have been spent by the activation Resend.
-        expect((await post("/auth/password/forgot", { email })).status).toBe(200);
-    });
+  test('the answer is never cached', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'reset')
+    const res = await post('/auth/password/reset', { token, password: NEW_PASSWORD })
+    expect(JSON.parse(res.headers) as [string, string][]).toContainEqual([
+      'cache-control',
+      'no-store',
+    ])
+  })
 
-    test("the refused answer is the same for both, too — the throttle runs before the lookup", async () => {
-        // The 200s above only close the leak for the first request. GUARDRAILS 12b asks
-        // for "throttled the same way in both branches": if the throttle sat *after*
-        // `findAuthUidByEmail`, an unknown address would never be refused and a
-        // registered one would be, and the second request would answer the question the
-        // first refuses. Both routes, because both are written the same way and either
-        // could drift alone.
-        for (const path of ["/auth/activation/resend", "/auth/password/forgot"]) {
-            const { email } = await unactivated();
-            const stranger = address();
-            expect((await post(path, { email })).status).toBe(200);
-            expect((await post(path, { email: stranger })).status).toBe(200);
+  test('a weak password costs a retry, not the link', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'reset')
 
-            const registered = await post(path, { email });
-            const unknown = await post(path, { email: stranger });
+    const weak = await post('/auth/password/reset', { token, password: 'short' })
+    expect(weak.status).toBe(400)
+    expect(weak.error!.code).toBe('WEAK_PASSWORD')
 
-            expect(registered.status).toBe(429);
-            expect(unknown.status).toBe(429);
-            expect(registered.text).toBe(unknown.text);
-            expect(headersWithoutClock(registered)).toBe(headersWithoutClock(unknown));
-        }
-    });
-});
+    // The token was never spent, so the same link still works.
+    expect((await post('/auth/password/reset', { token, password: NEW_PASSWORD })).status).toBe(200)
+  })
 
-describe("an account that went away between the email and the click", () => {
-    // `DELETE /me` writes a tombstone first and removes the document last, so a link can
-    // land on either shape. Both are dead links — an activation must not stamp an account
-    // mid-delete, and a reset must not set credentials on one.
-    test("a tombstoned account cannot be activated and cannot have its password reset", async () => {
-        const { email, uid } = await unactivated();
-        const activation = await issueToken(uid, email, "activation");
-        const reset = await issueToken(uid, email, "reset");
-        expect(await markUserDeleted(uid)).toBe(true);
+  test('the link is single-use and expires', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'reset')
+    expect((await post('/auth/password/reset', { token, password: NEW_PASSWORD })).status).toBe(200)
+    expect(
+      (await post('/auth/password/reset', { token, password: NEW_PASSWORD })).error!.code,
+    ).toBe('INVALID_TOKEN')
 
-        // **A password the account does not already have.** Defaulting to `PASSWORD` here
-        // made the assertions below unfalsifiable: with the `deleted` guard removed the
-        // route runs `setPassword` with whatever this sends, so sending the current password
-        // rewrites it to itself and nothing observable changes.
-        expect((await activate(activation, "set-by-a-dead-link-31")).error!.code).toBe(
-            "INVALID_TOKEN",
-        );
-        const res = await post("/auth/password/reset", { token: reset, password: "brand-new-42" });
-        expect(res.status).toBe(400);
-        expect(res.error!.code).toBe("INVALID_TOKEN");
-        // And the sign-in credentials are untouched: the reset never reached `setPassword`.
-        expect((await post("/auth/signin", { email, password: "brand-new-42" })).status).toBe(401);
-        // **The same question of the activation link, which needed asking separately.** Both
-        // halves above answer `INVALID_TOKEN` with the `deleted` guard removed, because
-        // `ensureUser` refuses a tombstone a moment later and the route reports that as a
-        // dead link either way. What the guard is actually for is everything that would
-        // already have happened by then: without it, activation runs `setPassword` on an
-        // account that is mid-delete, so a stale link silently rewrites the credential of an
-        // account its owner has asked to be destroyed. The status cannot see that; the
-        // credential can.
-        expect(await passwordOpens(email, PASSWORD)).toBe(true);
-        expect(await passwordOpens(email, "set-by-a-dead-link-31")).toBe(false);
-        expect(await passwordOpens(email, "brand-new-42")).toBe(false);
-    });
+    const stale = await expiredToken(uid, email, 'reset')
+    expect(
+      (await post('/auth/password/reset', { token: stale, password: NEW_PASSWORD })).error!.code,
+    ).toBe('TOKEN_EXPIRED')
+  })
 
-    test("deleting the account takes its tokens with it", async () => {
-        // `deleteTokensForAccount` is unit-tested in email-tokens.test.ts; this pins that
-        // `DELETE /me` actually calls it. A token document carries the account's address,
-        // and a deleted account keeps nothing (GUARDRAILS, ARCHITECTURE §3).
-        const { email, uid } = await unactivated();
-        const activation = await issueToken(uid, email, "activation");
-        expect((await activate(activation)).status).toBe(200);
-        await issueToken(uid, email, "reset");
-        expect((await tokenDocs(uid)).size).toBe(2);
+  test('asking for a new link kills the one already in the inbox', async () => {
+    const { email, uid } = await unactivated()
+    const first = await issueToken(uid, email, 'reset')
+    expect((await post('/auth/password/forgot', { email })).status).toBe(200)
 
-        const session = await signIn(BASE, email, PASSWORD);
-        const res = await fetch(`${BASE}/me`, {
-            method: "DELETE",
-            headers: { authorization: `Bearer ${session}` },
-        });
-        expect(res.status).toBe(200);
+    const dead = await post('/auth/password/reset', { token: first, password: NEW_PASSWORD })
+    expect(dead.status).toBe(400)
+    expect(dead.error!.code).toBe('INVALID_TOKEN')
+  })
 
-        expect((await tokenDocs(uid)).size).toBe(0);
-    });
-
-    test("including the ones issued before the account existed", async () => {
-        // **The half the uid sweep cannot reach, and the half that was broken.** The case
-        // above stands its account up with the Admin SDK and issues both tokens *with* a
-        // uid, so it stayed green the whole time `DELETE /me` was leaving every real
-        // sign-up's activation token behind — since #120 those are issued before any account
-        // exists and carry `uid: null`. This one goes through `POST /auth/signup`, which is
-        // the only way to produce that shape, and asks by address.
-        const pending = address();
-        createdEmails.push(pending);
-        expect((await post("/auth/signup", { email: pending })).status).toBe(201);
-        const issued = await tokenDocsByEmail(pending);
-        expect(issued.size).toBe(1);
-        expect(issued.docs[0]!.data().uid).toBeNull();
-
-        // Activate it so there is an account to delete, with a *second* pending-shaped token
-        // still unspent — a Resend before the delete, which is the ordinary case.
-        const token = await issueToken(null, pending, "activation");
-        expect((await activate(token)).status).toBe(200);
-        const uid = (await adminAuth.getUserByEmail(pending)).uid;
-        createdUids.push(uid);
-        await issueToken(null, pending, "activation");
-
-        const session = await signIn(BASE, pending, PASSWORD);
-        const res = await fetch(`${BASE}/me`, {
-            method: "DELETE",
-            headers: { authorization: `Bearer ${session}` },
-        });
-        expect(res.status).toBe(200);
-
-        // Nothing holding this address is left. Asked by address, because by uid is exactly
-        // the question that could not see them.
-        expect((await tokenDocsByEmail(pending)).size).toBe(0);
-    });
-});
-
-describe("POST /auth/password/reset", () => {
-    const NEW_PASSWORD = "brand-new-42";
-
-    test("a good token sets the password and hands back a session", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "reset");
-
-        const res = await post("/auth/password/reset", { token, password: NEW_PASSWORD });
-        expect(res.status).toBe(200);
-        expect(typeof res.body.token).toBe("string");
-        expect(res.body.user).toMatchObject({ id: uid, email, activated: true });
-
-        // The new password works and the old one does not.
-        expect(typeof (await signIn(BASE, email, NEW_PASSWORD))).toBe("string");
-        expect((await post("/auth/signin", { email, password: PASSWORD })).status).toBe(401);
-    });
-
-    test("a reset proves the address, so it activates an account that never confirmed", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "reset");
-        expect((await post("/auth/password/reset", { token, password: NEW_PASSWORD })).status)
-            .toBe(200);
-        expect((await userDoc(uid).get()).data()!.activatedAt).not.toBeNull();
-    });
-
-    test("a password past the ceiling is refused before the token is spent", async () => {
-        // Identity Platform has a ceiling of its own and enforces it in `setPassword` —
-        // after `consumeToken`. Without the edge check the user would get a 500 and a
-        // dead link, which is the outcome checking the rule first exists to prevent.
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "reset");
-
-        const long = await post("/auth/password/reset", {
-            token,
-            password: `${"a".repeat(400)}1`,
-        });
-        expect(long.status).toBe(400);
-        expect(long.error!.code).toBe("WEAK_PASSWORD");
-        // Not the "at least 8 characters" rule, which they had satisfied.
-        expect(long.error!.message).not.toContain("At least 8");
-
-        expect((await post("/auth/password/reset", { token, password: NEW_PASSWORD })).status)
-            .toBe(200);
-    });
-
-    test("the answer is never cached", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "reset");
-        const res = await post("/auth/password/reset", { token, password: NEW_PASSWORD });
-        expect(JSON.parse(res.headers) as [string, string][]).toContainEqual([
-            "cache-control",
-            "no-store",
-        ]);
-    });
-
-    test("a weak password costs a retry, not the link", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "reset");
-
-        const weak = await post("/auth/password/reset", { token, password: "short" });
-        expect(weak.status).toBe(400);
-        expect(weak.error!.code).toBe("WEAK_PASSWORD");
-
-        // The token was never spent, so the same link still works.
-        expect((await post("/auth/password/reset", { token, password: NEW_PASSWORD })).status)
-            .toBe(200);
-    });
-
-    test("the link is single-use and expires", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "reset");
-        expect((await post("/auth/password/reset", { token, password: NEW_PASSWORD })).status)
-            .toBe(200);
-        expect((await post("/auth/password/reset", { token, password: NEW_PASSWORD })).error!.code)
-            .toBe("INVALID_TOKEN");
-
-        const stale = await expiredToken(uid, email, "reset");
-        expect((await post("/auth/password/reset", { token: stale, password: NEW_PASSWORD })).error!.code)
-            .toBe("TOKEN_EXPIRED");
-    });
-
-    test("asking for a new link kills the one already in the inbox", async () => {
-        const { email, uid } = await unactivated();
-        const first = await issueToken(uid, email, "reset");
-        expect((await post("/auth/password/forgot", { email })).status).toBe(200);
-
-        const dead = await post("/auth/password/reset", { token: first, password: NEW_PASSWORD });
-        expect(dead.status).toBe(400);
-        expect(dead.error!.code).toBe("INVALID_TOKEN");
-    });
-
-    test("an activation token does not open the reset route", async () => {
-        const { email, uid } = await unactivated();
-        const token = await issueToken(uid, email, "activation");
-        expect((await post("/auth/password/reset", { token, password: NEW_PASSWORD })).error!.code)
-            .toBe("INVALID_TOKEN");
-    });
-});
+  test('an activation token does not open the reset route', async () => {
+    const { email, uid } = await unactivated()
+    const token = await issueToken(uid, email, 'activation')
+    expect(
+      (await post('/auth/password/reset', { token, password: NEW_PASSWORD })).error!.code,
+    ).toBe('INVALID_TOKEN')
+  })
+})
 
 /**
  * Whether this run can produce an MFA challenge at all.
@@ -590,314 +597,314 @@ describe("POST /auth/password/reset", () => {
  * problem into a test that passes by not testing.
  */
 const multiFactorIsOn = async (): Promise<boolean> => {
-    if (config.usingEmulators) return true;
-    const token = await applicationDefault().getAccessToken();
-    const res = await fetch(
-        `https://identitytoolkit.googleapis.com/admin/v2/projects/${config.firebaseProjectId}/config`,
-        { headers: { authorization: `Bearer ${token.access_token}` } },
-    );
-    if (!res.ok) throw new Error(`could not read the project MFA state: ${res.status}`);
-    const state = ((await res.json()) as { mfa?: { state?: string } }).mfa?.state;
-    return state === "ENABLED" || state === "MANDATORY";
-};
+  if (config.usingEmulators) return true
+  const token = await applicationDefault().getAccessToken()
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/admin/v2/projects/${config.firebaseProjectId}/config`,
+    { headers: { authorization: `Bearer ${token.access_token}` } },
+  )
+  if (!res.ok) throw new Error(`could not read the project MFA state: ${res.status}`)
+  const state = ((await res.json()) as { mfa?: { state?: string } }).mfa?.state
+  return state === 'ENABLED' || state === 'MANDATORY'
+}
 
-describe("a second factor is not a session", () => {
-    /**
-     * `requireSignedIn` was added for `/auth/idp` in the fourth review of #7 and called only
-     * from there, while ARCHITECTURE claimed it guarded "any sign-in response". The password
-     * path — which has more users — was the one left open.
-     *
-     * Identity Toolkit answers a password sign-in for an MFA-enrolled user with **200**,
-     * `localId`, `email`, an `mfaPendingCredential`, and **no `idToken`**: the first factor
-     * checked out, the second has not been supplied. Reading `localId` out of that mints a
-     * full 30-day Eva session for someone who completed half of a sign-in.
-     *
-     * Driven against the live server, with no module mocks anywhere near it — the Auth
-     * emulator has `mfaConfig.state === "ENABLED"` at project level, so enrolling a factor
-     * through the Admin SDK is enough to produce the real response shape. MFA is off on the
-     * production project today; it is one console switch from being on, and that switch
-     * would otherwise be silent.
-     */
-    test("a password sign-in that only cleared the first factor mints nothing", async () => {
-        const { email, uid } = await unactivated();
-        // **Activated first, and that is load-bearing.** An unactivated account is refused
-        // by #6's gate with a 403, which satisfies "not a session" all on its own — the
-        // first version of this test passed with the guard deleted, for that reason and not
-        // for the one in its name. Activation also sets `emailVerified`, which Firebase
-        // requires before a second factor can be enrolled.
-        await activate(await issueToken(uid, email, "activation"));
-        expect((await post("/auth/signin", { email, password: PASSWORD })).status).toBe(200);
+describe('a second factor is not a session', () => {
+  /**
+   * `requireSignedIn` was added for `/auth/idp` in the fourth review of #7 and called only
+   * from there, while ARCHITECTURE claimed it guarded "any sign-in response". The password
+   * path — which has more users — was the one left open.
+   *
+   * Identity Toolkit answers a password sign-in for an MFA-enrolled user with **200**,
+   * `localId`, `email`, an `mfaPendingCredential`, and **no `idToken`**: the first factor
+   * checked out, the second has not been supplied. Reading `localId` out of that mints a
+   * full 30-day Eva session for someone who completed half of a sign-in.
+   *
+   * Driven against the live server, with no module mocks anywhere near it — the Auth
+   * emulator has `mfaConfig.state === "ENABLED"` at project level, so enrolling a factor
+   * through the Admin SDK is enough to produce the real response shape. MFA is off on the
+   * production project today; it is one console switch from being on, and that switch
+   * would otherwise be silent.
+   */
+  test('a password sign-in that only cleared the first factor mints nothing', async () => {
+    const { email, uid } = await unactivated()
+    // **Activated first, and that is load-bearing.** An unactivated account is refused
+    // by #6's gate with a 403, which satisfies "not a session" all on its own — the
+    // first version of this test passed with the guard deleted, for that reason and not
+    // for the one in its name. Activation also sets `emailVerified`, which Firebase
+    // requires before a second factor can be enrolled.
+    await activate(await issueToken(uid, email, 'activation'))
+    expect((await post('/auth/signin', { email, password: PASSWORD })).status).toBe(200)
 
-        await adminAuth.updateUser(uid, {
-            multiFactor: {
-                enrolledFactors: [
-                    {
-                        uid: `mfa-${crypto.randomUUID()}`,
-                        phoneNumber: "+15555550100",
-                        displayName: "phone",
-                        factorId: "phone",
-                    },
-                ],
-            },
-        });
+    await adminAuth.updateUser(uid, {
+      multiFactor: {
+        enrolledFactors: [
+          {
+            uid: `mfa-${crypto.randomUUID()}`,
+            phoneNumber: '+15555550100',
+            displayName: 'phone',
+            factorId: 'phone',
+          },
+        ],
+      },
+    })
 
-        // The same request that succeeded a moment ago, now with a second factor enrolled.
-        const res = await post("/auth/signin", { email, password: PASSWORD });
+    // The same request that succeeded a moment ago, now with a second factor enrolled.
+    const res = await post('/auth/signin', { email, password: PASSWORD })
 
-        if (!(await multiFactorIsOn())) {
-            // Identity Toolkit only issues the challenge when the *project* enables MFA, so
-            // with it off there is no half-signed-in response to refuse and sign-in is
-            // simply correct. Asserting the refusal anyway made `bun run verify` red against
-            // the real project for a guard that works; skipping quietly would let a reader
-            // take this file's green as evidence it had been exercised. So: say what the
-            // account looks like, say the run proved nothing here, and leave the assertion
-            // to the emulator — which CI gates on, and where MFA is always on.
-            expect((await adminAuth.getUser(uid)).multiFactor?.enrolledFactors).toHaveLength(1);
-            expect(res.status).toBe(200);
-            return;
-        }
+    if (!(await multiFactorIsOn())) {
+      // Identity Toolkit only issues the challenge when the *project* enables MFA, so
+      // with it off there is no half-signed-in response to refuse and sign-in is
+      // simply correct. Asserting the refusal anyway made `bun run verify` red against
+      // the real project for a guard that works; skipping quietly would let a reader
+      // take this file's green as evidence it had been exercised. So: say what the
+      // account looks like, say the run proved nothing here, and leave the assertion
+      // to the emulator — which CI gates on, and where MFA is always on.
+      expect((await adminAuth.getUser(uid)).multiFactor?.enrolledFactors).toHaveLength(1)
+      expect(res.status).toBe(200)
+      return
+    }
 
-        // Whatever it answers, it must not be a session.
-        expect(res.status).not.toBe(200);
-        expect(res.body.token).toBeUndefined();
-        // And nothing of Identity Toolkit's own vocabulary reaches the caller.
-        expect(res.text.toLowerCase()).not.toContain("mfa");
-    });
-});
+    // Whatever it answers, it must not be a session.
+    expect(res.status).not.toBe(200)
+    expect(res.body.token).toBeUndefined()
+    // And nothing of Identity Toolkit's own vocabulary reaches the caller.
+    expect(res.text.toLowerCase()).not.toContain('mfa')
+  })
+})
 
-describe("a link goes to the address the account was looked up by", () => {
-    /**
-     * The divergence: `findAuthUidByEmail` asks **Firebase Auth**, while
-     * `users/{uid}.email` is written once at creation and `ensureUser` never rewrites it.
-     * An idToken holder can move their own Auth address with `accounts:update` — the web
-     * API key is public — so the two can be made to disagree, and the person who can do it
-     * owns the document's stale copy.
-     *
-     * Sending to `user.email` therefore mailed a live link **for the victim's address** to
-     * the attacker. On the reset route that is a full takeover: the link sets a password,
-     * stamps the account, and calls `markCredentialsProven`, which disarms the merge-wipe
-     * that would otherwise have evicted them when the victim later signed in with Google.
-     * It also denies the victim recovery for good — every later forgot-password for their
-     * address would deliver to the attacker too.
-     *
-     * Asserted on the **token document** rather than on the mail. `sendResetLink` passes one
-     * address to both `issueToken` and the sender, so `authTokens/{hash}.email` is a
-     * faithful record of where the link went — and unlike a console spy it is observable
-     * from here, which drives the API in a separate process.
-     */
-    const issuedFor = async (uid: string, kind: string): Promise<string[]> => {
-        const snap = await firestore
-            .collection("authTokens")
-            .where("uid", "==", uid)
-            .where("kind", "==", kind)
-            .get();
-        return snap.docs.map((d) => d.get("email") as string);
-    };
+describe('a link goes to the address the account was looked up by', () => {
+  /**
+   * The divergence: `findAuthUidByEmail` asks **Firebase Auth**, while
+   * `users/{uid}.email` is written once at creation and `ensureUser` never rewrites it.
+   * An idToken holder can move their own Auth address with `accounts:update` — the web
+   * API key is public — so the two can be made to disagree, and the person who can do it
+   * owns the document's stale copy.
+   *
+   * Sending to `user.email` therefore mailed a live link **for the victim's address** to
+   * the attacker. On the reset route that is a full takeover: the link sets a password,
+   * stamps the account, and calls `markCredentialsProven`, which disarms the merge-wipe
+   * that would otherwise have evicted them when the victim later signed in with Google.
+   * It also denies the victim recovery for good — every later forgot-password for their
+   * address would deliver to the attacker too.
+   *
+   * Asserted on the **token document** rather than on the mail. `sendResetLink` passes one
+   * address to both `issueToken` and the sender, so `authTokens/{hash}.email` is a
+   * faithful record of where the link went — and unlike a console spy it is observable
+   * from here, which drives the API in a separate process.
+   */
+  const issuedFor = async (uid: string, kind: string): Promise<string[]> => {
+    const snap = await firestore
+      .collection('authTokens')
+      .where('uid', '==', uid)
+      .where('kind', '==', kind)
+      .get()
+    return snap.docs.map((d) => d.get('email') as string)
+  }
 
-    /** An account whose Auth address has been moved off the one its document records. */
-    const diverged = async (): Promise<{ uid: string; attacker: string; victim: string }> => {
-        const attacker = address();
-        const victim = address();
-        const uid = await createUnactivatedAccount(attacker, PASSWORD);
-        createdUids.push(uid);
-        await adminAuth.updateUser(uid, { email: victim, emailVerified: false });
-        expect((await adminAuth.getUser(uid)).email).toBe(victim);
-        expect((await userDoc(uid).get()).get("email")).toBe(attacker);
-        return { uid, attacker, victim };
-    };
+  /** An account whose Auth address has been moved off the one its document records. */
+  const diverged = async (): Promise<{ uid: string; attacker: string; victim: string }> => {
+    const attacker = address()
+    const victim = address()
+    const uid = await createUnactivatedAccount(attacker, PASSWORD)
+    createdUids.push(uid)
+    await adminAuth.updateUser(uid, { email: victim, emailVerified: false })
+    expect((await adminAuth.getUser(uid)).email).toBe(victim)
+    expect((await userDoc(uid).get()).get('email')).toBe(attacker)
+    return { uid, attacker, victim }
+  }
 
-    test("a reset link is issued for the Auth address, not the document's stale copy", async () => {
-        const { uid, attacker, victim } = await diverged();
+  test("a reset link is issued for the Auth address, not the document's stale copy", async () => {
+    const { uid, attacker, victim } = await diverged()
 
-        expect((await post("/auth/password/forgot", { email: victim })).status).toBe(200);
+    expect((await post('/auth/password/forgot', { email: victim })).status).toBe(200)
 
-        expect(await issuedFor(uid, "reset")).toEqual([victim]);
-        expect(await issuedFor(uid, "reset")).not.toContain(attacker);
-    });
+    expect(await issuedFor(uid, 'reset')).toEqual([victim])
+    expect(await issuedFor(uid, 'reset')).not.toContain(attacker)
+  })
 
-    test("an activation link is too", async () => {
-        const { attacker, victim } = await diverged();
+  test('an activation link is too', async () => {
+    const { attacker, victim } = await diverged()
 
-        expect((await post("/auth/activation/resend", { email: victim })).status).toBe(200);
+    expect((await post('/auth/activation/resend', { email: victim })).status).toBe(200)
 
-        // Found by address, not uid: a resend issues the same shape sign-up does, and that
-        // token is minted before any account exists (#120), so it carries no uid.
-        const issued = (await tokenDocsByEmail(victim)).docs
-            .filter((d) => d.get("kind") === "activation")
-            .map((d) => d.get("email") as string);
-        expect(issued).toEqual([victim]);
-        expect(await tokenDocsByEmail(attacker).then((s2) => s2.size)).toBe(0);
-    });
-});
+    // Found by address, not uid: a resend issues the same shape sign-up does, and that
+    // token is minted before any account exists (#120), so it carries no uid.
+    const issued = (await tokenDocsByEmail(victim)).docs
+      .filter((d) => d.get('kind') === 'activation')
+      .map((d) => d.get('email') as string)
+    expect(issued).toEqual([victim])
+    expect(await tokenDocsByEmail(attacker).then((s2) => s2.size)).toBe(0)
+  })
+})
 
-describe("proving the address takes back what was attached while it was not", () => {
-    /**
-     * The takeover that survived two rounds of fixing `/auth/idp`, by waiting.
-     *
-     * `claimUnprovenAccount` guards the provider route and is gated on `activatedAt`. But
-     * activation and password reset also stamp `activatedAt`, and they used to stamp it and
-     * nothing else — so an attacker who had reserved the victim's address and attached their
-     * own provider identity to it only had to sit still. The moment the victim proved the
-     * address, by either door, the claim was skipped forever and the attacker's identity
-     * signed in to the victim's account.
-     *
-     * The premise that was wrong is worth stating because it reads as obviously true:
-     * proving the address does *not* retroactively legitimise a credential attached before
-     * it was proven. It proves the address.
-     */
+describe('proving the address takes back what was attached while it was not', () => {
+  /**
+   * The takeover that survived two rounds of fixing `/auth/idp`, by waiting.
+   *
+   * `claimUnprovenAccount` guards the provider route and is gated on `activatedAt`. But
+   * activation and password reset also stamp `activatedAt`, and they used to stamp it and
+   * nothing else — so an attacker who had reserved the victim's address and attached their
+   * own provider identity to it only had to sit still. The moment the victim proved the
+   * address, by either door, the claim was skipped forever and the attacker's identity
+   * signed in to the victim's account.
+   *
+   * The premise that was wrong is worth stating because it reads as obviously true:
+   * proving the address does *not* retroactively legitimise a credential attached before
+   * it was proven. It proves the address.
+   */
 
-    /** The attacker's foothold: their own provider `sub` on an address they merely reserved. */
-    const attach = async (uid: string, providerId: string): Promise<void> => {
-        await adminAuth.updateUser(uid, {
-            providerToLink: {
-                providerId,
-                uid: `attacker-sub-${crypto.randomUUID()}`,
-                email: address(),
-            },
-        });
-    };
+  /** The attacker's foothold: their own provider `sub` on an address they merely reserved. */
+  const attach = async (uid: string, providerId: string): Promise<void> => {
+    await adminAuth.updateUser(uid, {
+      providerToLink: {
+        providerId,
+        uid: `attacker-sub-${crypto.randomUUID()}`,
+        email: address(),
+      },
+    })
+  }
 
-    const providers = async (uid: string): Promise<string[]> =>
-        (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort();
+  const providers = async (uid: string): Promise<string[]> =>
+    (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort()
 
-    test("the activation link unlinks a provider attached before it was clicked", async () => {
-        const { email, uid } = await unactivated();
-        await attach(uid, "google.com");
-        expect(await providers(uid)).toEqual(["google.com", "password"]);
+  test('the activation link unlinks a provider attached before it was clicked', async () => {
+    const { email, uid } = await unactivated()
+    await attach(uid, 'google.com')
+    expect(await providers(uid)).toEqual(['google.com', 'password'])
 
-        const res = await activate(await issueToken(uid, email, "activation"));
-        expect(res.status).toBe(200);
+    const res = await activate(await issueToken(uid, email, 'activation'))
+    expect(res.status).toBe(200)
 
-        // Gone. `/auth/idp` will never look at this account again — it is activated from
-        // here on — so this was the last chance to take it back.
-        expect(await providers(uid)).toEqual(["password"]);
-    });
+    // Gone. `/auth/idp` will never look at this account again — it is activated from
+    // here on — so this was the last chance to take it back.
+    expect(await providers(uid)).toEqual(['password'])
+  })
 
-    test("activation tells Firebase the credentials are proven — because now they are", async () => {
-        // **This assertion is the inverse of what it was, and the inversion is the point of
-        // #120.**
-        //
-        // Activation used to withhold `emailVerified` deliberately. Identity Toolkit uses it
-        // to decide whether to wipe `passwordHash` on a provider merge, and that wipe was
-        // the only thing that evicted a pre-registering attacker's password once the real
-        // owner arrived with Apple or Google. Withholding a true fact for its side effect
-        // was the subtlest thing in #7 and cost a review round of its own.
-        //
-        // It is no longer needed. Sign-up sets no password, so the only password an account
-        // can have at activation is the one supplied in that same request by the person who
-        // proved the address. There is no stranger's credential left for the wipe to protect
-        // anyone from.
-        const { email, uid } = await unactivated();
-        expect((await adminAuth.getUser(uid)).emailVerified).toBe(false);
+  test('activation tells Firebase the credentials are proven — because now they are', async () => {
+    // **This assertion is the inverse of what it was, and the inversion is the point of
+    // #120.**
+    //
+    // Activation used to withhold `emailVerified` deliberately. Identity Toolkit uses it
+    // to decide whether to wipe `passwordHash` on a provider merge, and that wipe was
+    // the only thing that evicted a pre-registering attacker's password once the real
+    // owner arrived with Apple or Google. Withholding a true fact for its side effect
+    // was the subtlest thing in #7 and cost a review round of its own.
+    //
+    // It is no longer needed. Sign-up sets no password, so the only password an account
+    // can have at activation is the one supplied in that same request by the person who
+    // proved the address. There is no stranger's credential left for the wipe to protect
+    // anyone from.
+    const { email, uid } = await unactivated()
+    expect((await adminAuth.getUser(uid)).emailVerified).toBe(false)
 
-        await activate(await issueToken(uid, email, "activation"));
+    await activate(await issueToken(uid, email, 'activation'))
 
-        expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
-    });
+    expect((await adminAuth.getUser(uid)).emailVerified).toBe(true)
+  })
 
-    test("the password activation set is the one that works afterwards", async () => {
-        // The other half, and the reason the flip above is safe: activation does not merely
-        // mark the account proven, it *replaces* whatever credential was on it. An account
-        // reserved by someone calling Identity Toolkit directly carries their password; the
-        // person holding the link takes it over rather than inheriting it.
-        const { email, uid } = await unactivated();
-        const chosen = "a-password-they-chose-9";
+  test('the password activation set is the one that works afterwards', async () => {
+    // The other half, and the reason the flip above is safe: activation does not merely
+    // mark the account proven, it *replaces* whatever credential was on it. An account
+    // reserved by someone calling Identity Toolkit directly carries their password; the
+    // person holding the link takes it over rather than inheriting it.
+    const { email, uid } = await unactivated()
+    const chosen = 'a-password-they-chose-9'
 
-        await activate(await issueToken(uid, email, "activation"), chosen);
+    await activate(await issueToken(uid, email, 'activation'), chosen)
 
-        expect(await signIn(BASE, email, chosen)).toBeString();
-        // And the reserver's password is gone.
-        const stale = await post("/auth/signin", { email, password: PASSWORD });
-        expect(stale.status).toBe(401);
-    });
+    expect(await signIn(BASE, email, chosen)).toBeString()
+    // And the reserver's password is gone.
+    const stale = await post('/auth/signin', { email, password: PASSWORD })
+    expect(stale.status).toBe(401)
+  })
 
-    test("a password reset retracts it too, because that is the recovery an owner is sent to", async () => {
-        // The route matters as much as the activation link: an owner who finds their address
-        // already taken is told to use forgot-password, so this door has to close the same
-        // hole. It is the one `claimUnprovenAccount`'s own comment recommends.
-        const { email, uid } = await unactivated();
-        await attach(uid, "apple.com");
+  test('a password reset retracts it too, because that is the recovery an owner is sent to', async () => {
+    // The route matters as much as the activation link: an owner who finds their address
+    // already taken is told to use forgot-password, so this door has to close the same
+    // hole. It is the one `claimUnprovenAccount`'s own comment recommends.
+    const { email, uid } = await unactivated()
+    await attach(uid, 'apple.com')
 
-        const res = await post("/auth/password/reset", {
-            token: await issueToken(uid, email, "reset"),
-            password: "a-brand-new-password-9",
-        });
-        expect(res.status).toBe(200);
+    const res = await post('/auth/password/reset', {
+      token: await issueToken(uid, email, 'reset'),
+      password: 'a-brand-new-password-9',
+    })
+    expect(res.status).toBe(200)
 
-        expect(await providers(uid)).toEqual(["password"]);
-        // And the credentials are marked proven on **this** branch too — the account was
-        // never activated before now. Gating `markCredentialsProven` on `user.activated`
-        // passed every other test, and would leave exactly the person this route exists to
-        // rescue at `emailVerified: false`: Firebase's merge-wipe stays armed, so their next
-        // Apple or Google sign-in silently destroys the password they just chose.
-        expect((await adminAuth.getUser(uid)).emailVerified).toBe(true);
-    });
+    expect(await providers(uid)).toEqual(['password'])
+    // And the credentials are marked proven on **this** branch too — the account was
+    // never activated before now. Gating `markCredentialsProven` on `user.activated`
+    // passed every other test, and would leave exactly the person this route exists to
+    // rescue at `emailVerified: false`: Firebase's merge-wipe stays armed, so their next
+    // Apple or Google sign-in silently destroys the password they just chose.
+    expect((await adminAuth.getUser(uid)).emailVerified).toBe(true)
+  })
 
-    test("a provider linked deliberately survives a later password reset", async () => {
-        // The other half, and the reason this is keyed on the *transition* rather than on
-        // every stamp. Someone who connected Apple from Profile and then forgot their
-        // password must still have Apple afterwards.
-        const { email, uid } = await unactivated();
-        await activate(await issueToken(uid, email, "activation"));
-        await attach(uid, "apple.com");
-        expect(await providers(uid)).toEqual(["apple.com", "password"]);
+  test('a provider linked deliberately survives a later password reset', async () => {
+    // The other half, and the reason this is keyed on the *transition* rather than on
+    // every stamp. Someone who connected Apple from Profile and then forgot their
+    // password must still have Apple afterwards.
+    const { email, uid } = await unactivated()
+    await activate(await issueToken(uid, email, 'activation'))
+    await attach(uid, 'apple.com')
+    expect(await providers(uid)).toEqual(['apple.com', 'password'])
 
-        const res = await post("/auth/password/reset", {
-            token: await issueToken(uid, email, "reset"),
-            password: "another-new-password-9",
-        });
-        expect(res.status).toBe(200);
+    const res = await post('/auth/password/reset', {
+      token: await issueToken(uid, email, 'reset'),
+      password: 'another-new-password-9',
+    })
+    expect(res.status).toBe(200)
 
-        expect(await providers(uid)).toEqual(["apple.com", "password"]);
-    });
+    expect(await providers(uid)).toEqual(['apple.com', 'password'])
+  })
 
-    test("activation revokes a session taken before the address was proven", async () => {
-        // The attacker signs in at Identity Toolkit directly — the web API key is public —
-        // and a refresh token outlives the password that made it.
-        const { email, uid } = await unactivated();
-        const signInUrl = `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`;
-        const before = await fetch(signInUrl, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ email, password: PASSWORD, returnSecureToken: true }),
-        });
-        const { idToken } = (await before.json()) as { idToken: string };
-        expect(await adminAuth.verifyIdToken(idToken, true)).toBeTruthy();
+  test('activation revokes a session taken before the address was proven', async () => {
+    // The attacker signs in at Identity Toolkit directly — the web API key is public —
+    // and a refresh token outlives the password that made it.
+    const { email, uid } = await unactivated()
+    const signInUrl = `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`
+    const before = await fetch(signInUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: PASSWORD, returnSecureToken: true }),
+    })
+    const { idToken } = (await before.json()) as { idToken: string }
+    expect(await adminAuth.verifyIdToken(idToken, true)).toBeTruthy()
 
-        // One-second resolution on `tokensValidAfterTime`: without crossing the boundary,
-        // "revoked in the same second" is indistinguishable from "not revoked" to Firebase
-        // itself, not just to this assertion.
-        await Bun.sleep(1_100);
-        await activate(await issueToken(uid, email, "activation"));
+    // One-second resolution on `tokensValidAfterTime`: without crossing the boundary,
+    // "revoked in the same second" is indistinguishable from "not revoked" to Firebase
+    // itself, not just to this assertion.
+    await Bun.sleep(1_100)
+    await activate(await issueToken(uid, email, 'activation'))
 
-        await expect(adminAuth.verifyIdToken(idToken, true)).rejects.toThrow();
-    });
-});
+    await expect(adminAuth.verifyIdToken(idToken, true)).rejects.toThrow()
+  })
+})
 
-describe("CORS on the two routes the website calls", () => {
-    const preflight = (path: string, origin: string) =>
-        fetch(`${BASE}${path}`, {
-            method: "OPTIONS",
-            headers: {
-                origin,
-                "access-control-request-method": "POST",
-                "access-control-request-headers": "content-type",
-            },
-        });
+describe('CORS on the two routes the website calls', () => {
+  const preflight = (path: string, origin: string) =>
+    fetch(`${BASE}${path}`, {
+      method: 'OPTIONS',
+      headers: {
+        origin,
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type',
+      },
+    })
 
-    test("the site's own origin is allowed", async () => {
-        const res = await preflight("/auth/password/reset", config.publicWebOrigin);
-        expect(res.headers.get("access-control-allow-origin")).toBe(config.publicWebOrigin);
-    });
+  test("the site's own origin is allowed", async () => {
+    const res = await preflight('/auth/password/reset', config.publicWebOrigin)
+    expect(res.headers.get('access-control-allow-origin')).toBe(config.publicWebOrigin)
+  })
 
-    test("any other origin is not — and never `*`", async () => {
-        const res = await preflight("/auth/activate", "https://not-eva.example");
-        expect(res.headers.get("access-control-allow-origin")).not.toBe("*");
-        expect(res.headers.get("access-control-allow-origin")).not.toBe("https://not-eva.example");
-    });
+  test('any other origin is not — and never `*`', async () => {
+    const res = await preflight('/auth/activate', 'https://not-eva.example')
+    expect(res.headers.get('access-control-allow-origin')).not.toBe('*')
+    expect(res.headers.get('access-control-allow-origin')).not.toBe('https://not-eva.example')
+  })
 
-    test("routes the website does not call carry no CORS header at all", async () => {
-        const res = await preflight("/auth/signin", config.publicWebOrigin);
-        expect(res.headers.get("access-control-allow-origin")).toBeNull();
-    });
-});
+  test('routes the website does not call carry no CORS header at all', async () => {
+    const res = await preflight('/auth/signin', config.publicWebOrigin)
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+  })
+})

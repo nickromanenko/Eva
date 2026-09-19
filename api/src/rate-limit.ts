@@ -60,10 +60,7 @@ import { config } from './config'
  * outage, the per-address limit still applies, and a header shorter than configured is
  * exactly the case where choosing an entry would mean choosing one the caller controls.
  */
-export const callerFromForwarded = (
-  forwarded: string | undefined,
-  hops: number,
-): string | null => {
+export const callerFromForwarded = (forwarded: string | undefined, hops: number): string | null => {
   if (!forwarded || hops < 1) return null
   const entries = forwarded.split(',')
   const caller = entries[entries.length - hops]?.trim() ?? ''
@@ -258,8 +255,7 @@ export const createBackoffLimiter = (
 
   /** `baseMs × 2^(tier-1)`, capped. Computed rather than accumulated so a tier that somehow
    *  ran away cannot produce a block longer than the cap. */
-  const blockFor = (tier: number): number =>
-    Math.min(maxMs, baseMs * 2 ** Math.min(tier - 1, 30))
+  const blockFor = (tier: number): number => Math.min(maxMs, baseMs * 2 ** Math.min(tier - 1, 30))
 
   return {
     kind: 'backoff',
@@ -412,11 +408,7 @@ export const consumeTokenAttempt = (route: TokenRoute, ip: string | null): boole
  * IP is checked first and short-circuits, so an already-throttled IP cannot go on spending
  * a victim's per-address budget on their behalf.
  */
-export const consumeAuthAttempt = (
-  route: AuthRoute,
-  ip: string | null,
-  email: string,
-): boolean => {
+export const consumeAuthAttempt = (route: AuthRoute, ip: string | null, email: string): boolean => {
   const { byIp, byEmail } = limiters[route]
   if (ip !== null && !byIp.consume(ip)) return false
   return byEmail.consume(email)

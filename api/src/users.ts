@@ -102,8 +102,7 @@ const users = () => firestore.collection('users')
  *  such field, and those accounts signed in for months on a password alone — a gate that
  *  locked them out until they found a confirmation email they were never sent would be a
  *  regression, not security. Hence `!== null` rather than a truthiness test. */
-const isActivatedData = (data: FirebaseFirestore.DocumentData): boolean =>
-  data.activatedAt !== null
+const isActivatedData = (data: FirebaseFirestore.DocumentData): boolean => data.activatedAt !== null
 
 /**
  * The account's session generation (#76). **Absent is `0`**, for the reason
@@ -259,9 +258,7 @@ export const ensureUser = async (
  * to decide whether to offer "Connect Apple", so a false entry removes the real owner's
  * only way to link the identity they actually own.
  */
-export const readUser = async (
-  uid: string,
-): Promise<{ deleted: boolean; user: User | null }> => {
+export const readUser = async (uid: string): Promise<{ deleted: boolean; user: User | null }> => {
   const snapshot = await users().doc(uid).get()
   if (!snapshot.exists) return { deleted: false, user: null }
   if (isTombstone(snapshot)) return { deleted: true, user: null }

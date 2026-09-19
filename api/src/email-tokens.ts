@@ -132,9 +132,7 @@ export const consumeToken = async (
  *  and for the same reason. */
 const DELETE_BATCH = 400
 
-const deleteMatching = async (
-  query: FirebaseFirestore.Query,
-): Promise<void> => {
+const deleteMatching = async (query: FirebaseFirestore.Query): Promise<void> => {
   for (;;) {
     const owned = await query.limit(DELETE_BATCH).get()
     if (owned.empty) return

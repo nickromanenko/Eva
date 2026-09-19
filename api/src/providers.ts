@@ -174,10 +174,7 @@ const utf8Base64url = (value: string): string => base64url(new TextEncoder().enc
 /** The DER bytes inside a PEM block, copied into an `ArrayBuffer` of their own — Node's
  *  `Buffer` is a view into a shared pool, which `importKey` will not take. */
 const pemToDer = (pem: string): ArrayBuffer => {
-  const pooled = Buffer.from(
-    pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''),
-    'base64',
-  )
+  const pooled = Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''), 'base64')
   const der = new Uint8Array(pooled.length)
   der.set(pooled)
   return der.buffer
@@ -227,9 +224,7 @@ const appleClientSecret = async (credentials: AppleCredentials): Promise<string>
     ['sign'],
   )
   const now = Math.floor(Date.now() / 1000)
-  const header = utf8Base64url(
-    JSON.stringify({ alg: 'ES256', kid: credentials.keyId, typ: 'JWT' }),
-  )
+  const header = utf8Base64url(JSON.stringify({ alg: 'ES256', kid: credentials.keyId, typ: 'JWT' }))
   const payload = utf8Base64url(
     JSON.stringify({
       iss: credentials.teamId,
@@ -279,9 +274,7 @@ export interface RevocationOutcome {
  * remains that could revoke it later, and the entitlement is satisfied only when the client
  * sends the code.
  */
-export const revokeAppleToken = async (
-  authorizationCode: string,
-): Promise<RevocationOutcome> => {
+export const revokeAppleToken = async (authorizationCode: string): Promise<RevocationOutcome> => {
   const credentials = appleCredentials()
   if (!credentials) return { ok: false, stage: 'unconfigured', upstreamStatus: null }
 

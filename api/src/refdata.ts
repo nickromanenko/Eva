@@ -113,9 +113,10 @@ const byOrderThenCode = (a: BaseItem, b: BaseItem) =>
 const parseItems = (id: string, data: unknown): CatalogueItem[] => {
   const raw = (data as { items?: unknown } | undefined)?.items
   if (!Array.isArray(raw)) return []
-  const rows = raw.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-  const items =
-    id === 'symptoms' ? rows.map(toSymptomItem) : rows.map(toOptionItem)
+  const rows = raw.filter(
+    (row): row is Record<string, unknown> => typeof row === 'object' && row !== null,
+  )
+  const items = id === 'symptoms' ? rows.map(toSymptomItem) : rows.map(toOptionItem)
   return items.filter((item) => item.code.length > 0).sort(byOrderThenCode)
 }
 
@@ -138,7 +139,10 @@ const stable = (value: unknown): unknown => {
  *  idempotent re-seed cannot invalidate every client's cache for nothing.
  *  No timestamp goes into this for the same reason. */
 export const catalogueVersion = (catalogues: Catalogues): string =>
-  createHash('sha256').update(JSON.stringify(stable(catalogues))).digest('hex').slice(0, 16)
+  createHash('sha256')
+    .update(JSON.stringify(stable(catalogues)))
+    .digest('hex')
+    .slice(0, 16)
 
 export const buildSymptomRules = (items: SymptomItem[]): SymptomRules => {
   // Retired codes stay in the index on purpose: rejecting one would refuse an entry

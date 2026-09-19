@@ -135,7 +135,11 @@ const PATTERN_VARS = [
  * group is a rule that runs on numbers nobody chose. A partial group is a boot failure,
  * because unlike an unissued signing key it cannot be read as "not provisioned yet".
  */
-const patternRule = (): { lowSignalDays: number; lowAtOrBelow: number; severeSymptomDays: number } | null => {
+const patternRule = (): {
+  lowSignalDays: number
+  lowAtOrBelow: number
+  severeSymptomDays: number
+} | null => {
   const present = PATTERN_VARS.filter(([, name]) => optionalString(name) !== null)
   if (present.length === 0) return null
   if (present.length !== PATTERN_VARS.length) {
@@ -207,9 +211,10 @@ const cycleVar = Object.fromEntries(CYCLE_VARS.map(([field, name]) => [field, na
   (typeof CYCLE_VARS)[number][0],
   string
 >
-const bandVar = Object.fromEntries(
-  CYCLE_BAND_VARS.map(([field, name]) => [field, name]),
-) as Record<(typeof CYCLE_BAND_VARS)[number][0], string>
+const bandVar = Object.fromEntries(CYCLE_BAND_VARS.map(([field, name]) => [field, name])) as Record<
+  (typeof CYCLE_BAND_VARS)[number][0],
+  string
+>
 
 /** Which variable a `CycleRulesProblem` field name came from, so the boot failure names the
  *  thing an operator can actually edit rather than the field the maths calls it. */

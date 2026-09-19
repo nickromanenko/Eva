@@ -423,3 +423,8 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
 Arrow-function consts, no semicolons, single quotes, 2-space indent, 100-col-ish.
 `interface` for exported shapes, `type` for unions. Explicit return types on exported
 functions. Match `src/users.ts` if unsure.
+
+The above is enforced, not remembered: `biome.json` holds it and
+`bunx biome format --write src test scripts` applies it. It is the single source of truth —
+the prose here is a summary; if they disagree, `biome.json` wins and this paragraph is the
+bug.

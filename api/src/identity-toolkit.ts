@@ -34,11 +34,7 @@ import { config } from './config'
  *   valid session for one account and a provider credential for another, so answering it
  *   plainly tells that caller nothing they did not already have.
  */
-export type IdentityToolkitFailure =
-  | 'email-exists'
-  | 'rejected'
-  | 'unavailable'
-  | 'provider-linked'
+export type IdentityToolkitFailure = 'email-exists' | 'rejected' | 'unavailable' | 'provider-linked'
 
 /**
  * Reasons Google returns with a 4xx that are nonetheless "not now", not "not ever":
@@ -159,10 +155,7 @@ const requireSignedIn = (json: AccountsResponse): void => {
   }
 }
 
-const post = async (
-  endpoint: string,
-  body: Record<string, unknown>,
-): Promise<AccountsResponse> => {
+const post = async (endpoint: string, body: Record<string, unknown>): Promise<AccountsResponse> => {
   let response: Response
   try {
     response = await fetch(
@@ -605,9 +598,7 @@ export const retractUnprovenIdentities = async (uid: string): Promise<void> => {
   if (!account) return
 
   // Federated only.
-  const strip = account.providerData
-    .map((p) => p.providerId)
-    .filter((id) => id !== 'password')
+  const strip = account.providerData.map((p) => p.providerId).filter((id) => id !== 'password')
 
   if (strip.length > 0) await adminAuth.updateUser(uid, { providersToUnlink: strip })
   // Anyone holding a session on this account got it before the address was proven, and the

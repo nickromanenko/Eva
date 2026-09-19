@@ -258,7 +258,9 @@ const toNudge = (raw: Record<string, unknown>, index: number): Nudge => ({
 export const parseItems = (id: ContentId, data: unknown): unknown[] => {
   const raw = (data as { items?: unknown } | undefined)?.items
   if (!Array.isArray(raw)) return []
-  const rows = raw.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+  const rows = raw.filter(
+    (row): row is Record<string, unknown> => typeof row === 'object' && row !== null,
+  )
   const parsed =
     id === 'templates'
       ? rows.map(toTemplate)
@@ -302,7 +304,10 @@ const stable = (value: unknown): unknown => {
  * time someone re-reviewed.
  */
 export const contentVersion = (bundle: ContentBundle): string =>
-  createHash('sha256').update(JSON.stringify(stable(bundle))).digest('hex').slice(0, 16)
+  createHash('sha256')
+    .update(JSON.stringify(stable(bundle)))
+    .digest('hex')
+    .slice(0, 16)
 
 /** Thrown by `applyContent` when a document has no signature. Its own class so the seed
  *  script can tell a refusal from a Firestore failure and say so. */
