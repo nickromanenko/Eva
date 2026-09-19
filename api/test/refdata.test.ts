@@ -1,21 +1,21 @@
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { FieldValue } from "firebase-admin/firestore";
-import { adminAuth, firestore } from "../src/firebase";
-import { signUpActivated } from "./support/session";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { FieldValue } from 'firebase-admin/firestore'
+import { adminAuth, firestore } from '../src/firebase'
+import { signUpActivated } from './support/session'
 import {
-    CATALOGUE_IDS,
-    buildSymptomRules,
-    applyCatalogue,
-    catalogueVersion,
-    readCatalogue,
-    retireCode,
-    seedIfMissing,
-    type Catalogues,
-    type OptionItem,
-    type SymptomItem,
-} from "../src/refdata";
-import { DEFAULT_CATALOGUES } from "../scripts/seed-refdata";
-import { RETIREMENTS } from "../scripts/retire-refdata";
+  CATALOGUE_IDS,
+  buildSymptomRules,
+  applyCatalogue,
+  catalogueVersion,
+  readCatalogue,
+  retireCode,
+  seedIfMissing,
+  type Catalogues,
+  type OptionItem,
+  type SymptomItem,
+} from '../src/refdata'
+import { DEFAULT_CATALOGUES } from '../scripts/seed-refdata'
+import { RETIREMENTS } from '../scripts/retire-refdata'
 
 /**
  * Integration tests against the REAL Firebase project, same pattern as events.test.ts.
@@ -41,93 +41,90 @@ import { RETIREMENTS } from "../scripts/retire-refdata";
  * suite gates every API merge, and one failing run in three teaches people to re-run rather
  * than to read, at which point a real regression looks like the usual flake.
  */
-setDefaultTimeout(20_000);
+setDefaultTimeout(20_000)
 
-const BASE = process.env.EVA_API_URL ?? "http://localhost:3003";
-const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
-const password = "correct-horse-8";
-let token = "";
-let uid = "";
-const tempCatalogues: string[] = [];
+const BASE = process.env.EVA_API_URL ?? 'http://localhost:3003'
+const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const password = 'correct-horse-8'
+let token = ''
+let uid = ''
+const tempCatalogues: string[] = []
 
-const api = (
-    path: string,
-    init?: RequestInit & { token?: string | null },
-) =>
-    fetch(`${BASE}${path}`, {
-        ...init,
-        headers: {
-            "content-type": "application/json",
-            ...(init?.token === null ? {} : { authorization: `Bearer ${init?.token ?? token}` }),
-            ...(init?.headers ?? {}),
-        },
-    });
+const api = (path: string, init?: RequestInit & { token?: string | null }) =>
+  fetch(`${BASE}${path}`, {
+    ...init,
+    headers: {
+      'content-type': 'application/json',
+      ...(init?.token === null ? {} : { authorization: `Bearer ${init?.token ?? token}` }),
+      ...(init?.headers ?? {}),
+    },
+  })
 
-const json = <T>(res: Response): Promise<T> => res.json() as Promise<T>;
+const json = <T>(res: Response): Promise<T> => res.json() as Promise<T>
 
 interface RefDataBody {
-    version: string;
-    catalogues: Catalogues;
+  version: string
+  catalogues: Catalogues
 }
 interface ErrorResponse {
-    error: { code: string; message: string };
+  error: { code: string; message: string }
 }
 interface EvaEventBody {
-    id: string;
-    type: string;
-    localDate: string;
-    payload: { symptoms?: { code: string; severity: string; value?: string }[] };
-    deletedAt: string | null;
+  id: string
+  type: string
+  localDate: string
+  payload: { symptoms?: { code: string; severity: string; value?: string }[] }
+  deletedAt: string | null
 }
 
 const todayIn = (timeZone: string): string => {
-    const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-    }).formatToParts(new Date());
-    const part = (name: string) => parts.find((p) => p.type === name)!.value;
-    return `${part("year")}-${part("month")}-${part("day")}`;
-};
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const part = (name: string) => parts.find((p) => p.type === name)!.value
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
 
-const today = todayIn("UTC");
+const today = todayIn('UTC')
 
-const eventsCollection = () => firestore.collection("users").doc(uid).collection("events");
+const eventsCollection = () => firestore.collection('users').doc(uid).collection('events')
 
-const refDataDoc = () => firestore.collection("refdata");
+const refDataDoc = () => firestore.collection('refdata')
 
 /** A throwaway catalogue document, swept in afterAll. */
 const tempCatalogue = (): string => {
-    const id = `test-${crypto.randomUUID()}`;
-    tempCatalogues.push(id);
-    return id;
-};
+  const id = `test-${crypto.randomUUID()}`
+  tempCatalogues.push(id)
+  return id
+}
 
 const item = (code: string, label: string, extra: Record<string, unknown> = {}) =>
-    ({ code, label, order: 10, status: "active", freeText: false, ...extra }) as OptionItem;
+  ({ code, label, order: 10, status: 'active', freeText: false, ...extra }) as OptionItem
 
 const symptomItem = (code: string, label: string, values: string[] | null = null): SymptomItem => ({
-    code,
-    label,
-    order: 10,
-    status: "active",
-    group: "primary",
-    severable: false,
-    values,
-});
+  code,
+  label,
+  order: 10,
+  status: 'active',
+  group: 'primary',
+  severable: false,
+  values,
+})
 
 /** The three served catalogues, with one of them filled in — enough to hash. */
 const catalogues = (symptoms: SymptomItem[]): Catalogues => ({
-    symptoms,
-    sportActivities: [],
-    appointmentTypes: [],
-});
+  symptoms,
+  sportActivities: [],
+  appointmentTypes: [],
+})
 
 const bodySignals = (body: Record<string, unknown>) =>
-    api(`/me/body-signals/${today}`, { method: "PUT", body: JSON.stringify(body) });
+  api(`/me/body-signals/${today}`, { method: 'PUT', body: JSON.stringify(body) })
 
-let live: RefDataBody;
+let live: RefDataBody
 
 // **A budget, because activation is not one round trip any more.** `signUpActivated` is
 // sign up, spend a link, sign in — and since #120 the middle step also creates the Firebase
@@ -136,344 +133,342 @@ let live: RefDataBody;
 // product regression rather than as a clock. 60s is the same kind of ceiling the live suites
 // set: far above the work, still loud on a genuine hang (#31).
 beforeAll(async () => {
-    // Sign-up no longer hands out a session (#6): the account has to be activated first.
-    // `signUpActivated` does the three steps — sign up, spend an activation token, sign in.
-    const session = await signUpActivated(BASE, email, password);
-    token = session.token;
-    uid = session.uid;
+  // Sign-up no longer hands out a session (#6): the account has to be activated first.
+  // `signUpActivated` does the three steps — sign up, spend an activation token, sign in.
+  const session = await signUpActivated(BASE, email, password)
+  token = session.token
+  uid = session.uid
 
-    // Bootstrap only — writes nothing where a catalogue already exists.
-    for (const id of CATALOGUE_IDS) await seedIfMissing(id, DEFAULT_CATALOGUES[id]);
-    live = await json<RefDataBody>(await api("/refdata"));
-}, 60_000);
+  // Bootstrap only — writes nothing where a catalogue already exists.
+  for (const id of CATALOGUE_IDS) await seedIfMissing(id, DEFAULT_CATALOGUES[id])
+  live = await json<RefDataBody>(await api('/refdata'))
+}, 60_000)
 
 afterAll(async () => {
-    if (uid) {
-        const docs = await eventsCollection().listDocuments();
-        await Promise.all(docs.map((doc) => doc.delete().catch(() => {})));
-        await firestore.collection("users").doc(uid).delete().catch(() => {});
-        await adminAuth.deleteUser(uid).catch(() => {});
+  if (uid) {
+    const docs = await eventsCollection().listDocuments()
+    await Promise.all(docs.map((doc) => doc.delete().catch(() => {})))
+    await firestore
+      .collection('users')
+      .doc(uid)
+      .delete()
+      .catch(() => {})
+    await adminAuth.deleteUser(uid).catch(() => {})
+  }
+  await Promise.all(
+    tempCatalogues.map((id) =>
+      refDataDoc()
+        .doc(id)
+        .delete()
+        .catch(() => {}),
+    ),
+  )
+})
+
+describe('refdata: the endpoint', () => {
+  test('requires a bearer token', async () => {
+    const res = await api('/refdata', { token: null })
+    expect(res.status).toBe(401)
+    expect((await json<ErrorResponse>(res)).error.code).toBe('UNAUTHORIZED')
+  })
+
+  test('serves the three catalogues, every item with a code and a label', async () => {
+    expect(Object.keys(live.catalogues).sort()).toEqual([...CATALOGUE_IDS].sort())
+    // Seeded by beforeAll if this project had never seen them.
+    expect(live.catalogues.symptoms.length).toBeGreaterThan(0)
+    expect(live.catalogues.sportActivities.length).toBeGreaterThan(0)
+    expect(live.catalogues.appointmentTypes.length).toBeGreaterThan(0)
+
+    for (const id of CATALOGUE_IDS) {
+      const items = live.catalogues[id]
+      for (const entry of items) {
+        expect(typeof entry.code).toBe('string')
+        expect(entry.code.length).toBeGreaterThan(0)
+        expect(typeof entry.label).toBe('string')
+        expect(entry.label.length).toBeGreaterThan(0)
+        expect(['active', 'retired']).toContain(entry.status)
+      }
+      const codes = items.map((entry) => entry.code)
+      expect(new Set(codes).size).toBe(codes.length)
     }
-    await Promise.all(
-        tempCatalogues.map((id) => refDataDoc().doc(id).delete().catch(() => {})),
-    );
-});
+  })
 
-describe("refdata: the endpoint", () => {
-    test("requires a bearer token", async () => {
-        const res = await api("/refdata", { token: null });
-        expect(res.status).toBe(401);
-        expect((await json<ErrorResponse>(res)).error.code).toBe("UNAUTHORIZED");
-    });
+  test("one vocabulary: the cycle sheet's chips and the body-signals grid read the same list", async () => {
+    // There is exactly one symptoms catalogue — nothing keyed by flow or by sheet.
+    const symptomKeys = Object.keys(live.catalogues).filter((key) =>
+      key.toLowerCase().includes('symptom'),
+    )
+    expect(symptomKeys).toEqual(['symptoms'])
+    // And it carries the whole vocabulary, not a subset per surface.
+    const codes = live.catalogues.symptoms.map((entry) => entry.code)
+    expect(codes).toContain('cramps')
+    expect(codes).toContain('discharge')
+    // Spotting is a cycle marker (#23), never a symptom: one day, one claim
+    // about bleeding.
+    expect(codes).not.toContain('spotting')
+    // Energy is a 1–5 scale on the same sheet, so it is not also a chip (PRD:484).
+    expect(codes).not.toContain('low-energy')
+  })
 
-    test("serves the three catalogues, every item with a code and a label", async () => {
-        expect(Object.keys(live.catalogues).sort()).toEqual(
-            [...CATALOGUE_IDS].sort(),
-        );
-        // Seeded by beforeAll if this project had never seen them.
-        expect(live.catalogues.symptoms.length).toBeGreaterThan(0);
-        expect(live.catalogues.sportActivities.length).toBeGreaterThan(0);
-        expect(live.catalogues.appointmentTypes.length).toBeGreaterThan(0);
+  test('libido is one code carrying its direction, with a low/high picker', () => {
+    const libido = live.catalogues.symptoms.find((entry) => entry.code === 'libido')
+    expect(libido).toBeDefined()
+    expect(libido!.status).toBe('active')
+    // A direction is a category on the chip's own axis, the way discharge's type is
+    // — not a severity, and not a second code (#24).
+    expect(libido!.values).toEqual(['low', 'high'])
+  })
 
-        for (const id of CATALOGUE_IDS) {
-            const items = live.catalogues[id];
-            for (const entry of items) {
-                expect(typeof entry.code).toBe("string");
-                expect(entry.code.length).toBeGreaterThan(0);
-                expect(typeof entry.label).toBe("string");
-                expect(entry.label.length).toBeGreaterThan(0);
-                expect(["active", "retired"]).toContain(entry.status);
-            }
-            const codes = items.map((entry) => entry.code);
-            expect(new Set(codes).size).toBe(codes.length);
-        }
-    });
+  test('and it is the only libido code offered as a new choice', () => {
+    const libidoish = live.catalogues.symptoms.filter((entry) => entry.code.includes('libido'))
+    const active = libidoish.filter((entry) => entry.status === 'active')
+    // Two codes for one concept never aggregate — the soft form of the
+    // one-vocabulary problem (#24). Exactly one is offered.
+    expect(active.map((entry) => entry.code)).toEqual(['libido'])
+    // The two it replaced were retired, not deleted: still served, still resolving
+    // to a label, so an entry that references one still reads correctly.
+    // (Asserted against the live project, which carried both before #24 was applied.)
+    const retired = libidoish.filter((entry) => entry.status === 'retired')
+    expect(retired.map((entry) => entry.code).sort()).toEqual(['libido-changes', 'low-libido'])
+  })
 
-    test("one vocabulary: the cycle sheet's chips and the body-signals grid read the same list", async () => {
-        // There is exactly one symptoms catalogue — nothing keyed by flow or by sheet.
-        const symptomKeys = Object.keys(live.catalogues).filter((key) =>
-            key.toLowerCase().includes("symptom"),
-        );
-        expect(symptomKeys).toEqual(["symptoms"]);
-        // And it carries the whole vocabulary, not a subset per surface.
-        const codes = live.catalogues.symptoms.map((entry) => entry.code);
-        expect(codes).toContain("cramps");
-        expect(codes).toContain("discharge");
-        // Spotting is a cycle marker (#23), never a symptom: one day, one claim
-        // about bleeding.
-        expect(codes).not.toContain("spotting");
-        // Energy is a 1–5 scale on the same sheet, so it is not also a chip (PRD:484).
-        expect(codes).not.toContain("low-energy");
-    });
+  test('the version is a hash of the content it just served', async () => {
+    expect(live.version).toBe(catalogueVersion(live.catalogues))
+    expect(live.version.length).toBeGreaterThan(8)
+  })
 
-    test("libido is one code carrying its direction, with a low/high picker", () => {
-        const libido = live.catalogues.symptoms.find((entry) => entry.code === "libido");
-        expect(libido).toBeDefined();
-        expect(libido!.status).toBe("active");
-        // A direction is a category on the chip's own axis, the way discharge's type is
-        // — not a severity, and not a second code (#24).
-        expect(libido!.values).toEqual(["low", "high"]);
-    });
+  test('a client holding the current version gets 304 and no body', async () => {
+    const res = await api(`/refdata?version=${live.version}`)
+    expect(res.status).toBe(304)
+    expect(await res.text()).toBe('')
+  })
 
-    test("and it is the only libido code offered as a new choice", () => {
-        const libidoish = live.catalogues.symptoms.filter((entry) =>
-            entry.code.includes("libido"),
-        );
-        const active = libidoish.filter((entry) => entry.status === "active");
-        // Two codes for one concept never aggregate — the soft form of the
-        // one-vocabulary problem (#24). Exactly one is offered.
-        expect(active.map((entry) => entry.code)).toEqual(["libido"]);
-        // The two it replaced were retired, not deleted: still served, still resolving
-        // to a label, so an entry that references one still reads correctly.
-        // (Asserted against the live project, which carried both before #24 was applied.)
-        const retired = libidoish.filter((entry) => entry.status === "retired");
-        expect(retired.map((entry) => entry.code).sort()).toEqual([
-            "libido-changes",
-            "low-libido",
-        ]);
-    });
+  test('a stale version gets the catalogues back', async () => {
+    const res = await api('/refdata?version=not-the-current-one')
+    expect(res.status).toBe(200)
+    expect((await json<RefDataBody>(res)).version).toBe(live.version)
+  })
 
-    test("the version is a hash of the content it just served", async () => {
-        expect(live.version).toBe(catalogueVersion(live.catalogues));
-        expect(live.version.length).toBeGreaterThan(8);
-    });
+  test('If-None-Match works the same way, weak or strong', async () => {
+    const fresh = await api('/refdata')
+    expect(fresh.headers.get('etag')).toBe(`"${live.version}"`)
+    for (const header of [`"${live.version}"`, `W/"${live.version}"`]) {
+      const res = await api('/refdata', { headers: { 'if-none-match': header } })
+      expect(res.status).toBe(304)
+    }
+    const stale = await api('/refdata', { headers: { 'if-none-match': '"0000000000000000"' } })
+    expect(stale.status).toBe(200)
+  })
+})
 
-    test("a client holding the current version gets 304 and no body", async () => {
-        const res = await api(`/refdata?version=${live.version}`);
-        expect(res.status).toBe(304);
-        expect(await res.text()).toBe("");
-    });
+describe('refdata: codes are permanent, labels are not', () => {
+  test('changing a label leaves the code alone', async () => {
+    const id = tempCatalogue()
+    await applyCatalogue(id, [item('probe', 'First name')])
+    const before = await readCatalogue(id)
+    expect(before.map((entry) => entry.code)).toEqual(['probe'])
+    expect(before[0]!.label).toBe('First name')
 
-    test("a stale version gets the catalogues back", async () => {
-        const res = await api("/refdata?version=not-the-current-one");
-        expect(res.status).toBe(200);
-        expect((await json<RefDataBody>(res)).version).toBe(live.version);
-    });
+    await applyCatalogue(id, [item('probe', 'Renamed in the console')], { relabel: true })
+    const after = await readCatalogue(id)
+    // The identity events point at is unchanged; only the display text moved.
+    expect(after.map((entry) => entry.code)).toEqual(['probe'])
+    expect(after[0]!.code).toBe(before[0]!.code)
+    expect(after[0]!.label).toBe('Renamed in the console')
+  })
 
-    test("If-None-Match works the same way, weak or strong", async () => {
-        const fresh = await api("/refdata");
-        expect(fresh.headers.get("etag")).toBe(`"${live.version}"`);
-        for (const header of [`"${live.version}"`, `W/"${live.version}"`]) {
-            const res = await api("/refdata", { headers: { "if-none-match": header } });
-            expect(res.status).toBe(304);
-        }
-        const stale = await api("/refdata", { headers: { "if-none-match": '"0000000000000000"' } });
-        expect(stale.status).toBe(200);
-    });
-});
+  test('the version changes when a label changes, and not when nothing does', () => {
+    const first = catalogues([symptomItem('probe', 'First name')])
+    const relabelled = catalogues([symptomItem('probe', 'Renamed in the console')])
+    const added = catalogues([symptomItem('probe', 'First name'), symptomItem('other', 'Other')])
 
-describe("refdata: codes are permanent, labels are not", () => {
-    test("changing a label leaves the code alone", async () => {
-        const id = tempCatalogue();
-        await applyCatalogue(id, [item("probe", "First name")]);
-        const before = await readCatalogue(id);
-        expect(before.map((entry) => entry.code)).toEqual(["probe"]);
-        expect(before[0]!.label).toBe("First name");
+    expect(catalogueVersion(first)).toBe(
+      catalogueVersion(catalogues([symptomItem('probe', 'First name')])),
+    )
+    expect(catalogueVersion(relabelled)).not.toBe(catalogueVersion(first))
+    expect(catalogueVersion(added)).not.toBe(catalogueVersion(first))
+  })
 
-        await applyCatalogue(id, [item("probe", "Renamed in the console")], { relabel: true });
-        const after = await readCatalogue(id);
-        // The identity events point at is unchanged; only the display text moved.
-        expect(after.map((entry) => entry.code)).toEqual(["probe"]);
-        expect(after[0]!.code).toBe(before[0]!.code);
-        expect(after[0]!.label).toBe("Renamed in the console");
-    });
+  test('seeding never drops a code that has left the seed list', async () => {
+    const id = tempCatalogue()
+    await applyCatalogue(id, [item('kept', 'Kept'), item('dropped', 'Dropped')])
+    // Re-seeding without `dropped`: an option vanishing would orphan every event
+    // that already references it, so it stays.
+    const after = await applyCatalogue(id, [item('kept', 'Kept')])
+    expect(after.map((entry) => entry.code).sort()).toEqual(['dropped', 'kept'])
+  })
 
-    test("the version changes when a label changes, and not when nothing does", () => {
-        const first = catalogues([symptomItem("probe", "First name")]);
-        const relabelled = catalogues([symptomItem("probe", "Renamed in the console")]);
-        const added = catalogues([symptomItem("probe", "First name"), symptomItem("other", "Other")]);
+  test('a project that has never seen the catalogue seeds into the retired state', async () => {
+    // Without the retired rows in the seed list, a new project (a second env, a
+    // staging one, CI pointed somewhere fresh) would carry neither retired code:
+    // `retire:refdata` would find nothing to do, and the assertions below — which
+    // hold against the live project — would read as a broken test rather than a
+    // migration that never ran. The seed file has to state what the vocabulary was.
+    const retired = RETIREMENTS.filter((entry) => entry.catalogue === 'symptoms')
+    expect(retired.length).toBeGreaterThan(0)
 
-        expect(catalogueVersion(first)).toBe(catalogueVersion(catalogues([symptomItem("probe", "First name")])));
-        expect(catalogueVersion(relabelled)).not.toBe(catalogueVersion(first));
-        expect(catalogueVersion(added)).not.toBe(catalogueVersion(first));
-    });
+    // `applyCatalogue` into a document that does not exist is a first seed.
+    const id = tempCatalogue()
+    await applyCatalogue(id, DEFAULT_CATALOGUES.symptoms)
+    const status = new Map((await readCatalogue(id)).map((entry) => [entry.code, entry.status]))
 
-    test("seeding never drops a code that has left the seed list", async () => {
-        const id = tempCatalogue();
-        await applyCatalogue(id, [item("kept", "Kept"), item("dropped", "Dropped")]);
-        // Re-seeding without `dropped`: an option vanishing would orphan every event
-        // that already references it, so it stays.
-        const after = await applyCatalogue(id, [item("kept", "Kept")]);
-        expect(after.map((entry) => entry.code).sort()).toEqual(["dropped", "kept"]);
-    });
+    expect(status.get('libido')).toBe('active')
+    for (const { code } of retired) expect(status.get(code)).toBe('retired')
+  })
 
-    test("a project that has never seen the catalogue seeds into the retired state", async () => {
-        // Without the retired rows in the seed list, a new project (a second env, a
-        // staging one, CI pointed somewhere fresh) would carry neither retired code:
-        // `retire:refdata` would find nothing to do, and the assertions below — which
-        // hold against the live project — would read as a broken test rather than a
-        // migration that never ran. The seed file has to state what the vocabulary was.
-        const retired = RETIREMENTS.filter((entry) => entry.catalogue === "symptoms");
-        expect(retired.length).toBeGreaterThan(0);
+  test('retiring takes a code out of the pickers but leaves it valid to write', async () => {
+    const id = tempCatalogue()
+    await applyCatalogue(id, [item('fading', 'Fading')])
+    expect(await retireCode(id, 'fading')).toBe(true)
 
-        // `applyCatalogue` into a document that does not exist is a first seed.
-        const id = tempCatalogue();
-        await applyCatalogue(id, DEFAULT_CATALOGUES.symptoms);
-        const status = new Map(
-            (await readCatalogue(id)).map((entry) => [entry.code, entry.status]),
-        );
+    const items = await readCatalogue(id)
+    expect(items[0]!.status).toBe('retired')
+    // Still in the validator's index: an offline queue may hold an entry logged
+    // while the chip was still on screen.
+    const rules = buildSymptomRules([symptomItem('fading', 'Fading'), symptomItem('live', 'Live')])
+    expect(rules.has('fading')).toBe(true)
+    expect(rules.has('never-existed')).toBe(false)
 
-        expect(status.get("libido")).toBe("active");
-        for (const { code } of retired) expect(status.get(code)).toBe("retired");
-    });
+    // A re-seed must not quietly bring it back either.
+    await applyCatalogue(id, [item('fading', 'Fading')], { relabel: true })
+    expect((await readCatalogue(id))[0]!.status).toBe('retired')
+  })
+})
 
-    test("retiring takes a code out of the pickers but leaves it valid to write", async () => {
-        const id = tempCatalogue();
-        await applyCatalogue(id, [item("fading", "Fading")]);
-        expect(await retireCode(id, "fading")).toBe(true);
+describe('events: symptoms are checked against the catalogue', () => {
+  test('a code the catalogue has never carried is rejected', async () => {
+    const res = await bodySignals({ symptoms: [{ code: 'zz-not-a-real-symptom' }] })
+    expect(res.status).toBe(400)
+    expect((await json<ErrorResponse>(res)).error.code).toBe('UNKNOWN_SYMPTOM_CODE')
+  })
 
-        const items = await readCatalogue(id);
-        expect(items[0]!.status).toBe("retired");
-        // Still in the validator's index: an offline queue may hold an entry logged
-        // while the chip was still on screen.
-        const rules = buildSymptomRules([symptomItem("fading", "Fading"), symptomItem("live", "Live")]);
-        expect(rules.has("fading")).toBe(true);
-        expect(rules.has("never-existed")).toBe(false);
+  test('the same check runs on POST /me/events', async () => {
+    const res = await api('/me/events', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'bodySignals',
+        localDate: today,
+        payload: { symptoms: [{ code: 'zz-not-a-real-symptom' }] },
+      }),
+    })
+    expect(res.status).toBe(400)
+    expect((await json<ErrorResponse>(res)).error.code).toBe('UNKNOWN_SYMPTOM_CODE')
+  })
 
-        // A re-seed must not quietly bring it back either.
-        await applyCatalogue(id, [item("fading", "Fading")], { relabel: true });
-        expect((await readCatalogue(id))[0]!.status).toBe("retired");
-    });
-});
+  test('a code from the live catalogue is accepted', async () => {
+    const code = live.catalogues.symptoms.find((entry) => entry.values === null)!.code
+    const res = await bodySignals({ symptoms: [{ code }] })
+    expect(res.status).toBe(200)
+    const { event } = await json<{ event: EvaEventBody }>(res)
+    expect(event.payload.symptoms).toEqual([{ code, severity: 'normal' }])
+  })
 
-describe("events: symptoms are checked against the catalogue", () => {
-    test("a code the catalogue has never carried is rejected", async () => {
-        const res = await bodySignals({ symptoms: [{ code: "zz-not-a-real-symptom" }] });
-        expect(res.status).toBe(400);
-        expect((await json<ErrorResponse>(res)).error.code).toBe("UNKNOWN_SYMPTOM_CODE");
-    });
+  test('discharge carries a value from its own picker, and severity stays separate', async () => {
+    const discharge = live.catalogues.symptoms.find((entry) => entry.code === 'discharge')!
+    expect(discharge.values).toContain('egg-white')
 
-    test("the same check runs on POST /me/events", async () => {
-        const res = await api("/me/events", {
-            method: "POST",
-            body: JSON.stringify({
-                type: "bodySignals",
-                localDate: today,
-                payload: { symptoms: [{ code: "zz-not-a-real-symptom" }] },
-            }),
-        });
-        expect(res.status).toBe(400);
-        expect((await json<ErrorResponse>(res)).error.code).toBe("UNKNOWN_SYMPTOM_CODE");
-    });
+    const res = await bodySignals({
+      symptoms: [
+        { code: 'discharge', value: 'egg-white' },
+        { code: 'cramps', severity: 'severe' },
+      ],
+    })
+    expect(res.status).toBe(200)
+    const { event } = await json<{ event: EvaEventBody }>(res)
+    expect(event.payload.symptoms).toEqual([
+      { code: 'discharge', severity: 'normal', value: 'egg-white' },
+      { code: 'cramps', severity: 'severe' },
+    ])
+  })
 
-    test("a code from the live catalogue is accepted", async () => {
-        const code = live.catalogues.symptoms.find((entry) => entry.values === null)!.code;
-        const res = await bodySignals({ symptoms: [{ code }] });
-        expect(res.status).toBe(200);
-        const { event } = await json<{ event: EvaEventBody }>(res);
-        expect(event.payload.symptoms).toEqual([{ code, severity: "normal" }]);
-    });
+  test('a value the picker does not offer is rejected', async () => {
+    const res = await bodySignals({ symptoms: [{ code: 'discharge', value: 'sparkly' }] })
+    expect(res.status).toBe(400)
+    const { error } = await json<ErrorResponse>(res)
+    expect(error.code).toBe('VALIDATION')
+    expect(error.message).toContain('discharge')
+  })
 
-    test("discharge carries a value from its own picker, and severity stays separate", async () => {
-        const discharge = live.catalogues.symptoms.find((entry) => entry.code === "discharge")!;
-        expect(discharge.values).toContain("egg-white");
+  test('libido takes low and high, and severity stays separate there too', async () => {
+    for (const value of ['low', 'high']) {
+      const res = await bodySignals({ symptoms: [{ code: 'libido', value }] })
+      expect(res.status).toBe(200)
+      const { event } = await json<{ event: EvaEventBody }>(res)
+      expect(event.payload.symptoms).toEqual([{ code: 'libido', severity: 'normal', value }])
+    }
+  })
 
-        const res = await bodySignals({
-            symptoms: [
-                { code: "discharge", value: "egg-white" },
-                { code: "cramps", severity: "severe" },
-            ],
-        });
-        expect(res.status).toBe(200);
-        const { event } = await json<{ event: EvaEventBody }>(res);
-        expect(event.payload.symptoms).toEqual([
-            { code: "discharge", severity: "normal", value: "egg-white" },
-            { code: "cramps", severity: "severe" },
-        ]);
-    });
+  test('a libido value outside its picker is rejected', async () => {
+    const res = await bodySignals({ symptoms: [{ code: 'libido', value: 'medium' }] })
+    expect(res.status).toBe(400)
+    const { error } = await json<ErrorResponse>(res)
+    expect(error.code).toBe('VALIDATION')
+    expect(error.message).toContain('libido')
+  })
 
-    test("a value the picker does not offer is rejected", async () => {
-        const res = await bodySignals({ symptoms: [{ code: "discharge", value: "sparkly" }] });
-        expect(res.status).toBe(400);
-        const { error } = await json<ErrorResponse>(res);
-        expect(error.code).toBe("VALIDATION");
-        expect(error.message).toContain("discharge");
-    });
+  test('every declared retirement is retired, and still accepted on write', async () => {
+    // Drives off the repo's own record of what was retired, so a row added to
+    // `RETIREMENTS` without running the script is caught here rather than by a
+    // user. Today that record is the two codes `libido` replaced.
+    const retired = RETIREMENTS.filter((entry) => entry.catalogue === 'symptoms')
+    expect(retired.length).toBeGreaterThan(0)
 
-    test("libido takes low and high, and severity stays separate there too", async () => {
-        for (const value of ["low", "high"]) {
-            const res = await bodySignals({ symptoms: [{ code: "libido", value }] });
-            expect(res.status).toBe(200);
-            const { event } = await json<{ event: EvaEventBody }>(res);
-            expect(event.payload.symptoms).toEqual([
-                { code: "libido", severity: "normal", value },
-            ]);
-        }
-    });
+    for (const { code } of retired) {
+      expect(live.catalogues.symptoms.find((entry) => entry.code === code)!.status).toBe('retired')
+      // The retirement contract (#24): a retired code leaves the pickers but
+      // stays writable, because an offline queue may hold an entry logged while
+      // the chip was still on screen. Dropping it loses a user's health entry.
+      const res = await bodySignals({ symptoms: [{ code }] })
+      expect(res.status).toBe(200)
+      const { event } = await json<{ event: EvaEventBody }>(res)
+      expect(event.payload.symptoms).toEqual([{ code, severity: 'normal' }])
+    }
+  })
 
-    test("a libido value outside its picker is rejected", async () => {
-        const res = await bodySignals({ symptoms: [{ code: "libido", value: "medium" }] });
-        expect(res.status).toBe(400);
-        const { error } = await json<ErrorResponse>(res);
-        expect(error.code).toBe("VALIDATION");
-        expect(error.message).toContain("libido");
-    });
+  test('a value on a chip that has no picker is rejected', async () => {
+    const res = await bodySignals({ symptoms: [{ code: 'cramps', value: 'egg-white' }] })
+    expect(res.status).toBe(400)
+    expect((await json<ErrorResponse>(res)).error.code).toBe('VALIDATION')
+  })
+})
 
-    test("every declared retirement is retired, and still accepted on write", async () => {
-        // Drives off the repo's own record of what was retired, so a row added to
-        // `RETIREMENTS` without running the script is caught here rather than by a
-        // user. Today that record is the two codes `libido` replaced.
-        const retired = RETIREMENTS.filter((entry) => entry.catalogue === "symptoms");
-        expect(retired.length).toBeGreaterThan(0);
+describe('events: history survives the catalogue changing under it', () => {
+  /** Written straight to Firestore because the point is an event that predates the
+   *  catalogue it no longer matches — the API will not create one for us. Same
+   *  liberty events.test.ts takes when it sweeps the collection. */
+  const legacyDate = '2026-01-15'
+  let legacyId = ''
 
-        for (const { code } of retired) {
-            expect(
-                live.catalogues.symptoms.find((entry) => entry.code === code)!.status,
-            ).toBe("retired");
-            // The retirement contract (#24): a retired code leaves the pickers but
-            // stays writable, because an offline queue may hold an entry logged while
-            // the chip was still on screen. Dropping it loses a user's health entry.
-            const res = await bodySignals({ symptoms: [{ code }] });
-            expect(res.status).toBe(200);
-            const { event } = await json<{ event: EvaEventBody }>(res);
-            expect(event.payload.symptoms).toEqual([{ code, severity: "normal" }]);
-        }
-    });
+  beforeAll(async () => {
+    const ref = eventsCollection().doc()
+    await ref.set({
+      type: 'bodySignals',
+      localDate: legacyDate,
+      loggedAt: `${legacyDate}T12:00:00`,
+      note: null,
+      source: 'user',
+      payload: { energy: 3, symptoms: [{ code: 'zz-deleted-in-2025', severity: 'severe' }] },
+      idempotencyKey: null,
+      deletedAt: null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    legacyId = ref.id
+  })
 
-    test("a value on a chip that has no picker is rejected", async () => {
-        const res = await bodySignals({ symptoms: [{ code: "cramps", value: "egg-white" }] });
-        expect(res.status).toBe(400);
-        expect((await json<ErrorResponse>(res)).error.code).toBe("VALIDATION");
-    });
-});
+  test('it reads back untouched — no migration, no silent change of meaning', async () => {
+    const res = await api(`/me/events?from=${legacyDate}&to=${legacyDate}`)
+    expect(res.status).toBe(200)
+    const { events } = await json<{ events: EvaEventBody[] }>(res)
+    const found = events.find((event) => event.id === legacyId)!
+    expect(found).toBeDefined()
+    // The stored code is returned verbatim: reads never validate, so a code that
+    // has since left the catalogue cannot break or rewrite an old entry.
+    expect(found.payload.symptoms).toEqual([{ code: 'zz-deleted-in-2025', severity: 'severe' }])
+  })
 
-describe("events: history survives the catalogue changing under it", () => {
-    /** Written straight to Firestore because the point is an event that predates the
-     *  catalogue it no longer matches — the API will not create one for us. Same
-     *  liberty events.test.ts takes when it sweeps the collection. */
-    const legacyDate = "2026-01-15";
-    let legacyId = "";
-
-    beforeAll(async () => {
-        const ref = eventsCollection().doc();
-        await ref.set({
-            type: "bodySignals",
-            localDate: legacyDate,
-            loggedAt: `${legacyDate}T12:00:00`,
-            note: null,
-            source: "user",
-            payload: { energy: 3, symptoms: [{ code: "zz-deleted-in-2025", severity: "severe" }] },
-            idempotencyKey: null,
-            deletedAt: null,
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-        });
-        legacyId = ref.id;
-    });
-
-    test("it reads back untouched — no migration, no silent change of meaning", async () => {
-        const res = await api(`/me/events?from=${legacyDate}&to=${legacyDate}`);
-        expect(res.status).toBe(200);
-        const { events } = await json<{ events: EvaEventBody[] }>(res);
-        const found = events.find((event) => event.id === legacyId)!;
-        expect(found).toBeDefined();
-        // The stored code is returned verbatim: reads never validate, so a code that
-        // has since left the catalogue cannot break or rewrite an old entry.
-        expect(found.payload.symptoms).toEqual([{ code: "zz-deleted-in-2025", severity: "severe" }]);
-    });
-
-    test("and it can still be deleted", async () => {
-        const res = await api(`/me/events/${legacyId}`, { method: "DELETE" });
-        expect(res.status).toBe(200);
-    });
-});
+  test('and it can still be deleted', async () => {
+    const res = await api(`/me/events/${legacyId}`, { method: 'DELETE' })
+    expect(res.status).toBe(200)
+  })
+})

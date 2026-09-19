@@ -264,7 +264,10 @@ export const resolveSignals = (
   vocabulary: SignalVocabulary | null,
   labelFor: (code: string) => string | null,
 ): Subject => {
-  if (subject.templateId !== TEMPLATE.signalsToday && subject.templateId !== TEMPLATE.signalOverridesPhase) {
+  if (
+    subject.templateId !== TEMPLATE.signalsToday &&
+    subject.templateId !== TEMPLATE.signalOverridesPhase
+  ) {
     return subject
   }
   if (vocabulary === null) return subject
@@ -272,7 +275,10 @@ export const resolveSignals = (
   // Unreachable through the ladder — both cards are selected only when an entry is observed
   // — but failing open here would render `{signal}` for a subject D1 never produced.
   if (entry === null) return subject
-  return { ...subject, slots: { ...subject.slots, signal: phraseForEntry(entry, vocabulary, labelFor) } }
+  return {
+    ...subject,
+    slots: { ...subject.slots, signal: phraseForEntry(entry, vocabulary, labelFor) },
+  }
 }
 
 /**
@@ -369,9 +375,7 @@ const shiftDays = (date: string, days: number): string =>
   new Date(Date.parse(`${date}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10)
 
 const wholeDaysBetween = (from: string, to: string): number =>
-  Math.round(
-    (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000,
-  )
+  Math.round((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000)
 
 // ── Gathering D1's inputs ──────────────────────────────────────────────────────────────
 
@@ -398,7 +402,12 @@ const toSignalEntry = (event: EvaEvent, timeZone: string): SignalEntry | null =>
   // not take the card down. It cannot happen through the API — the route validates the
   // shape on the way in — so this is a floor under a hand-edited document.
   if (loggedAt === null) return null
-  const payload = event.payload as { energy?: number; mood?: number; sleep?: number; symptoms?: unknown }
+  const payload = event.payload as {
+    energy?: number
+    mood?: number
+    sleep?: number
+    symptoms?: unknown
+  }
   const symptoms = Array.isArray(payload.symptoms) ? payload.symptoms : []
   return {
     localDate: event.localDate,

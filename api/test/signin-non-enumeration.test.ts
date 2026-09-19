@@ -1,18 +1,18 @@
 import {
-    afterAll,
-    beforeAll,
-    beforeEach,
-    describe,
-    expect,
-    mock,
-    setDefaultTimeout,
-    test,
-} from "bun:test";
-import { FieldValue } from "firebase-admin/firestore";
-import { adminAuth, firestore } from "../src/firebase";
-import { config } from "../src/config";
-import { resetAuthRateLimits } from "../src/rate-limit";
-import { createUnactivatedAccount } from "./support/session";
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setDefaultTimeout,
+  test,
+} from 'bun:test'
+import { FieldValue } from 'firebase-admin/firestore'
+import { adminAuth, firestore } from '../src/firebase'
+import { config } from '../src/config'
+import { resetAuthRateLimits } from '../src/rate-limit'
+import { createUnactivatedAccount } from './support/session'
 
 /**
  * Live round trips happen in this file, so the ceiling is chosen rather than inherited
@@ -20,8 +20,7 @@ import { createUnactivatedAccount } from "./support/session";
  * round trip reaches it, low enough that a genuine hang still fails. Every case here takes
  * it; none of them had a timeout of its own to keep.
  */
-setDefaultTimeout(20_000);
-
+setDefaultTimeout(20_000)
 
 /**
  * The non-enumeration property on `POST /auth/signin` (issue #21).
@@ -48,25 +47,25 @@ setDefaultTimeout(20_000);
  * not exercise — is pinned in auth.test.ts.
  */
 
-const identityToolkit = await import("../src/identity-toolkit");
+const identityToolkit = await import('../src/identity-toolkit')
 
 /** The upstream failure the next signin gets, chosen from the address it was given. */
 const upstreamSigninReason = (email: string): string =>
-    email.includes("registered-account") ? "INVALID_PASSWORD" : "EMAIL_NOT_FOUND";
+  email.includes('registered-account') ? 'INVALID_PASSWORD' : 'EMAIL_NOT_FOUND'
 
-mock.module("../src/identity-toolkit", () => ({
-    ...identityToolkit,
-    signInWithPassword: (email: string) => {
-        throw new identityToolkit.IdentityToolkitError(upstreamSigninReason(email));
-    },
-    signUpWithPassword: () => {
-        throw new identityToolkit.IdentityToolkitError("EMAIL_EXISTS");
-    },
-}));
+mock.module('../src/identity-toolkit', () => ({
+  ...identityToolkit,
+  signInWithPassword: (email: string) => {
+    throw new identityToolkit.IdentityToolkitError(upstreamSigninReason(email))
+  },
+  signUpWithPassword: () => {
+    throw new identityToolkit.IdentityToolkitError('EMAIL_EXISTS')
+  },
+}))
 
 // Imported after the mock, and never as a listening server: `export default { port,
 // fetch }` only serves when it is the entrypoint, so this is the route and nothing else.
-const { default: server } = await import("../src/index");
+const { default: server } = await import('../src/index')
 
 // Both addresses follow the e2e+*@e2e.evaapp.dev sweep pattern (GUARDRAILS 16) out of
 // habit only — the upstream is mocked, so neither account is ever created. The local
@@ -79,7 +78,7 @@ const { default: server } = await import("../src/index");
  * that has to be changed deliberately, in the same commit, by somebody who then has to
  * say why.
  */
-const SIGNIN_FLOOR_MS = 350;
+const SIGNIN_FLOOR_MS = 350
 
 /**
  * The ceiling for the two cases that sweep a whole per-IP budget.
@@ -89,178 +88,179 @@ const SIGNIN_FLOOR_MS = 350;
  * a literal would fail with a timeout naming neither. Three times the floored cost, which is
  * the same slack 60s gave when this was written.
  */
-const SWEEP_TIMEOUT_MS = Math.max(
-    60_000,
-    (config.rateLimit.signinPerIp + 2) * SIGNIN_FLOOR_MS * 3,
-);
+const SWEEP_TIMEOUT_MS = Math.max(60_000, (config.rateLimit.signinPerIp + 2) * SIGNIN_FLOOR_MS * 3)
 
-const REGISTERED = "e2e+registered-account@e2e.evaapp.dev";
-const UNKNOWN = "e2e+never-registered@e2e.evaapp.dev";
-const PASSWORD = "correct-horse-8";
+const REGISTERED = 'e2e+registered-account@e2e.evaapp.dev'
+const UNKNOWN = 'e2e+never-registered@e2e.evaapp.dev'
+const PASSWORD = 'correct-horse-8'
 
 interface Answer {
-    status: number;
-    /** The raw bytes, not a parse of them: a leak may be anywhere in the response. */
-    text: string;
-    headers: string;
-    error: { code: string; message: string };
+  status: number
+  /** The raw bytes, not a parse of them: a leak may be anywhere in the response. */
+  text: string
+  headers: string
+  error: { code: string; message: string }
 }
 
 const post = async (
-    path: string,
-    body: unknown,
-    /** Extra request headers — `x-forwarded-for`, for the per-IP half of the throttle. */
-    headers: Record<string, string> = {},
+  path: string,
+  body: unknown,
+  /** Extra request headers — `x-forwarded-for`, for the per-IP half of the throttle. */
+  headers: Record<string, string> = {},
 ): Promise<Answer> => {
-    const res = await server.fetch(
-        new Request(`http://api.test${path}`, {
-            method: "POST",
-            headers: { "content-type": "application/json", ...headers },
-            body: JSON.stringify(body),
-        }),
-    );
-    const text = await res.text();
-    return {
-        status: res.status,
-        text,
-        headers: JSON.stringify([...res.headers]),
-        error: (JSON.parse(text) as { error: { code: string; message: string } }).error,
-    };
-};
+  const res = await server.fetch(
+    new Request(`http://api.test${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    }),
+  )
+  const text = await res.text()
+  return {
+    status: res.status,
+    text,
+    headers: JSON.stringify([...res.headers]),
+    error: (JSON.parse(text) as { error: { code: string; message: string } }).error,
+  }
+}
 
-describe("signin does not reveal whether an address is registered", () => {
-    // The floor cases below spend real budget — eleven requests for the throttled one —
-    // against a per-IP counter this describe used to share across every case without ever
-    // clearing it. Harmless at the default 60, and a lowered `RATE_LIMIT_SIGNIN_PER_IP`
-    // would otherwise start answering these with 429s that some of them do not check for.
-    beforeEach(() => resetAuthRateLimits());
+describe('signin does not reveal whether an address is registered', () => {
+  // The floor cases below spend real budget — eleven requests for the throttled one —
+  // against a per-IP counter this describe used to share across every case without ever
+  // clearing it. Harmless at the default 60, and a lowered `RATE_LIMIT_SIGNIN_PER_IP`
+  // would otherwise start answering these with 429s that some of them do not check for.
+  beforeEach(() => resetAuthRateLimits())
 
-    test("a wrong password and an unknown address get the same answer", async () => {
-        const wrongPassword = await post("/auth/signin", {
-            email: REGISTERED,
-            password: "wrong-password-1",
-        });
-        const unknownAddress = await post("/auth/signin", {
-            email: UNKNOWN,
-            password: PASSWORD,
-        });
+  test('a wrong password and an unknown address get the same answer', async () => {
+    const wrongPassword = await post('/auth/signin', {
+      email: REGISTERED,
+      password: 'wrong-password-1',
+    })
+    const unknownAddress = await post('/auth/signin', {
+      email: UNKNOWN,
+      password: PASSWORD,
+    })
 
-        // The upstream told the route two different things, which is the whole point.
-        expect(upstreamSigninReason(REGISTERED)).not.toBe(upstreamSigninReason(UNKNOWN));
+    // The upstream told the route two different things, which is the whole point.
+    expect(upstreamSigninReason(REGISTERED)).not.toBe(upstreamSigninReason(UNKNOWN))
 
-        expect(wrongPassword.status).toBe(unknownAddress.status);
-        expect(wrongPassword.status).toBe(401);
-        expect(wrongPassword.error.code).toBe(unknownAddress.error.code);
-        expect(wrongPassword.error.code).toBe("INVALID_CREDENTIALS");
-        expect(wrongPassword.error.message).toBe(unknownAddress.error.message);
+    expect(wrongPassword.status).toBe(unknownAddress.status)
+    expect(wrongPassword.status).toBe(401)
+    expect(wrongPassword.error.code).toBe(unknownAddress.error.code)
+    expect(wrongPassword.error.code).toBe('INVALID_CREDENTIALS')
+    expect(wrongPassword.error.message).toBe(unknownAddress.error.message)
 
-        // Byte-identical, so anything the route learned upstream and passed on — in a
-        // field this test does not know to look at — shows up as a difference here.
-        expect(wrongPassword.text).toBe(unknownAddress.text);
-        expect(wrongPassword.headers).toBe(unknownAddress.headers);
-    });
+    // Byte-identical, so anything the route learned upstream and passed on — in a
+    // field this test does not know to look at — shows up as a difference here.
+    expect(wrongPassword.text).toBe(unknownAddress.text)
+    expect(wrongPassword.headers).toBe(unknownAddress.headers)
+  })
 
-    test("and both answers take at least as long as the floor (#34)", async () => {
-        // Byte-identical was never time-identical: Identity Toolkit refuses an address it
-        // has no record of without verifying a password hash, which measured 21.3ms faster
-        // (median 29.6ms, z = 3.01) across 40 fresh addresses per branch against the real
-        // project. `SIGNIN_FLOOR_MS` holds both above that difference.
-        //
-        // Asserted as a floor on each branch rather than as a difference between them,
-        // because a difference is a measurement and would flake: what the route promises is
-        // that neither branch can answer sooner than the floor, and that is what makes them
-        // indistinguishable below it. `timed` returns the wall clock around one request.
-        const timed = async (email: string, password: string): Promise<number> => {
-            // `performance.now()`, not `Date.now()`: the wall clock can step under NTP, and
-            // a backwards step would flake this while a forwards one could pass a run where
-            // the floor had been removed.
-            const started = performance.now();
-            expect((await post("/auth/signin", { email, password })).status).toBe(401);
-            return performance.now() - started;
-        };
+  test('and both answers take at least as long as the floor (#34)', async () => {
+    // Byte-identical was never time-identical: Identity Toolkit refuses an address it
+    // has no record of without verifying a password hash, which measured 21.3ms faster
+    // (median 29.6ms, z = 3.01) across 40 fresh addresses per branch against the real
+    // project. `SIGNIN_FLOOR_MS` holds both above that difference.
+    //
+    // Asserted as a floor on each branch rather than as a difference between them,
+    // because a difference is a measurement and would flake: what the route promises is
+    // that neither branch can answer sooner than the floor, and that is what makes them
+    // indistinguishable below it. `timed` returns the wall clock around one request.
+    const timed = async (email: string, password: string): Promise<number> => {
+      // `performance.now()`, not `Date.now()`: the wall clock can step under NTP, and
+      // a backwards step would flake this while a forwards one could pass a run where
+      // the floor had been removed.
+      const started = performance.now()
+      expect((await post('/auth/signin', { email, password })).status).toBe(401)
+      return performance.now() - started
+    }
 
-        const wrongPassword = await timed(REGISTERED, "wrong-password-2");
-        const unknownAddress = await timed(UNKNOWN, PASSWORD);
+    const wrongPassword = await timed(REGISTERED, 'wrong-password-2')
+    const unknownAddress = await timed(UNKNOWN, PASSWORD)
 
-        // The number is one below the constant, not the constant: the clock is read around
-        // the call and `setTimeout` is allowed to fire a millisecond early.
-        for (const elapsed of [wrongPassword, unknownAddress]) {
-            expect(elapsed).toBeGreaterThanOrEqual(SIGNIN_FLOOR_MS - 1);
-        }
+    // The number is one below the constant, not the constant: the clock is read around
+    // the call and `setTimeout` is allowed to fire a millisecond early.
+    for (const elapsed of [wrongPassword, unknownAddress]) {
+      expect(elapsed).toBeGreaterThanOrEqual(SIGNIN_FLOOR_MS - 1)
+    }
 
-        // Both directions on the constant itself, from the measurements in ARCHITECTURE §3.
-        // Below the failing branches' p95 the floor stops covering them; above the fastest
-        // successful sign-in it starts charging the person the route exists for. Lowering it
-        // in `index.ts` alone fails the assertions above; lowering it in both fails these.
-        expect(SIGNIN_FLOOR_MS).toBeGreaterThanOrEqual(280);
-        expect(SIGNIN_FLOOR_MS).toBeLessThan(465);
+    // Both directions on the constant itself, from the measurements in ARCHITECTURE §3.
+    // Below the failing branches' p95 the floor stops covering them; above the fastest
+    // successful sign-in it starts charging the person the route exists for. Lowering it
+    // in `index.ts` alone fails the assertions above; lowering it in both fails these.
+    expect(SIGNIN_FLOOR_MS).toBeGreaterThanOrEqual(280)
+    expect(SIGNIN_FLOOR_MS).toBeLessThan(465)
 
-        // And an upper bound on what the route actually did, not only on the test's copy
-        // of the constant: raising `SIGNIN_FLOOR_MS` in `index.ts` alone is the direction
-        // that starts charging successful sign-ins, and the assertions above are one-sided.
-        // Loose enough that only a wildly raised floor trips it.
-        for (const elapsed of [wrongPassword, unknownAddress]) {
-            expect(elapsed).toBeLessThan(2_000);
-        }
+    // And an upper bound on what the route actually did, not only on the test's copy
+    // of the constant: raising `SIGNIN_FLOOR_MS` in `index.ts` alone is the direction
+    // that starts charging successful sign-ins, and the assertions above are one-sided.
+    // Loose enough that only a wildly raised floor trips it.
+    for (const elapsed of [wrongPassword, unknownAddress]) {
+      expect(elapsed).toBeLessThan(2_000)
+    }
 
-        // Both samples above leave through the *same* `return`, because this file's mock
-        // makes every sign-in fail upstream — so this pins the floor, not its width. That
-        // `atLeast` wraps the whole handler rather than one branch is pinned in
-        // `auth-upstream-failures.test.ts`, on a stubbed-outage `503`: every other non-401
-        // branch does real upstream and Firestore work and already exceeds the floor, which
-        // is why wrapping them is free and also why they cannot see the difference.
-    });
+    // Both samples above leave through the *same* `return`, because this file's mock
+    // makes every sign-in fail upstream — so this pins the floor, not its width. That
+    // `atLeast` wraps the whole handler rather than one branch is pinned in
+    // `auth-upstream-failures.test.ts`, on a stubbed-outage `503`: every other non-401
+    // branch does real upstream and Firestore work and already exceeds the floor, which
+    // is why wrapping them is free and also why they cannot see the difference.
+  })
 
-    test("but a throttled answer is not floored, so refusing stays cheap", async () => {
-        // Deliberately outside the floor, and stated as a decision in ARCHITECTURE §3: the
-        // budget is spent on arrival, keyed by the *submitted* address, before Identity
-        // Toolkit is asked anything — so a 429 is a function of the caller's own history,
-        // which they already know. Padding it would buy nothing and would make every
-        // refused attempt cost a held connection, which is what an attacker's traffic
-        // becomes. Moving `throttleAuth` inside `atLeast` is the mutation this catches.
-        const email = `e2e+floor-429-${crypto.randomUUID()}@e2e.evaapp.dev`;
+  test(
+    'but a throttled answer is not floored, so refusing stays cheap',
+    async () => {
+      // Deliberately outside the floor, and stated as a decision in ARCHITECTURE §3: the
+      // budget is spent on arrival, keyed by the *submitted* address, before Identity
+      // Toolkit is asked anything — so a 429 is a function of the caller's own history,
+      // which they already know. Padding it would buy nothing and would make every
+      // refused attempt cost a held connection, which is what an attacker's traffic
+      // becomes. Moving `throttleAuth` inside `atLeast` is the mutation this catches.
+      const email = `e2e+floor-429-${crypto.randomUUID()}@e2e.evaapp.dev`
 
-        let refused: Answer | null = null;
-        let elapsed = 0;
-        for (let i = 0; i <= SIGNIN_PER_EMAIL; i++) {
-            const started = performance.now();
-            refused = await post("/auth/signin", { email, password: PASSWORD });
-            elapsed = performance.now() - started;
-        }
+      let refused: Answer | null = null
+      let elapsed = 0
+      for (let i = 0; i <= SIGNIN_PER_EMAIL; i++) {
+        const started = performance.now()
+        refused = await post('/auth/signin', { email, password: PASSWORD })
+        elapsed = performance.now() - started
+      }
 
-        expect(refused!.status).toBe(429);
-        // Comfortably inside the floor rather than merely under it: a refusal is a map
-        // lookup and a constant response, and half the floor is generous for that.
-        expect(elapsed).toBeLessThan(SIGNIN_FLOOR_MS / 2);
-    }, (config.rateLimit.signinPerEmail + 2) * SIGNIN_FLOOR_MS * 3);
+      expect(refused!.status).toBe(429)
+      // Comfortably inside the floor rather than merely under it: a refusal is a map
+      // lookup and a constant response, and half the floor is generous for that.
+      expect(elapsed).toBeLessThan(SIGNIN_FLOOR_MS / 2)
+    },
+    (config.rateLimit.signinPerEmail + 2) * SIGNIN_FLOOR_MS * 3,
+  )
 
-    test("neither answer carries the upstream reason, the address, or the password", async () => {
-        // Equality alone would not catch a leak that is identical in both branches, e.g.
-        // a message that always appends "(INVALID_LOGIN_CREDENTIALS)".
-        const leaks = [
-            "INVALID_PASSWORD",
-            "EMAIL_NOT_FOUND",
-            "INVALID_LOGIN_CREDENTIALS",
-            "Identity Toolkit", // the IdentityToolkitError message prefix
-            "registered-account",
-            "never-registered",
-            "evaapp.dev",
-            "correct-horse",
-            "wrong-password",
-        ];
+  test('neither answer carries the upstream reason, the address, or the password', async () => {
+    // Equality alone would not catch a leak that is identical in both branches, e.g.
+    // a message that always appends "(INVALID_LOGIN_CREDENTIALS)".
+    const leaks = [
+      'INVALID_PASSWORD',
+      'EMAIL_NOT_FOUND',
+      'INVALID_LOGIN_CREDENTIALS',
+      'Identity Toolkit', // the IdentityToolkitError message prefix
+      'registered-account',
+      'never-registered',
+      'evaapp.dev',
+      'correct-horse',
+      'wrong-password',
+    ]
 
-        for (const [email, password] of [
-            [REGISTERED, "wrong-password-1"],
-            [UNKNOWN, PASSWORD],
-        ] as const) {
-            const answer = await post("/auth/signin", { email, password });
-            const whole = `${answer.text} ${answer.headers}`.toLowerCase();
-            for (const leak of leaks) {
-                expect(whole).not.toContain(leak.toLowerCase());
-            }
-        }
-    });
-});
+    for (const [email, password] of [
+      [REGISTERED, 'wrong-password-1'],
+      [UNKNOWN, PASSWORD],
+    ] as const) {
+      const answer = await post('/auth/signin', { email, password })
+      const whole = `${answer.text} ${answer.headers}`.toLowerCase()
+      for (const leak of leaks) {
+        expect(whole).not.toContain(leak.toLowerCase())
+      }
+    }
+  })
+})
 
 /**
  * The mirror image, deliberately: `POST /auth/signup` *does* tell you the address is
@@ -280,88 +280,102 @@ describe("signin does not reveal whether an address is registered", () => {
  * reading the account — and an address with no activated owner is one anybody may still
  * claim, which is the denial-of-service half #120 closes.
  */
-let takenUid: string | null = null;
+let takenUid: string | null = null
 
 beforeAll(async () => {
-    // **Delete-first, because the address is fixed rather than a fresh uuid.** An
-    // interrupted run — a killed `bun run verify`, a failure before `afterAll` — leaves this
-    // account behind against the real project, and the next run's `createUser` then throws
-    // `email-already-exists` and takes the whole file red for a reason that has nothing to
-    // do with what it tests. A stale account is exactly as good as no account here, so it is
-    // cleared rather than worked around.
-    const stale = await adminAuth.getUserByEmail(REGISTERED).catch(() => null);
-    if (stale) {
-        await firestore.collection("users").doc(stale.uid).delete().catch(() => {});
-        await adminAuth.deleteUser(stale.uid).catch(() => {});
-    }
-    const { uid } = await adminAuth.createUser({
-        email: REGISTERED,
-        password: PASSWORD,
-        emailVerified: true,
-    });
-    takenUid = uid;
-    await firestore.collection("users").doc(uid).set({
-        email: REGISTERED,
-        authProviders: ["password"],
-        questionnaireCompleted: false,
-        profile: null,
-        activatedAt: FieldValue.serverTimestamp(),
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-    });
-});
+  // **Delete-first, because the address is fixed rather than a fresh uuid.** An
+  // interrupted run — a killed `bun run verify`, a failure before `afterAll` — leaves this
+  // account behind against the real project, and the next run's `createUser` then throws
+  // `email-already-exists` and takes the whole file red for a reason that has nothing to
+  // do with what it tests. A stale account is exactly as good as no account here, so it is
+  // cleared rather than worked around.
+  const stale = await adminAuth.getUserByEmail(REGISTERED).catch(() => null)
+  if (stale) {
+    await firestore
+      .collection('users')
+      .doc(stale.uid)
+      .delete()
+      .catch(() => {})
+    await adminAuth.deleteUser(stale.uid).catch(() => {})
+  }
+  const { uid } = await adminAuth.createUser({
+    email: REGISTERED,
+    password: PASSWORD,
+    emailVerified: true,
+  })
+  takenUid = uid
+  await firestore
+    .collection('users')
+    .doc(uid)
+    .set({
+      email: REGISTERED,
+      authProviders: ['password'],
+      questionnaireCompleted: false,
+      profile: null,
+      activatedAt: FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+})
 
 afterAll(async () => {
-    if (!takenUid) return;
-    await firestore.collection("users").doc(takenUid).delete().catch(() => {});
-    await adminAuth.deleteUser(takenUid).catch(() => {});
-});
+  if (!takenUid) return
+  await firestore
+    .collection('users')
+    .doc(takenUid)
+    .delete()
+    .catch(() => {})
+  await adminAuth.deleteUser(takenUid).catch(() => {})
+})
 
+describe('signup deliberately does distinguish a taken address', () => {
+  test('a registered address is 409 EMAIL_EXISTS, not the combined message', async () => {
+    const res = await post('/auth/signup', { email: REGISTERED })
+    expect(res.status).toBe(409)
+    expect(res.error.code).toBe('EMAIL_EXISTS')
+    expect(res.error.code).not.toBe('INVALID_CREDENTIALS')
+  })
 
-describe("signup deliberately does distinguish a taken address", () => {
-    test("a registered address is 409 EMAIL_EXISTS, not the combined message", async () => {
-        const res = await post("/auth/signup", { email: REGISTERED });
-        expect(res.status).toBe(409);
-        expect(res.error.code).toBe("EMAIL_EXISTS");
-        expect(res.error.code).not.toBe("INVALID_CREDENTIALS");
-    });
+  test('an address whose only account is unproven is not taken', async () => {
+    // The other side, and the reason the 409 now reads the account rather than trusting
+    // that one exists: a reservation nobody has proved is not ownership, so the person
+    // whose address it actually is can still sign up.
+    //
+    // **An Auth user with no document, which is not the shape that matters.** Anything
+    // created outside the API looks like this, and `readUser` answers `{ user: null }`
+    // for it — so the gate's condition is never evaluated in either direction, and
+    // widening it from `existing.user?.activated` to `existing.user` left this test
+    // green. The case below is the one with teeth.
+    const unproven = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+    const { uid } = await adminAuth.createUser({ email: unproven, password: PASSWORD })
+    try {
+      const res = await post('/auth/signup', { email: unproven })
+      expect(res.status).toBe(201)
+    } finally {
+      await adminAuth.deleteUser(uid).catch(() => {})
+    }
+  })
 
-    test("an address whose only account is unproven is not taken", async () => {
-        // The other side, and the reason the 409 now reads the account rather than trusting
-        // that one exists: a reservation nobody has proved is not ownership, so the person
-        // whose address it actually is can still sign up.
-        //
-        // **An Auth user with no document, which is not the shape that matters.** Anything
-        // created outside the API looks like this, and `readUser` answers `{ user: null }`
-        // for it — so the gate's condition is never evaluated in either direction, and
-        // widening it from `existing.user?.activated` to `existing.user` left this test
-        // green. The case below is the one with teeth.
-        const unproven = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
-        const { uid } = await adminAuth.createUser({ email: unproven, password: PASSWORD });
-        try {
-            const res = await post("/auth/signup", { email: unproven });
-            expect(res.status).toBe(201);
-        } finally {
-            await adminAuth.deleteUser(uid).catch(() => {});
-        }
-    });
-
-    test("a pre-#120 account that never activated can still ask for a link", async () => {
-        // The population this actually protects, and the only one where the gate's condition
-        // is reached: an account made by `POST /auth/signup` *before* #120 — a document, a
-        // password, and `activatedAt: null` — whose owner never clicked the link. Sign-up is
-        // the route that re-issues it, so a `409` here strands them with no way back in.
-        const stranded = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`;
-        const uid = await createUnactivatedAccount(stranded, PASSWORD);
-        try {
-            const res = await post("/auth/signup", { email: stranded });
-            expect(res.status).toBe(201);
-        } finally {
-            await firestore.collection("users").doc(uid).delete().catch(() => {});
-            await adminAuth.deleteUser(uid).catch(() => {});
-        }
-    });
-});
+  test('a pre-#120 account that never activated can still ask for a link', async () => {
+    // The population this actually protects, and the only one where the gate's condition
+    // is reached: an account made by `POST /auth/signup` *before* #120 — a document, a
+    // password, and `activatedAt: null` — whose owner never clicked the link. Sign-up is
+    // the route that re-issues it, so a `409` here strands them with no way back in.
+    const stranded = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+    const uid = await createUnactivatedAccount(stranded, PASSWORD)
+    try {
+      const res = await post('/auth/signup', { email: stranded })
+      expect(res.status).toBe(201)
+    } finally {
+      await firestore
+        .collection('users')
+        .doc(uid)
+        .delete()
+        .catch(() => {})
+      await adminAuth.deleteUser(uid).catch(() => {})
+    }
+  })
+})
 
 /**
  * The `/auth/*` throttle (issue #5), and the trap it sets for the property above.
@@ -377,201 +391,204 @@ describe("signup deliberately does distinguish a taken address", () => {
  * wherever it is set rather than pinning today's default a second time.
  */
 
-const SIGNIN_PER_EMAIL = config.rateLimit.signinPerEmail;
-const SIGNIN_PER_IP = config.rateLimit.signinPerIp;
-const SIGNUP_PER_EMAIL = config.rateLimit.signupPerEmail;
+const SIGNIN_PER_EMAIL = config.rateLimit.signinPerEmail
+const SIGNIN_PER_IP = config.rateLimit.signinPerIp
+const SIGNUP_PER_EMAIL = config.rateLimit.signupPerEmail
 
 /** Signs in `times` times and hands back every answer, in order. */
 const signinRepeatedly = async (
-    email: string,
-    times: number,
-    headers: Record<string, string> = {},
+  email: string,
+  times: number,
+  headers: Record<string, string> = {},
 ): Promise<Answer[]> => {
-    const answers: Answer[] = [];
-    for (let i = 0; i < times; i++) {
-        answers.push(await post("/auth/signin", { email, password: PASSWORD }, headers));
+  const answers: Answer[] = []
+  for (let i = 0; i < times; i++) {
+    answers.push(await post('/auth/signin', { email, password: PASSWORD }, headers))
+  }
+  return answers
+}
+
+describe('throttling does not reintroduce the enumeration leak', () => {
+  beforeEach(() => resetAuthRateLimits())
+  afterAll(() => resetAuthRateLimits())
+
+  test('a throttled registered address and a throttled unknown one answer identically', async () => {
+    // A limit of 0 disables the throttle, which would make everything below pass
+    // without testing anything. Fail loudly instead.
+    expect(SIGNIN_PER_EMAIL).toBeGreaterThan(0)
+
+    const registered = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1)
+    const unknown = await signinRepeatedly(UNKNOWN, SIGNIN_PER_EMAIL + 1)
+
+    // The upstream is still telling the route two different things throughout.
+    expect(upstreamSigninReason(REGISTERED)).not.toBe(upstreamSigninReason(UNKNOWN))
+
+    // Both cross the boundary at the same attempt: the first SIGNIN_PER_EMAIL are
+    // served and answered 401, and only the one after that is refused.
+    for (let i = 0; i < SIGNIN_PER_EMAIL; i++) {
+      expect(registered[i]!.status).toBe(401)
+      expect(unknown[i]!.status).toBe(401)
     }
-    return answers;
-};
 
-describe("throttling does not reintroduce the enumeration leak", () => {
-    beforeEach(() => resetAuthRateLimits());
-    afterAll(() => resetAuthRateLimits());
+    const throttledRegistered = registered[SIGNIN_PER_EMAIL]!
+    const throttledUnknown = unknown[SIGNIN_PER_EMAIL]!
+    expect(throttledRegistered.status).toBe(429)
+    expect(throttledUnknown.status).toBe(429)
 
-    test("a throttled registered address and a throttled unknown one answer identically", async () => {
-        // A limit of 0 disables the throttle, which would make everything below pass
-        // without testing anything. Fail loudly instead.
-        expect(SIGNIN_PER_EMAIL).toBeGreaterThan(0);
+    // The same comparison the 401 branch gets: same bytes, same headers. A
+    // `Retry-After` computed from what is left on the bucket would land here.
+    expect(throttledRegistered.text).toBe(throttledUnknown.text)
+    expect(throttledRegistered.headers).toBe(throttledUnknown.headers)
+  })
 
-        const registered = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
-        const unknown = await signinRepeatedly(UNKNOWN, SIGNIN_PER_EMAIL + 1);
+  test('the throttled answer carries no address and no upstream reason', async () => {
+    // Equality alone would miss a leak that is present in both branches — a message
+    // that helpfully names the address being throttled, say.
+    const leaks = [
+      'INVALID_PASSWORD',
+      'EMAIL_NOT_FOUND',
+      'INVALID_LOGIN_CREDENTIALS',
+      'Identity Toolkit',
+      'registered-account',
+      'never-registered',
+      'evaapp.dev',
+      'correct-horse',
+    ]
 
-        // The upstream is still telling the route two different things throughout.
-        expect(upstreamSigninReason(REGISTERED)).not.toBe(upstreamSigninReason(UNKNOWN));
+    for (const email of [REGISTERED, UNKNOWN]) {
+      const answers = await signinRepeatedly(email, SIGNIN_PER_EMAIL + 1)
+      const throttled = answers[SIGNIN_PER_EMAIL]!
+      expect(throttled.status).toBe(429)
 
-        // Both cross the boundary at the same attempt: the first SIGNIN_PER_EMAIL are
-        // served and answered 401, and only the one after that is refused.
-        for (let i = 0; i < SIGNIN_PER_EMAIL; i++) {
-            expect(registered[i]!.status).toBe(401);
-            expect(unknown[i]!.status).toBe(401);
-        }
+      const whole = `${throttled.text} ${throttled.headers}`.toLowerCase()
+      for (const leak of leaks) expect(whole).not.toContain(leak.toLowerCase())
+    }
+  })
+})
 
-        const throttledRegistered = registered[SIGNIN_PER_EMAIL]!;
-        const throttledUnknown = unknown[SIGNIN_PER_EMAIL]!;
-        expect(throttledRegistered.status).toBe(429);
-        expect(throttledUnknown.status).toBe(429);
+describe('the /auth/* throttle', () => {
+  beforeEach(() => resetAuthRateLimits())
+  afterAll(() => resetAuthRateLimits())
 
-        // The same comparison the 401 branch gets: same bytes, same headers. A
-        // `Retry-After` computed from what is left on the bucket would land here.
-        expect(throttledRegistered.text).toBe(throttledUnknown.text);
-        expect(throttledRegistered.headers).toBe(throttledUnknown.headers);
-    });
+  test('the refusal is 429 in the standard error shape, with the additive code', async () => {
+    const answers = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1)
+    const throttled = answers[SIGNIN_PER_EMAIL]!
 
-    test("the throttled answer carries no address and no upstream reason", async () => {
-        // Equality alone would miss a leak that is present in both branches — a message
-        // that helpfully names the address being throttled, say.
-        const leaks = [
-            "INVALID_PASSWORD",
-            "EMAIL_NOT_FOUND",
-            "INVALID_LOGIN_CREDENTIALS",
-            "Identity Toolkit",
-            "registered-account",
-            "never-registered",
-            "evaapp.dev",
-            "correct-horse",
-        ];
+    expect(throttled.status).toBe(429)
+    expect(throttled.error.code).toBe('RATE_LIMITED')
+    expect(throttled.error.message).toBeTypeOf('string')
+    expect(throttled.error.message.length).toBeGreaterThan(0)
+    // The shape is `{ error: { code, message } }` and nothing else (GUARDRAILS 11).
+    expect(Object.keys(JSON.parse(throttled.text))).toEqual(['error'])
+    expect(Object.keys(throttled.error).sort()).toEqual(['code', 'message'])
+  })
 
-        for (const email of [REGISTERED, UNKNOWN]) {
-            const answers = await signinRepeatedly(email, SIGNIN_PER_EMAIL + 1);
-            const throttled = answers[SIGNIN_PER_EMAIL]!;
-            expect(throttled.status).toBe(429);
+  test('Retry-After is the whole window, so it is a constant across callers', async () => {
+    const registered = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1)
+    const unknown = await signinRepeatedly(UNKNOWN, SIGNIN_PER_EMAIL + 1)
 
-            const whole = `${throttled.text} ${throttled.headers}`.toLowerCase();
-            for (const leak of leaks) expect(whole).not.toContain(leak.toLowerCase());
-        }
-    });
-});
+    const retryAfter = (answer: Answer) =>
+      (JSON.parse(answer.headers) as [string, string][]).find(
+        ([name]) => name.toLowerCase() === 'retry-after',
+      )?.[1]
 
-describe("the /auth/* throttle", () => {
-    beforeEach(() => resetAuthRateLimits());
-    afterAll(() => resetAuthRateLimits());
+    expect(retryAfter(registered[SIGNIN_PER_EMAIL]!)).toBe(String(config.rateLimit.windowSeconds))
+    expect(retryAfter(registered[SIGNIN_PER_EMAIL]!)).toBe(retryAfter(unknown[SIGNIN_PER_EMAIL]!))
+  })
 
-    test("the refusal is 429 in the standard error shape, with the additive code", async () => {
-        const answers = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
-        const throttled = answers[SIGNIN_PER_EMAIL]!;
+  test('throttling one address does not throttle another', async () => {
+    const exhausted = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1)
+    expect(exhausted[SIGNIN_PER_EMAIL]!.status).toBe(429)
 
-        expect(throttled.status).toBe(429);
-        expect(throttled.error.code).toBe("RATE_LIMITED");
-        expect(throttled.error.message).toBeTypeOf("string");
-        expect(throttled.error.message.length).toBeGreaterThan(0);
-        // The shape is `{ error: { code, message } }` and nothing else (GUARDRAILS 11).
-        expect(Object.keys(JSON.parse(throttled.text))).toEqual(["error"]);
-        expect(Object.keys(throttled.error).sort()).toEqual(["code", "message"]);
-    });
+    const bystander = await post('/auth/signin', { email: UNKNOWN, password: PASSWORD })
+    expect(bystander.status).toBe(401)
+  })
 
-    test("Retry-After is the whole window, so it is a constant across callers", async () => {
-        const registered = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
-        const unknown = await signinRepeatedly(UNKNOWN, SIGNIN_PER_EMAIL + 1);
+  test('signup and signin hold separate budgets for the same address', async () => {
+    // Pinning the choice, not discovering it: the two routes defend different things,
+    // so exhausting one must leave the other alone. See src/rate-limit.ts.
+    const signins = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1)
+    expect(signins[SIGNIN_PER_EMAIL]!.status).toBe(429)
 
-        const retryAfter = (answer: Answer) =>
-            (JSON.parse(answer.headers) as [string, string][]).find(
-                ([name]) => name.toLowerCase() === "retry-after",
-            )?.[1];
+    // 409, because the address has an activated owner (#120) — the point is that it
+    // was served at all rather than refused by sign-in's exhausted counter.
+    const signup = await post('/auth/signup', { email: REGISTERED })
+    expect(signup.status).toBe(409)
+    expect(signup.error.code).toBe('EMAIL_EXISTS')
 
-        expect(retryAfter(registered[SIGNIN_PER_EMAIL]!)).toBe(
-            String(config.rateLimit.windowSeconds),
-        );
-        expect(retryAfter(registered[SIGNIN_PER_EMAIL]!)).toBe(
-            retryAfter(unknown[SIGNIN_PER_EMAIL]!),
-        );
-    });
+    // And the reverse direction, on its own budget.
+    expect(SIGNUP_PER_EMAIL).toBeGreaterThan(0)
+    for (let i = 1; i < SIGNUP_PER_EMAIL; i++) {
+      expect((await post('/auth/signup', { email: REGISTERED })).status).toBe(409)
+    }
+    const overSignup = await post('/auth/signup', { email: REGISTERED })
+    expect(overSignup.status).toBe(429)
+    expect(overSignup.error.code).toBe('RATE_LIMITED')
+  })
 
-    test("throttling one address does not throttle another", async () => {
-        const exhausted = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
-        expect(exhausted[SIGNIN_PER_EMAIL]!.status).toBe(429);
+  test(
+    'the per-IP limit catches one caller sweeping many addresses',
+    async () => {
+      expect(SIGNIN_PER_IP).toBeGreaterThan(0)
+      const ip = { 'x-forwarded-for': '203.0.113.7' }
 
-        const bystander = await post("/auth/signin", { email: UNKNOWN, password: PASSWORD });
-        expect(bystander.status).toBe(401);
-    });
+      // A different address every time, so the per-address counters never fire and the
+      // only thing that can refuse this is the per-IP one.
+      for (let i = 0; i < SIGNIN_PER_IP; i++) {
+        const answer = await post(
+          '/auth/signin',
+          { email: `e2e+sweep-${i}@e2e.evaapp.dev`, password: PASSWORD },
+          ip,
+        )
+        expect(answer.status).toBe(401)
+      }
 
-    test("signup and signin hold separate budgets for the same address", async () => {
-        // Pinning the choice, not discovering it: the two routes defend different things,
-        // so exhausting one must leave the other alone. See src/rate-limit.ts.
-        const signins = await signinRepeatedly(REGISTERED, SIGNIN_PER_EMAIL + 1);
-        expect(signins[SIGNIN_PER_EMAIL]!.status).toBe(429);
+      const over = await post(
+        '/auth/signin',
+        { email: 'e2e+sweep-last@e2e.evaapp.dev', password: PASSWORD },
+        ip,
+      )
+      expect(over.status).toBe(429)
+      expect(over.error.code).toBe('RATE_LIMITED')
 
-        // 409, because the address has an activated owner (#120) — the point is that it
-        // was served at all rather than refused by sign-in's exhausted counter.
-        const signup = await post("/auth/signup", { email: REGISTERED });
-        expect(signup.status).toBe(409);
-        expect(signup.error.code).toBe("EMAIL_EXISTS");
+      // A different caller is unaffected.
+      const elsewhere = await post(
+        '/auth/signin',
+        { email: 'e2e+sweep-last@e2e.evaapp.dev', password: PASSWORD },
+        { 'x-forwarded-for': '198.51.100.4' },
+      )
+      expect(elsewhere.status).toBe(401)
+      // 62 requests, 61 of them held to `SIGNIN_FLOOR_MS` by the route (#34) — only the
+      // 429 is free — so this case cannot finish inside the file's 20s default any more. The cost is the floor's,
+      // not this test's: it is the same requests it always made.
+    },
+    SWEEP_TIMEOUT_MS,
+  )
 
-        // And the reverse direction, on its own budget.
-        expect(SIGNUP_PER_EMAIL).toBeGreaterThan(0);
-        for (let i = 1; i < SIGNUP_PER_EMAIL; i++) {
-            expect((await post("/auth/signup", { email: REGISTERED })).status)
-                .toBe(409);
-        }
-        const overSignup = await post("/auth/signup", { email: REGISTERED });
-        expect(overSignup.status).toBe(429);
-        expect(overSignup.error.code).toBe("RATE_LIMITED");
-    });
+  test(
+    'a forged X-Forwarded-For prefix does not buy a fresh per-IP budget',
+    async () => {
+      // Cloud Run appends the address it accepted the connection from, so the rightmost
+      // entry is the one the caller could not choose. Reading the leftmost instead would
+      // make the per-IP limit bypassable with a request header, which is the whole
+      // reason src/index.ts reads from the right.
+      const ip = { 'x-forwarded-for': '203.0.113.7' }
+      for (let i = 0; i < SIGNIN_PER_IP + 1; i++) {
+        await post(
+          '/auth/signin',
+          { email: `e2e+forge-${i}@e2e.evaapp.dev`, password: PASSWORD },
+          ip,
+        )
+      }
 
-    test("the per-IP limit catches one caller sweeping many addresses", async () => {
-        expect(SIGNIN_PER_IP).toBeGreaterThan(0);
-        const ip = { "x-forwarded-for": "203.0.113.7" };
-
-        // A different address every time, so the per-address counters never fire and the
-        // only thing that can refuse this is the per-IP one.
-        for (let i = 0; i < SIGNIN_PER_IP; i++) {
-            const answer = await post(
-                "/auth/signin",
-                { email: `e2e+sweep-${i}@e2e.evaapp.dev`, password: PASSWORD },
-                ip,
-            );
-            expect(answer.status).toBe(401);
-        }
-
-        const over = await post(
-            "/auth/signin",
-            { email: "e2e+sweep-last@e2e.evaapp.dev", password: PASSWORD },
-            ip,
-        );
-        expect(over.status).toBe(429);
-        expect(over.error.code).toBe("RATE_LIMITED");
-
-        // A different caller is unaffected.
-        const elsewhere = await post(
-            "/auth/signin",
-            { email: "e2e+sweep-last@e2e.evaapp.dev", password: PASSWORD },
-            { "x-forwarded-for": "198.51.100.4" },
-        );
-        expect(elsewhere.status).toBe(401);
-        // 62 requests, 61 of them held to `SIGNIN_FLOOR_MS` by the route (#34) — only the
-        // 429 is free — so this case cannot finish inside the file's 20s default any more. The cost is the floor's,
-        // not this test's: it is the same requests it always made.
-    }, SWEEP_TIMEOUT_MS);
-
-    test("a forged X-Forwarded-For prefix does not buy a fresh per-IP budget", async () => {
-        // Cloud Run appends the address it accepted the connection from, so the rightmost
-        // entry is the one the caller could not choose. Reading the leftmost instead would
-        // make the per-IP limit bypassable with a request header, which is the whole
-        // reason src/index.ts reads from the right.
-        const ip = { "x-forwarded-for": "203.0.113.7" };
-        for (let i = 0; i < SIGNIN_PER_IP + 1; i++) {
-            await post(
-                "/auth/signin",
-                { email: `e2e+forge-${i}@e2e.evaapp.dev`, password: PASSWORD },
-                ip,
-            );
-        }
-
-        const forged = await post(
-            "/auth/signin",
-            { email: "e2e+forge-last@e2e.evaapp.dev", password: PASSWORD },
-            { "x-forwarded-for": "10.0.0.1, 203.0.113.7" },
-        );
-        expect(forged.status).toBe(429);
-        // Same shape, 60 of them reaching the floor, same reason for the raised ceiling.
-    }, SWEEP_TIMEOUT_MS);
-});
+      const forged = await post(
+        '/auth/signin',
+        { email: 'e2e+forge-last@e2e.evaapp.dev', password: PASSWORD },
+        { 'x-forwarded-for': '10.0.0.1, 203.0.113.7' },
+      )
+      expect(forged.status).toBe(429)
+      // Same shape, 60 of them reaching the floor, same reason for the raised ceiling.
+    },
+    SWEEP_TIMEOUT_MS,
+  )
+})

@@ -1,6 +1,6 @@
-import { FieldValue } from "firebase-admin/firestore";
-import { issueToken } from "../../src/email-tokens";
-import { adminAuth, firestore } from "../../src/firebase";
+import { FieldValue } from 'firebase-admin/firestore'
+import { issueToken } from '../../src/email-tokens'
+import { adminAuth, firestore } from '../../src/firebase'
 
 /**
  * How the live suites get a session now that sign-up does not hand one out (#6).
@@ -15,11 +15,11 @@ import { adminAuth, firestore } from "../../src/firebase";
  */
 
 const post = (base: string, path: string, body: unknown) =>
-    fetch(`${base}${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-    });
+  fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 
 /**
  * Spends a freshly issued activation token on the live server, setting the password.
@@ -30,22 +30,22 @@ const post = (base: string, path: string, body: unknown) =>
  * before #120 looks like, and what a directly-reserved address looks like.
  */
 export const activateAccount = async (
-    base: string,
-    uid: string | null,
-    email: string,
-    password: string,
+  base: string,
+  uid: string | null,
+  email: string,
+  password: string,
 ): Promise<void> => {
-    const token = await issueToken(uid, email, "activation");
-    const res = await post(base, "/auth/activate", { token, password });
-    if (res.status !== 200) throw new Error(`activate answered ${res.status}`);
-};
+  const token = await issueToken(uid, email, 'activation')
+  const res = await post(base, '/auth/activate', { token, password })
+  if (res.status !== 200) throw new Error(`activate answered ${res.status}`)
+}
 
 /** Signs in and hands back the session token. */
 export const signIn = async (base: string, email: string, password: string): Promise<string> => {
-    const res = await post(base, "/auth/signin", { email, password });
-    if (res.status !== 200) throw new Error(`signin answered ${res.status}`);
-    return ((await res.json()) as { token: string }).token;
-};
+  const res = await post(base, '/auth/signin', { email, password })
+  if (res.status !== 200) throw new Error(`signin answered ${res.status}`)
+  return ((await res.json()) as { token: string }).token
+}
 
 /**
  * Sign-up → activation → sign-in, through the live routes.
@@ -55,16 +55,16 @@ export const signIn = async (base: string, email: string, password: string): Pro
  * read from Auth *after* activating, not before.
  */
 export const signUpActivated = async (
-    base: string,
-    email: string,
-    password: string,
+  base: string,
+  email: string,
+  password: string,
 ): Promise<{ token: string; uid: string }> => {
-    const res = await post(base, "/auth/signup", { email });
-    if (res.status !== 201) throw new Error(`signup answered ${res.status}`);
-    await activateAccount(base, null, email, password);
-    const { uid } = await adminAuth.getUserByEmail(email);
-    return { token: await signIn(base, email, password), uid };
-};
+  const res = await post(base, '/auth/signup', { email })
+  if (res.status !== 201) throw new Error(`signup answered ${res.status}`)
+  await activateAccount(base, null, email, password)
+  const { uid } = await adminAuth.getUserByEmail(email)
+  return { token: await signIn(base, email, password), uid }
+}
 
 /**
  * An account in the shape sign-up leaves behind: Auth user, `users/{uid}` document,
@@ -73,21 +73,24 @@ export const signUpActivated = async (
  * budget (#5) — and without sending an email for each.
  */
 export const createUnactivatedAccount = async (
-    email: string,
-    password: string,
+  email: string,
+  password: string,
 ): Promise<string> => {
-    const { uid } = await adminAuth.createUser({ email, password });
-    await firestore.collection("users").doc(uid).set({
-        email,
-        authProviders: ["password"],
-        questionnaireCompleted: false,
-        profile: null,
-        activatedAt: null,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-    });
-    return uid;
-};
+  const { uid } = await adminAuth.createUser({ email, password })
+  await firestore
+    .collection('users')
+    .doc(uid)
+    .set({
+      email,
+      authProviders: ['password'],
+      questionnaireCompleted: false,
+      profile: null,
+      activatedAt: null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+  return uid
+}
 
 /**
  * An account exactly as every one created before #6 looks: an Auth user and a
@@ -95,17 +98,20 @@ export const createUnactivatedAccount = async (
  * nothing in `src/` can produce that shape any more — which is the point of having it.
  */
 export const createLegacyAccount = async (email: string, password: string): Promise<string> => {
-    const { uid } = await adminAuth.createUser({ email, password });
-    await firestore.collection("users").doc(uid).set({
-        email,
-        authProviders: ["password"],
-        questionnaireCompleted: false,
-        profile: null,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-    });
-    return uid;
-};
+  const { uid } = await adminAuth.createUser({ email, password })
+  await firestore
+    .collection('users')
+    .doc(uid)
+    .set({
+      email,
+      authProviders: ['password'],
+      questionnaireCompleted: false,
+      profile: null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+  return uid
+}
 
 /**
  * An activated account whose profile is the shape every one written before #81 has:
@@ -118,30 +124,30 @@ export const createLegacyAccount = async (email: string, password: string): Prom
  * and the questionnaire is asked again.
  */
 export const createPreDateOfBirthAccount = async (
-    email: string,
-    password: string,
+  email: string,
+  password: string,
 ): Promise<string> => {
-    const { uid } = await adminAuth.createUser({ email, password, emailVerified: true });
-    await firestore
-        .collection("users")
-        .doc(uid)
-        .set({
-            email,
-            authProviders: ["password"],
-            questionnaireCompleted: true,
-            profile: {
-                age: 28,
-                weightKg: 64,
-                heightCm: 168,
-                goals: ["Energy"],
-                conditions: ["None of these"],
-                medications: "No",
-                lifestyle: "Active",
-                sports: ["Yoga"],
-            },
-            activatedAt: FieldValue.serverTimestamp(),
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-        });
-    return uid;
-};
+  const { uid } = await adminAuth.createUser({ email, password, emailVerified: true })
+  await firestore
+    .collection('users')
+    .doc(uid)
+    .set({
+      email,
+      authProviders: ['password'],
+      questionnaireCompleted: true,
+      profile: {
+        age: 28,
+        weightKg: 64,
+        heightCm: 168,
+        goals: ['Energy'],
+        conditions: ['None of these'],
+        medications: 'No',
+        lifestyle: 'Active',
+        sports: ['Yoga'],
+      },
+      activatedAt: FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+  return uid
+}

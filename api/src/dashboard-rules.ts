@@ -382,7 +382,12 @@ const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/
  *  process timezone. Local dates are calendar labels here, not instants. */
 const shiftDays = (localDate: string, field: string, delta: number): string => {
   const [year, month, day] = localDate.split('-').map(Number)
-  if (!LOCAL_DATE.test(localDate) || year === undefined || month === undefined || day === undefined) {
+  if (
+    !LOCAL_DATE.test(localDate) ||
+    year === undefined ||
+    month === undefined ||
+    day === undefined
+  ) {
     throw new InvalidTimeError(field, 'a YYYY-MM-DD calendar date')
   }
   const at = Date.UTC(year, month - 1, day)
@@ -506,10 +511,7 @@ const runEndingToday = (input: DashboardInput, days: number): SignalEntry[] | nu
  * experience. When D2 writes a single-signal card, the predicate widens to meet it.
  */
 const isLow = (entry: SignalEntry, atOrBelow: number): boolean =>
-  entry.mood !== null &&
-  entry.mood <= atOrBelow &&
-  entry.sleep !== null &&
-  entry.sleep <= atOrBelow
+  entry.mood !== null && entry.mood <= atOrBelow && entry.sleep !== null && entry.sleep <= atOrBelow
 
 const requirePatternRule = (rules: DashboardRules): PatternRule => {
   const rule = rules.pattern
