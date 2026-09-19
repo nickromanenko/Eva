@@ -103,12 +103,13 @@ unset EVA_API_URL
 export EVA_API_NO_REUSE=1
 
 
-# **Distinct from ci-api.sh's, deliberately.** That script exports EVA_API_PORT=3103 and
-# verify-mobile.sh defaults EVA_MAILBOX_PORT to 3103 — the collision #112 is filed about.
-# Picking both explicitly here keeps this script correct whatever #112 decides, rather than
-# inheriting a default that is already known to clash.
-export EVA_API_PORT=3203
-export EVA_MAILBOX_PORT=3303
+# **Distinct from every other port range, deliberately (#112, #199).** ci-api.sh's server
+# window is 3103–3113, `events.test.ts` draws 3100–3299, and `today.test.ts` draws 3400–3599.
+# 3303–3320 sits in the gap between the two draw ranges, so a mobile run and an API run on one
+# machine cannot collide by construction — not merely by the draw's own refusal. verify-mobile.sh
+# defaults EVA_MAILBOX_PORT to 3103, so both are set explicitly here rather than inherited.
+export EVA_API_PORT=3303
+export EVA_MAILBOX_PORT=3320
 
 echo "▶ mobile build + UI tests (Auth + Firestore emulators, project $PROJECT)"
 (cd "$ROOT/api" && bun install --frozen-lockfile >/dev/null) || {
