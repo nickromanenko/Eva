@@ -10,6 +10,11 @@
  * prevents, and why a second copy of it is the failure rather than the safeguard.
  */
 import { cycleRulesProblem, type CycleRules } from './cycle'
+/** The nutrition engine's rule-checker (S2, #222), imported for exactly the reason above and
+ *  on exactly the same terms: `nutrition.ts` is pure and imports nothing at all, so loading
+ *  it here loads no Firestore, no clock and no credential, and the boot refusal and the
+ *  refusal `planDailyTargets` raises on every evaluation are one implementation. */
+import { nutritionRulesProblem, type NutritionRules } from './nutrition'
 
 const required = (name: string): string => {
   const value = process.env[name]
@@ -268,6 +273,148 @@ const cycleRules = (): CycleRules | null => {
 }
 
 /**
+ * The nutrition targets engine's constants (A29, A30, #222): the field on `NutritionRules`
+ * as `nutritionRulesProblem` names it, and the environment variable it is read from.
+ *
+ * **The values are deliberately not here**, exactly as `CYCLE_VARS`' are not: they are in
+ * `api/.env.example`, each with the decision it comes from and whether it is a *finding* or a
+ * *product choice* (A25's preamble rule, applied to this group by #26's method), and a case
+ * in `nutrition.test.ts` asserts the file still carries them. A second copy written in this
+ * table would be a dietary constant nothing checks, which is how one goes stale while looking
+ * authoritative.
+ *
+ * Sources, in one place, with the specific claim each backs: Mifflin MD et al., Am J Clin
+ * Nutr 1990;51:241-7 for the basal-rate equation and PRD lines 772-777 for the four activity
+ * factors; Phillips SM & Van Loon LJC, J Sports Sci 2011;29(S1):S29-38 and Jäger R et al.,
+ * JISSN 2017;14:20 for the protein range; the Dietary Guidelines for Americans 2020-2025
+ * (14 g of fibre per 1,000 kcal) for the fibre target; WHO Technical Report Series 894 (2000)
+ * for the BMI 18.5 underweight threshold; Wishnofsky NM, Am J Clin Nutr 1958;6:542-6 for the
+ * energy equivalent of a kilogram of body mass. The four points inside a range - the loss
+ * deficit, the gain and build-muscle surpluses, and the per-plan 15% cap - are **product
+ * choices, not findings**, and `.env.example` says so at each of them.
+ */
+const NUTRITION_VARS = [
+  ['basalRate.perKg', 'NUTRITION_BMR_PER_KG'],
+  ['basalRate.perCm', 'NUTRITION_BMR_PER_CM'],
+  ['basalRate.perYear', 'NUTRITION_BMR_PER_YEAR'],
+  ['basalRate.offset', 'NUTRITION_BMR_OFFSET'],
+  ['activityFactors.mostlySitting', 'NUTRITION_ACTIVITY_FACTOR_MOSTLY_SITTING'],
+  ['activityFactors.lightlyActive', 'NUTRITION_ACTIVITY_FACTOR_LIGHTLY_ACTIVE'],
+  ['activityFactors.active', 'NUTRITION_ACTIVITY_FACTOR_ACTIVE'],
+  ['activityFactors.veryActive', 'NUTRITION_ACTIVITY_FACTOR_VERY_ACTIVE'],
+  ['goalAdjustment.lose', 'NUTRITION_ADJUST_LOSE'],
+  ['goalAdjustment.gain', 'NUTRITION_ADJUST_GAIN'],
+  ['goalAdjustment.buildMuscle', 'NUTRITION_ADJUST_BUILD_MUSCLE'],
+  ['proteinGramsPerKg.lose', 'NUTRITION_PROTEIN_LOSE_G_PER_KG'],
+  ['proteinGramsPerKg.buildMuscle', 'NUTRITION_PROTEIN_BUILD_MUSCLE_G_PER_KG'],
+  ['proteinGramsPerKg.other', 'NUTRITION_PROTEIN_OTHER_G_PER_KG'],
+  ['fatMinFraction', 'NUTRITION_FAT_MIN_FRACTION'],
+  ['fibreGrams', 'NUTRITION_FIBRE_G'],
+  ['fibreGramsRaised', 'NUTRITION_FIBRE_RAISED_G'],
+  ['minBmi', 'NUTRITION_MIN_BMI'],
+  ['maxPlanLossFraction', 'NUTRITION_MAX_PLAN_LOSS_FRACTION'],
+  ['maxLossKgPerWeek', 'NUTRITION_MAX_LOSS_KG_PER_WEEK'],
+  ['maxLossFractionPerWeek', 'NUTRITION_MAX_LOSS_FRACTION_PER_WEEK'],
+  ['minCalorieKcal', 'NUTRITION_MIN_CALORIE_KCAL'],
+  ['kcalPerKgBodyMass', 'NUTRITION_KCAL_PER_KG_BODY_MASS'],
+] as const
+
+/** Field path -> variable name, so a boot failure names the thing an operator can edit
+ *  rather than the field the maths calls it. The field paths are exactly the ones
+ *  `nutritionRulesProblem` reports, which is what keeps the two vocabularies joined. */
+const NUTRITION_VAR_FOR_FIELD = new Map<string, string>(
+  NUTRITION_VARS.map(([field, name]) => [field as string, name]),
+)
+
+const nutritionVar = Object.fromEntries(NUTRITION_VARS) as Record<
+  (typeof NUTRITION_VARS)[number][0],
+  string
+>
+
+/**
+ * The nutrition targets engine's constants (#222), or `null`.
+ *
+ * **All twenty-three or none, and a partial group is a boot failure** — `cycleRules` above
+ * and `providers.apple` have the shape for the reason each has it: a half-configured group is
+ * arithmetic running on numbers nobody chose. A missing one here cannot be read as "not
+ * provisioned yet", so it is refused rather than tolerated.
+ *
+ * **Absent altogether means the capability is unconfigured**, and `nutrition.ts` refuses to
+ * answer — `planDailyTargets` throws `NutritionRulesUnsetError`, and whatever route first
+ * serves a target answers 503, exactly as `GET /me/today` does for an unset `CYCLE_*` group.
+ * There is deliberately no default: PRD line 942 is *"All calculation constants … are
+ * server-configurable, not hardcoded"*, and #26's process note names the failure a default
+ * would be — *"an interim default chosen to unblock a build, never revisited, and shipped"*.
+ *
+ * Every range check lives in `nutritionRulesProblem`, not here, so what the boot refuses and
+ * what the maths refuses are the same set.
+ */
+const nutritionRules = (): NutritionRules | null => {
+  const names = NUTRITION_VARS.map(([, name]) => name)
+  const missing = names.filter((name) => optionalString(name) === null)
+  if (missing.length === names.length) return null
+  if (missing.length > 0) {
+    throw new Error(`Incomplete nutrition targets configuration: also set ${missing.join(', ')}`)
+  }
+
+  // Not `whole`: these are doses, and three of them (the basal-rate height coefficient, the
+  // fractions, the BMI floor) are not whole numbers. A value that is not a number at all is
+  // still a boot failure; the ranges are `nutritionRulesProblem`'s.
+  const amount = (name: string): number => {
+    const value = Number(required(name))
+    if (!Number.isFinite(value)) {
+      throw new Error(`Invalid env var ${name}: expected a number`)
+    }
+    return value
+  }
+
+  // Written out field by field rather than assembled from the table, so the compiler checks
+  // that every member of `NutritionRules` is supplied: a field added there and forgotten here
+  // is a build failure, not a variable nobody reads. The *names* still come from the table,
+  // so what is checked for presence above and what is read below cannot drift.
+  const rules: NutritionRules = {
+    basalRate: {
+      perKg: amount(nutritionVar['basalRate.perKg']),
+      perCm: amount(nutritionVar['basalRate.perCm']),
+      perYear: amount(nutritionVar['basalRate.perYear']),
+      offset: amount(nutritionVar['basalRate.offset']),
+    },
+    activityFactors: {
+      mostlySitting: amount(nutritionVar['activityFactors.mostlySitting']),
+      lightlyActive: amount(nutritionVar['activityFactors.lightlyActive']),
+      active: amount(nutritionVar['activityFactors.active']),
+      veryActive: amount(nutritionVar['activityFactors.veryActive']),
+    },
+    goalAdjustment: {
+      lose: amount(nutritionVar['goalAdjustment.lose']),
+      gain: amount(nutritionVar['goalAdjustment.gain']),
+      buildMuscle: amount(nutritionVar['goalAdjustment.buildMuscle']),
+    },
+    proteinGramsPerKg: {
+      lose: amount(nutritionVar['proteinGramsPerKg.lose']),
+      buildMuscle: amount(nutritionVar['proteinGramsPerKg.buildMuscle']),
+      other: amount(nutritionVar['proteinGramsPerKg.other']),
+    },
+    fatMinFraction: amount(nutritionVar.fatMinFraction),
+    fibreGrams: amount(nutritionVar.fibreGrams),
+    fibreGramsRaised: amount(nutritionVar.fibreGramsRaised),
+    minBmi: amount(nutritionVar.minBmi),
+    maxPlanLossFraction: amount(nutritionVar.maxPlanLossFraction),
+    maxLossKgPerWeek: amount(nutritionVar.maxLossKgPerWeek),
+    maxLossFractionPerWeek: amount(nutritionVar.maxLossFractionPerWeek),
+    minCalorieKcal: amount(nutritionVar.minCalorieKcal),
+    kcalPerKgBodyMass: amount(nutritionVar.kcalPerKgBodyMass),
+  }
+
+  const problem = nutritionRulesProblem(rules)
+  if (problem) {
+    const name = NUTRITION_VAR_FOR_FIELD.get(problem.field) ?? problem.field
+    throw new Error(`Invalid env var ${name}: ${problem.message}`)
+  }
+  return rules
+}
+
+/**
  * The Firebase emulators, used by CI (#67) and by nothing in production.
  *
  * Both variables are Firebase's own, set by `firebase emulators:exec` — we read them
@@ -459,6 +606,16 @@ export const config = {
    * `cycleRules` above for why there is no default.
    */
   cycle: cycleRules(),
+  /**
+   * The nutrition targets engine's constants (S2, #222). Read by whatever serves a target,
+   * which hands them to `nutrition.ts` — the engine takes its configuration as an argument
+   * and reads no environment of its own, so every clamp can be exercised at its boundary
+   * against fixtures.
+   *
+   * `null` until the group is set, and the engine refuses rather than estimating; see
+   * `nutritionRules` above for why there is no default.
+   */
+  nutrition: nutritionRules(),
   /** The one origin allowed to call the two routes the website's pages use (CORS). */
   publicWebOrigin: publicWebUrl.origin,
 }

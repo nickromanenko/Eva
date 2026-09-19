@@ -28,7 +28,7 @@ consequence of one of these.
 | L4 | A law-enforcement / third-party request policy for reproductive-health data (§2.4) | Nick + *counsel* | policy written (A19, #91: `docs/REQUESTS.md`, `/transparency`); its *counsel* markers unconfirmed (A24); entity placeholders until L1 |
 | L5 | App Store readiness: guideline conformance, age rating, privacy labels, subscription terms, storefront list, export compliance (§3) | mobile + Nick | partly (account deletion #8/#55 done; Sign in with Apple #7 open) |
 | L6 | Product changes the markets force: English variant, locale units, country-aware emergency guidance and appointment types, food-database coverage, vendor processor locations (§4) | product + api + mobile | decisions listed in §6 |
-| L7 | Content sign-off by clinicians credentialled for the primary market, and a claims register for everything the website and the app assert (§5) | #26 | not started |
+| L7 | Content sign-off by clinicians credentialled for the primary market, and a claims register for everything the website and the app assert (§5) — **including the nutrition constants and the four product choices inside a range (§5.1)** | #26 | not started; the nutrition table is written and waiting (§5.1) |
 | L8 | Operational: backups, incident response that can meet a 60-day (FTC) and 72-hour (GDPR) clock, support that works across time zones (§7) | infra | no backups, no runbook |
 
 ---
@@ -371,6 +371,43 @@ Nothing in v1 requires a payment processor of Eva's own.
   the FTC substantiation file.
 - The Blog (§Blog) is the natural home for the sources; the register says which article
   backs which claim.
+
+### 5.1 The nutrition constants, and the four points inside a range (#26, #222)
+
+The nutrition targets engine (`api/src/nutrition.ts`, slice S2 of #25) computes every number
+the coach displays from constants that live in configuration, never in code — `NUTRITION_*` in
+`api/.env.example`, all twenty-three or none, refused at boot when partial. **This table is
+what L7's reviewer signs.** Each value carries its source at the value itself; what follows is
+the subset that is a *product choice* rather than a finding, because #26's method is that a
+number inside a published range is a dose somebody chose and has to say so.
+
+| Constant | Point | Range, and its source | Why this point |
+|---|---|---|---|
+| `NUTRITION_ADJUST_LOSE` | −15% of expenditure | −15 to 20% — PRD line 779 | A30, 2026-08-30: the safer end. The smaller deficit is more food. |
+| `NUTRITION_ADJUST_GAIN` | **+15%** | +10 to 15% — PRD line 781 | **#222.** The top, by the same principle A30 applied to the deficit: take the end that feeds more. A woman whose goal is to gain is the user for whom erring low does the most harm — #25, added the day this slice was specified: *"Erring low on an energy target is not automatically the safe direction here — under-feeding is its own harm in this population."* At +15% the surplus is still only about 250–350 kcal a day for a typical expenditure, which is a gradual gain rather than an aggressive one. |
+| `NUTRITION_ADJUST_BUILD_MUSCLE` | **+10%** | +5 to 10% — PRD line 782 | **#222.** The top, same principle, and it is also the *conservative* end of the modest surplus the hypertrophy literature describes (Slater GJ, Dieter BP, Marsh DJ, Helms ER, Shaw G, Iraki J. Front Nutr 2019;6:131, ~10–20% above maintenance). Feeding more here is therefore not a stretch of the evidence; feeding less would leave a training goal unmet while looking cautious. |
+| `NUTRITION_MAX_PLAN_LOSS_FRACTION` | current weight − 15% | — | A29, and A29 says so in those words: *"The 15% cap is a product choice, not a finding."* One plan goes that far; reach it and set another. |
+
+**What a reviewer should push back on first.** All three energy adjustments are set at the end
+of their range that feeds more. That is one principle applied consistently, and it is a
+*choice*: the opposite reading — that a smaller surplus is the cautious one for a weight-gain
+goal — is defensible and was rejected for the reason in the table. If the reviewer disagrees,
+the change is one environment variable per value and no code.
+
+The findings in the same group, for completeness, each cited at its value in
+`api/.env.example`: Mifflin-St Jeor's female form and the four activity factors (Mifflin MD et
+al., Am J Clin Nutr 1990;51:241–7; PRD lines 771–777); protein at 1.6 / 1.8 / 1.2 g per kg
+(A30, within Phillips SM & Van Loon LJC, J Sports Sci 2011;29(S1):S29–38 and Jäger R et al.,
+JISSN 2017;14:20); the 20% fat floor (PRD line 791 — *a hard floor, not a default*); fibre at
+25 g, 30 g with focus area 1 or 11 (A30, from the DGA 2020–2025 rule of 14 g per 1,000 kcal);
+BMI 18.5 (WHO Technical Report Series 894, 2000); the 0.5 kg or 1% per week rate cap and the
+1,200 kcal floor (PRD lines 754–756); and 7,700 kcal per kg of body mass for the timeline
+(Wishnofsky NM, Am J Clin Nutr 1958;6:542–6), which is a planning convention known to overstate
+long-run change (Hall KD, Int J Obes 2008;32:573–6) and is labelled as an estimate wherever it
+is shown.
+
+**This is a gate on release, not on building** — #26's own process decision of 2026-08-29. The
+engine exists; nothing serves its output to a user yet.
 
 ---
 

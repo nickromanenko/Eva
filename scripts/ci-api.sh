@@ -106,6 +106,38 @@ export CYCLE_IRREGULAR_YOUNG_VARIATION_DAYS=9
 export CYCLE_IRREGULAR_MID_VARIATION_DAYS=7
 export CYCLE_IRREGULAR_OLDER_VARIATION_DAYS=9
 
+# **The nutrition targets engine's constants (S2, #222), for the same reason as the block
+# above.** Left unset, `config.nutrition` is `null` and `planDailyTargets` refuses, so every
+# nutrition path in the suite would take its refusal branch and a defect that only exists once
+# the constants are present would pass this gate. Nothing here is a secret or a placeholder:
+# they are the values PRD Daily targets calculation settled (A29, A30) plus the four points
+# #222 chose inside a range, the same ones `api/.env.example` carries with their sources. The
+# group is all-or-nothing at boot, so a variable missing here fails every suite that loads
+# `config.ts` rather than quietly skipping the maths.
+export NUTRITION_BMR_PER_KG=10
+export NUTRITION_BMR_PER_CM=6.25
+export NUTRITION_BMR_PER_YEAR=5
+export NUTRITION_BMR_OFFSET=161
+export NUTRITION_ACTIVITY_FACTOR_MOSTLY_SITTING=1.2
+export NUTRITION_ACTIVITY_FACTOR_LIGHTLY_ACTIVE=1.375
+export NUTRITION_ACTIVITY_FACTOR_ACTIVE=1.55
+export NUTRITION_ACTIVITY_FACTOR_VERY_ACTIVE=1.725
+export NUTRITION_ADJUST_LOSE=-0.15
+export NUTRITION_ADJUST_GAIN=0.15
+export NUTRITION_ADJUST_BUILD_MUSCLE=0.1
+export NUTRITION_PROTEIN_LOSE_G_PER_KG=1.6
+export NUTRITION_PROTEIN_BUILD_MUSCLE_G_PER_KG=1.8
+export NUTRITION_PROTEIN_OTHER_G_PER_KG=1.2
+export NUTRITION_FAT_MIN_FRACTION=0.2
+export NUTRITION_FIBRE_G=25
+export NUTRITION_FIBRE_RAISED_G=30
+export NUTRITION_MIN_BMI=18.5
+export NUTRITION_MAX_PLAN_LOSS_FRACTION=0.15
+export NUTRITION_MAX_LOSS_KG_PER_WEEK=0.5
+export NUTRITION_MAX_LOSS_FRACTION_PER_WEEK=0.01
+export NUTRITION_MIN_CALORIE_KCAL=1200
+export NUTRITION_KCAL_PER_KG_BODY_MASS=7700
+
 # api_ensure_up REUSES any healthy Eva API it finds, and `api_health` can tell that
 # something is an Eva API but not which project it points at. Reusing a stray dev server
 # here would run "the emulated suite" against production and report it green. Refuse

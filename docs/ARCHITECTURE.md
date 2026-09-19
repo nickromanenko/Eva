@@ -81,6 +81,7 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, caches the day's card, deletes them all. Also **the seam the cycle maths is read through** — `cycleEstimate` for the card, `cycleAnalysisFor` for the calendar (#205) | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser. Both cycle readers share one event window, one `CycleDay` mapping and one call to `analyzeCycles` |
 
 | `cycle.ts` | The cycle maths (C11, #176): logged flow days in — the periods they group into (#186), counted cycles, the median next-period date, the fertile window, the FIGO irregularity band and the confidence class out | Pure: no Firestore, no clock, no `fetch`, no log line. Holds no constant of its own — every number arrives from `config.ts` and it refuses to answer without them. Every gate fails closed. The one reader of `periodEnd`, for one decision (§4) |
+| `nutrition.ts` | The nutrition targets engine (S2, #222): body metrics, goal, target weight and focus areas in — the day's calorie target, the macronutrient split, the clamp that bound it and the timeline that follows out | Pure: no Firestore, no clock, no `fetch`, no log line, and **no import at all**. Holds no dose of its own — every number arrives from `config.ts` and it refuses to answer without them. Takes no cycle phase and no calendar mode, which is what keeps S12 outside it. Every clamp is a floor on calories, and the timeline is derived from the clamped target |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
@@ -125,12 +126,25 @@ does, and a second implementation of that is not a theoretical drift — the spe
 would reach for disagrees with this one on 29 February. Both are downward calls to a leaf, the
 same shape as `today.ts → dashboard-rules.ts`, and they cost nothing at runtime.
 
-**There is one import that points the other way**, and it is worth stating because the rule
-above forbids it in general: `config.ts` imports `cycleRulesProblem` from `cycle.ts`. Those
-constants decide whether a fertile window is drawn at all, and they are checked twice — at
-boot, so an operator is told at startup, and on every evaluation, so a set assembled in code
-cannot get past it. Two copies of that check is the drift the single import exists to
-prevent. It is free at runtime for the reason above: `cycle.ts` loads nothing.
+`nutrition.ts` (S2 of the Nutrition coach, #222) is a leaf on the same terms and one step
+further: it imports **nothing at all**, so it shares no vocabulary with anything and cannot
+reach anything. That is deliberate in one place in particular — it does not take `Profile`,
+because `Profile.lifestyle` is a bare string until #221 lands and accepting it would force the
+activity-factor lookup with a fallback that #221 exists to remove. It declares `ActivityBand`
+as a closed four-member union instead, and the factor table is a `Record` over that union, so
+a band without a factor is a compile error rather than a plausible 1.2. The other thing its
+signature carries is the whole of "cycle-agnostic": there is no cycle phase and no calendar
+mode among its arguments, so S12's luteal and mode adjustments wrap it rather than reaching
+inside it, and cannot arrive later as an optional parameter with a default.
+
+**There are two imports that point the other way**, and they are worth stating because the
+rule above forbids it in general: `config.ts` imports `cycleRulesProblem` from `cycle.ts` and
+`nutritionRulesProblem` from `nutrition.ts`. Those constants decide whether a fertile window is
+drawn at all, and how much a woman is told to eat, and each set is checked twice — at boot, so
+an operator is told at startup, and on every evaluation, so a set assembled in code cannot get
+past it. Two copies of those checks is the drift the single import exists to prevent. Both are
+free at runtime for the reason above: `cycle.ts` loads nothing and `nutrition.ts` imports
+nothing.
 
 ### Contracts
 

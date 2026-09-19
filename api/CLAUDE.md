@@ -213,11 +213,35 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   other export: `parseProfile` reads it through `today.ts` so the floor and the band measure
   an age the same way, which they do not if each spells the arithmetic itself (29 February).
   `toCycleEstimate` projects the result into the `CycleEstimate` D1 already consumes.
+- `nutrition.ts` — the nutrition targets engine (S2 of #25, #222). Her body metrics, goal,
+  target weight and focus areas in; the day's calorie target, the macronutrient split, the
+  clamp that bound the target and the timeline that follows from it out. **Pure on the
+  strictest terms in this repo: it imports nothing at all**, not even an `import type`, so
+  the source scan in its test file is an empty list. Every dose arrives in `NutritionRules`
+  from `config.ts` and there is no default anywhere — `planDailyTargets` throws
+  `NutritionRulesUnsetError` rather than estimating, and whatever route first serves a target
+  maps that to a 503 in the same PR (#181's lesson; nothing serves one today).
+  **It takes no cycle phase and no calendar mode**, which is what makes "cycle-agnostic" a
+  property of the type rather than a claim in a comment: S12's luteal and mode adjustments
+  wrap this module and cannot arrive as a `phase?:` parameter with a default. It does not take
+  `Profile` either, and that is the same kind of decision — `Profile.lifestyle` is a bare
+  string until #221 lands, and accepting it would force the `FACTORS[…] ?? 1.2` lookup #221
+  exists to remove; `ActivityBand` is declared here as a closed four-member union and the
+  factor table is a `Record` over it, so a band with no factor is a compile error.
+  **Every clamp is a floor on calories, never a cut**: PRD line 754's rate cap is expressed as
+  the calories the cap leaves, so hitting it raises the target and lengthens the timeline
+  (canvas `sRate`), and the timeline is derived from the *clamped* target so a target and a
+  timeline cannot disagree. The two target-weight guards (A29's BMI 18.5 floor and the 15%
+  per-plan cap) are **returned, not thrown**, each with the value to offer — and with one
+  offered value that satisfies both rules, because an offer the guard would refuse is a second
+  refusal. Goals 4 and 5 carry no `targetWeightKg` *in the type*. Writes no log line: a goal or
+  a target weight in one is a health fact about a named request.
 - `firebase.ts` — Admin SDK singleton. Never initialize a second app.
-- `config.ts` — required env vars, fail-fast. It carries one import that points *up* this
-  list — `cycleRulesProblem` from `cycle.ts` — so the range checks the boot refuses and the
-  ones the maths refuses are one implementation rather than two copies that can drift. It
-  costs nothing at runtime: `cycle.ts` is pure and imports only types.
+- `config.ts` — required env vars, fail-fast. It carries two imports that point *up* this
+  list — `cycleRulesProblem` from `cycle.ts` and `nutritionRulesProblem` from `nutrition.ts` —
+  so the range checks the boot refuses and the ones the maths refuses are one implementation
+  rather than two copies that can drift. Both cost nothing at runtime: `cycle.ts` imports only
+  types and `nutrition.ts` imports nothing.
 
 ## Rules
 
