@@ -100,10 +100,17 @@ else
   # xcodebuild forwards environment variables prefixed TEST_RUNNER_ into the UI
   # test runner with the prefix stripped; the test then hands EVA_API_BASE_URL to
   # app.launchEnvironment. It must be an env var — as a build setting it is ignored.
-  # The simulator reaches the host's loopback as `localhost`, so the runner is handed
-  # the mailbox by URL the same way it is handed the API.
+  #
+  # **The mailbox is handed the address it actually binds, not `localhost`** (#220). It
+  # binds `127.0.0.1` and only that, on purpose — it activates accounts, so its header
+  # keeps it off every interface but loopback. `localhost` resolves `::1` first on the
+  # simulator, so advertising it left the runner racing a v6 connection refused against a
+  # v4 retry: sometimes activation landed, sometimes `activate` burned its 30s and the
+  # whole suite died at the gate. The fault is the asymmetry between the advertised and
+  # the bound address, and this closes it from the advertising side — widening the bind
+  # would close it by giving a thing that activates accounts a wider door.
   (cd "$ROOT/mobile" && TEST_RUNNER_EVA_API_BASE_URL="$API_URL" \
-    TEST_RUNNER_EVA_MAILBOX_URL="http://localhost:$MAILBOX_PORT" xcodebuild \
+    TEST_RUNNER_EVA_MAILBOX_URL="$MAILBOX_URL" xcodebuild \
     -project Eva.xcodeproj -scheme Eva \
     -destination "id=$SIMULATOR" \
     -derivedDataPath build test) || FAILED=1

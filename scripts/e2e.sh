@@ -43,7 +43,7 @@ echo "▶ API integration tests"
 
 echo "▶ iOS UI test (sign-up → activation → questionnaire → dashboard)"
 (cd mobile && xcodegen generate >/dev/null && \
-  TEST_RUNNER_EVA_MAILBOX_URL="http://localhost:$MAILBOX_PORT" xcodebuild \
+  TEST_RUNNER_EVA_MAILBOX_URL="http://127.0.0.1:$MAILBOX_PORT" xcodebuild \
   -project Eva.xcodeproj -scheme Eva \
   -destination "id=$SIMULATOR" \
   -derivedDataPath build test) || FAILED=1
