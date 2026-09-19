@@ -260,6 +260,10 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   so the range checks the boot refuses and the ones the maths refuses are one implementation
   rather than two copies that can drift. Both cost nothing at runtime: `cycle.ts` imports only
   types and `nutrition.ts` imports nothing.
+- `request-timeout.ts` — the per-request timeout that names a hung request in the log before
+  Bun's `idleTimeout` kills the connection (#225). Pure leaf: wraps the handler in a timer,
+  reads no clock and no Firestore, and logs only the route path — no payload, address or
+  token (GUARDRAILS 12).
 
 ## Rules
 

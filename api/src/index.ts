@@ -36,6 +36,7 @@ import {
   type IdpCredential,
 } from './identity-toolkit'
 import { ProviderError, exchangeGoogleAuthCode, revokeAppleToken } from './providers'
+import { REQUEST_TIMEOUT_MS, withRequestTimeout } from './request-timeout'
 import {
   RETENTION_DAYS,
   createEvent,
@@ -2584,5 +2585,8 @@ app.get('/me/today', requireAuth, requireAccount, async (c) => {
 export default {
   // Cloud Run injects PORT (8080); default to 3003 for local dev
   port: Number(process.env.PORT ?? 3003),
-  fetch: app.fetch,
+  fetch: withRequestTimeout(app.fetch),
+  // Bun's `idleTimeout` is in *seconds* (max 255); `REQUEST_TIMEOUT_MS` is in milliseconds
+  // for the timer above. Both are the same 10s, deliberately not raised (#225).
+  idleTimeout: REQUEST_TIMEOUT_MS / 1000,
 }
