@@ -91,6 +91,11 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The commit-count stamp (`git rev-list --count HEAD` in mobile/project.yml) needs
+          # the whole history; the default depth of 1 leaves CFBundleVersion at 1 and
+          # BuildStampTests red.
+          fetch-depth: 0
 
       # The pairing an operator reads first: which Xcode, which SDK. A CI-only failure has
       # to be diagnosable without inference, and this is the line that says it out loud.
@@ -182,6 +187,9 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Same commit-count stamp as the build job — see the comment there.
+          fetch-depth: 0
 
       # The pairing an operator reads first: which Xcode, which SDK. A CI-only failure has
       # to be diagnosable without inference, and this is the line that says it out loud.

@@ -23,6 +23,17 @@ if ! command -v java >/dev/null 2>&1; then
   exit 1
 fi
 
+# The emulated run must not inherit real-project configuration (#226, #208). CI has no
+# `api/.env`; a local worktree that does would feed its real-project credentials into what
+# is meant to be an emulator-only run. Refuse up front, in the #174 pattern, rather than
+# discovering it as a spurious red suite three hundred lines in.
+if [ -f "$ROOT/api/.env" ]; then
+  echo "✗ mobile CI verify FAILED before running anything:"
+  echo "  api/.env exists — the emulated suite must not inherit real-project credentials."
+  echo "  Move it aside (or run from a clean checkout) and retry."
+  exit 1
+fi
+
 FIREBASE_BIN="${FIREBASE_CLI:-}"
 if [ -z "$FIREBASE_BIN" ]; then
   if command -v firebase >/dev/null 2>&1; then
@@ -108,10 +119,16 @@ echo "▶ mobile build + UI tests (Auth + Firestore emulators, project $PROJECT)
 # child; verify-mobile.sh boots the API and the UI-test mailbox as its own children, so both
 # inherit them. config.ts refuses to boot unless both are set together, which is what keeps
 # the auth path from failing open to real Google.
+#
+# refdata is seeded first (#226): the app's symptom picker draws from `GET /refdata`, and an
+# empty emulator collection presents as `log.symptoms.unavailable` deep inside a UI test. The
+# seed is the real script (`bun run seed:refdata`), not a fixture, so the emulated dataset
+# cannot drift from the one users see; it exits non-zero on failure and the `&&` stops the
+# suite before it runs, so a missing collection fails here with the seed's own message.
 (cd "$ROOT" && $FIREBASE_BIN emulators:exec \
   --project "$PROJECT" \
   --only auth,firestore \
-  "scripts/verify-mobile.sh") || {
+  "bash -c '(cd api && bun run seed:refdata) && scripts/verify-mobile.sh'") || {
   echo "✗ mobile CI verify FAILED"; exit 1;
 }
 echo "✓ mobile CI verify passed"
