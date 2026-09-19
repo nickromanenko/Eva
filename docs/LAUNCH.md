@@ -23,12 +23,12 @@ consequence of one of these.
 | # | Gate | Owner | Status |
 |---|---|---|---|
 | L1 | A legal entity, an Apple Developer Program **organisation** account, and the Paid Apps agreement (tax + banking) signed | Nick | not started |
-| L2 | Regulatory position written down: Eva is a *general wellness* product under FDA's January 2026 guidance and outside EU MDR / UK MHRA scope — with the product lines that keep it there (§1) | #26 clinician + *counsel* | #26 open; US scope not yet in it |
+| L2 | Regulatory position written down: Eva is a *general wellness* product under FDA's January 2026 guidance and outside EU MDR / UK MHRA scope — with the product lines that keep it there (§1) | #26 clinician + *counsel* | draft written (`docs/REGULATORY_ASSESSMENT.md`); awaits counsel review |
 | L3 | Privacy programme for consumer health data: policy, consent flow, rights handling, breach procedure, vendor DPAs, data map (§2) | *counsel* + api/mobile | nothing exists; website privacy page is a placeholder |
 | L4 | A law-enforcement / third-party request policy for reproductive-health data (§2.4) | Nick + *counsel* | policy written (A19, #91: `docs/REQUESTS.md`, `/transparency`); its *counsel* markers unconfirmed (A24); entity placeholders until L1 |
 | L5 | App Store readiness: guideline conformance, age rating, privacy labels, subscription terms, storefront list, export compliance (§3) | mobile + Nick | partly (account deletion #8/#55 done; Sign in with Apple #7 open) |
 | L6 | Product changes the markets force: English variant, locale units, country-aware emergency guidance and appointment types, food-database coverage, vendor processor locations (§4) | product + api + mobile | decisions listed in §6 |
-| L7 | Content sign-off by clinicians credentialled for the primary market, and a claims register for everything the website and the app assert (§5) — **including the nutrition constants and the four product choices inside a range (§5.1)** | #26 | not started; the nutrition table is written and waiting (§5.1) |
+| L7 | Claims register for everything the website and the app assert (§5) — including the nutrition constants and the four product choices inside a range (§5.1). **Updated:** Bypassing clinical sign-off (A33); relying on strong medical disclaimers and citations to published research. | #26 | decision A33 made: disclaimers and citations replace clinical reviewer |
 | L8 | Operational: backups, incident response that can meet a 60-day (FTC) and 72-hour (GDPR) clock, support that works across time zones (§7) | infra | no backups, no runbook |
 
 ---
@@ -60,7 +60,7 @@ the point is that they are now *regulatory* lines, not tone preferences:
 
 Actions:
 - **L2:** extend #26 to a US assessment under the 2026 guidance; the output is a one-page
-  intended-use statement and the table above as a claims register, kept in the repo.
+  intended-use statement and the table above as a claims register, kept in the repo as `docs/REGULATORY_ASSESSMENT.md`. (Done)
 - Add to `docs/GUARDRAILS.md`: no feature may output a value that mimics a clinical
   measurement or guide clinical management; every prediction carries its confidence and
   its limits at the point of use. (Today §8 of DESIGN.md says this for copy; it needs to
@@ -359,25 +359,25 @@ Nothing in v1 requires a payment processor of Eva's own.
 
 ---
 
-## 5. Content and clinical sign-off for a worldwide English product
+## 5. Content, citations, and medical disclaimers (A33 override)
 
-- One body of content, reviewed once, written so it is true in every market: describe
+- One body of content, written so it is true in every market: describe
   physiology, not health-system pathways ("your provider may offer a scan around 20 weeks"
   rather than "your 20-week NHS anomaly scan").
-- Reviewer credentials for the primary market (US) plus a UK reviewer for the NHS
-  appointment template if it ships.
+- **Decision A33**: Clinical reviewer requirement bypassed by owner override.
 - The **claims register**: every sentence in the app or on the website that asserts a health
-  fact, with its source and reviewer. This doubles as the 1.4.1 "methodology" disclosure and
+  fact, with its source (peer-reviewed literature). This doubles as the 1.4.1 "methodology" disclosure and
   the FTC substantiation file.
 - The Blog (§Blog) is the natural home for the sources; the register says which article
   backs which claim.
+- **Medical Disclaimer**: The app and website Terms of Service must prominently display a disclaimer stating Eva does not provide medical advice, diagnosis, or treatment.
 
 ### 5.1 The nutrition constants, and the four points inside a range (#26, #222)
 
 The nutrition targets engine (`api/src/nutrition.ts`, slice S2 of #25) computes every number
 the coach displays from constants that live in configuration, never in code — `NUTRITION_*` in
 `api/.env.example`, all twenty-three or none, refused at boot when partial. **This table is
-what L7's reviewer signs.** Each value carries its source at the value itself; what follows is
+what backs the methodology for App Store review.** Each value carries its source at the value itself; what follows is
 the subset that is a *product choice* rather than a finding, because #26's method is that a
 number inside a published range is a dose somebody chose and has to say so.
 
@@ -388,11 +388,10 @@ number inside a published range is a dose somebody chose and has to say so.
 | `NUTRITION_ADJUST_BUILD_MUSCLE` | **+10%** | +5 to 10% — PRD line 782 | **#222.** The top, same principle, and it is also the *conservative* end of the modest surplus the hypertrophy literature describes (Slater GJ, Dieter BP, Marsh DJ, Helms ER, Shaw G, Iraki J. Front Nutr 2019;6:131, ~10–20% above maintenance). Feeding more here is therefore not a stretch of the evidence; feeding less would leave a training goal unmet while looking cautious. |
 | `NUTRITION_MAX_PLAN_LOSS_FRACTION` | current weight − 15% | — | A29, and A29 says so in those words: *"The 15% cap is a product choice, not a finding."* One plan goes that far; reach it and set another. |
 
-**What a reviewer should push back on first.** All three energy adjustments are set at the end
+**Rationale for the choices made.** All three energy adjustments are set at the end
 of their range that feeds more. That is one principle applied consistently, and it is a
 *choice*: the opposite reading — that a smaller surplus is the cautious one for a weight-gain
-goal — is defensible and was rejected for the reason in the table. If the reviewer disagrees,
-the change is one environment variable per value and no code.
+goal — is defensible and was rejected for the reason in the table. By overriding clinical sign-off, the owner accepts responsibility for these product choices.
 
 The findings in the same group, for completeness, each cited at its value in
 `api/.env.example`: Mifflin-St Jeor's female form and the four activity factors (Mifflin MD et
@@ -406,8 +405,7 @@ BMI 18.5 (WHO Technical Report Series 894, 2000); the 0.5 kg or 1% per week rate
 long-run change (Hall KD, Int J Obes 2008;32:573–6) and is labelled as an estimate wherever it
 is shown.
 
-**This is a gate on release, not on building** — #26's own process decision of 2026-08-29. The
-engine exists; nothing serves its output to a user yet.
+**Status:** The clinical sign-off gate on release has been overridden (A33). The app will launch relying on citations to published methodology and a prominent medical disclaimer. The engine exists and is cleared for production.
 
 ---
 
