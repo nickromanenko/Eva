@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { Timestamp } from "firebase-admin/firestore";
-import { applyContent, contentVersion, invalidateContentCache, type Review } from "../src/content";
+import { applyContent, applySignalVocabulary, contentVersion, invalidateContentCache, type Review } from "../src/content";
 import * as todayModule from "../src/today";
 import { PatternRuleUnsetError, TemplatePhraser, TemplateUnavailableError, getToday, type Phraser, type PhrasedText } from "../src/today";
 import { config } from "../src/config";
@@ -10,7 +10,7 @@ import type { Template } from "../src/content";
 import type { DashboardRules } from "../src/dashboard-rules";
 import { adminAuth, firestore } from "../src/firebase";
 import { lastUserChangeAt } from "../src/users";
-import { TEMPLATES, REVIEW as SEED_REVIEW } from "../scripts/seed-content";
+import { TEMPLATES, VOCABULARY, REVIEW as SEED_REVIEW } from "../scripts/seed-content";
 import { signUpActivated } from "./support/session";
 
 /**
@@ -326,6 +326,10 @@ beforeAll(async () => {
     if (onEmulators) {
         await applyContent("templates", TEMPLATES, REVIEW, { rewrite: true });
         seeded.push("templates");
+        // #200: `signals_today`/`signal_overrides_phase` fill `{signal}` from the vocabulary,
+        // so a seeded `content/` without it would leave those titles unfilled and answer 503.
+        await applySignalVocabulary(VOCABULARY, REVIEW);
+        seeded.push("vocabulary");
         invalidateContentCache();
     }
 }, 60_000);
@@ -445,9 +449,10 @@ describe("TemplatePhraser", () => {
      * value is a refusal rather than a raw string.
      *
      * Driven from the *seeded* copy, because that is what makes it more than a unit test:
-     * two of the fourteen templates carry `{appointmentAt}` in their title. Both belong to
-     * rung 3, which is inert until D10 wires it — and this guard is the only thing between
-     * that wiring and "Your anatomy scan is scheduled for tomorrow, {appointmentAt}"
+     * four templates carry a slot in their title — two `{appointmentAt}` (rung 3, inert until
+     * D10 wires it) and two `{signal}` (#200, filled by `resolveSignals`, never by the
+     * ladder). This guard is the only thing between a wiring mistake and
+     * "Your anatomy scan is scheduled for tomorrow, {appointmentAt}" or a raw "{signal}"
      * reaching a user.
      */
     test("a title with an unfilled slot is refused, not rendered raw", () => {

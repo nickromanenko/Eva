@@ -412,7 +412,7 @@ const hasSignal = (entry: SignalEntry): boolean =>
  * until the row was fixed. A malformed instant on a day the window *does* cover still
  * throws: there, reading it as "nothing logged" would drop her own report.
  */
-const observedSignal = (input: DashboardInput): SignalEntry | null => {
+export const observedSignal = (input: DashboardInput): SignalEntry | null => {
   const now = instant(input.now, 'now')
   const reachable = new Set([
     shiftDays(input.today, 'today', -1),
