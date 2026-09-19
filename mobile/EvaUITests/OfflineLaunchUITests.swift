@@ -36,12 +36,6 @@ final class OfflineLaunchUITests: EvaUITestCase {
         // MARK: A real session to lose
 
         signUpAndActivate(app, email: email)
-        completeQuestionnaire(app)
-        XCTAssertTrue(
-            app.staticTexts["You're all set"].waitForExistence(timeout: 15),
-            "Questionnaire submission did not reach the done screen"
-        )
-        tap(app.buttons["primary.Enter Eva"], in: app)
         XCTAssertTrue(
             app.buttons["tab.calendar"].waitForExistence(timeout: 10),
             "Did not land on the tab bar"

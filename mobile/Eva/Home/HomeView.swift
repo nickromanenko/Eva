@@ -63,6 +63,19 @@ struct HomeView: View {
                     }
 
                     card
+
+                    if session.user?.needsProfileNudge == true {
+                        ProfileNudgeView(
+                            onAddDetails: { router.show(.profile) },
+                            onDismiss: {
+                                // Optimistic: the server flag is what keeps it gone on the
+                                // next device, and a failed write only means it may ask
+                                // again — which is "takes no for an answer" at the API's
+                                // best effort, never a block on anything else.
+                                Task { try? await session.dismissProfileNudge() }
+                            }
+                        )
+                    }
                 }
                 .padding(.horizontal, EvaSpacing.lg)
                 .padding(.top, EvaSpacing.xxs)

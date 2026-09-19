@@ -23,10 +23,9 @@ private func apiSource() throws -> String {
 ///
 /// The API is the enforcement — `parseProfile` refuses a `medications` value outside
 /// `MEDICATION_CODES` — and that is exactly the problem these cases exist for. A refusal that
-/// only ever happens at the server arrives three screens after the question, in the route's
-/// own words, and `LifestyleStepView` answers it by staying where it is under "Something
-/// went wrong." So the rule is checked here too, and checked against the list the server
-/// actually holds.
+/// only ever happens at the server arrives after Save, in the route's own words, and
+/// `MedicationsSettingsView` answers it by holding Save until the question has an answer. So
+/// the rule is checked here too, and checked against the list the server actually holds.
 @Suite("Issue #215 · the questionnaire cannot submit a payload the API refuses")
 struct QuestionnairePayloadTests {
 
@@ -34,7 +33,7 @@ struct QuestionnairePayloadTests {
 
     @Test("an unanswered medication question holds the CTA")
     func unansweredMedicationHoldsTheCTA() {
-        let model = OnboardingModel()
+        let model = ProfileEditorModel(profile: nil)
         #expect(!model.hasMedicationAnswer)
         // What the CTA would send if it were not held. The empty string is not one of
         // `MEDICATION_CODES`, so this is the 400 the gate exists to make unreachable. The
@@ -45,7 +44,7 @@ struct QuestionnairePayloadTests {
 
     @Test("answering it releases the CTA and sends the code the chip carries")
     func answeringReleasesTheCTA() {
-        let model = OnboardingModel()
+        let model = ProfileEditorModel(profile: nil)
         model.medications = "none"
         #expect(model.hasMedicationAnswer)
         #expect(model.profilePayload.medications == "none")
@@ -53,8 +52,8 @@ struct QuestionnairePayloadTests {
 
     @Test("every chip the step draws releases the CTA")
     func everyChipReleasesTheCTA() {
-        for option in OnboardingModel.medicationOptions {
-            let model = OnboardingModel()
+        for option in ProfileEditorModel.medicationOptions {
+            let model = ProfileEditorModel(profile: nil)
             model.medications = option.code
             #expect(model.hasMedicationAnswer, "\(option.code) left the CTA held")
         }
@@ -84,7 +83,7 @@ struct QuestionnairePayloadTests {
     @Test("every medication chip carries a code the API accepts")
     func everyChipIsACodeTheAPIAccepts() throws {
         let accepted = Set(try Self.apiMedicationCodes())
-        for option in OnboardingModel.medicationOptions {
+        for option in ProfileEditorModel.medicationOptions {
             #expect(
                 accepted.contains(option.code),
                 """
@@ -97,7 +96,7 @@ struct QuestionnairePayloadTests {
 
     @Test("and the API accepts no code the step cannot draw")
     func theStepDrawsEveryCodeTheAPIAccepts() throws {
-        let drawn = Set(OnboardingModel.medicationOptions.map(\.code))
+        let drawn = Set(ProfileEditorModel.medicationOptions.map(\.code))
         for code in try Self.apiMedicationCodes() {
             #expect(
                 drawn.contains(code),

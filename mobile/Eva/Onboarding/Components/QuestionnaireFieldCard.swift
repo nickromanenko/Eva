@@ -90,7 +90,7 @@ struct DateOfBirthCard: View {
     @Previewable @State var kilograms = 64.0
 
     VStack(spacing: 14) {
-        DateOfBirthCard(value: .constant(.now), errorMessage: OnboardingModel.minimumAgeMessage)
+        DateOfBirthCard(value: .constant(.now), errorMessage: ProfileEditorModel.minimumAgeMessage)
         WeightEntryCard(kilograms: $kilograms, system: .metric)
     }
     .padding()
