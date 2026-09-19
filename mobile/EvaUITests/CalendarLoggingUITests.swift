@@ -448,6 +448,12 @@ final class CalendarLoggingUITests: EvaUITestCase {
     /// the helper does no scrolling here. What it adds is the assertion, and a failure that
     /// names an unreachable button instead of one that says the sheet did not open.
     ///
+    /// **It is not the fix for #192, and CI said so rather than anyone guessing.** Run
+    /// 35408007600 failed here with the guard in place: the guard asserts `isHittable`
+    /// before it taps, so the button was reachable and the touch was synthesized at the
+    /// right point. The change stands on consistency alone. What is left is narrower than
+    /// where this started — see the retry below.
+    ///
     /// **The failure carries the screen with it (#192).** "Tapping Log did not open the
     /// picker sheet" says what did not happen and nothing about why, and the state that
     /// would answer it — where the button was, which tab ended up selected, whether the
@@ -471,9 +477,37 @@ final class CalendarLoggingUITests: EvaUITestCase {
             file: file, line: line
         )
         tap(button, in: app, file: file, line: line)
-        XCTAssertTrue(
-            app.staticTexts["log.targetDay"].waitForExistence(timeout: 10),
-            "Tapping Log did not open the picker sheet.\n\(pickerFailure(app, button))",
+        if app.staticTexts["log.targetDay"].waitForExistence(timeout: 10) { return }
+
+        // The sheet did not open. Before failing, ask the one thing a state dump cannot
+        // answer: was the touch **swallowed**, or is the control **inert**?
+        //
+        // Run 35408007600 settled everything cheaper. The button was at
+        // `(356, 782, 60, 60)` in a 440×956 window — byte-identical to six local runs that
+        // passed — `hittable=true`, `enabled=true`, `selected tab: calendar` so the touch
+        // did not land on the bar, and `loaded=true` so the calendar was not still
+        // fetching. A correctly placed, hittable, enabled `Button` took a synthesized touch
+        // on a settled screen and its action did not run.
+        //
+        // A second tap that opens the sheet means the first was lost in delivery, and a
+        // user who tapped again would get through. A second that does nothing means the
+        // button is on screen, enabled, and dead — something she cannot work around, and a
+        // defect rather than a test problem. The two want different fixes, and nothing
+        // short of asking distinguishes them.
+        //
+        // This never runs on a passing test and never rescues a failing one: the state is
+        // captured before the retry and the failure below is unconditional.
+        let firstState = pickerFailure(app, button)
+        button.tap()
+        let secondOpened = app.staticTexts["log.targetDay"].waitForExistence(timeout: 10)
+        XCTFail(
+            """
+            Tapping Log did not open the picker sheet.
+            \(firstState)
+              second tap:   \(secondOpened
+                ? "opened the sheet — the first touch was swallowed, not refused"
+                : "did nothing either — the button is enabled and inert")
+            """,
             file: file, line: line
         )
     }
