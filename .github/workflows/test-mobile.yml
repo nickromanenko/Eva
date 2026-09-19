@@ -58,7 +58,19 @@ on:
       # The UI suite drives the real API, so an api/ change can break it without touching
       # a single file under mobile/. Kept narrow on purpose: the whole of api/** would run
       # a 10x-billed macOS job on every backend PR.
-      - "api/src/index.ts"
+      #
+      # The api/ entries are the set of files the iOS client has a *contract* with — it
+      # decodes their shapes, so a change there is a change the app's wire types mirror.
+      # Not "every file the server imports": content.ts, dashboard-rules.ts, the auth maths
+      # and the transports feed the server, never the client. A reader adding another file
+      # should be able to tell whether the app decodes it — read the Decodable types under
+      # mobile/Eva/, not the filename.
+      - "api/src/index.ts"   # route response shapes and the error codes
+      - "api/src/users.ts"   # User, Profile, MEDICATION_CODES, CONDITION_CODES
+      - "api/src/events.ts"  # EvaEvent and its payloads
+      - "api/src/refdata.ts" # the symptom/sport/appointment catalogues
+      - "api/src/cycle.ts"   # the prediction confidence/withheld codes
+      - "api/src/today.ts"   # the Today card shape
       - ".github/workflows/test-mobile.yml"
   push:
     branches: [main]
@@ -66,7 +78,14 @@ on:
       - "mobile/**"
       - "scripts/ci-mobile.sh"
       - "scripts/verify-mobile.sh"
+      # Must stay in step with the pull_request list above: a PR-only guard catches nothing
+      # on the nightly, and a push-only guard catches nothing before merge.
       - "api/src/index.ts"
+      - "api/src/users.ts"
+      - "api/src/events.ts"
+      - "api/src/refdata.ts"
+      - "api/src/cycle.ts"
+      - "api/src/today.ts"
       - ".github/workflows/test-mobile.yml"
   schedule:
     # 04:00 UTC. The suite is the only check on a surface whose dependencies — Xcode, the
