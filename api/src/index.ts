@@ -81,6 +81,7 @@ import {
   markActivated,
   markUserDeleted,
   readUser,
+  saveNutritionSetting,
   saveQuestionnaire,
   type ConditionCode,
   type Profile,
@@ -1576,6 +1577,25 @@ app.put('/me/questionnaire', requireAuth, requireAccount, async (c) => {
   if (!profile.ok) return c.json(error(profile.code, profile.message), 400)
 
   const user = await saveQuestionnaire(c.get('claims').sub, profile.value)
+  if (!user) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
+  return c.json({ user })
+})
+
+/**
+ * The self-serve nutrition setting (A31, #212): a plain "qualitative mode" toggle.
+ *
+ * It is a setting, not a declaration — the user turns it on for any reason, and nothing is
+ * asked about why, so there is no sensitive field to disclose and none to log. `saveNutritionSetting`
+ * is the only writer of the field, which is what keeps "never inferred from her data" true
+ * rather than asserted. The value itself is never logged (GUARDRAILS 12): a dietary
+ * safeguard for a named request is health data.
+ */
+app.put('/me/nutrition-settings', requireAuth, requireAccount, async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  if (typeof body.qualitativeOnly !== 'boolean') {
+    return c.json(error('VALIDATION', 'qualitativeOnly must be a boolean'), 400)
+  }
+  const user = await saveNutritionSetting(c.get('claims').sub, body.qualitativeOnly)
   if (!user) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
   return c.json({ user })
 })

@@ -77,6 +77,14 @@ export interface User {
   /** Whether the address has been confirmed (#6). Derived from `activatedAt`, which the
    *  client never sees. */
   activated: boolean
+  /**
+   * The self-serve "qualitative mode" setting (A31, #212): hide calories, weight targets
+   * and deficit/surplus language. `false` when absent — the setting is off by default and
+   * only ever changes through the explicit route (`saveNutritionSetting`), never by Eva
+   * inferring it from her logs, her weight or her profile. A31's "self-declared only" is
+   * the whole point, and a boolean here is the least disclosing form it can take.
+   */
+  nutritionQualitativeOnly: boolean
 }
 
 /**
@@ -157,6 +165,7 @@ const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => {
     profile,
     authProviders: data.authProviders ?? [],
     activated: isActivatedData(data),
+    nutritionQualitativeOnly: data.nutritionQualitativeOnly ?? false,
   }
 }
 
@@ -239,6 +248,7 @@ export const ensureUser = async (
       profile: null,
       authProviders: [provider],
       activated: false,
+      nutritionQualitativeOnly: false,
     },
     tokenVersion: 0,
   }
@@ -409,6 +419,31 @@ export const saveQuestionnaire = async (uid: string, profile: Profile): Promise<
     updatedAt: FieldValue.serverTimestamp(),
   })
   return toUser(uid, { ...snapshot.data()!, profile, questionnaireCompleted: true })
+}
+
+/**
+ * Writes the self-serve nutrition setting (A31, #212), and nothing else.
+ *
+ * **This is the only write of `nutritionQualitativeOnly` in the system**, on purpose. A31
+ * is "self-declared only": Eva never infers the setting from her logs, her weight or her
+ * profile, and the one way to keep that true is for the field to have exactly one writer —
+ * the route that toggles it. Anything that read an event and flipped this would be the
+ * inference A31 forbids, and a test fails if one ever appears.
+ *
+ * `null` for a missing document or a tombstone, the same answer `saveQuestionnaire` gives.
+ */
+export const saveNutritionSetting = async (
+  uid: string,
+  qualitativeOnly: boolean,
+): Promise<User | null> => {
+  const ref = users().doc(uid)
+  const snapshot = await ref.get()
+  if (!snapshot.exists || isTombstone(snapshot)) return null
+  await ref.update({
+    nutritionQualitativeOnly: qualitativeOnly,
+    updatedAt: FieldValue.serverTimestamp(),
+  })
+  return toUser(uid, { ...snapshot.data()!, nutritionQualitativeOnly: qualitativeOnly })
 }
 
 /** Stamps `deletedAt` on the document, which is the moment the account stops existing as
