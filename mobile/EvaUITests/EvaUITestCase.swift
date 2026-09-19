@@ -70,8 +70,13 @@ class EvaUITestCase: XCTestCase {
 
     /// The UI-test mailbox `scripts/verify-mobile.sh` starts beside the API. Same
     /// forwarding as `apiBaseURL`; the DEBUG default is for a run started by hand.
+    ///
+    /// **`127.0.0.1`, not `localhost`** (#220). The mailbox binds loopback v4 and nothing
+    /// else, because it activates accounts; `localhost` resolves `::1` first here, which
+    /// made `activate` race a connection refused against a v4 retry and sometimes spend its
+    /// whole 30s timeout. Naming the bound address removes the race rather than winning it.
     static let mailboxURL = ProcessInfo.processInfo.environment["EVA_MAILBOX_URL"]
-        ?? "http://localhost:3103"
+        ?? "http://127.0.0.1:3103"
 
     /// An address and nothing else (#120). Sign-up has no password field: the credential is
     /// chosen on the activation page, in the request that spends the link.
