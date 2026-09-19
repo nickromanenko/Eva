@@ -8,12 +8,22 @@ only deliberately — never mid-task to unblock yourself.
 | Gate | `website/` | `api/` | `mobile/` | rules / auth / infra |
 |---|---|---|---|---|
 | Issue refinement | AI | AI | AI | AI |
-| Question resolution | AI | AI | AI | **human** |
-| Plan approval | AI | AI | AI | **human** |
-| Implementation | AI | AI | AI | **human** |
-| PR review | AI† | AI† | AI† | **human** |
-| Merge | AI† | AI† | AI† | **human** |
+| Question resolution | AI | AI | AI | AI |
+| Plan approval | AI | AI | AI | AI |
+| Implementation | AI | AI | AI | AI |
+| PR review | AI† | AI† | AI† | AI† |
+| Merge | AI† | AI† | AI† | AI† |
 | Deploy | AI (on merge) | AI‡ | AI‡ | AI‡ |
+
+**Infra, auth/rules and the `users/{uid}` schema moved to `AI` on 2026-09-19**, on Nick's
+direct instruction — the last cells outside the Always-human list that still said `human`.
+What it changes in practice: an agent may now resolve questions, plan, implement, review and
+merge `rules / auth / infra` work (CI, Docker, scripts, deploy config, Firebase indexes, the
+`users/{uid}` schema, and non-secret auth/rules changes) without stopping for Nick. What it
+does not change: the Always-human list below — rules *loosening*, `JWT_SECRET`/the Firebase
+web API key/Secret Manager, adding a dependency, deleting user data, and changing an error
+`code` — still stops any plan or merge that lands on it, on any surface. This move did not
+earn itself under the ratchet rule; it is a decision, revocable the same way it was made.
 
 **Plan approval moved to `AI` for `api/` and `mobile/` on 2026-09-16**, on Nick's direct
 instruction — like the Deploy row below, a decision rather than a ratchet advance. What it
@@ -28,7 +38,8 @@ approved still cannot merge itself.
 reviewing without him, and a table that granted one and withheld the other would be
 describing a gate nobody stops at. The checkers are the review.
 
-I review and merge a PR on `website/`, `api/` or `mobile/` only when **all four** hold:
+I review and merge a PR on any surface — `website/`, `api/`, `mobile/`, or
+`rules / auth / infra` — only when **all four** hold:
 
 1. CI is green on the PR — which since #67 means the suites actually ran, not that someone
    remembered to run them;
@@ -86,11 +97,12 @@ gone for good. Reviewed 2026-09-16 and kept anyway, deliberately, on a different
 also makes relaxing that assertion a rules loosening in its own right). For the record on
 demand: that workflow has never run, and both rules files are already `if false`, so the
 cell grants a button with nothing to press it for yet. That is a real loosening of the
-most sensitive surface in the repo, so what remains is worth stating plainly. Implementation
-for `rules / auth / infra` is still `human`. "Loosening `firestore.rules` or
-`storage.rules`" is still on the Always-human list below. So an agent still cannot *author*
-the change it is deploying, and still cannot approve or review it — the cell grants the
-button on a rules change **a human wrote and a human approved**, and nothing else.
+most sensitive surface in the repo, so what remains is worth stating plainly. Since
+2026-09-19 Implementation for `rules / auth / infra` is `AI` — but "Loosening
+`firestore.rules` or `storage.rules`" remains on the Always-human list below. So an agent
+still cannot *author* or *approve* a loosening; the cell grants the button on a rules
+loosening **a human wrote and a human approved**, and nothing else. `everyAllowIsDenied()`
+(GUARDRAILS 6a) is the mechanical half of the same protection.
 
 **`deploy-rules.yml` stays `workflow_dispatch`-only.** GUARDRAILS 7 forbids adding any
 automatic trigger to it, and that is untouched: what moved is *who may press the manual
@@ -116,10 +128,11 @@ caught a real regression that a human would otherwise have missed. Coverage earn
 autonomy; confidence doesn't.
 
 **Two rows were moved outside this rule on 2026-09-16** — Plan approval and Deploy, both on
-Nick's direct instruction. The rule is not suspended and it is not rewritten to make those
-moves look earned; it simply did not apply, because the owner of the control panel changed
-it directly. It still governs every cell that moves for a reason other than being told to,
-and it still governs all of them on the way back.
+Nick's direct instruction. **The `rules / auth / infra` column followed on 2026-09-19**, the
+same way. The rule is not suspended and it is not rewritten to make those moves look earned;
+it simply did not apply, because the owner of the control panel changed it directly. It still
+governs every cell that moves for a reason other than being told to, and it still governs all
+of them on the way back.
 
 Move it back the moment an agent PR ships a defect that verification should have caught.
 
@@ -137,7 +150,7 @@ merged.
 - Loosening `firestore.rules` or `storage.rules`
 - Anything touching `JWT_SECRET`, the Firebase web API key, or Secret Manager
 - Adding a dependency
-- Deleting data, or any change to the `users/{uid}` schema
+- Deleting user data
 - Changing an existing API error `code` (breaks the iOS client)
 - Anything the issue didn't ask for
 
