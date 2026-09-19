@@ -21,6 +21,7 @@ const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
 const password = 'correct-horse-8'
 let token = ''
 let uid = ''
+let grantedEventId = ''
 
 const api = (path: string, init?: RequestInit & { token?: string | null }) =>
   fetch(`${BASE}${path}`, {
@@ -103,12 +104,21 @@ describe('the consent record (#86)', () => {
 
   test('health writes are refused before any consent, and reads and deletes are not', async () => {
     const date = backday(1)
-    const created = await api('/me/events', { method: 'POST', body: JSON.stringify(sport(date)) })
-    expect(created.status).toBe(403)
-    expect((await json<ErrorResponse>(created)).error.code).toBe('CONSENT_REQUIRED')
-
-    expect((await api(`/me/body-signals/${date}`, { method: 'PUT', body: '{}' })).status).toBe(403)
-    expect((await api('/me/questionnaire', { method: 'PUT', body: JSON.stringify(profile) })).status).toBe(403)
+    // All five gated routes, each pinned to the code as well as the status — the code is
+    // the client's contract (§3), and a 403 that said something else would sail past a
+    // status-only assert. The gate sits before every handler, so the two id-shaped
+    // routes answer 403 even with an id nothing matches.
+    for (const [attempt, init] of [
+      ['/me/events', { method: 'POST', body: JSON.stringify(sport(date)) }],
+      ['/me/events/none', { method: 'PATCH', body: JSON.stringify(sport(date)) }],
+      ['/me/events/none/restore', { method: 'POST', body: '{}' }],
+      [`/me/body-signals/${date}`, { method: 'PUT', body: '{}' }],
+      ['/me/questionnaire', { method: 'PUT', body: JSON.stringify(profile) }],
+    ] as const) {
+      const res = await api(attempt, init)
+      expect(res.status).toBe(403)
+      expect((await json<ErrorResponse>(res)).error.code).toBe('CONSENT_REQUIRED')
+    }
 
     // Reads and deletion are collection's opposite: both stay open.
     expect((await api(`/me/events?from=${date}&to=${date}`)).status).toBe(200)
@@ -119,6 +129,9 @@ describe('the consent record (#86)', () => {
     expect((await consent('collect', { granted: true })).status).toBe(400)
     expect((await consent('collect', { granted: 'yes', version: 'v' })).status).toBe(400)
     expect((await consent('collect', { granted: true, version: '   ' })).status).toBe(400)
+    // The cap is 64 — the refusal test uses 65, because a 64-char *success* would write
+    // a record and break the still-nothing-on-record assert below.
+    expect((await consent('collect', { granted: true, version: 'v'.repeat(65) })).status).toBe(400)
     expect((await consent('nowhere', { granted: true, version: 'v' })).status).toBe(404)
     expect((await api('/me/consent/collect', { method: 'PUT', token: null, body: '{}' })).status).toBe(401)
     // Still nothing on record after all of that.
@@ -150,12 +163,17 @@ describe('the consent record (#86)', () => {
     expect(record?.at).toBeTruthy()
     expect(record?.withdrawnAt).toBe(null)
 
+    // The id is kept for the freeze test: what withdrawal may never take away.
     const created = await api('/me/events', {
       method: 'POST',
       body: JSON.stringify(sport(backday(2))),
     })
     expect(created.status).toBe(201)
-    expect((await api(`/me/body-signals/${backday(1)}`, { method: 'PUT', body: '{}' })).status).not.toBe(403)
+    grantedEventId = ((await json<{ event: { id: string } }>(created)).event).id
+    expect(
+      (await api(`/me/body-signals/${backday(1)}`, { method: 'PUT', body: '{"symptoms":[]}' }))
+        .status,
+    ).toBe(200)
     expect((await api('/me/questionnaire', { method: 'PUT', body: JSON.stringify(profile) })).status).toBe(200)
   })
 
@@ -171,10 +189,14 @@ describe('the consent record (#86)', () => {
     expect(record?.at).toBe(before?.at)
     expect(record?.withdrawnAt).not.toBe(null)
 
-    // A fresh read agrees, and the writes are closed again — without deleting anything:
-    // the event granted above is still there.
+    // A fresh read agrees, the writes are closed again, and the freeze's whole point is
+    // pinned: the event granted above is still there — in the body, not merely a 200
+    // that an empty list would also produce.
     expect((await me()).consent.collect?.withdrawnAt).not.toBe(null)
-    expect((await api(`/me/events?from=${backday(2)}&to=${backday(2)}`)).status).toBe(200)
+    const surviving = (await json<{ events: { id: string }[] }>(
+      await api(`/me/events?from=${backday(2)}&to=${backday(2)}`),
+    )).events
+    expect(surviving.map((e) => e.id)).toEqual([grantedEventId])
     expect(
       (await api('/me/events', { method: 'POST', body: JSON.stringify(sport(backday(1))) })).status,
     ).toBe(403)

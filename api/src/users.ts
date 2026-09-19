@@ -605,32 +605,40 @@ export const saveConsent = async (
   version: string,
 ): Promise<User | null> => {
   const ref = users().doc(uid)
-  const snapshot = await ref.get()
-  if (!snapshot.exists || isTombstone(snapshot)) return null
+  // A transaction, not a read-then-write, for the same reason `bumpTokenVersion` is: the
+  // decision depends on what the document holds *now* — whether there is a grant to
+  // withdraw, and which version/`at` the withdrawal stamps — and a re-grant landing
+  // between the read and the write would otherwise be clobbered by a withdrawal built
+  // from the stale record, leaving the field saying she withdrew a text she never saw.
+  // The security review of #86 found exactly that window.
+  return firestore.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref)
+    if (!snapshot.exists || isTombstone(snapshot)) return null
 
-  const field = `consent.${kind}`
-  const before = storedConsent(snapshot.data()!.consent)
+    const field = `consent.${kind}`
+    const before = storedConsent(snapshot.data()!.consent)
 
-  if (granted) {
-    // The record as it will read after the write, in the *stored* shape (Timestamps, not
-    // ISO strings) so it can be both written and spliced into the returned user — which
-    // `toUser` then serves through `storedConsent` exactly as a later read would see it.
-    // Echoing what the route just decided, rather than re-reading the document, is the
-    // same shape `saveQuestionnaire` answers with.
-    const record = { version, at: Timestamp.now(), withdrawnAt: null }
-    await ref.update({ [field]: record, updatedAt: FieldValue.serverTimestamp() })
-    return toUser(uid, { ...snapshot.data()!, consent: { ...before, [kind]: record } })
-  }
+    if (granted) {
+      // The record as it will read after the write, in the *stored* shape (Timestamps,
+      // not ISO strings) so it can be both written and spliced into the returned user —
+      // which `toUser` then serves through `storedConsent` exactly as a later read
+      // would see it. Echoing what the route just decided, rather than re-reading the
+      // document, is the same shape `saveQuestionnaire` answers with.
+      const record = { version, at: Timestamp.now(), withdrawnAt: null }
+      tx.update(ref, { [field]: record, updatedAt: FieldValue.serverTimestamp() })
+      return toUser(uid, { ...snapshot.data()!, consent: { ...before, [kind]: record } })
+    }
 
-  const existing = before[kind]
-  if (!existing) return toUser(uid, snapshot.data()!)
-  const withdrawn = {
-    version: existing.version,
-    at: Timestamp.fromDate(new Date(existing.at)),
-    withdrawnAt: Timestamp.now(),
-  }
-  await ref.update({ [field]: withdrawn, updatedAt: FieldValue.serverTimestamp() })
-  return toUser(uid, { ...snapshot.data()!, consent: { ...before, [kind]: withdrawn } })
+    const existing = before[kind]
+    if (!existing) return toUser(uid, snapshot.data()!)
+    const withdrawn = {
+      version: existing.version,
+      at: Timestamp.fromDate(new Date(existing.at)),
+      withdrawnAt: Timestamp.now(),
+    }
+    tx.update(ref, { [field]: withdrawn, updatedAt: FieldValue.serverTimestamp() })
+    return toUser(uid, { ...snapshot.data()!, consent: { ...before, [kind]: withdrawn } })
+  })
 }
 
 /** Stamps `deletedAt` on the document, which is the moment the account stops existing as

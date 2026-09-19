@@ -209,6 +209,12 @@ struct ConsentView: View {
     /// Continue, with the canvas' one rule: the store toggle is what Eva needs, the share
     /// toggle is hers either way, and neither grants anything the server has not
     /// recorded — each granted toggle is its own `PUT /me/consent/:kind`.
+    ///
+    /// Share goes **first**, deliberately: the collect grant is what recomputes the
+    /// session into `.ready`, which swaps this screen away — and a share grant that
+    /// failed after that would write its error into a dead view and never reach her. In
+    /// this order a failed share is still on the screen, and a failed collect leaves
+    /// everything as it was for another Continue.
     private func submit() {
         guard !isSubmitting else { return }
         guard storeConsent else {
@@ -220,12 +226,10 @@ struct ConsentView: View {
         Task {
             defer { isSubmitting = false }
             do {
-                try await session.setConsent(.collect, granted: true)
                 if shareConsent {
                     try await session.setConsent(.share, granted: true)
                 }
-                // The session recomputes its own state from the returned user: a granted
-                // collect consent lands in `.ready` and EvaRootView switches to the app.
+                try await session.setConsent(.collect, granted: true)
             } catch {
                 submissionError = error.localizedDescription
             }
