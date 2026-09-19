@@ -14,6 +14,14 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/api-server.sh"
 
+BUILD_ONLY=0
+[ "${1:-}" = "--build" ] && BUILD_ONLY=1
+# `--build` compiles only — no API, no emulators, no node_modules. The full run boots the
+# API, so only it needs the pre-flight (#208): a worktree's missing node_modules or a
+# relative GOOGLE_APPLICATION_CREDENTIALS would otherwise fail deep inside sign-up and read
+# as a regression.
+[ "$BUILD_ONLY" = "0" ] && { preflight || exit 1; }
+
 SIMULATOR=${EVA_SIMULATOR_ID:-D748EB89-9D96-4D48-9033-9AC0DA65FE7A}
 # The destination names platform and arch explicitly (#230). A bare `id=` matches the same
 # udid under both arm64 and x86_64, so xcodebuild warns "using the first of multiple
@@ -24,8 +32,6 @@ SIMULATOR=${EVA_SIMULATOR_ID:-D748EB89-9D96-4D48-9033-9AC0DA65FE7A}
 # `mobile/build/` is gitignored. Removed first so a local re-run does not hit "already exists".
 RESULT_BUNDLE="$ROOT/mobile/build/Eva.xcresult"
 rm -rf "$RESULT_BUNDLE"
-BUILD_ONLY=0
-[ "${1:-}" = "--build" ] && BUILD_ONLY=1
 FAILED=0
 
 command -v xcodegen >/dev/null || { echo "✗ xcodegen missing — brew install xcodegen"; exit 1; }
