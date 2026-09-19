@@ -48,22 +48,41 @@ export const signIn = async (base: string, email: string, password: string): Pro
 }
 
 /**
- * Sign-up → activation → sign-in, through the live routes.
+ * Sign-up → activation → sign-in → the collect consent, through the live routes.
  *
  * The account does not exist until the link is spent (#120): sign-up sends an address and
  * gets `201 { pending }`, and the password is chosen at activation. So the uid can only be
  * read from Auth *after* activating, not before.
+ *
+ * The last step is #86's, and it is here for the same reason activation is: a session
+ * whose account has no collect consent cannot write health data, and nearly every caller
+ * of this helper writes health data. The app grants it through the consent screen, which
+ * no test process can draw, so the helper grants it the way it already spends the
+ * activation link the app never sees. The version is the consent text's own — the
+ * "Consent v1 · 2026-08-30" line the screen displays, matching the app's
+ * `ConsentPolicy.version`. Pass `consent: false` for a suite that tests the refusal
+ * itself (consent.test.ts).
  */
 export const signUpActivated = async (
   base: string,
   email: string,
   password: string,
+  opts: { consent?: boolean } = {},
 ): Promise<{ token: string; uid: string }> => {
   const res = await post(base, '/auth/signup', { email })
   if (res.status !== 201) throw new Error(`signup answered ${res.status}`)
   await activateAccount(base, null, email, password)
   const { uid } = await adminAuth.getUserByEmail(email)
-  return { token: await signIn(base, email, password), uid }
+  const token = await signIn(base, email, password)
+  if (opts.consent ?? true) {
+    const res = await fetch(`${base}/me/consent/collect`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ granted: true, version: '2026-08-30' }),
+    })
+    if (res.status !== 200) throw new Error(`consent answered ${res.status}`)
+  }
+  return { token, uid }
 }
 
 /**

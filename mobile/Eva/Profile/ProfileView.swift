@@ -70,6 +70,7 @@ struct ProfileView: View {
                     personalProfileSection
                     connectedAccountsCard
                     evaExperienceSection
+                    privacySection
                     logOutCard
                     dangerZone
                         // The artboard sets the danger zone further off than it sets the
@@ -304,6 +305,30 @@ struct ProfileView: View {
                 UnitsSettingsView(units: units)
             }
         }
+    }
+
+    /// Settings › Privacy (#86): where both consents are shown and withdrawn. The canvas
+    /// names the place rather than drawing the screen; `PrivacySettingsView` is it.
+    private var privacySection: some View {
+        ProfileSettingsSection(title: "Privacy") {
+            ProfileSettingsRow(
+                label: "Health data consent",
+                meta: "What Eva may store, and for whom",
+                value: consentValue,
+                identifier: "profile.privacy"
+            ) {
+                PrivacySettingsView(session: session)
+            }
+        }
+    }
+
+    /// The row's trailing value: "On" while the collect consent stands, "Paused" once it
+    /// has been withdrawn — the state the calendar's refusals are describing. Empty for an
+    /// API that predates #86, because there is nothing this row can say about it, and for
+    /// an account that has never been asked, whose screen is owed on the next launch.
+    private var consentValue: String {
+        guard let collect = session.user?.consent?.collect else { return "" }
+        return collect.withdrawnAt == nil ? "On" : "Paused"
     }
 
     /// Log out, in the artboard's own shape: a 52-high row filling a glass card of its

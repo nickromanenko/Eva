@@ -154,7 +154,7 @@ stable machine identifier (`VALIDATION`, `EMAIL_EXISTS`, `INVALID_CREDENTIALS`,
 `UNAUTHORIZED`, `NOT_FOUND`, `FUTURE_DATE_NOT_ALLOWED`, `BACKDATE_LIMIT_EXCEEDED`,
 `UNKNOWN_SYMPTOM_CODE`, `WEAK_PASSWORD`, `RATE_LIMITED`, `SERVICE_UNAVAILABLE`,
 `DAY_ALREADY_LOGGED`, `NOT_ACTIVATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`,
-`PROVIDER_ALREADY_LINKED`, `INTERNAL`);
+`PROVIDER_ALREADY_LINKED`, `CONSENT_REQUIRED`, `INTERNAL`);
 `message` is human-facing and may be shown in the app. Changing a code is a breaking
 change for the iOS client.
 
@@ -179,19 +179,31 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `GET /me` | Bearer | `{ user }` |
 | `POST /me/auth/providers` | Bearer | `{ user }` — attaches a provider to *this* account; `409 PROVIDER_ALREADY_LINKED` when its `sub` belongs to another |
 | `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately; an optional `appleAuthorizationCode` also revokes the Apple token |
-| `PUT /me/questionnaire` | Bearer | `{ user }` |
+| `PUT /me/questionnaire` | Bearer | `{ user }` — behind `requireCollectConsent` (#86): the profile is health data, and nothing about her is written before the collect consent exists |
 | `PUT /me/nutrition-settings` | Bearer | `{ user }` — `{ qualitativeOnly: boolean }`, the self-serve "qualitative mode" toggle (#212, A31) |
 | `POST /me/profile-nudge/dismiss` | Bearer | `{ user }` — marks the "complete your profile" nudge dismissed (#19); server-side, survives reinstall |
+| `PUT /me/consent/{kind}` | Bearer | `{ user }` — records or withdraws one consent (#86). `kind` is `collect` or `share`; `{ granted: true, version }` records the consent with the version of the text the client showed, `{ granted: false }` withdraws — the freeze: the record keeps its version and `at`, and gains `withdrawnAt`. `share` governs nothing today; it is recorded because the screen offers it. Withdrawing a never-granted consent is a no-op |
 | `GET /me/events?from=&to=` | Bearer | `{ events }` — inclusive `localDate` range, soft-deleted excluded |
-| `POST /me/events` | Bearer | `201 { event }` |
-| `PATCH /me/events/{id}` | Bearer | `{ event }` — body must carry `type` and `localDate` |
-| `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
-| `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days and while the entry has not been superseded (`409 DAY_ALREADY_LOGGED`) |
-| `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
+| `POST /me/events` | Bearer | `201 { event }` — behind `requireCollectConsent` (#86) |
+| `PATCH /me/events/{id}` | Bearer | `{ event }` — body must carry `type` and `localDate`; behind `requireCollectConsent` (#86) |
+| `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete; deliberately not consent-gated: deleting is collection's opposite |
+| `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days and while the entry has not been superseded (`409 DAY_ALREADY_LOGGED`); behind `requireCollectConsent` (#86) |
+| `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day; behind `requireCollectConsent` (#86) |
 | `GET /me/cycle/predictions?from=&to=&timeZone=` | Bearer | `{ from, to, predictedPeriod, fertileWindow, peak, confidence, withheld }` — the calendar's overlay for a range (#205). Three lists of `localDate`s, clipped to the range; `confidence` is C11's own `wide`/`narrow` band, `null` when nothing is predicted, and `withheld` then names the gate that closed (`no-flow-logged`, `too-few-counted-cycles`, `irregular-cycles`, `uncountable-cycle`). The last two are deliberately separate (#190): the first says her cycles vary, the second says one interval in the window fell outside the countable range — a fact about a log, not about her — and answering the first for the second told a woman with a single missed period start something false for six cycles. Range validated and capped exactly as `/me/events` is, with the same `VALIDATION` code. `503 SERVICE_UNAVAILABLE` while the cycle maths' constants are unconfigured (#176) |
 | `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card }` — the day's card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26), the cycle maths' constants are unconfigured (#176), or `content/` is unseeded (#97) |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 | `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
+
+**Health writes sit behind the collect consent (#86, A21).** `requireCollectConsent`
+guards the routes that create or change health data — events (write, patch, restore),
+body signals, and the questionnaire — and answers `403 CONSENT_REQUIRED` for both shapes
+of "no": no record (every pre-#86 account, every new account until the screen is
+through) and a withdrawn record (the freeze). Reads, deletes and preference-only writes
+(nutrition-settings, the profile nudge) stay open, because collecting is what needs
+consent and nothing else does. The client tells the two shapes apart from `GET /me`'s
+`consent` record, not from the error — the remedy is the same screen either way, or
+Settings › Privacy when it is a withdrawal, which the app deliberately does not re-ask
+as a gate.
 
 **Sign-up hands out no session (#6).** The account exists after `201`, but the address is
 not proven, and `POST /auth/signin` refuses it with `403 NOT_ACTIVATED` until it is. The
@@ -870,6 +882,7 @@ email                  string
 authProviders          string[]        // arrayUnion: "password", "apple.com", "google.com"
 questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
+consent                Consent         // #86 (A21): { collect, share } records. ABSENT = never asked
 nutritionQualitativeOnly boolean       // #212 (A31): self-serve "qualitative mode". ABSENT = false
 profileNudgeDismissed  boolean         // #19: "complete your profile" nudge dismissed. ABSENT = false
 activatedAt            Timestamp | null  // #6; null = unconfirmed, ABSENT = pre-#6 = confirmed
@@ -898,6 +911,19 @@ signing in cannot bring the account back either.
 about it: `null` means the address has not been confirmed, a timestamp means it has, and
 **absent means confirmed too** — every document written before #6 lacks the field and those
 accounts must keep signing in. A truthiness test would lock them out.
+
+`consent` is the consent record (#86, A21), and **absence is not withdrawal**. A grant
+writes `consent.collect = { version, at, withdrawnAt: null }`; a withdrawal stamps
+`withdrawnAt` and touches nothing else, because the record's meaning is "the consent
+recorded here no longer holds" and erasing the grant it withdrew would stop the record
+saying what was withdrawn. That is the freeze decided on #86: withdrawal stops new
+collection and keeps the stored data, which leaves only by export or `DELETE /me`. The
+`version` is the consent text's own version string, sent by the client that displayed it
+and stored verbatim — the server keeps no table of known versions, because the record
+exists precisely so a *future* text can be recognised as not the one she agreed to; the
+app makes that comparison against the version it ships. One writer, `saveConsent`, for
+the same reason `saveNutritionSetting` is the only writer of its field: a consent record
+anything else could change cannot testify.
 
 `Profile` is validated at the edge in `parseProfile` (`index.ts`): weight 30–200 kg,
 height 120–220 cm, `medications` one of `MEDICATION_CODES` and `conditions` a list drawn

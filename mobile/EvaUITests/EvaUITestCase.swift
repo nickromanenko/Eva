@@ -104,6 +104,7 @@ class EvaUITestCase: XCTestCase {
     func signUpAndActivate(
         _ app: XCUIApplication,
         email: String,
+        consent: Bool = true,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -128,11 +129,52 @@ class EvaUITestCase: XCTestCase {
 
         signIn(app, email: email, password: Self.password, file: file, line: line)
 
-        XCTAssertTrue(
-            app.buttons["tab.home"].waitForExistence(timeout: 20),
-            "Signing in after activation did not reach the app",
-            file: file, line: line
-        )
+        if consent {
+            passConsentGate(app, file: file, line: line)
+
+            XCTAssertTrue(
+                app.buttons["tab.home"].waitForExistence(timeout: 20),
+                "Signing in after activation did not reach the app",
+                file: file, line: line
+            )
+        }
+        // With `consent: false` the run is deliberately still on the consent screen, and
+        // what is on it is the caller's assertion to make.
+    }
+
+    /// Passes the consent screen (#86), which every new account owes between sign-in and
+    /// the app: both toggles on, Continue.
+    ///
+    /// **Wait on either screen, not on the consent screen alone.** Which of the two the
+    /// app shows next is decided by the sign-in response, and that response proves the
+    /// password against Identity Toolkit — it can take longer than any wait a caller
+    /// would tolerate on the consent screen. A helper that read "consent screen not there
+    /// in 5s" as "no gate" was also reading "not answered yet" as "no gate", and then
+    /// failed 20s later against a consent screen that had arrived after it stopped
+    /// looking. Callers that need the screen itself open pass `consent: false` above.
+    func passConsentGate(
+        _ app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let store = app.switches["consent.store"]
+        let home = app.buttons["tab.home"]
+
+        var onConsentScreen = false
+        let deadline = Date().addingTimeInterval(20)
+        repeat {
+            if store.exists {
+                onConsentScreen = true
+                break
+            }
+            if home.exists { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        } while Date() < deadline
+
+        guard onConsentScreen else { return }
+        tap(store, in: app, file: file, line: line)
+        tap(app.switches["consent.share"], in: app, file: file, line: line)
+        tap(app.buttons["primary.Continue"], in: app, file: file, line: line)
     }
 
     /// Asks the mailbox to open the activation link for `email`. Synchronous: the test

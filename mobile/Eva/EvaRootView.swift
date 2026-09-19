@@ -21,6 +21,8 @@ struct EvaRootView: View {
                     .background(LinearGradient.evaScreenBackground.ignoresSafeArea())
             case .signedOut:
                 OnboardingFlowView(session: session)
+            case .needsConsent:
+                ConsentView(session: session)
             case .ready:
                 EvaTabView(session: session, units: units)
             case .unreachable:

@@ -697,6 +697,25 @@ drawing the row instead of hiding it. Same argument as the disabled labels on fi
 controls above, and it matters more here, because on those the label is decoration and here
 the sentence *is* the affordance.
 
+**The consent screen (#86) omits the canvas' two `[pending]` processors, states the
+policy line without a link, and draws the block-to-continue as an inline message rather
+than a toast.** A shipped screen cannot show "assistant vendor — pending" as if it were a
+fact; the list grows when the vendors do, alongside the privacy policy that names them
+(L3, still with counsel). "Read the health-data privacy policy" is plain text because the
+site has no configured public URL for the app to open — the same limit the sign-up
+footer lives with. And the canvas' toast on Continue-without-the-store-toggle ("Eva needs
+the first choice to work. The second is yours either way." — kept verbatim) becomes an
+inline message under the cards, because §7 reserves the toast for what *has* happened,
+and this says what will not.
+
+**Settings › Privacy (PrivacySettingsView) states the freeze in place of the canvas'
+undrawn screen.** The canvas names the destination ("Both withdrawable in Settings ›
+Privacy") without drawing it. Its withdrawal dialog carries the consequence the #86
+decision fixed — nothing new is collected, what is stored stays — because a withdrawal
+that read as "delete my data" would be as wrong as the silent opposite. Row actions use
+the theme's button styles directly under row-scoped identifiers, since both rows can be
+in the same state at once and title-derived identifiers would collide.
+
 ## 9b. Where iOS cannot express the canvas
 
 Real platform limits, not decisions:

@@ -319,6 +319,19 @@ describe('auth', () => {
     expect((await json<UserResponse>(res)).user.id).toBe(uid)
   })
 
+  // The questionnaire is a health write, and this account has no consent on record — no
+  // consent screen has run (#86). Grant it here the way the app would, through the route,
+  // so the tests below exercise the questionnaire rather than the gate;
+  // consent.test.ts is where the gate itself is tested.
+  test('the collect consent is granted before the questionnaire writes', async () => {
+    const res = await api('/me/consent/collect', {
+      method: 'PUT',
+      token,
+      body: JSON.stringify({ granted: true, version: '2026-08-30' }),
+    })
+    expect(res.status).toBe(200)
+  })
+
   test('questionnaire submission completes the profile', async () => {
     const res = await api('/me/questionnaire', {
       method: 'PUT',
@@ -539,6 +552,16 @@ describe('an account created before dateOfBirth', () => {
   })
 
   test('answering the questionnaire replaces the old map, age and all', async () => {
+    // A pre-#86 account has no consent record, and answering the questionnaire is a
+    // health write — grant it first, which is what the app's screen does for exactly
+    // these accounts on their next launch.
+    const granted = await api('/me/consent/collect', {
+      method: 'PUT',
+      token: legacyToken,
+      body: JSON.stringify({ granted: true, version: '2026-08-30' }),
+    })
+    expect(granted.status).toBe(200)
+
     const res = await api('/me/questionnaire', {
       method: 'PUT',
       token: legacyToken,

@@ -446,6 +446,14 @@ describe('a delete interrupted after the first step', () => {
     })
     expect(signin.status).toBe(200)
     token = (await json<AuthResponse>(signin)).token
+    // A legacy account has no consent record, and seeding writes health data (#86):
+    // grant first, the way the app's screen would on this account's next launch.
+    const granted = await api('/me/consent/collect', {
+      method: 'PUT',
+      token,
+      body: JSON.stringify({ granted: true, version: '2026-08-30' }),
+    })
+    expect(granted.status).toBe(200)
     await seedEvents(token)
 
     expect(await markUserDeleted(uid)).toBe(true)

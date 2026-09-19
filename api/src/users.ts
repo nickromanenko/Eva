@@ -65,11 +65,60 @@ export interface Profile {
   sports: string[]
 }
 
+/** The two things consent can be asked for (A21, #86). Both exist whether or not either
+ *  changes what Eva does today: `share` governs nothing while Eva's only processors act
+ *  under contract with Eva itself (LAUNCH §4.5), and it is still recorded, because the
+ *  vendor list the policy names is exactly what a future `share` decision will hang from. */
+export const CONSENT_KINDS = ['collect', 'share'] as const
+
+export type ConsentKind = (typeof CONSENT_KINDS)[number]
+
+/**
+ * One recorded consent (#86): which text she saw, when she granted it, and whether she has
+ * withdrawn it since.
+ *
+ * `version` is the consent text's own version string — the "Consent v1 · 2026-08-30" line
+ * the screen displays — sent by the client that showed her that text and stored verbatim.
+ * The server does not keep a table of known versions to check it against: the record exists
+ * so a *future* text can be recognised as not the one she agreed to, and the app makes that
+ * comparison against the version it ships with. A policy change re-prompts by being a
+ * different string, not by the server learning the new one first.
+ *
+ * `at` and `withdrawnAt` are instants, served as ISO strings the way `lastUserChangeAt`
+ * serves its own.
+ */
+export interface ConsentRecord {
+  version: string
+  at: string
+  withdrawnAt: string | null
+}
+
+/**
+ * A consent record in the shape the stored document may hold, before `storedConsent` has
+ * judged it. `at` is a Firestore `Timestamp` on every document this module writes.
+ */
+export interface Consent {
+  collect: ConsentRecord | null
+  share: ConsentRecord | null
+}
+
 export interface User {
   id: string
   email: string
   questionnaireCompleted: boolean
   profile: Profile | null
+  /**
+   * The account's consent record (A21, #86), read-side. Both kinds are present as `null`
+   * until granted — a new account has consented to nothing, and an account created before
+   * #86 has no `consent` map at all, which reads the same way: there is no record of her
+   * having consented, which is the fact the refusal gate and the app's screen both act on.
+   *
+   * **Absence is not withdrawal.** A withdrawal is a record with `withdrawnAt` set — she
+   * was asked, she said yes once, she has said no since. The distinction is the whole
+   * point of the freeze decision on #86: withdrawal stops collection and keeps the stored
+   * data, so it has to be representable without erasing the grant it withdrew.
+   */
+  consent: Consent
   /** Which credentials open this account: `password`, `apple.com`, `google.com` (#7). The
    *  client shows it in Profile and decides from it whether "Link Apple" is still offered.
    *  Absent on no document — the field has existed since the first one. */
@@ -156,6 +205,56 @@ const storedProfile = (raw: unknown): Profile | null => {
   return typeof fields.dateOfBirth === 'string' ? (fields as unknown as Profile) : null
 }
 
+/**
+ * One stored consent record read as *this* schema, or `null`.
+ *
+ * The same read-side answer `storedProfile` gives a profile it cannot serve: a record
+ * missing its version or its `at` is not a consent record under this schema — there is no
+ * text it could name and no instant it could date — and inventing either would be worse
+ * than serving none, because the whole value of the record is being able to say what was
+ * agreed to and when. It is served as no record, and she is asked again.
+ *
+ * `at`/`withdrawnAt` accept Firestore `Timestamp`s (what this module writes) and fall back
+ * to ISO strings, so a record read back from a document this module wrote always survives
+ * the round trip.
+ */
+const storedConsentRecord = (raw: unknown): ConsentRecord | null => {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const record = raw as Record<string, unknown>
+  if (typeof record.version !== 'string' || record.version.length === 0) return null
+  const asISO = (v: unknown): string | null => {
+    if (v instanceof Timestamp) return v.toDate().toISOString()
+    return typeof v === 'string' && v.length > 0 ? v : null
+  }
+  const at = asISO(record.at)
+  if (at === null) return null
+  return { version: record.version, at, withdrawnAt: asISO(record.withdrawnAt) }
+}
+
+/** The stored `consent` map read as *this* schema. Absent map, absent kind — all the same
+ *  answer: no record. A malformed *kind* is dropped to `null` on its own, so a future kind
+ *  or a bad `share` cannot take the `collect` record down with it. */
+const storedConsent = (raw: unknown): Consent => {
+  const record = (v: unknown): ConsentRecord | null =>
+    raw === null || typeof raw !== 'object' || Array.isArray(raw) ? null : storedConsentRecord(v)
+  const map = (raw ?? {}) as Record<string, unknown>
+  return {
+    collect: record(map.collect),
+    share: record(map.share),
+  }
+}
+
+/**
+ * The refusal gate's question (#86), the way `isActivated` is the activation gate's.
+ *
+ * A granted record with `withdrawnAt` set is a withdrawal, and a withdrawal is the freeze:
+ * nothing new is collected, everything already stored stays. Absent is the never-asked
+ * state every pre-#86 account and every new account starts in, and it refuses for the
+ * same reason — collection may only follow the record.
+ */
+export const hasCollectConsent = (user: User): boolean =>
+  user.consent.collect !== null && user.consent.collect.withdrawnAt === null
+
 const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => {
   const profile = storedProfile(data.profile)
   return {
@@ -169,6 +268,7 @@ const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => {
     // with it.
     questionnaireCompleted: (data.questionnaireCompleted ?? false) && profile !== null,
     profile,
+    consent: storedConsent(data.consent),
     authProviders: data.authProviders ?? [],
     activated: isActivatedData(data),
     nutritionQualitativeOnly: data.nutritionQualitativeOnly ?? false,
@@ -253,6 +353,7 @@ export const ensureUser = async (
       email,
       questionnaireCompleted: false,
       profile: null,
+      consent: { collect: null, share: null },
       authProviders: [provider],
       activated: false,
       nutritionQualitativeOnly: false,
@@ -471,6 +572,73 @@ export const dismissProfileNudge = async (uid: string): Promise<User | null> => 
     updatedAt: FieldValue.serverTimestamp(),
   })
   return toUser(uid, { ...snapshot.data()!, profileNudgeDismissed: true })
+}
+
+/**
+ * Records or withdraws one consent kind (A21, #86) — and is the **only writer of
+ * `consent` in the system**, for the same reason `saveNutritionSetting` is the only writer
+ * of its field: a consent record that anything else could change is a consent record that
+ * cannot testify. The route validates the request; this function is the record.
+ *
+ * **Granting** writes the record whole — `version` is the text the client says it showed
+ * her, `at` is this instant, and `withdrawnAt` is explicitly `null` so a re-grant after a
+ * withdrawal leaves the record reading as granted rather than carrying a stale withdrawal
+ * inside it.
+ *
+ * **Withdrawing is the freeze**, per the decision on #86: it stamps `withdrawnAt` on the
+ * record that is there and touches nothing else — `version` and `at` are the stored
+ * record's own, because the withdrawal's meaning is "the consent recorded here no longer
+ * holds", and erasing the grant it withdrew would stop the record saying what was
+ * withdrawn. Nothing is deleted here; withdrawal is not `DELETE /me` by another name, and
+ * the stored data keeps until export or account deletion removes it through their own
+ * paths. Withdrawing a consent that was never granted writes nothing and returns the user
+ * as she is — there is no record to freeze, and an idempotent answer is what a Settings
+ * toggle wants.
+ *
+ * `null` for a missing document or a tombstone, the same answer every writer in this
+ * file gives.
+ */
+export const saveConsent = async (
+  uid: string,
+  kind: ConsentKind,
+  granted: boolean,
+  version: string,
+): Promise<User | null> => {
+  const ref = users().doc(uid)
+  // A transaction, not a read-then-write, for the same reason `bumpTokenVersion` is: the
+  // decision depends on what the document holds *now* — whether there is a grant to
+  // withdraw, and which version/`at` the withdrawal stamps — and a re-grant landing
+  // between the read and the write would otherwise be clobbered by a withdrawal built
+  // from the stale record, leaving the field saying she withdrew a text she never saw.
+  // The security review of #86 found exactly that window.
+  return firestore.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref)
+    if (!snapshot.exists || isTombstone(snapshot)) return null
+
+    const field = `consent.${kind}`
+    const before = storedConsent(snapshot.data()!.consent)
+
+    if (granted) {
+      // The record as it will read after the write, in the *stored* shape (Timestamps,
+      // not ISO strings) so it can be both written and spliced into the returned user —
+      // which `toUser` then serves through `storedConsent` exactly as a later read
+      // would see it. Echoing what the route just decided, rather than re-reading the
+      // document, is the same shape `saveQuestionnaire` answers with.
+      const record = { version, at: Timestamp.now(), withdrawnAt: null }
+      tx.update(ref, { [field]: record, updatedAt: FieldValue.serverTimestamp() })
+      return toUser(uid, { ...snapshot.data()!, consent: { ...before, [kind]: record } })
+    }
+
+    const existing = before[kind]
+    if (!existing) return toUser(uid, snapshot.data()!)
+    const withdrawn = {
+      version: existing.version,
+      at: Timestamp.fromDate(new Date(existing.at)),
+      withdrawnAt: Timestamp.now(),
+    }
+    tx.update(ref, { [field]: withdrawn, updatedAt: FieldValue.serverTimestamp() })
+    return toUser(uid, { ...snapshot.data()!, consent: { ...before, [kind]: withdrawn } })
+  })
 }
 
 /** Stamps `deletedAt` on the document, which is the moment the account stops existing as
