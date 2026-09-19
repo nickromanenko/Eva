@@ -294,7 +294,13 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         // password they chose on the activation page. That the account is *through* — the
         // link really did work — is what the rest of this case was for, so it is still
         // asserted, just via the path that exists.
+        //
+        // What a new account meets on the other side of that password is the consent
+        // screen (#86), so going through it is part of getting in. `passConsentGate`
+        // waits on either it or the tab bar, which keeps this correct for whichever the
+        // sign-in lands on first.
         signIn(app, email: email, password: Self.password)
+        passConsentGate(app)
         XCTAssertTrue(
             app.buttons["tab.home"].waitForExistence(timeout: 20),
             "The account did not get in after the link was opened and the password typed"
