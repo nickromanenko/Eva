@@ -15,6 +15,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/api-server.sh"
 
 SIMULATOR=${EVA_SIMULATOR_ID:-D748EB89-9D96-4D48-9033-9AC0DA65FE7A}
+# The destination names platform and arch explicitly (#230). A bare `id=` matches the same
+# udid under both arm64 and x86_64, so xcodebuild warns "using the first of multiple
+# matching destinations" and an operator cannot say which binary was built. arm64 is the
+# native arch everywhere Xcode 26 runs — it dropped Intel — so the pin is stable, not a guess.
 BUILD_ONLY=0
 [ "${1:-}" = "--build" ] && BUILD_ONLY=1
 FAILED=0
@@ -67,7 +71,7 @@ if [ "$BUILD_ONLY" = "1" ]; then
   # compile *ends*, not what runs.
   (cd "$ROOT/mobile" && xcodebuild \
     -project Eva.xcodeproj -scheme Eva \
-    -destination "id=$SIMULATOR" \
+    -destination "platform=iOS Simulator,id=$SIMULATOR,arch=arm64" \
     -derivedDataPath build build-for-testing) || FAILED=1
 else
   # The UI test signs up for real, so it needs the API up.
@@ -112,7 +116,7 @@ else
   (cd "$ROOT/mobile" && TEST_RUNNER_EVA_API_BASE_URL="$API_URL" \
     TEST_RUNNER_EVA_MAILBOX_URL="$MAILBOX_URL" xcodebuild \
     -project Eva.xcodeproj -scheme Eva \
-    -destination "id=$SIMULATOR" \
+    -destination "platform=iOS Simulator,id=$SIMULATOR,arch=arm64" \
     -derivedDataPath build test) || FAILED=1
 
   echo "▶ cleanup sweep (e2e accounts created by the UI test)"

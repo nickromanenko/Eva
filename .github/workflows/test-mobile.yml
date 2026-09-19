@@ -28,6 +28,18 @@
 #   suite (push to main, and nightly) — the whole thing, including XCUITests. Catches the
 #     rest before it compounds across merges, which is the part of #135 that hurt.
 #
+# **The toolchain is pinned, not inherited (#230).** `macos-15`'s default Xcode is 16.4
+# (iPhoneSimulator18.5.sdk), while the "Pick a simulator" step deliberately selects the
+# newest runtime the image carries (iOS 26.2 at the time of writing). An 18.5-linked binary
+# running on a 26.2 runtime takes 18.5-era SwiftUI code paths, so the suite was never
+# testing the binary the app actually ships — and a CI failure was never evidence of a
+# defect in the app anyone runs. Both jobs therefore set `DEVELOPER_DIR` to Xcode 26.2, whose
+# SDK is `iphonesimulator26.2`, the same major version as the runtime, and print the pairing
+# in the first screen of the log. The build destination is also pinned to `arch=arm64`, so
+# the "Using the first of multiple matching destinations" warning — the same udid listed
+# under both arm64 and x86_64 — cannot reappear. If the image's newest runtime moves past
+# 26.2, the pin moves with it *deliberately*, never by image drift.
+#
 # Emulators only: no Workload Identity Federation, no GCP token, no contact with the real
 # project, and deliberately not granted the `id-token` permission that would let it try —
 # the same posture as test-api.yml and test-rules.yml, and for the same reason. A workflow
@@ -74,8 +86,18 @@ jobs:
     name: Build
     runs-on: macos-15
     timeout-minutes: 20
+    env:
+      # #230: see the header. The image default (Xcode 16.4 / iOS 18.5 SDK) must not decide.
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app
     steps:
       - uses: actions/checkout@v4
+
+      # The pairing an operator reads first: which Xcode, which SDK. A CI-only failure has
+      # to be diagnosable without inference, and this is the line that says it out loud.
+      - name: Show Xcode and iOS SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks 2>/dev/null | grep -i iphonesimulator || true
 
       - name: Install xcodegen
         run: brew install xcodegen
@@ -105,10 +127,11 @@ jobs:
                   # Prefer the Pro, then any iPhone, then newest runtime.
                   rank = (runtime_key(runtime), "Pro" in d["name"], d["name"])
                   if best is None or rank > best[0]:
-                      best = (rank, d)
+                      best = (rank, d, runtime)
           if best is None:
               sys.exit("no iPhone simulator available on this runner")
-          print(best[1]["udid"], best[1]["name"], sep="\t")
+          os_version = ".".join(str(n) for n in best[0][0])
+          print(best[1]["udid"], best[1]["name"], f"iOS {os_version}", sep="\t")
           ')
           echo "EVA_SIMULATOR_ID=${udid%%$'\t'*}" >> "$GITHUB_ENV"
           echo "simulator: $udid"
@@ -135,8 +158,18 @@ jobs:
     # The ceiling is for a hang — a simulator that never boots, a JVM emulator that never
     # comes up — not for a slow run. The suite is ~10 minutes locally.
     timeout-minutes: 45
+    env:
+      # #230: see the header. The image default (Xcode 16.4 / iOS 18.5 SDK) must not decide.
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app
     steps:
       - uses: actions/checkout@v4
+
+      # The pairing an operator reads first: which Xcode, which SDK. A CI-only failure has
+      # to be diagnosable without inference, and this is the line that says it out loud.
+      - name: Show Xcode and iOS SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks 2>/dev/null | grep -i iphonesimulator || true
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -185,10 +218,11 @@ jobs:
                   # Prefer the Pro, then any iPhone, then newest runtime.
                   rank = (runtime_key(runtime), "Pro" in d["name"], d["name"])
                   if best is None or rank > best[0]:
-                      best = (rank, d)
+                      best = (rank, d, runtime)
           if best is None:
               sys.exit("no iPhone simulator available on this runner")
-          print(best[1]["udid"], best[1]["name"], sep="\t")
+          os_version = ".".join(str(n) for n in best[0][0])
+          print(best[1]["udid"], best[1]["name"], f"iOS {os_version}", sep="\t")
           ')
           echo "EVA_SIMULATOR_ID=${udid%%$'\t'*}" >> "$GITHUB_ENV"
           echo "simulator: $udid"
