@@ -1897,8 +1897,8 @@ entry on the server. `scripts/e2e.sh` gains that flow against the real API.
   a pinned test.
 - The store is excluded from backups and wiped on log-out, account deletion and
   `EVA_UITEST_RESET`.
-- The `events` composite index (#27) must be deployed before the first range read runs
-  against production; the sync engine's first reconcile is that read.
+- The `events` composite index (#27) is deployed, and `listEvents` filters `deletedAt` in
+  the query — the sync engine's first reconcile is that read.
 
 ## 9. Push notifications (A9)
 
