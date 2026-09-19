@@ -104,3 +104,27 @@ jobs:
             --allow-unauthenticated \
             --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }},EMAIL_TRANSPORT=postmark,POSTMARK_FROM=$POSTMARK_FROM,PUBLIC_WEB_URL=$PUBLIC_WEB_URL,GOOGLE_IOS_CLIENT_ID=$GOOGLE_IOS_CLIENT_ID,APPLE_CLIENT_ID=$APPLE_CLIENT_ID,APPLE_TEAM_ID=$APPLE_TEAM_ID,APPLE_KEY_ID=$APPLE_KEY_ID,$CYCLE_ENV,$PATTERN_ENV" \
             --set-secrets "JWT_SECRET=eva-jwt-secret:latest,POSTMARK_API_KEY=eva-postmark-key:latest,APPLE_SIGNIN_KEY=eva-apple-signin-key:latest"
+
+      # The purge job runs the same image as the service with the entrypoint overridden
+      # (#28). `gcloud run deploy` above rebuilds the service and leaves the job on whatever
+      # image it was created with, so without this the job drifts stale — a job that deletes
+      # health data, silently running an old retention window. Point it at the image just
+      # deployed. A human creates the job (ARCHITECTURE §4); until it exists this skips
+      # rather than failing the deploy.
+      - name: Update the purge job's image
+        run: |
+          IMAGE=$(gcloud run services describe eva-api \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --format="value(spec.template.spec.containers[0].image)")
+          if gcloud run jobs describe eva-purge-events \
+              --project "${{ vars.GCP_PROJECT_ID }}" \
+              --region "${{ vars.GCP_REGION }}" >/dev/null 2>&1; then
+            gcloud run jobs update eva-purge-events \
+              --image "$IMAGE" \
+              --project "${{ vars.GCP_PROJECT_ID }}" \
+              --region "${{ vars.GCP_REGION }}"
+            echo "updated eva-purge-events to $IMAGE"
+          else
+            echo "eva-purge-events does not exist yet — skipping (a human creates it; ARCHITECTURE §4)"
+          fi
