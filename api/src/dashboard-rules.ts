@@ -284,17 +284,21 @@ export interface DashboardInput {
  * The shape of "a pattern in her own logged data that is worth naming" — A32's rule, with
  * every number left out.
  *
- * A32 settled the rule's *form* (PR #109): consecutive logged days at or below a level, or
- * the same symptom marked severe on consecutive days, and a card that names the pattern and
- * points outward. It is still "a product heuristic, stated as one; not a clinical
- * instrument", so the doses stay configuration and this file holds none of them. A plausible
- * default written here would be a rule that looks live and is not, which is the thing #26's
- * process note exists to prevent.
+ * A32 settled the rule's *form* (PR #109): three consecutive logged days with mood, energy
+ * or sleep at 2 of 5 or below, or the same symptom marked severe on three consecutive days,
+ * and a card that names the pattern and points outward. It is still "a product heuristic,
+ * stated as one; not a clinical instrument", so the doses stay configuration and this file
+ * holds none of them. A plausible default written here would be a rule that looks live and
+ * is not, which is the thing #26's process note exists to prevent.
  *
  * **Which signals count is not configurable, and must not become so**, because it is the
  * card's own sentences: `mood_pattern` says "You've logged low mood for three consecutive
  * days" and "Sleep has also been below your usual level during the same period". A rule
  * that could be pointed at energy would make the card describe something she did not log.
+ * That is a narrower reading than the sentence above, and it is A32's own: A32's record
+ * ends "The canvas' `home_h` copy is the shape", and that copy names mood and sleep
+ * together and never mentions energy. Resolving the two statements toward the copy is a
+ * reading of the decision, not a judgement call over it.
  */
 export interface PatternRule {
   /** Consecutive logged days carrying **both** a low mood and a low sleep rating. */
@@ -510,27 +514,42 @@ const isLow = (entry: SignalEntry, atOrBelow: number): boolean =>
 const requirePatternRule = (rules: DashboardRules): PatternRule => {
   const rule = rules.pattern
   if (!rule) throw new PatternRuleUnsetError()
-  // `lowAtOrBelow` is a rating rather than a count, so it is bounded at both ends. The
-  // others are day counts and have no ceiling worth asserting.
+  // Two ceilings, for two different reasons. `lowAtOrBelow` is a rating, and ratings are
+  // whole numbers from 1 to 5, so `5` calls *every* answered rating low. The two day counts
+  // are bounded above because the card's own sentences ("consecutive days", "the last few
+  // days") stop being true of the number past 14: a larger count would be a rule that
+  // matches a span no drawn copy describes (#178).
   const doses = [
-    ['lowSignalDays', rule.lowSignalDays, null],
-    ['lowAtOrBelow', rule.lowAtOrBelow, 4],
-    ['severeSymptomDays', rule.severeSymptomDays, null],
+    [
+      'lowSignalDays',
+      rule.lowSignalDays,
+      14,
+      "the card's copy says 'consecutive days' and 'the last few days', which stop being true past 14",
+    ],
+    [
+      'lowAtOrBelow',
+      rule.lowAtOrBelow,
+      4,
+      'ratings are whole numbers from 1 to 5, so 5 would call every answered rating low',
+    ],
+    [
+      'severeSymptomDays',
+      rule.severeSymptomDays,
+      14,
+      "the card's copy says 'consecutive days' and 'the last few days', which stop being true past 14",
+    ],
   ] as const
-  for (const [field, value, max] of doses) {
+  for (const [field, value, max, ceiling] of doses) {
     // A zero or a fraction would not be a quieter rule, it would be a rule that never
     // matches — indistinguishable, from the outside, from one that is switched off.
     if (!Number.isInteger(value) || value < 1) {
       throw new PatternRuleUnsetError(`${field} must be a positive integer`)
     }
-    // And the mirror of that, which is the quieter failure: ratings are whole numbers from
-    // 1 to 5, so `lowAtOrBelow: 5` calls *every* answered rating low and the rule matches
-    // anyone who logs at all. A rule that always matches surfaces nothing and reads, from
-    // the card, as a pattern in her data. Refused for the same reason as a zero.
-    if (max !== null && value > max) {
-      throw new PatternRuleUnsetError(
-        `${field} must be at most ${max}: ratings are whole numbers from 1 to 5, so ${max + 1} would call every answered rating low`,
-      )
+    // And the mirror of that, which is the quieter failure: a rule that always matches
+    // surfaces nothing and reads, from the card, as a pattern in her data. Refused for the
+    // same reason as a zero.
+    if (value > max) {
+      throw new PatternRuleUnsetError(`${field} must be at most ${max}: ${ceiling}`)
     }
   }
   return rule

@@ -1327,6 +1327,27 @@ describe("the pattern rung's configuration", () => {
         expect(stderr).toContain("at most 4");
     }, 30_000);
 
+    test("a day count past the copy it can describe is refused at boot too", async () => {
+        // The mirror of `requirePatternRule`'s 14-day ceiling (#178): the card's own
+        // sentences ("consecutive days", "the last few days") stop being true past 14, so
+        // an operator who reads the variable and writes 15 is told at startup.
+        const low = await bootConfig({
+            ...PATTERN_ENV,
+            DASHBOARD_PATTERN_LOW_SIGNAL_DAYS: "15",
+        });
+        expect(low.code).not.toBe(0);
+        expect(low.stderr).toContain("DASHBOARD_PATTERN_LOW_SIGNAL_DAYS");
+        expect(low.stderr).toContain("at most 14");
+
+        const severe = await bootConfig({
+            ...PATTERN_ENV,
+            DASHBOARD_PATTERN_SEVERE_SYMPTOM_DAYS: "15",
+        });
+        expect(severe.code).not.toBe(0);
+        expect(severe.stderr).toContain("DASHBOARD_PATTERN_SEVERE_SYMPTOM_DAYS");
+        expect(severe.stderr).toContain("at most 14");
+    }, 30_000);
+
     test("and the trio this file's servers use boots", async () => {
         expect((await bootConfig(PATTERN_ENV)).code).toBe(0);
     }, 30_000);

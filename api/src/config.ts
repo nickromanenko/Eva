@@ -94,13 +94,30 @@ const publicWebUrl = requiredUrl('PUBLIC_WEB_URL')
  * `lowAtOrBelow` is a *rating*, not a count, so it is bounded at both ends: ratings are
  * whole numbers from 1 to 5 (`parseRating` in `index.ts`), and `5` would call every
  * answered rating low — a rule that matches anyone who logs at all three days running, and
- * reads from the card as a pattern in her data. The other two are day counts with no
- * ceiling worth asserting. `null` means "no upper bound".
+ * reads from the card as a pattern in her data. The two day counts are bounded above too
+ * (#178): the card's own sentences ("consecutive days", "the last few days") stop being
+ * true of the number past 14, so a larger count would be a rule that matches a span no
+ * drawn copy describes.
  */
 const PATTERN_VARS = [
-  ['lowSignalDays', 'DASHBOARD_PATTERN_LOW_SIGNAL_DAYS', null],
-  ['lowAtOrBelow', 'DASHBOARD_PATTERN_LOW_AT_OR_BELOW', 4],
-  ['severeSymptomDays', 'DASHBOARD_PATTERN_SEVERE_SYMPTOM_DAYS', null],
+  [
+    'lowSignalDays',
+    'DASHBOARD_PATTERN_LOW_SIGNAL_DAYS',
+    14,
+    "the card's copy says 'consecutive days' and 'the last few days', which stop being true past 14",
+  ],
+  [
+    'lowAtOrBelow',
+    'DASHBOARD_PATTERN_LOW_AT_OR_BELOW',
+    4,
+    'ratings are whole numbers from 1 to 5, so 5 would call every answered rating low',
+  ],
+  [
+    'severeSymptomDays',
+    'DASHBOARD_PATTERN_SEVERE_SYMPTOM_DAYS',
+    14,
+    "the card's copy says 'consecutive days' and 'the last few days', which stop being true past 14",
+  ],
 ] as const
 
 /**
@@ -127,7 +144,7 @@ const patternRule = (): { lowSignalDays: number; lowAtOrBelow: number; severeSym
     )
     throw new Error(`Incomplete dashboard pattern rule: also set ${missing.join(', ')}`)
   }
-  const values = PATTERN_VARS.map(([field, name, max]) => {
+  const values = PATTERN_VARS.map(([field, name, max, ceiling]) => {
     const value = Number(required(name))
     // The same floor `dashboard-rules.ts` applies: a zero or a fraction is not a quieter
     // rule, it is one that never matches — which looks identical to one switched off.
@@ -139,11 +156,8 @@ const patternRule = (): { lowSignalDays: number; lowAtOrBelow: number; severeSym
     // who reads "the 1–5 rating" and writes 5 is told at startup rather than serving every
     // user a pattern card. Both are worth having — they fail at different moments and show
     // the operator different things.
-    if (max !== null && value > max) {
-      throw new Error(
-        `Invalid env var ${name}: expected at most ${max} — ratings are whole numbers ` +
-          `from 1 to 5, so ${max + 1} would call every answered rating low`,
-      )
+    if (value > max) {
+      throw new Error(`Invalid env var ${name}: expected at most ${max} — ${ceiling}`)
     }
     return [field, value] as const
   })

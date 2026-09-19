@@ -945,7 +945,7 @@ const UNTRUE: KnownUntrue[] = [
         field: "kicker",
         examples: ["four-day dose"],
         canvasMustDraw:
-            "home_h's kicker as a slot, or #26 fixing lowSignalDays at three — the card says '3 days' and the dose is configuration. **Not a drawing, despite the field name**: no sentence the canvas can draw is true at every dose `requirePatternRule` accepts, because it accepts 1 (where 'consecutive days' is false) and has no ceiling (where 'the last few days' is). Deliberately left on this list by the PR that closed the other ten, which changed words only.",
+            "home_h's kicker as a slot, or #26 fixing lowSignalDays at three — the card says '3 days' and the dose is configuration. **Not a drawing, despite the field name**: no sentence the canvas can draw is true at every dose `requirePatternRule` accepts, because it accepts 1 (where 'consecutive days' is false) and caps at 14, not three (where 'three consecutive days' is false and 'the last few days' is generous) — #178 gave the day counts a ceiling, not a fixed sentence. Deliberately left on this list by the PR that closed the other ten, which changed words only.",
     },
     {
         template: TEMPLATE.moodPattern,

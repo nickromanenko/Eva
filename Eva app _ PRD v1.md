@@ -998,7 +998,7 @@ Worked example, same day, energy logged at 1 of 5 and sleep at 2 of 5:
 The card selects its message by priority. The first applicable rule wins and no other message is shown that day:
 
 1. Red-flag escalation (Pregnancy mode) — always wins, and is displayed as an escalation card rather than a Today card  
-2. A pattern in her own logged data that is worth naming — for example a third consecutive day of low mood. *Decided 2026-08-30 (A32): three consecutive logged days with mood, energy or sleep at 2 of 5 or below, or the same symptom marked severe on three consecutive days. The card names the pattern and points outward — a person, a provider — never a cause. A product heuristic, stated as one; not a clinical instrument.*  
+2. A pattern in her own logged data that is worth naming — for example a third consecutive day of low mood. *Decided 2026-08-30 (A32): three consecutive logged days with mood, energy or sleep at 2 of 5 or below, or the same symptom marked severe on three consecutive days. The card names the pattern and points outward — a person, a provider — never a cause. A product heuristic, stated as one; not a clinical instrument. Implemented narrowly as mood **and** sleep — energy is not read — on A32's own authority: its record makes the canvas' `home_h` copy the shape, and that copy names mood and sleep together and never mentions energy.*  
 3. A mode milestone — an upcoming scan, the 6-week check, a due appointment  
 4. Cycle phase context  
 5. A nutrition or training suggestion derived from her goal and today's totals  

@@ -714,6 +714,27 @@ describe("rung 2 is inert until #26's rule is configured", () => {
         ).toBe(TEMPLATE.signalsToday);
     });
 
+    test("and so is a day count past the copy it can describe", () => {
+        // The two day counts are bounded above too (#178): the card's own sentences
+        // ("consecutive days", "the last few days") stop being true past 14, so a larger
+        // count is a rule that matches a span no drawn copy describes — the same "looks
+        // live and is not" failure as a zero, arriving from the other end.
+        expect(() =>
+            selectSubject(day, { pattern: { ...PATTERN_RULE, lowSignalDays: 15 } }),
+        ).toThrow(PatternRuleUnsetError);
+        expect(() =>
+            selectSubject(day, { pattern: { ...PATTERN_RULE, severeSymptomDays: 15 } }),
+        ).toThrow(PatternRuleUnsetError);
+
+        // 14 is the top of the usable range and is still a rule rather than a runaway.
+        expect(() =>
+            selectSubject(day, { pattern: { ...PATTERN_RULE, lowSignalDays: 14 } }),
+        ).not.toThrow();
+        expect(() =>
+            selectSubject(day, { pattern: { ...PATTERN_RULE, severeSymptomDays: 14 } }),
+        ).not.toThrow();
+    });
+
     test("the thresholds come from the config, not from the code", () => {
         // Two consecutive low days, and nothing else applicable.
         const twoDays = base({
@@ -1167,8 +1188,13 @@ describe("the module reaches nothing", () => {
         // inside `selectSubject` never reaches. A `fetch(...)` as the first line of the
         // function left all 44 cases green — from the one module holding cycle day, phase,
         // ratings, symptom codes and the red-flag code together (GUARDRAILS 12, 32, 34).
+        //
+        // Comments are stripped before the scan. A source URL in a doc comment reaches
+        // nothing, and the next citation (C11's FIGO/Wilcox references, #176, one module
+        // over) must not turn this red; a `fetch(` or `https://` in *code* still does.
+        const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
         for (const forbidden of ["./firebase", "./users", "./events", "./config", "fetch(", "https://"]) {
-            expect(source).not.toContain(forbidden);
+            expect(code).not.toContain(forbidden);
         }
     });
 });
