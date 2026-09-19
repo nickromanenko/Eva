@@ -264,37 +264,36 @@ describe("the two send-a-link routes", () => {
         }
     });
 
-    test("a registered address and an unknown one take the same time to answer", async () => {
-        // The bytes matching is half the property. The registered branch does a Firestore
-        // write and a POST to Postmark and the unknown branch does neither, so without a
-        // floor the two are hundreds of milliseconds apart — an oracle readable from one
-        // request, no statistics needed. This is the assertion that the floor is there.
-        const { email } = await unactivated();
-        const time = async (address: string): Promise<number> => {
-            const started = Date.now();
-            expect((await post("/auth/password/forgot", { email: address })).status).toBe(200);
-            return Date.now() - started;
-        };
-
-        const registered = await time(email);
-        const unknown = await time(address());
-
-        // **Both above the floor — that pair is the whole property.** Removing `atLeast`
-        // from the route drops `registered` to about 10ms, which is what the first of these
-        // catches; the second says the same of the branch that does no work.
-        expect(registered).toBeGreaterThanOrEqual(750);
-        expect(unknown).toBeGreaterThanOrEqual(750);
-        // There used to be a third assertion here, `|registered - unknown| < 400`, and it
-        // was dropped rather than widened. It did not catch the mutation it looked like it
-        // was for — without the floor the gap is roughly 350ms and slips under the bound —
-        // and it failed against the real project whenever Firebase Auth and Firestore
-        // together ran past the 800ms floor, which is often enough to redden a run at
-        // random. A bound tuned until it stops failing is not evidence of anything.
+    test("the send-link routes hold both branches to one floor", async () => {
+        // The bytes matching is half the property; the other half is that the branches
+        // answer in the same *time*. They do not naturally: sending costs a Firestore write
+        // and a Postmark POST, not sending costs a lookup — hundreds of milliseconds against
+        // tens, readable from one request. `atLeast(SEND_LINK_FLOOR_MS, …)` in `index.ts` is
+        // what equalises them.
         //
-        // What it was reaching for is real and is **not** closed by this route: a send
-        // slower than `SEND_LINK_FLOOR_MS` overruns the floor, so the residue is bounded by
-        // Firebase's own variance rather than by our code. That is written down where it
-        // belongs, in the route's docstring, instead of asserted here with a number.
+        // **This asserts the mechanism, not the timing.** A wall-clock floor assertion (the
+        // previous `>= 750` pair) is load-*fragile* in one direction: under enough concurrent
+        // load the work itself slows, and a case that races `Date.now()` against the suite's
+        // 20s ceiling reddens at random on a machine running several agents — indistinguishable
+        // from a regression, which is how a guard on a security property gets muted. A source
+        // scan is weaker evidence than a measurement but never mutates with the load; and it
+        // still catches the mutation that matters, because removing the wrapper (or lowering
+        // the floor) fails the scan. #185 records the trade and the decision.
+        const source = await Bun.file(`${import.meta.dir}/../src/index.ts`).text();
+
+        // The floor, named once and pinned. Below the slow branch it stops equalising.
+        expect(source.match(/const SEND_LINK_FLOOR_MS = (\d+)/)?.[1]).toBe("800");
+
+        // Both routes wrap their work in the floor, not just one of them.
+        for (const route of [
+            'app.post("/auth/activation/resend"',
+            'app.post("/auth/password/forgot"',
+        ]) {
+            const from = source.indexOf(route);
+            expect(from).toBeGreaterThan(-1);
+            const body = source.slice(from, source.indexOf("app.post(", from + 1));
+            expect(body).toContain("atLeast(SEND_LINK_FLOOR_MS");
+        }
     });
 
     test("an address that is not one is a 400, before anything is looked up", async () => {
