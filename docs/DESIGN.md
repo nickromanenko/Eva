@@ -339,6 +339,13 @@ and the one screen where that matters most is the one telling someone their heal
 is about to be destroyed. Both strings were rewritten to name what is actually removed,
 and the modal says "straight away" rather than giving a window that does not exist.
 
+**The sign-up linking banner never names a provider.** The canvas' `signupErr` reads
+"This email already uses Apple sign-in — continue with Apple". `EMAIL_EXISTS` does not
+reveal which provider an address uses, and a Hide My Email relay has none to name, so
+"continue with Apple" would send some people to create a second account (#7). The app says
+"This email already has an Eva account" and offers "Log in", never a provider button.
+(#77.)
+
 **The Privacy & security footer says only what is true — and what the request policy
 says (A10, A19).** The artboard once promised device-side encryption; A10 rewrote the first
 sentence to what the architecture delivers, and A19 (#91) added the second. As drawn on

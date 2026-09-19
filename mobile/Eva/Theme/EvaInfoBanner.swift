@@ -99,11 +99,10 @@ extension EvaInfoBanner where Action == EmptyView {
             )
 
             EvaInfoBanner(
-                title: "This email already uses Apple sign-in",
-                message: "We won't create a second profile. Continue with Apple and "
-                    + "everything you've logged stays in one place."
+                title: "This email already has an Eva account",
+                message: "Log in to continue. If you use Apple, you can link it from Profile."
             ) {
-                EvaAuthButton(provider: .apple, size: .compact) {}
+                TextButton(title: "Log in") {}
             }
         }
         .padding(EvaSpacing.lg)

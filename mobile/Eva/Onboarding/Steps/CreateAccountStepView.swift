@@ -11,18 +11,15 @@ import SwiftUI
 /// ## The account-linking state is still unreachable, and #7 did not change that
 ///
 /// The canvas' "Sign up · validation" artboard shows an information banner for an address
-/// that already signs in with Apple. It is built to the artboard here and nothing sets it.
+/// that already has an account. It is built to the artboard here and nothing sets it.
 ///
-/// #7 was expected to be what made it reachable. It is not: the API never asks "does this
-/// address already use Apple?", because answering that question to an unauthenticated
-/// caller tells anyone holding an address which providers back it. Firebase links matching
-/// addresses on its own, silently and after the fact, and it would answer wrongly for
-/// every Hide My Email relay anyway. Nothing in the `/auth/idp` contract carries that
-/// signal, so there is nothing to wire the banner to.
+/// #7 was expected to be what made it reachable. It is not: nothing in the `/auth/idp`
+/// contract carries a signal to wire the banner to. The copy no longer names a provider
+/// (#77) — `POST /auth/signup`'s `409 EMAIL_EXISTS` is exactly "this address already has an
+/// account", so the banner *could* be wired to that response. The wiring itself is still a
+/// separate decision, not this screen's.
 ///
-/// `previewShowsAccountLinking` still renders it for review. Reaching it for real would
-/// need a design answer to a different question — what to offer someone whose address is
-/// taken — not a wire-up.
+/// `previewShowsAccountLinking` still renders it for review.
 struct CreateAccountStepView: View {
 
     @Bindable var model: OnboardingModel
@@ -116,20 +113,17 @@ struct CreateAccountStepView: View {
 
     /// The canvas' "Sign up · validation" banner. Information blue, not error red — its
     /// own spec note is explicit that nothing went wrong.
+    ///
+    /// **It never names a provider (#77).** `EMAIL_EXISTS` says an address already has an
+    /// account and nothing about *which* provider, and for a Hide My Email relay there is
+    /// no provider to name — so "continue with Apple" would send some people to create a
+    /// second account. The action leads to log in, never to a provider button.
     private var accountLinkingBanner: some View {
         EvaInfoBanner(
-            title: "This email already uses Apple sign-in",
-            message: "We won't create a second profile. Continue with Apple and "
-                + "everything you've logged stays in one place."
+            title: "This email already has an Eva account",
+            message: "Log in to continue. If you use Apple, you can link it from Profile."
         ) {
-            // Deliberately inert. The banner it sits in is preview-only, and giving this
-            // button a real Apple sign-in would make the preview start a flow — while
-            // still leaving the banner itself unreachable, which is the actual gap.
-            EvaAuthButton(
-                provider: .apple,
-                size: .compact,
-                identifier: "signup.linkApple"
-            ) {}
+            TextButton(title: "Log in", action: onGoToLogIn)
         }
         .accessibilityIdentifier("signup.linkBanner")
     }
