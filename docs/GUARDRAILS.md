@@ -33,11 +33,12 @@ Each rule is stated so a reviewer can check it mechanically.
    the API, and the Admin SDK bypasses rules. See [ARCHITECTURE.md §2](ARCHITECTURE.md).
 6. Any loosening of either file is **supervised where it is written**: human plan
    approval, human review. Never bundled into an unrelated change. *Human deploy* was
-   struck on 2026-09-16 when `docs/AUTONOMY.md`'s Deploy row moved to `AI`; what still
-   stands between a loosening and production is that Implementation for rules is `human`
-   and loosening them is on the Always-human list, so the change an agent presses the
-   button on is one a person wrote and a person approved. The button is the last step, not
-   the only one.
+   struck on 2026-09-16 when `docs/AUTONOMY.md`'s Deploy row moved to `AI`, and
+   Implementation for `rules / auth / infra` moved to `AI` on 2026-09-19 — so what now
+   stands between a loosening and production is that **loosening itself is on the
+   Always-human list**: the change an agent presses the button on is one a person wrote and
+   a person approved, and `everyAllowIsDenied()` (6a) fails any file whose `allow` clauses
+   are not `if false`. The button is the last step, not the only one.
 6a. **What actually stops a loosened rules file reaching production is a test, not a
    sentence.** `deploy-rules.yml`'s deploy job is `needs: test`, and `rules-tests/`'s
    `everyAllowIsDenied()` asserts textually that every `allow …: if <cond>;` has

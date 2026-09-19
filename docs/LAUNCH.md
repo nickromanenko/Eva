@@ -179,7 +179,7 @@ it is what Eva can and cannot hand over:
 |---|---|---|
 | Consumer-health-data privacy policy (WA-compliant) and general privacy policy | website `/privacy`, linked from sign-up | *counsel* |
 | Terms of service incl. subscription terms, medical disclaimer, 18+ | website `/terms` | *counsel* |
-| **Consent screen** in onboarding: two separate opt-ins (collect / share), withdrawable in Settings | canvas + mobile + `users/{uid}` (always-human schema gate) | L3 |
+| **Consent screen** in onboarding: two separate opt-ins (collect / share), withdrawable in Settings | canvas + mobile + `users/{uid}` (schema change) | L3 |
 | Rights mechanism: access + export (#58), deletion (#8 ✓), withdraw consent, 45-day SLA | api + Settings | #58 |
 | Breach-response runbook with the 60-day / 72-hour clocks and contact lists | `docs/` | L8 |
 | Data map and DPIA | `docs/` | — |
@@ -337,7 +337,7 @@ under every regime in §2.
 The Washington rule (§2.2) and GDPR Article 9 both want explicit, separate, withdrawable
 consent *before* collection. That is a screen the canvas does not have, between
 activation and the first log, and a stored, timestamped consent record on `users/{uid}`
-(always-human schema gate). It is the single largest undesigned screen this launch adds.
+(schema change). It is the single largest undesigned screen this launch adds.
 
 ### 4.7 Website and marketing claims
 
@@ -428,7 +428,7 @@ engine exists; nothing serves its output to a user yet.
 ## 7. Operational readiness
 
 - **Backups.** Nothing schedules a Firestore backup today. A daily backup schedule with a
-  stated retention is a one-time infra act (always-human).
+  stated retention is a one-time infra act (#89).
 - **Incident response.** The breach clocks in §2 (60 days FTC, 72 hours GDPR to the
   authority) need a runbook, a contact list, and someone on call. Logs already carry no
   health data (GUARDRAILS 12), which makes the *scope* of a breach determinable.
