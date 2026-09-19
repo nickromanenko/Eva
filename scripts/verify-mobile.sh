@@ -7,6 +7,10 @@
 #
 # Simulator: override with EVA_SIMULATOR_ID (default matches scripts/e2e.sh).
 #
+# One run per machine by default: the simulator, API port and mailbox port are shared, so a
+# second concurrent run would destroy the first. Set EVA_SIMULATOR_ID, EVA_MAILBOX_PORT and
+# EVA_API_PORT (plus EVA_API_NO_REUSE=1) to run a second — see the lock below (#162).
+#
 # Do NOT add CODE_SIGNING_ALLOWED=NO: an unsigned app gets no Keychain
 # entitlement, KeychainTokenStore silently fails to persist the JWT, and every
 # authorized request then goes out without a bearer token (401).
@@ -21,6 +25,24 @@ BUILD_ONLY=0
 # relative GOOGLE_APPLICATION_CREDENTIALS would otherwise fail deep inside sign-up and read
 # as a regression.
 [ "$BUILD_ONLY" = "0" ] && { preflight || exit 1; }
+
+# One simulator, one mailbox port and one API port are the defaults, so a second concurrent
+# run would terminate the first run's app on the shared simulator and one mailbox would fail
+# to bind — and the failure reads as a product bug (#162). Refuse a second run up front with
+# the variables to set, rather than let it destroy the first. `--build` compiles only and
+# needs none of these, so it takes no lock.
+LOCK_FILE="${TMPDIR:-/tmp}/eva-verify-mobile.lock"
+release_lock() { rm -f "$LOCK_FILE" 2>/dev/null; }
+if [ "$BUILD_ONLY" = "0" ]; then
+  if [ -f "$LOCK_FILE" ] && kill -0 "$(cat "$LOCK_FILE" 2>/dev/null)" 2>/dev/null; then
+    echo "✗ another verify-mobile.sh is already running (PID $(cat "$LOCK_FILE"))."
+    echo "  To run a second suite, set EVA_SIMULATOR_ID, EVA_MAILBOX_PORT and EVA_API_PORT to"
+    echo "  values the first run is not using, plus EVA_API_NO_REUSE=1."
+    exit 1
+  fi
+  # A stale lock — its PID is gone — is taken over, not honoured.
+  echo "$$" > "$LOCK_FILE"
+fi
 
 SIMULATOR=${EVA_SIMULATOR_ID:-D748EB89-9D96-4D48-9033-9AC0DA65FE7A}
 # The destination names platform and arch explicitly (#230). A bare `id=` matches the same
@@ -108,7 +130,7 @@ else
   (cd "$ROOT/api" && PORT="$MAILBOX_PORT" EVA_API_URL="$API_URL" \
     exec bun run scripts/uitest-mailbox.ts) >"$MAILBOX_LOG" 2>&1 &
   MAILBOX_PID=$!
-  mailbox_stop() { kill "$MAILBOX_PID" 2>/dev/null || true; api_stop; }
+  mailbox_stop() { kill "$MAILBOX_PID" 2>/dev/null || true; api_stop; release_lock; }
   trap mailbox_stop EXIT
 
   MAILBOX_UP=0
