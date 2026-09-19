@@ -275,6 +275,43 @@ export const resolveSignals = (
   return { ...subject, slots: { ...subject.slots, signal: phraseForEntry(entry, vocabulary, labelFor) } }
 }
 
+/**
+ * An instant (`…Z` or `…+02:00`) as `HH:mm` wall-clock in the caller's zone — the form the
+ * canvas draws (`Logged 14:20`), never the raw ISO the event carries (#201).
+ */
+const wallClockTime = (instant: string, timeZone: string): string | null => {
+  const ms = Date.parse(instant)
+  if (Number.isNaN(ms)) return null
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(ms))
+}
+
+/**
+ * Rewrites the red-flag card's `{loggedAt}` slot from an instant to a wall-clock time in the
+ * caller's zone.
+ *
+ * The ladder fills the slot with `RedFlagSignal.loggedAt`, a raw instant; rendered as is, the
+ * kicker reads `Logged 2026-09-13T08:00:00Z` where the canvas draws `Logged 14:20`. The ladder
+ * cannot do this itself — it is pure and holds no zone — so it happens here, where `getToday`
+ * knows the request's `timeZone`, the same zone the day boundary is resolved in. An instant
+ * that does not parse is left as it was: the ladder only ever passes a validated instant, so
+ * that is a floor under a hand-edited document rather than a rendering path. The truth audit
+ * cannot see this — a raw instant is *true* — so presentation is tested in `today.test.ts`
+ * rather than in `dashboard-copy.test.ts`.
+ */
+export const formatLoggedAt = (subject: Subject, timeZone: string): Subject => {
+  if (subject.templateId !== TEMPLATE.redFlag) return subject
+  const raw = subject.slots.loggedAt
+  if (typeof raw !== 'string') return subject
+  const clock = wallClockTime(raw, timeZone)
+  if (clock === null) return subject
+  return { ...subject, slots: { ...subject.slots, loggedAt: clock } }
+}
+
 // ── Time ───────────────────────────────────────────────────────────────────────────────
 // `events.ts` stores the user's wall clock and never an instant. D1 needs an instant for
 // its 24-hour window, and refuses a value carrying no offset. The conversion is here,
@@ -675,7 +712,8 @@ export const getToday = async (
   ])
   const labelFor = (code: string): string | null => labels?.get(code) ?? null
   const resolved = resolveSignals(subject, input, vocabulary, labelFor)
-  const card = buildCard(resolved, phraser.phrase(resolved, content.templates))
+  const clocked = formatLoggedAt(resolved, request.timeZone)
+  const card = buildCard(clocked, phraser.phrase(clocked, content.templates))
 
   const document: TodayDocument = {
     date: request.date,

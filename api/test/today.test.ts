@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { Timestamp } from "firebase-admin/firestore";
 import { applyContent, applySignalVocabulary, contentVersion, invalidateContentCache, type Review } from "../src/content";
 import * as todayModule from "../src/today";
-import { PatternRuleUnsetError, TemplatePhraser, TemplateUnavailableError, getToday, type Phraser, type PhrasedText } from "../src/today";
+import { PatternRuleUnsetError, TemplatePhraser, TemplateUnavailableError, formatLoggedAt, getToday, type Phraser, type PhrasedText } from "../src/today";
 import { config } from "../src/config";
 import { CycleRulesUnsetError } from "../src/cycle";
 import type { Subject } from "../src/dashboard-rules";
@@ -477,6 +477,44 @@ describe("TemplatePhraser", () => {
 
     test("an unseeded store refuses rather than inventing a card", () => {
         expect(() => phraser.phrase(subject({}), [])).toThrow(TemplateUnavailableError);
+    });
+});
+
+// ── The red-flag kicker's clock (#201) ─────────────────────────────────────────────────
+
+describe("the red-flag kicker's clock", () => {
+    const phraser = new TemplatePhraser();
+    const flag = TEMPLATES.find((t) => t.id === "red_flag")!;
+
+    const flagSubject = (loggedAt: string): Subject => ({
+        rung: "flag",
+        templateId: "red_flag",
+        slots: { loggedAt },
+        confidence: "plain",
+    });
+
+    test("renders a wall-clock time in the caller's zone, not the raw instant", () => {
+        // 08:00 UTC is 17:00 in Asia/Tokyo (UTC+9, no DST) — the time she saw.
+        const clocked = formatLoggedAt(flagSubject("2026-09-13T08:00:00Z"), "Asia/Tokyo");
+        expect(clocked.slots.loggedAt).toBe("17:00");
+        expect(phraser.phrase(clocked, [flag]).kicker).toBe("Logged 17:00");
+    });
+
+    test("the display zone is the caller's, not the instant's own offset", () => {
+        // An instant stamped +02:00 is 06:00 UTC; a New York user in September (EDT, UTC-4)
+        // reads it at 02:00 — the offset is how it was stored, not where she is.
+        const clocked = formatLoggedAt(flagSubject("2026-09-13T08:00:00+02:00"), "America/New_York");
+        expect(clocked.slots.loggedAt).toBe("02:00");
+    });
+
+    test("a non-flag subject is left untouched", () => {
+        const other: Subject = {
+            rung: "pattern",
+            templateId: "signals_today",
+            slots: { signal: "low energy" },
+            confidence: "plain",
+        };
+        expect(formatLoggedAt(other, "Asia/Almaty")).toBe(other);
     });
 });
 

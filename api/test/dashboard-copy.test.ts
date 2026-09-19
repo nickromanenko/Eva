@@ -67,6 +67,14 @@ import type { Phraser } from "../src/today";
  * the entry in `UNTRUE` says so and the PR asks the canvas for it; a seed file is not where
  * product copy is authored.
  *
+ * **It is a truth audit, not a presentation one**, and a green run must not be read as "the
+ * copy is right". A rendered string can be *true* and still wrong — unreadable, in the wrong
+ * timezone, or in a format no user has ever seen. The worked example is the red-flag kicker
+ * (#201): `Logged 2026-09-13T08:00:00Z` is precisely the instant the flag carries, so it
+ * passes here, while the canvas draws `Logged 14:20`. `{loggedAt}` is formatted by
+ * `formatLoggedAt` in `today.ts`, and that presentation is tested in `today.test.ts`, not
+ * here — the slot value this file substitutes is already the resolved value.
+ *
  * **No live round trip, so no default timeout** (api/CLAUDE.md #31). The seed is imported
  * dynamically because it pulls in `content.ts`, and with it the Admin SDK.
  */
