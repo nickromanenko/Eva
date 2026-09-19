@@ -78,3 +78,37 @@ api_ensure_up() {
   cat "$API_LOG"
   return 1
 }
+
+# Pre-flight: refuse to run when the environment the suite needs is absent or unusable
+# (#208, the #174 pattern). A fresh worktree shares git history, not ignored files, so it
+# has no api/node_modules and no api/.env — and a copied .env whose
+# GOOGLE_APPLICATION_CREDENTIALS is a *relative* path resolves against the checkout that
+# holds the file, not the one running. Both fail deep inside sign-up, which reads as a
+# regression. Fail here, with the cause named. Fail open: an unset credential means the run
+# does not need one, so nothing is said and nothing is blocked.
+preflight() {
+  if [ ! -d "$ROOT/api/node_modules" ]; then
+    echo "✗ api/node_modules missing — run \`cd api && bun install\` first"
+    echo "  (a worktree shares git history, not installed dependencies)"
+    return 1
+  fi
+
+  local creds="${GOOGLE_APPLICATION_CREDENTIALS:-}"
+  # The API process reads api/.env; this shell does not. Read the same value the process
+  # will, so a relative path is caught before anything boots rather than at sign-up.
+  if [ -z "$creds" ] && [ -f "$ROOT/api/.env" ]; then
+    creds="$(sed -n 's/^[[:space:]]*GOOGLE_APPLICATION_CREDENTIALS=//p' "$ROOT/api/.env" \
+      | head -1 | tr -d "\"'")"
+  fi
+  [ -z "$creds" ] && return 0
+
+  # The API resolves a relative path against its own CWD, api/.
+  local resolved="$creds"
+  case "$creds" in /*) : ;; *) resolved="$ROOT/api/$creds" ;; esac
+  if [ ! -f "$resolved" ]; then
+    echo "✗ GOOGLE_APPLICATION_CREDENTIALS does not resolve: $creds (→ $resolved)"
+    echo "  A relative path is the worktree trap — it points at another checkout's api/."
+    echo "  Set an absolute path, or run from the checkout that holds the key."
+    return 1
+  fi
+}

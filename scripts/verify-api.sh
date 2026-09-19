@@ -7,6 +7,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/api-server.sh"
+preflight || exit 1
 
 FAILED=0
 
