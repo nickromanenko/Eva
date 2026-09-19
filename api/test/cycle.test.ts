@@ -237,7 +237,10 @@ describe("a missed day inside a period does not split it (#186)", () => {
         });
         expect(twoMissed.cycleDay).toBe(8);
         expect(twoMissed.prediction).toBe(null);
-        expect(twoMissed.withheld).toBe("irregular-cycles");
+        // **The reason is the split, and since #190 it says so.** It read `irregular-cycles`
+        // here, which put "Your recent cycle lengths vary significantly" on the card of a
+        // woman whose five counted cycles are all 28 days.
+        expect(twoMissed.withheld).toBe("uncountable-cycle");
         expect(toCycleEstimate(twoMissed).phase).toBe(null);
     });
 
@@ -286,7 +289,7 @@ describe("a missed day inside a period does not split it (#186)", () => {
             const result = analyze(days, profileAged(30));
             expect(result.countedCycles).toBe(3);
             expect(result.variationDays).toBe(32);
-            expect(result.irregular).toBe(true);
+            expect(result.irregularity).toBe("cycles-vary");
             expect(result.prediction).toBe(null);
             expect(result.withheld).toBe("irregular-cycles");
             expect(toCycleEstimate(result).phase).toBe(null);
@@ -361,7 +364,8 @@ describe("a period-end mark decides only whether later flow continues that perio
             excluded: "unusual-length",
         });
         expect(withMark.prediction).toBe(null);
-        expect(withMark.withheld).toBe("irregular-cycles");
+        // One interval outside the countable range among four counted 28s (#190).
+        expect(withMark.withheld).toBe("uncountable-cycle");
         expect(toCycleEstimate(withMark).phase).toBe(null);
     });
 
@@ -540,7 +544,7 @@ describe("next period is the median of the last six counted cycles, not the mean
     test("two long cycles inside the range move the mean and do not move the median", () => {
         const result = analyze(periods([26, 35, 26, 26, 35, 26], 5), profileAged(20));
         expect(result.countedCycles).toBe(6);
-        expect(result.irregular).toBe(false);
+        expect(result.irregularity).toBe("none");
         expect(result.medianCycleLengthDays).toBe(26);
         expect(result.prediction?.nextPeriodStart).toBe(shift(TODAY, -5 + 26));
         // The mean's answer, named so the case says what it is *not*.
@@ -565,7 +569,7 @@ describe("next period is the median of the last six counted cycles, not the mean
     test("an even-sized sample rounds the half-day up to a whole one", () => {
         const result = analyze(periods([25, 26, 27, 28, 29, 30], 5), profileAged(20));
         expect(result.countedCycles).toBe(6);
-        expect(result.irregular).toBe(false);
+        expect(result.irregularity).toBe("none");
         expect(result.medianCycleLengthDays).toBe(28);
         // …and the rounded value is what the date is built from, not a display-only number.
         expect(result.prediction?.nextPeriodStart).toBe(shift(TODAY, -5 + 28));
@@ -578,7 +582,7 @@ describe("next period is the median of the last six counted cycles, not the mean
         expect(result.countedCycles).toBe(8);
         expect(result.medianCycleLengthDays).toBe(28);
         expect(result.variationDays).toBe(0);
-        expect(result.irregular).toBe(false);
+        expect(result.irregularity).toBe("none");
     });
 
     test("the prediction is applied from the last first flow day", () => {
@@ -594,8 +598,12 @@ describe("irregularity uses the FIGO band for the user's age", () => {
     /** Six cycles spanning exactly `spread` days shortest-to-longest, all inside 21–45. */
     const spreadOf = (spread: number) => periods([28, 28, 28, 28, 28, 28 + spread], 5);
 
+    /** These cases are about where a band's *edge* falls, which is a yes/no, so they read
+     *  #190's answer as the boolean it replaced. Every `spreadOf` history is inside 21–45, so
+     *  none of them can be an unreadable cycle — which the case below asserts by name rather
+     *  than leaving to this helper to hide. */
     const irregularAt = (age: number | null, spread: number) =>
-        analyze(spreadOf(spread), age === null ? null : profileAged(age)).irregular;
+        analyze(spreadOf(spread), age === null ? null : profileAged(age)).irregularity !== "none";
 
     test("18-25: more than 9 days is irregular, 9 is not", () => {
         expect(irregularAt(18, 9)).toBe(false);
@@ -634,7 +642,11 @@ describe("irregularity uses the FIGO band for the user's age", () => {
 
     test("irregular means no prediction and no fertile window, with the reason stated", () => {
         const result = analyze(spreadOf(10), profileAged(30));
-        expect(result.irregular).toBe(true);
+        // Every interval here is countable, so the spread is in the cycles Eva counted and
+        // `cycles-vary` is the true reason — the one case in this describe that says so by
+        // name, since `irregularAt` above reads the same answer as a boolean (#190).
+        expect(result.cycles.every((cycle) => cycle.counted)).toBe(true);
+        expect(result.irregularity).toBe("cycles-vary");
         expect(result.prediction).toBe(null);
         expect(result.withheld).toBe("irregular-cycles");
         // She still has enough cycles — D1 needs that to be true, or it would select
@@ -666,7 +678,7 @@ describe("the variation reads every interval in the window, not only the counted
         const result = analyze(periods([28, 60, 28, 60, 28, 60], 5), profileAged(30));
         expect(result.countedCycles).toBe(3);
         expect(result.variationDays).toBe(32);
-        expect(result.irregular).toBe(true);
+        expect(result.irregularity).toBe("cycles-vary");
         expect(result.prediction).toBe(null);
         expect(result.withheld).toBe("irregular-cycles");
         // No phase either: a phase without a prediction is an estimate with no band behind it.
@@ -687,21 +699,28 @@ describe("the variation reads every interval in the window, not only the counted
         const result = analyze(periods([28, 20, 28, 20, 28, 20], 5), profileAged(30));
         expect(result.countedCycles).toBe(3);
         expect(result.variationDays).toBe(8);
-        expect(result.irregular).toBe(true);
+        expect(result.irregularity).toBe("cycles-vary");
         expect(result.withheld).toBe("irregular-cycles");
         // Unknown age lands on the tightest band and gets the same answer.
-        expect(analyze(periods([28, 20, 28, 20, 28, 20], 5), null).irregular).toBe(true);
+        expect(analyze(periods([28, 20, 28, 20, 28, 20], 5), null).irregularity).toBe("cycles-vary");
         // …and the 9-day band does not, because 8 is not more than 9.
-        expect(analyze(periods([28, 20, 28, 20, 28, 20], 5), profileAged(20)).irregular).toBe(
-            false,
+        expect(analyze(periods([28, 20, 28, 20, 28, 20], 5), profileAged(20)).irregularity).toBe(
+            "none",
         );
     });
 
-    /** One long interval among otherwise regular cycles is enough on its own. */
-    test("a single 50-day interval among 28s withholds the window", () => {
+    /**
+     * One long interval among otherwise regular cycles is enough on its own — and since #190
+     * it is enough **under its own name**. The window is still withheld, which is the half
+     * this describe is about; the reason is `uncountable-cycle` rather than `irregular-cycles`
+     * because every cycle Eva counted here is 28 days, so "your cycle lengths vary" would be
+     * a sentence about a variation she does not have.
+     */
+    test("a single 50-day interval among 28s withholds the window, as an unreadable cycle", () => {
         const result = analyze(periods([28, 28, 50, 28, 28], 5), profileAged(30));
         expect(result.variationDays).toBe(22);
-        expect(result.irregular).toBe(true);
+        expect(result.irregularity).toBe("uncountable-cycle");
+        expect(result.withheld).toBe("uncountable-cycle");
         expect(result.prediction).toBe(null);
     });
 
@@ -715,8 +734,11 @@ describe("the variation reads every interval in the window, not only the counted
         expect(result.countedCycles).toBe(6);
         expect(result.medianCycleLengthDays).toBe(28);
         expect(result.variationDays).toBe(32);
-        expect(result.irregular).toBe(true);
-        expect(result.withheld).toBe("irregular-cycles");
+        // One interval out of range among six counted 28s, so the gate closes under #190's
+        // name for it. The gate closing is what this case is about and is unchanged.
+        expect(result.irregularity).toBe("uncountable-cycle");
+        expect(result.withheld).toBe("uncountable-cycle");
+        expect(result.prediction).toBe(null);
     });
 
     /**
@@ -729,7 +751,7 @@ describe("the variation reads every interval in the window, not only the counted
         const result = analyze(periods([60, 28, 28, 28, 28, 28, 28], 5), profileAged(30));
         expect(result.countedCycles).toBe(6);
         expect(result.variationDays).toBe(0);
-        expect(result.irregular).toBe(false);
+        expect(result.irregularity).toBe("none");
         expect(result.prediction).not.toBe(null);
     });
 
@@ -747,7 +769,7 @@ describe("the variation reads every interval in the window, not only the counted
         expect(result.countedCycles).toBe(6);
         expect(result.medianCycleLengthDays).toBe(28);
         expect(result.variationDays).toBe(32);
-        expect(result.irregular).toBe(true);
+        expect(result.irregularity).toBe("cycles-vary");
         expect(result.prediction).toBe(null);
     });
 
@@ -755,8 +777,188 @@ describe("the variation reads every interval in the window, not only the counted
     test("six regular cycles still get their window", () => {
         const result = analyze(periods([27, 28, 29, 28, 27, 28], 5), profileAged(30));
         expect(result.variationDays).toBe(2);
-        expect(result.irregular).toBe(false);
+        expect(result.irregularity).toBe("none");
         expect(result.prediction?.confidence).toBe("narrow");
+    });
+});
+
+// ── One interval Eva cannot count (#190) ───────────────────────────────────────────────
+
+/**
+ * **The gate above closes on two different facts, and it used to give them one name.**
+ *
+ * A woman logging 28-day cycles who misses one period start merges two of them into a single
+ * 56-day interval. The describe above is why that interval closes the band — it is evidence,
+ * and #181 closed the fail-open that ignored it. This describe is the cost measured on the
+ * other side, which #176 rated acceptable and nobody had looked at: the interval is
+ * *unbounded on the right*, so it keeps suppressing until `historyCycles` further counted
+ * cycles have pushed it out of the window, and throughout those cycles she was shown `home_c`
+ * — "Your recent cycle lengths vary significantly". Her cycle lengths did not vary at all.
+ *
+ * **Two things are pinned here and they are different claims.**
+ *
+ *  1. *The duration.* It is unchanged, deliberately — over-suppression is the safe direction
+ *     and narrowing the gate to give this user her window back is the fail-open #181 closed
+ *     (#190 Scope puts the gate itself out). What changes is that the duration is now a
+ *     decision someone made rather than a side effect of `historyCycles` being 6: the two
+ *     cases below read the boundary off the constant and assert it from both sides, so moving
+ *     `historyCycles` moves the recovery and *says so*.
+ *  2. *The reason.* `uncountable-cycle` rather than `irregular-cycles`, and the cases assert
+ *     the fact that makes the old reason false — every cycle Eva counted is the same length —
+ *     rather than only asserting the new string.
+ *
+ * And the line between them, from both sides: one out-of-range interval is a log Eva could
+ * not read, two is a pattern. `[28, 60, 28, 60, 28, 60]` has three and keeps the reason whose
+ * card points at care, which is the fail-open staying closed under its own name.
+ */
+describe("one interval Eva could not count is not the same fact as cycles that vary (#190)", () => {
+    const REGULAR = 28;
+    /** Two cycles merged into one, which is what a period start nobody logged looks like. */
+    const MERGED = REGULAR * 2;
+
+    /**
+     * A 28-day history with one period start never logged, followed by `regularCyclesSince`
+     * further 28-day cycles.
+     *
+     * The leading run is `historyCycles` long so the window is full before the mislog, which
+     * is the state the issue measured. Every length is read off `RULES`, so a case cannot
+     * pass because a literal happened to match the configuration.
+     */
+    const afterOneMissedStart = (regularCyclesSince: number) =>
+        periods(
+            [
+                ...Array.from({ length: RULES.historyCycles }, () => REGULAR),
+                MERGED,
+                ...Array.from({ length: regularCyclesSince }, () => REGULAR),
+            ],
+            5,
+        );
+
+    test("the reason she is given is the one that is true of her data", () => {
+        const result = analyze(afterOneMissedStart(0), profileAged(30));
+
+        // The premise, asserted rather than assumed: exactly one interval out of range, and
+        // every cycle that *was* counted is the same length. This is what makes "your recent
+        // cycle lengths vary significantly" false, and it is the half a test that only
+        // checked the new string would miss.
+        const uncounted = result.cycles.filter((cycle) => !cycle.counted);
+        expect(uncounted.map((cycle) => cycle.lengthDays)).toEqual([MERGED]);
+        expect(uncounted[0]?.excluded).toBe("unusual-length");
+        expect(
+            new Set(result.cycles.filter((cycle) => cycle.counted).map((c) => c.lengthDays)),
+        ).toEqual(new Set([REGULAR]));
+
+        // The gate still closes — this issue does not reopen it — and now says which fact.
+        expect(result.variationDays).toBe(MERGED - REGULAR);
+        expect(result.irregularity).toBe("uncountable-cycle");
+        expect(result.withheld).toBe("uncountable-cycle");
+        expect(result.prediction).toBe(null);
+        expect(toCycleEstimate(result).phase).toBe(null);
+    });
+
+    /**
+     * The duration, from both sides of the boundary and read off the constant.
+     *
+     * At `historyCycles - 1` further counted cycles the merged interval is still inside the
+     * window; at `historyCycles` it has left it. That is roughly six months at A25's values,
+     * and it is the number this case exists to make somebody choose rather than inherit.
+     */
+    test(`the suppression lasts exactly historyCycles further counted cycles`, () => {
+        const justBefore = analyze(afterOneMissedStart(RULES.historyCycles - 1), profileAged(30));
+        expect(justBefore.irregularity).toBe("uncountable-cycle");
+        expect(justBefore.withheld).toBe("uncountable-cycle");
+        expect(justBefore.prediction).toBe(null);
+
+        const recovered = analyze(afterOneMissedStart(RULES.historyCycles), profileAged(30));
+        expect(recovered.variationDays).toBe(0);
+        expect(recovered.irregularity).toBe("none");
+        expect(recovered.withheld).toBe(null);
+        expect(recovered.prediction?.nextPeriodStart).toBe(shift(TODAY, -5 + REGULAR));
+
+        // Nothing about her data changed except its age — the merged interval is still on her
+        // record, and Cycle history still draws it (A25 item 1).
+        for (const result of [justBefore, recovered]) {
+            expect(result.cycles.filter((cycle) => !cycle.counted)).toHaveLength(1);
+            expect(result.medianCycleLengthDays).toBe(REGULAR);
+        }
+    });
+
+    /**
+     * The card, which is where the false sentence was actually read. `home_c` is the one that
+     * says her cycle lengths vary; rung 4 now declines to select it for this user and she
+     * falls through to the educational card instead (#177: where the canvas has not drawn the
+     * card, the honest output is a request, not an invention).
+     */
+    test("and the card no longer tells her that her cycle lengths vary", () => {
+        const subjectFor = (days: readonly CycleDay[]): Subject =>
+            selectSubject(
+                {
+                    mode: "cycle",
+                    today: TODAY,
+                    now: `${TODAY}T09:00:00Z`,
+                    cycle: toCycleEstimate(analyze(days, profileAged(30))),
+                    signals: [],
+                    redFlag: null,
+                    upcomingAppointments: [],
+                    profileComplete: true,
+                    nutritionSetUp: false,
+                    todayTotals: null,
+                    daysSinceLastLog: 5,
+                },
+                { pattern: { lowSignalDays: 3, lowAtOrBelow: 2, severeSymptomDays: 3 } },
+            );
+
+        const mislogged = subjectFor(afterOneMissedStart(0));
+        expect(mislogged.templateId).not.toBe(TEMPLATE.irregular);
+        expect(mislogged.templateId).toBe(TEMPLATE.educational);
+        // And it is not `still_learning` either: she has cycles, she is not short of them.
+        expect(mislogged.templateId).not.toBe(TEMPLATE.stillLearning);
+
+        // The other half of the pair, without which the first proves nothing: a woman whose
+        // counted cycles genuinely do vary still gets the card that says so.
+        expect(subjectFor(periods([28, 28, 28, 28, 28, 38], 5)).templateId).toBe(
+            TEMPLATE.irregular,
+        );
+    });
+
+    /**
+     * The line between the two facts, from the side that must not move. Three intervals
+     * outside the countable range is infrequent menstruation, not three mislogs, and calling
+     * it a log Eva could not read would be this issue's own mistake pointed the other way —
+     * at the user for whom `irregular-cycles` is the card that points at care.
+     */
+    test("[28, 60, 28, 60, 28, 60] is still refused, and still as cycles that vary", () => {
+        const result = analyze(periods([28, 60, 28, 60, 28, 60], 5), profileAged(30));
+        expect(result.cycles.filter((cycle) => !cycle.counted)).toHaveLength(3);
+        expect(result.irregularity).toBe("cycles-vary");
+        expect(result.withheld).toBe("irregular-cycles");
+        expect(result.prediction).toBe(null);
+        expect(toCycleEstimate(result).phase).toBe(null);
+    });
+
+    /** Two missed starts is the same boundary one step in: the second one is what makes it a
+     *  pattern, and it is the only difference between this case and the first one above. */
+    test("two intervals out of range is a pattern, not a log Eva could not read", () => {
+        const twice = periods(
+            [REGULAR, MERGED, REGULAR, REGULAR, MERGED, REGULAR, REGULAR],
+            5,
+        );
+        const result = analyze(twice, profileAged(30));
+        expect(result.cycles.filter((cycle) => !cycle.counted)).toHaveLength(2);
+        expect(result.irregularity).toBe("cycles-vary");
+        expect(result.withheld).toBe("irregular-cycles");
+    });
+
+    /**
+     * And the case the exception must never cover: one interval out of range **and** counted
+     * cycles that disagree with each other beyond her band. The single unreadable interval is
+     * not what the refusal rests on, so the reason stays the one about her cycles.
+     */
+    test("one uncountable interval does not excuse counted cycles that vary on their own", () => {
+        const result = analyze(periods([22, 40, 22, 40, 50, 22], 5), profileAged(30));
+        expect(result.cycles.filter((cycle) => !cycle.counted)).toHaveLength(1);
+        expect(result.irregularity).toBe("cycles-vary");
+        expect(result.withheld).toBe("irregular-cycles");
     });
 });
 
@@ -769,14 +971,14 @@ describe("age unknown takes the tightest band", () => {
      * direction and the permissive bands are the ones a silent fallback would reach for.
      */
     test("no profile: 7 days, the same answer a 26-41-year-old gets", () => {
-        expect(analyze(spreadOf(7), null).irregular).toBe(false);
-        expect(analyze(spreadOf(8), null).irregular).toBe(true);
+        expect(analyze(spreadOf(7), null).irregularity).toBe("none");
+        expect(analyze(spreadOf(8), null).irregularity).toBe("cycles-vary");
         expect(bandForAge(null, RULES, TODAY)).toEqual({ ageYears: null, maxVariationDays: 7 });
     });
 
     test("it does not fall back to the youngest band, which is the permissive one", () => {
-        expect(analyze(spreadOf(8), profileAged(20)).irregular).toBe(false);
-        expect(analyze(spreadOf(8), null).irregular).toBe(true);
+        expect(analyze(spreadOf(8), profileAged(20)).irregularity).toBe("none");
+        expect(analyze(spreadOf(8), null).irregularity).toBe("cycles-vary");
         expect(bandForAge(null, RULES, TODAY).maxVariationDays).not.toBe(
             RULES.irregularity.youngVariationDays,
         );
@@ -835,7 +1037,7 @@ describe("age unknown takes the tightest band", () => {
         expect(analyze(spread8, profileAged(20)).prediction).not.toBe(null);
         const corrupted = { ...profileAged(20), dateOfBirth: "1820-06-15" } as Profile;
         const result = analyze(spread8, corrupted);
-        expect(result.irregular).toBe(true);
+        expect(result.irregularity).toBe("cycles-vary");
         expect(result.prediction).toBe(null);
         expect(result.withheld).toBe("irregular-cycles");
     });
@@ -882,7 +1084,7 @@ describe("an age under the account floor refuses rather than banding", () => {
      *  chosen for somebody else. A spread of 9 is regular on the young band and irregular on
      *  every other one, so a clamp in either direction would still return an answer here. */
     test("the refusal reaches the whole analysis, not only the band", () => {
-        expect(analyze(spreadOf(9), profileAged(18)).irregular).toBe(false);
+        expect(analyze(spreadOf(9), profileAged(18)).irregularity).toBe("none");
         expect(() => analyze(spreadOf(9), profileAged(17))).toThrow(ImpossibleAgeError);
     });
 
@@ -1095,7 +1297,7 @@ describe("the phase", () => {
     test("a withheld prediction withholds the phase too", () => {
         expect(toCycleEstimate(analyze(periods([28, 29], 8))).phase).toBe(null);
         const irregular = analyze(periods([22, 28, 28, 40], 8), profileAged(30));
-        expect(irregular.irregular).toBe(true);
+        expect(irregular.irregularity).toBe("cycles-vary");
         expect(toCycleEstimate(irregular).phase).toBe(null);
     });
 });
@@ -1230,7 +1432,7 @@ describe("a day she has not logged yet is still her period (#197)", () => {
         expect(result.currentPeriodEnd).toBe(shift(TODAY, -1));
         expect(result.countedCycles).toBe(3);
         expect(result.variationDays).toBe(32);
-        expect(result.irregular).toBe(true);
+        expect(result.irregularity).toBe("cycles-vary");
         expect(result.prediction).toBe(null);
         expect(result.withheld).toBe("irregular-cycles");
         expect(toCycleEstimate(result).phase).toBe(null);
@@ -1309,7 +1511,9 @@ describe("no number in the maths is written in the maths", () => {
         const threeMissed = history(flow(on(0)), flow(on(4)));
 
         expect(withRule(oneMissed, 1).lastPeriodStart).toBe(on(2));
-        expect(withRule(oneMissed, 1).withheld).toBe("irregular-cycles");
+        // The split's own two-day interval, named for what it is since #190 — the estimate is
+        // withheld either way, which is what this case is about.
+        expect(withRule(oneMissed, 1).withheld).toBe("uncountable-cycle");
         expect(withRule(oneMissed, 2).lastPeriodStart).toBe(on(0));
 
         expect(withRule(twoMissed, 2).lastPeriodStart).toBe(on(3));
@@ -1486,7 +1690,7 @@ describe("the estimate D1 already consumes", () => {
         expect(toCycleEstimate(result)).toEqual({
             countedCycles: 6,
             enoughCyclesForEstimates: true,
-            irregular: false,
+            irregularity: "none",
             cycleDay: 10,
             phase: { code: "ovulation", confidence: "narrow" },
             daysPastPredictedPeriod: null,
@@ -1497,7 +1701,7 @@ describe("the estimate D1 already consumes", () => {
         expect(toCycleEstimate(analyze(periods([28, 29], 9)))).toEqual({
             countedCycles: 2,
             enoughCyclesForEstimates: false,
-            irregular: false,
+            irregularity: "none",
             cycleDay: 10,
             phase: null,
             daysPastPredictedPeriod: null,
@@ -1652,7 +1856,7 @@ describe("the module reaches nothing", () => {
         const source = await Bun.file(`${import.meta.dir}/../src/cycle.ts`).text();
         const imports = source.match(/^import .*$/gm) ?? [];
         expect(imports).toEqual([
-            "import type { CycleEstimate, PhaseCode, PhaseConfidence } from './dashboard-rules'",
+            "import type { CycleEstimate, Irregularity, PhaseCode, PhaseConfidence } from './dashboard-rules'",
             "import type { Profile } from './users'",
         ]);
         for (const forbidden of [

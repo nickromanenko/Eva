@@ -171,7 +171,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `DELETE /me/events/{id}` | Bearer | `{ deleted: true }` — soft delete |
 | `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days and while the entry has not been superseded (`409 DAY_ALREADY_LOGGED`) |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day |
-| `GET /me/cycle/predictions?from=&to=&timeZone=` | Bearer | `{ from, to, predictedPeriod, fertileWindow, peak, confidence, withheld }` — the calendar's overlay for a range (#205). Three lists of `localDate`s, clipped to the range; `confidence` is C11's own `wide`/`narrow` band, `null` when nothing is predicted, and `withheld` then names the gate that closed (`no-flow-logged`, `too-few-counted-cycles`, `irregular-cycles`). Range validated and capped exactly as `/me/events` is, with the same `VALIDATION` code. `503 SERVICE_UNAVAILABLE` while the cycle maths' constants are unconfigured (#176) |
+| `GET /me/cycle/predictions?from=&to=&timeZone=` | Bearer | `{ from, to, predictedPeriod, fertileWindow, peak, confidence, withheld }` — the calendar's overlay for a range (#205). Three lists of `localDate`s, clipped to the range; `confidence` is C11's own `wide`/`narrow` band, `null` when nothing is predicted, and `withheld` then names the gate that closed (`no-flow-logged`, `too-few-counted-cycles`, `irregular-cycles`, `uncountable-cycle`). The last two are deliberately separate (#190): the first says her cycles vary, the second says one interval in the window fell outside the countable range — a fact about a log, not about her — and answering the first for the second told a woman with a single missed period start something false for six cycles. Range validated and capped exactly as `/me/events` is, with the same `VALIDATION` code. `503 SERVICE_UNAVAILABLE` while the cycle maths' constants are unconfigured (#176) |
 | `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card }` — the day's card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26), the cycle maths' constants are unconfigured (#176), or `content/` is unseeded (#97) |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 | `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
@@ -1313,6 +1313,24 @@ the one a deployment hits first. What is still withheld is not engineering: `pha
 is the only phase card the canvas has drawn, it is selected for `follicular` alone (#184,
 #195), and every other phase falls through to the educational card until the variants are
 drawn.
+
+**The irregularity answer is not a boolean, as of #190.** `analyzeCycles` returns
+`irregularity: 'none' | 'cycles-vary' | 'uncountable-cycle'`, and every value but `none`
+withholds the prediction, the fertile window and the phase exactly as the boolean did — the
+gate #181 closed is untouched, and `[28, 60, 28, 60, 28, 60]` is still refused. What the
+union adds is *which* fact refused her. The spread the band measures runs over every interval
+in the window, so a woman logging 28-day cycles who misses one period start has two of them
+merged into a 56-day interval and is suppressed until `historyCycles` further counted cycles
+push it out — about six months — and for all of it she was shown `home_c`, "Your recent cycle
+lengths vary significantly", which was false: her counted cycles were all 28 days.
+`uncountable-cycle` is that case (exactly one interval in the window outside the countable
+range, and counted cycles inside her band); anything else is `cycles-vary`, because more than
+one out-of-range interval is FIGO's infrequent menstruation rather than a mislog, and
+`irregular-cycles` is the reason whose card points at care. Rung 4 selects `home_c` for
+`cycles-vary` alone and `uncountable-cycle` falls through to the educational card — the card
+that would explain it is one the canvas has not drawn (#177's rule: a request, not an
+invention in the seed). The duration is unchanged and is now pinned from both sides in
+`api/test/cycle.test.ts`, so it is a decision rather than a side effect of `historyCycles`.
 
 **And the calendar reads the same seam as of #205.** `GET /me/cycle/predictions` answers
 **by range**, because `CalendarModel` already fetches events by range and caches by month and

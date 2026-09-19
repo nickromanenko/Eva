@@ -120,6 +120,13 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   the irregularity band arrive as C11's own answers, so no number here can drift from the one
   the calendar draws. Its single import is an `import type` from `content.ts`, erased at
   compile time — see ARCHITECTURE §3 for why the vocabulary is shared and the module is not.
+  **`CycleEstimate.irregularity` is a union, not a flag (#190)**, and rung 4 selects `home_c`
+  for `cycles-vary` alone: that card says "Your recent cycle lengths vary significantly", and
+  C11 also withholds for a spread resting on one interval it could not count — one missed
+  period start, for six cycles — where the sentence is false. `uncountable-cycle` reaches no
+  phase card and falls through to the educational one, because the card that would explain it
+  is not drawn (#177). `speakablePhase` gates on `!== 'none'`, so a reason added later
+  suppresses by default.
 - `today.ts` — the only module that touches `users/{uid}/today/`: the Today card, one
   document per the user's local date (#98, slice D3 of #10). It is the *join* between the
   three modules above it — it gathers the ladder's inputs from `events.ts` and `users.ts`,
@@ -200,7 +207,18 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   them, so that interval still closes the gate. A25 item 2's literal "over the last 6
   counted cycles" would hand a woman whose cycles alternate 28 and 60 days a fertile window
   over a variation of zero — the fail-open §Phase 1 rules 4 and 5 and #176's Risks each
-  forbid. Age is read in `bandForAge` and nowhere else, which is what made #81
+  forbid. **That spread closes the gate on two different facts, and since #190 it names
+  which**: `irregularity` is `none | cycles-vary | uncountable-cycle`, the last being exactly
+  one interval in the window outside the countable range with her counted cycles inside her
+  band. Both withhold — the gate is unchanged and the alternating case is still refused as
+  `cycles-vary` — but only the first may be stated as a fact about her cycles, and it was
+  being stated for six cycles after one missed period start merged two of them into 56 days.
+  One, because two out-of-range intervals is FIGO's infrequent menstruation rather than a
+  mislog, and erring toward `irregular-cycles` errs toward the reason whose card points at
+  care. The *duration* of the suppression is deliberately unchanged and is pinned from both
+  sides in `cycle.test.ts`: narrowing the gate to give that user her window back is the
+  fail-open #181 closed, and #190's Scope puts the gate itself out.
+  Age is read in `bandForAge` and nowhere else, which is what made #81
   (`profile.age` → `dateOfBirth`) one function's worth of change: the date arrives in the
   profile and the age is derived there, against the caller's own `today`. A date of birth it
   cannot read — nonsense, or one that makes her over 99 — is *unknown*, because the bands at

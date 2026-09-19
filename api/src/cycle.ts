@@ -1,4 +1,4 @@
-import type { CycleEstimate, PhaseCode, PhaseConfidence } from './dashboard-rules'
+import type { CycleEstimate, Irregularity, PhaseCode, PhaseConfidence } from './dashboard-rules'
 import type { Profile } from './users'
 
 /**
@@ -611,10 +611,28 @@ export const bandForAge = (
 
 // ── What the maths answers with ────────────────────────────────────────────────────────
 
-/** Why there is no prediction. **In the output rather than inferred from a null** (#176
- *  acceptance criteria), so C12 can explain a window that vanished after one mislogged
- *  period start instead of leaving the user to guess. */
-export type EstimateWithheld = 'no-flow-logged' | 'too-few-counted-cycles' | 'irregular-cycles'
+/**
+ * Why there is no prediction. **In the output rather than inferred from a null** (#176
+ * acceptance criteria), so C12 can explain a window that vanished after one mislogged
+ * period start instead of leaving the user to guess.
+ *
+ * **`uncountable-cycle` is the fourth, and it exists because the third was being told to
+ * women it was not true of** (#190). `irregular-cycles` reaches the client as "your cycle
+ * lengths vary too much to estimate from" — a statement about her body — and it was
+ * answered for a woman whose counted cycles were all 28 days and who had missed one period
+ * start, for the six cycles it takes that interval to leave the window. The two facts are
+ * not interchangeable and only one of them is about her, so they are not one value.
+ *
+ * Both withhold. Neither is a finding, and `uncountable-cycle` is deliberately **not** an
+ * accusation of mislogging either: Eva cannot tell a missed tap from one genuinely long
+ * cycle, and the honest sentence behind this name is "one of your recent cycles is outside
+ * the range Eva estimates from", which is true of both.
+ */
+export type EstimateWithheld =
+  | 'no-flow-logged'
+  | 'too-few-counted-cycles'
+  | 'irregular-cycles'
+  | 'uncountable-cycle'
 
 /** Ovulation − `fertileDaysBeforeOvulation` through ovulation + `fertileDaysAfterOvulation`,
  *  with peak fertility inside it (A26). Estimated from the fixed-luteal convention, never
@@ -658,8 +676,11 @@ export interface CycleAnalysis {
    *  sample on purpose: `analyzeCycles` says why, and it is what keeps the gate closed for
    *  a user whose intervals alternate short and long. */
   variationDays: number | null
-  /** Whether that spread is over this user's FIGO band. */
-  irregular: boolean
+  /** Whether that spread is over this user's FIGO band — and when it is, whether the
+   *  evidence is in her own counted cycles or in a single interval the range filter could
+   *  not read (#190). `none` is the only value that leaves a prediction possible; see
+   *  `Irregularity` for why the difference between the other two is not cosmetic. */
+  irregularity: Irregularity
   /** The band applied, and the age it was chosen for — `null` age means the tightest band. */
   band: { ageYears: number | null; maxVariationDays: number }
   /** The most recent first flow day, or `null` when no flow has been logged. */
@@ -730,10 +751,49 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
   // behind these bands, classifies a cycle of 38 days or more as infrequent menstruation.
   // The estimate still ignores it; the gate does not.
   const windowFrom = recentAt[0] ?? Math.max(0, cycles.length - settings.historyCycles)
-  const spanned = cycles.slice(windowFrom).map((cycle) => cycle.lengthDays)
-  const variationDays =
-    spanned.length >= 2 ? Math.max(...spanned) - Math.min(...spanned) : null
-  const irregular = variationDays !== null && variationDays > band.maxVariationDays
+  const windowCycles = cycles.slice(windowFrom)
+  const spanned = windowCycles.map((cycle) => cycle.lengthDays)
+  const spread = (lengths: readonly number[]): number | null =>
+    lengths.length >= 2 ? Math.max(...lengths) - Math.min(...lengths) : null
+  const overBand = (days: number | null): boolean => days !== null && days > band.maxVariationDays
+  const variationDays = spread(spanned)
+
+  // **Which of the two facts the spread is, when it is over the band** (#190).
+  //
+  // The paragraph above is why an out-of-range interval closes the gate; it is not a reason
+  // to tell her that her cycles vary. For a woman logging 28 days who misses one period
+  // start, two cycles merge into one 56-day interval: every cycle Eva counted is still 28,
+  // the spread over the window is 28 because of that one interval, and the card said "Your
+  // recent cycle lengths vary significantly" for the six further counted cycles it takes
+  // the interval to leave the window. Her cycle lengths did not vary at all.
+  //
+  // So the same spread is asked a second question — is the evidence in the cycles Eva
+  // *counted*? — and one exception is carved for the case where it is not:
+  //
+  //  - the counted intervals inside this same window are within her band, **and**
+  //  - exactly one interval in it fell outside the countable range.
+  //
+  // **One, because two is a pattern and this is the direction that must not be got wrong.**
+  // FIGO AUB System 1 (Munro et al. 2018), the source behind these bands, classifies a cycle
+  // of 38 days or more as infrequent menstruation; a woman whose intervals alternate 28 and
+  // 60 has three such intervals in the window and is oligomenorrhoeic, not a woman who
+  // mislogged three times. Calling *that* an unreadable log is the same class of falsehood
+  // as the one this fixes, pointed the other way, and it is the worse one — `irregular-cycles`
+  // is the reason whose card points at care. Erring toward it is the safe direction, so
+  // anything but exactly one lands there.
+  //
+  // **This changes no gate.** Both values withhold the prediction, the window and the
+  // phase; #181's fail-closed path is untouched and `[28, 60, 28, 60, 28, 60]` is refused
+  // here exactly as it was. What is decided is only which true sentence she is told.
+  const countedInWindow = windowCycles.filter((cycle) => cycle.counted)
+  const uncountableCycles = windowCycles.length - countedInWindow.length
+  const countedVariation = spread(countedInWindow.map((cycle) => cycle.lengthDays))
+  const oneUnreadableCycle = uncountableCycles === 1 && !overBand(countedVariation)
+  const irregularity: Irregularity = !overBand(variationDays)
+    ? 'none'
+    : oneUnreadableCycle
+      ? 'uncountable-cycle'
+      : 'cycles-vary'
 
   const current = periods.at(-1) ?? null
   const lastStart = current?.start ?? null
@@ -750,7 +810,7 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
     enoughCountedCycles: countedCycles >= settings.minCyclesForEstimate,
     medianCycleLengthDays,
     variationDays,
-    irregular,
+    irregularity,
     band,
     lastPeriodStart,
     currentPeriodEnd,
@@ -767,8 +827,16 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
   if (!base.enoughCountedCycles || medianCycleLengthDays === null) {
     return { ...base, prediction: null, withheld: 'too-few-counted-cycles' }
   }
-  if (irregular) {
-    return { ...base, prediction: null, withheld: 'irregular-cycles' }
+  // One gate, two reasons (#190). The gate is on `!== 'none'` rather than on either name, so
+  // a reason added to `Irregularity` later withholds by default; the mapping below then reads
+  // it as `irregular-cycles`, which is the suppressing, care-pointing direction and the one to
+  // be wrong in. Neither half of this is a compile error, which is why it is written down.
+  if (irregularity !== 'none') {
+    return {
+      ...base,
+      prediction: null,
+      withheld: irregularity === 'uncountable-cycle' ? 'uncountable-cycle' : 'irregular-cycles',
+    }
   }
 
   const nextPeriod = lastStart + medianCycleLengthDays
@@ -862,7 +930,9 @@ export const toCycleEstimate = (analysis: CycleAnalysis): CycleEstimate => {
   return {
     countedCycles: analysis.countedCycles,
     enoughCyclesForEstimates: analysis.enoughCountedCycles,
-    irregular: analysis.irregular,
+    // Carried across whole, not re-derived from `withheld`: the two disagree by design when
+    // the ≥N gate closes first, and D1 asks that gate before this one (#190).
+    irregularity: analysis.irregularity,
     cycleDay: analysis.cycleDay,
     phase:
       code === null || analysis.prediction === null

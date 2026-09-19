@@ -117,7 +117,7 @@ const RULE_SETS: { name: string; rules: DashboardRules }[] = [
 const NO_CYCLE: CycleEstimate = {
     countedCycles: 0,
     enoughCyclesForEstimates: false,
-    irregular: false,
+    irregularity: "none",
     cycleDay: null,
     phase: null,
     daysPastPredictedPeriod: null,
@@ -126,7 +126,7 @@ const NO_CYCLE: CycleEstimate = {
 const estimated = (code: PhaseCode, cycleDay: number): CycleEstimate => ({
     countedCycles: 4,
     enoughCyclesForEstimates: true,
-    irregular: false,
+    irregularity: "none",
     cycleDay,
     phase: { code, confidence: "wide" },
     daysPastPredictedPeriod: null,
@@ -151,7 +151,25 @@ const CYCLES: { name: string; cycle: CycleEstimate }[] = [
         cycle: {
             countedCycles: 6,
             enoughCyclesForEstimates: true,
-            irregular: true,
+            irregularity: "cycles-vary",
+            cycleDay: 12,
+            phase: null,
+            daysPastPredictedPeriod: null,
+        },
+    },
+    {
+        // **#190's user, and the reason this axis is not a boolean any more.** Same gate,
+        // same withheld prediction, same absent phase — and a different fact: her counted
+        // cycles are all the same length and one interval in the window fell outside the
+        // countable range, which is what one missed period start does for the six cycles it
+        // takes to leave the window. `home_c` says "Your recent cycle lengths vary
+        // significantly", so this case must not reach it; if rung 4 is ever widened back, the
+        // claim on that line fails here and the run is red.
+        name: "one cycle Eva could not read",
+        cycle: {
+            countedCycles: 6,
+            enoughCyclesForEstimates: true,
+            irregularity: "uncountable-cycle",
             cycleDay: 12,
             phase: null,
             daysPastPredictedPeriod: null,
@@ -166,7 +184,7 @@ const CYCLES: { name: string; cycle: CycleEstimate }[] = [
         cycle: {
             countedCycles: 6,
             enoughCyclesForEstimates: true,
-            irregular: false,
+            irregularity: "none",
             cycleDay: 12,
             phase: { code: "luteal", confidence: "none" },
             daysPastPredictedPeriod: null,
@@ -495,7 +513,7 @@ const isLow = (value: number | null, c: Case): boolean =>
 
 const phaseOf = (c: Case): PhaseCode | null => {
     const { cycle } = c.input;
-    if (!cycle.enoughCyclesForEstimates || cycle.irregular) return null;
+    if (!cycle.enoughCyclesForEstimates || cycle.irregularity !== "none") return null;
     if (cycle.phase === null || cycle.phase.confidence === "none") return null;
     return cycle.phase.code;
 };
@@ -578,8 +596,16 @@ const AUDIT: Record<TemplateId, Audited> = {
             kicker: null,
             title: { says: "no phase is speakable", holds: (c) => phaseOf(c) === null },
             line2: {
-                says: "C11's irregularity flag is set",
-                holds: (c) => c.input.cycle.irregular,
+                // **The claim is `cycles-vary`, not "C11 withheld for variation"** (#190).
+                // "Your recent cycle lengths vary significantly" is a statement about her
+                // cycles, and C11 also withholds for a spread that rests entirely on one
+                // interval it could not count — a missed period start merging two cycles,
+                // for six cycles afterwards. That is a fact about the data and this sentence
+                // was false for every day of it. The claim is narrowed to the one reason the
+                // sentence is true of, so routing the other one here again is a mismatch this
+                // file reports rather than a card nobody re-reads.
+                says: "the spread C11 refused on is in the cycles it counted",
+                holds: (c) => c.input.cycle.irregularity === "cycles-vary",
             },
             actions: null,
         },
@@ -1055,7 +1081,7 @@ describe("the copy audit walks every subject the ladder can select", () => {
         // A floor would let the fixture table be gutted without a signal, which is the
         // quiet way an audit stops auditing. Exact, like the seed's fragment count.
         expect(LADDER_CASES).toHaveLength(MODES.length * CYCLES.length * HISTORIES.length * 2);
-        expect(CASES).toHaveLength(2183); // 2,160 from the product, 20 red-flag, 3 clock
+        expect(CASES).toHaveLength(2363); // 2,340 from the product, 20 red-flag, 3 clock
 
         // Every mode reaches a card, every phase code reaches rung 4's decision, and every
         // history reaches something — the three axes the mismatches below turn on.

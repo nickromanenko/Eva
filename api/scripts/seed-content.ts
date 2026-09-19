@@ -151,6 +151,19 @@ import {
  * logged yet, so she falls through to `educational` rather than being told she is likely
  * approaching ovulation.
  *
+ * **#190 narrows rung 4's other branch, and no string below moves for it.** `home_c`'s
+ * "Your recent cycle lengths vary significantly" was selected for two different answers from
+ * C11, and it is true of one: a woman whose counted cycles are all the same length and who
+ * missed one period start read it for the six cycles it takes that interval to leave the
+ * window. The rung now selects `home_c` for `cycles-vary` alone and the other answer falls
+ * through to `educational`, so what is signed here is unchanged words over a narrower ladder
+ * — the same shape as #195. The card that would explain the second case ("Eva cannot read one
+ * of your recent cycles") is **not written below and must not be**: the canvas has not drawn
+ * it, and #177's rule is that where it has not, the honest output is a request. It is not in
+ * `UNTRUE` either, because nothing false now renders — there is no mismatch for that file to
+ * demonstrate, which is the one way its ledger cannot record a debt. The debt is real and it
+ * is filed as an issue instead.
+ *
  * Exported so `api/test/content.test.ts` can tell whether the gate is still closed. The
  * case that proves this script has no way past the refusal has to *run* the script, and
  * now that these are filled that would seed whatever project the suite points at — so it

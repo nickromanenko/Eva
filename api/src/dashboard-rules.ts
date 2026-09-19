@@ -115,6 +115,32 @@ export interface PhaseEstimate {
   confidence: PhaseConfidence
 }
 
+/**
+ * Why C11 will not estimate from her cycle lengths — and, when it will not, **which fact
+ * that is** (#190).
+ *
+ * It was a boolean, and the boolean conflated two things that are not the same fact:
+ *
+ *  - `cycles-vary` — the spread is in the cycles Eva *counted*, or in a repeated run of
+ *    intervals outside the countable range. Something about her body: FIGO's own AUB
+ *    System 1, the source behind the bands, calls a cycle of 38 days or more infrequent
+ *    menstruation, and more than one of them is that pattern rather than a stray.
+ *  - `uncountable-cycle` — one single interval in the window fell outside the countable
+ *    range, and her counted cycles agree with each other inside her band. Something about
+ *    the *data*, not about her: Eva cannot read that interval and says so.
+ *
+ * **Only the first may be stated as a fact about her cycles**, which is the whole of #190's
+ * second half. `home_c` reads "Your recent cycle lengths vary significantly"; a woman whose
+ * cycles are all 28 days and who missed one period start was shown it for six cycles, and
+ * the sentence was false every day of them. The type is a union rather than a second boolean
+ * beside the first so that a card cannot be selected off "irregular" again without the
+ * compiler asking which of the two it means.
+ *
+ * Both still withhold the prediction and both still withhold the phase — this names the
+ * reason, it does not reopen a gate. See `analyzeCycles` for where the two are told apart.
+ */
+export type Irregularity = 'none' | 'cycles-vary' | 'uncountable-cycle'
+
 export interface CycleEstimate {
   /** Counted cycles C11 holds (A25: first flow day to first flow day, 21–45 days). Stated
    *  on the card as a fact, never as progress toward a goal — PRD tone rule 4. */
@@ -126,10 +152,12 @@ export interface CycleEstimate {
    * threshold that could drift from the one the calendar draws.
    */
   enoughCyclesForEstimates: boolean
-  /** C11's irregularity flag (A25's FIGO band). PRD Confidence and cold start 3 says the
-   *  card matches "the rule used for the fertile window" — so this is that same flag, and
-   *  there is deliberately no second test of variation anywhere in this file. */
-  irregular: boolean
+  /** C11's irregularity answer (A25's FIGO band). PRD Confidence and cold start 3 says the
+   *  card matches "the rule used for the fertile window" — so this is that same answer, and
+   *  there is deliberately no second test of variation anywhere in this file. **Not a
+   *  boolean** (#190): anything but `none` withholds the phase, and only `cycles-vary` may
+   *  be spoken as a fact about her cycles. See `Irregularity`. */
+  irregularity: Irregularity
   /** Today's cycle day, counted from the current cycle's first flow day (A25 item 6).
    *  `null` when no flow day has been logged, which is what "no cycle data" means here. */
   cycleDay: number | null
@@ -412,7 +440,10 @@ const observedSignal = (input: DashboardInput): SignalEntry | null => {
 const speakablePhase = (
   cycle: CycleEstimate,
 ): { code: PhaseCode; confidence: Exclude<PhaseConfidence, 'none'> } | null => {
-  if (!cycle.enoughCyclesForEstimates || cycle.irregular) return null
+  // `!== 'none'` rather than a named arm: **every** reason C11 withholds for withholds the
+  // phase too, so a reason added to `Irregularity` later suppresses by default rather than
+  // by somebody remembering to extend this line (#190).
+  if (!cycle.enoughCyclesForEstimates || cycle.irregularity !== 'none') return null
   if (cycle.phase === null || cycle.phase.confidence === 'none') return null
   if (cycle.cycleDay === null) return null
   return { code: cycle.phase.code, confidence: cycle.phase.confidence }
@@ -704,7 +735,29 @@ const phaseRung: LadderStep = (input) => {
         confidence: 'hedged',
       }
     }
-    if (input.cycle.irregular) {
+    // **`irregular` is selected for `cycles-vary` alone, and that is a narrowing rather than
+    // an oversight (#190)** — the same decision #184 made one card along, for the same
+    // reason. `home_c`'s line reads "Your recent cycle lengths vary significantly", and for
+    // a woman whose counted cycles are all 28 days and who missed one period start, that
+    // sentence is false: what Eva has is one interval it could not read. She was shown it
+    // for six cycles, because the mislogged interval keeps closing the band until six
+    // further counted cycles push it out of the window.
+    //
+    // The prediction and the phase are still withheld — the gate is C11's and this changes
+    // none of it (#181's fail-closed path is untouched, and `speakablePhase` above suppresses
+    // on any reason). What changes is that she is no longer *told* something about her body
+    // that her data does not support, which is what puts this in the same class as the
+    // fourteen strings `api/test/dashboard-copy.test.ts` enumerates.
+    //
+    // **The cost, stated plainly:** `uncountable-cycle` reaches no phase card at all and
+    // falls through to the educational one, so she is given no explanation on the Today card
+    // where she used to be given a wrong one. The card that would explain it — "Eva cannot
+    // read one of your recent cycles" — is a sentence the canvas has not drawn, and #177's
+    // rule is that where the canvas has not drawn a card the honest output is a request, not
+    // an invention in the seed. The reason itself is not lost: it reaches the calendar as
+    // C11's `uncountable-cycle` on `GET /me/cycle/predictions`, which is where a woman asks
+    // why there is no overlay.
+    if (input.cycle.irregularity === 'cycles-vary') {
       return { rung: 'phase', templateId: TEMPLATE.irregular, slots: {}, confidence: 'hedged' }
     }
   }

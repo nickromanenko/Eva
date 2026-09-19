@@ -125,7 +125,12 @@ interface PredictionsBody {
     /** Written out rather than imported from `cycle.ts`: this is the wire contract the iOS
      *  client switches on, so a reason renamed in the maths should fail here — which it does,
      *  at the comparisons against `analyzeCycles` below — rather than be carried through. */
-    withheld: "no-flow-logged" | "too-few-counted-cycles" | "irregular-cycles" | null;
+    withheld:
+        | "no-flow-logged"
+        | "too-few-counted-cycles"
+        | "irregular-cycles"
+        | "uncountable-cycle"
+        | null;
 }
 interface ErrorBody {
     error: { code: string; message: string };
@@ -294,6 +299,17 @@ const TOO_FEW_STARTS = [62, 34, 6].map(back);
  * variation of zero. She must be handed nothing.
  */
 const ALTERNATING_STARTS = [270, 242, 182, 154, 94, 66, 6].map(back);
+
+/**
+ * #190's woman: `REGULAR_STARTS` with one period start never logged, so the two cycles either
+ * side of it merge into a single 56-day interval — and it is the most recent one.
+ *
+ * Derived from `REGULAR_STARTS` rather than typed out, because the claim is that *nothing
+ * else about her changed*: four counted cycles, every one of them 28 days, and one interval
+ * the range filter cannot count. She is refused, exactly as she was before this issue; what
+ * the route now says is which of the two facts refused her.
+ */
+const MISSED_START_STARTS = REGULAR_STARTS.filter((start) => start !== back(34));
 
 beforeAll(async () => {
     const spawned = await bootApi(CYCLE_ENV);
@@ -599,7 +615,37 @@ describe("GET /me/cycle/predictions: every gate fails closed through the route",
         expect(analysis.countedCycles).toBe(CYCLE_RULES.minCyclesForEstimate);
         expect(analysis.enoughCountedCycles).toBe(true);
         expect(analysis.medianCycleLengthDays).not.toBeNull();
-        expect(analysis.irregular).toBe(true);
+        // **`cycles-vary`, not #190's `uncountable-cycle`**: three of her six intervals are
+        // outside the countable range, which is a pattern rather than one log Eva could not
+        // read, so this woman keeps the reason whose card points her at care.
+        expect(analysis.irregularity).toBe("cycles-vary");
+        expect(analysis.withheld).toBe(body.withheld);
+    });
+
+    /**
+     * #190, through the route that carries the reason to the screen she reads it on.
+     *
+     * The calendar's summary card renders a sentence per `withheld`, and the one behind
+     * `irregular-cycles` is "Your cycle lengths vary too much to estimate from" — which was
+     * answered for this woman, whose four counted cycles are all 28 days, for the six cycles
+     * it takes the merged interval to leave the window. She is still refused. The reason is
+     * now one that is true of her.
+     */
+    test("one interval Eva could not count is refused under its own reason (#190)", async () => {
+        const body = await withheldFor(MISSED_START_STARTS);
+        expect(body.withheld).toBe("uncountable-cycle");
+        expect(body.withheld).not.toBe("irregular-cycles");
+
+        // And it is the *same* woman as the regular fixture, minus one logged period start:
+        // her counted cycles are all 28 days, which is what makes the old reason false.
+        const analysis = analyzeCycles(
+            { days: daysFor(MISSED_START_STARTS), today: todayIn("UTC"), profile: null },
+            CYCLE_RULES,
+        );
+        expect(analysis.cycles.map((cycle) => cycle.lengthDays)).toEqual([28, 28, 28, 28, 56]);
+        expect(analysis.countedCycles).toBe(4);
+        expect(analysis.enoughCountedCycles).toBe(true);
+        expect(analysis.irregularity).toBe("uncountable-cycle");
         expect(analysis.withheld).toBe(body.withheld);
     });
 
