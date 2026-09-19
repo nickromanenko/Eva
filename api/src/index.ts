@@ -2395,10 +2395,20 @@ interface CyclePredictionsBody {
      *
      * **In the response rather than inferred from empty lists**, because the two states are
      * different and only one of them is about her data: `withheld` set means a gate closed
-     * (she has too few counted cycles, or her cycles vary more than her FIGO band allows),
+     * (she has logged no flow, she has too few counted cycles, her cycles vary more than her
+     * FIGO band allows, or one interval in the window fell outside the countable range),
      * while `withheld: null` with empty lists means the prediction simply falls outside the
      * range asked for. A client that guessed from emptiness would explain the second as the
      * first.
+     *
+     * **The last two are not interchangeable and the client must not collapse them** (#190).
+     * `irregular-cycles` is a statement about her cycles; `uncountable-cycle` is a statement
+     * about one of her logs, and it was being answered as the first for six cycles after a
+     * single missed period start. A fourth value is additive here and is a **breaking decode**
+     * on a client that models this as a closed enum — `EvaPredictionWithheld` in
+     * `mobile/Eva/Calendar/EvaCyclePrediction.swift` is one, and fails the whole response
+     * rather than the one field. Nothing serves it yet (`CYCLE_*` is unset in every
+     * environment, #191), which is the window in which the iOS case has to land.
      */
     withheld: EstimateWithheld | null;
 }

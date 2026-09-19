@@ -54,7 +54,7 @@ const RULES: DashboardRules = { pattern: PATTERN_RULE };
 const NO_CYCLE: CycleEstimate = {
     countedCycles: 0,
     enoughCyclesForEstimates: false,
-    irregular: false,
+    irregularity: "none",
     cycleDay: null,
     phase: null,
     daysPastPredictedPeriod: null,
@@ -71,7 +71,7 @@ const LEARNING: CycleEstimate = {
 const IRREGULAR: CycleEstimate = {
     countedCycles: 6,
     enoughCyclesForEstimates: true,
-    irregular: true,
+    irregularity: "cycles-vary",
     cycleDay: 12,
     phase: null,
     daysPastPredictedPeriod: null,
@@ -81,7 +81,7 @@ const IRREGULAR: CycleEstimate = {
 const ESTIMATED: CycleEstimate = {
     countedCycles: 4,
     enoughCyclesForEstimates: true,
-    irregular: false,
+    irregularity: "none",
     cycleDay: 13,
     phase: { code: "follicular", confidence: "wide" },
     daysPastPredictedPeriod: null,
@@ -91,7 +91,7 @@ const ESTIMATED: CycleEstimate = {
 const LATE: CycleEstimate = {
     countedCycles: 6,
     enoughCyclesForEstimates: true,
-    irregular: false,
+    irregularity: "none",
     cycleDay: 31,
     phase: { code: "luteal", confidence: "narrow" },
     daysPastPredictedPeriod: 2,
@@ -478,10 +478,60 @@ describe("the phase is spoken only when C11 says it may be", () => {
         });
 
         const irregular = base({
-            cycle: { ...ESTIMATED, irregular: true },
+            cycle: { ...ESTIMATED, irregularity: "cycles-vary" },
             daysSinceLastLog: 3,
         });
         expect(selectSubject(irregular, RULES).templateId).toBe(TEMPLATE.irregular);
+    });
+
+    /**
+     * **`home_c` is selected for one of C11's two irregularity answers, not for both** (#190).
+     *
+     * Its line reads "Your recent cycle lengths vary significantly". C11 also withholds when
+     * the spread rests entirely on a single interval it could not count — one missed period
+     * start merges two cycles, and the interval keeps the band closed for six further counted
+     * cycles — and for that user every counted cycle is the same length, so the sentence is
+     * false for the whole of it.
+     *
+     * The pair is the assertion. The first half alone would pass if rung 4 stopped selecting
+     * `home_c` at all, which would be a different bug; the second says the card is still
+     * reachable for the user it is true of. Neither half says anything about the *gate*: both
+     * inputs withhold the phase, which is `speakablePhase`'s job and is asserted below.
+     */
+    test("an unreadable cycle does not select the card that says her cycles vary (#190)", () => {
+        const unreadable = base({
+            cycle: { ...ESTIMATED, irregularity: "uncountable-cycle" },
+            daysSinceLastLog: 3,
+        });
+        expect(selectSubject(unreadable, RULES).templateId).not.toBe(TEMPLATE.irregular);
+        // No phase card either — the gate is C11's and this changes none of it. What she gets
+        // is the fallback, because the card that would explain it is not drawn (#177).
+        expect(selectSubject(unreadable, RULES)).toEqual({
+            rung: "education",
+            templateId: TEMPLATE.educational,
+            slots: {},
+            confidence: "plain",
+        });
+
+        const varying = base({
+            cycle: { ...ESTIMATED, irregularity: "cycles-vary" },
+            daysSinceLastLog: 3,
+        });
+        expect(selectSubject(varying, RULES).templateId).toBe(TEMPLATE.irregular);
+    });
+
+    /** Every irregularity answer but `none` withholds the phase, which is the half #190 must
+     *  not have moved: the reason changed, the gate did not. */
+    test("both irregularity answers withhold the phase, and only the reason differs", () => {
+        for (const irregularity of ["cycles-vary", "uncountable-cycle"] as const) {
+            const input = base({
+                cycle: { ...ESTIMATED, irregularity, phase: { code: "follicular", confidence: "wide" } },
+                daysSinceLastLog: 3,
+            });
+            expect(`${irregularity}: ${selectSubject(input, RULES).templateId}`).not.toBe(
+                `${irregularity}: ${TEMPLATE.phaseEnergy}`,
+            );
+        }
     });
 
     test("both gates at once: too few cycles is what the card says (PRD cold start 2)", () => {
@@ -494,7 +544,7 @@ describe("the phase is spoken only when C11 says it may be", () => {
             cycle: {
                 countedCycles: 2,
                 enoughCyclesForEstimates: false,
-                irregular: true,
+                irregularity: "cycles-vary",
                 cycleDay: 9,
                 phase: null,
                 daysPastPredictedPeriod: null,

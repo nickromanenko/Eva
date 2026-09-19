@@ -1071,6 +1071,12 @@ describe.skipIf(!onEmulators)("GET /me/today, over a logged cycle history", () =
      * the -3 flow day is at `minPeriodGapDays` past the mark, so it opens a new period — a
      * five-day interval, outside the countable range, and a variation that closes the band.
      *
+     * **The marked half no longer lands on `home_c`** (#190). Her four counted cycles are all
+     * 28 days and exactly one interval in the window is uncountable, so C11 withholds under
+     * `uncountable-cycle` and rung 4 declines the card that says her cycle lengths vary
+     * significantly. She falls through to the educational card, which is what the pair now
+     * measures: the mark still changes the answer, and the answer is no longer a false one.
+     *
      * **Nothing fails if `toCycleDay` drops `periodEnd`**: the maths simply never sees a mark
      * anyone set, and the marked case answers exactly as the unmarked one does. That is what
      * this pair is for, and it is why the assertion is on both halves.
@@ -1098,9 +1104,13 @@ describe.skipIf(!onEmulators)("GET /me/today, over a logged cycle history", () =
         await markFixture(true);
 
         const today = await cardToday();
-        expect(today.card.templateId).toBe("irregular");
-        expect(today.card.state).toBe("home_c");
+        expect(today.card.templateId).toBe("educational");
+        expect(today.card.state).toBe("home_edu");
+        // The two halves of what moved: no phase is spoken, and she is not told something
+        // about her cycle lengths that her four counted 28-day cycles do not support (#190).
         expect(today.card.templateId).not.toBe("phase_energy");
+        expect(today.card.templateId).not.toBe("irregular");
+        expect(JSON.stringify(today.card)).not.toContain("vary significantly");
     });
 
     /**
