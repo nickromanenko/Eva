@@ -39,7 +39,7 @@ xcrun simctl io $UDID screenshot /tmp/specimen.png
 
 `simctl launch` has **no `--setenv`** — anything after the bundle id is argv, and the app
 launches normally. Environment goes in the calling environment with a `SIMCTL_CHILD_`
-prefix, as above. Same for the other hooks: `SIMCTL_CHILD_EVA_ONBOARDING_STEP=2   # 0 createAccount, 1 logIn, 2 aboutYou …`.
+prefix, as above. Same for the other hooks: `SIMCTL_CHILD_EVA_ONBOARDING_STEP=2   # 0 createAccount, 1 logIn, 2 activation …`.
 
 ## Home tab states (DEBUG)
 
@@ -102,12 +102,13 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Profile/` | `ProfileView`, the delete modal, and the settings rows it carries — `Eva experience ▸ Units` is the first |
 | `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field, radio row |
 | `Eva/Theme/Specimen/` | DEBUG-only design specimen — see above |
-| `EvaUITests/` | XCUITest — sign-up → activation gate → questionnaire → the tab bar |
+| `EvaUITests/` | XCUITest — sign-up → activation gate → the tab bar |
 
 ## Rules
 
-- `AppSession.State` (`loading → signedOut | needsQuestionnaire | ready | unreachable`)
-  drives the root view. The **server** owns `questionnaireCompleted` — no local flag.
+- `AppSession.State` (`loading → signedOut | ready | unreachable`) drives the root view.
+  The **server** owns `questionnaireCompleted` — no local flag. #19 removed the
+  post-auth gate: a new user lands in the app and completes the profile from Profile.
 - Only a 401 on a request that carried the token ends a session. Everything else —
   no signal, a 5xx, a body that will not decode — is `.unreachable`, and the token
   stays. Do not add a path that clears the Keychain on a generic failure (#61).

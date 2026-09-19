@@ -27,8 +27,9 @@ import Testing
 /// also what keeps the parameterised cases below from running concurrently with each
 /// other.
 ///
-/// A user who has not finished the questionnaire. `.unreachable` sits in front of both
-/// destinations, so a recovered launch has to land on the right one.
+/// A user who has not finished their profile. `.unreachable` sits in front of the app
+/// either way, so a recovered launch lands on the dashboard whether or not the profile is
+/// complete (#19 removed the post-auth questionnaire gate).
 ///
 /// File scope rather than a member of the suite below: a `@Test`'s `arguments:` are
 /// evaluated outside the suite's `@MainActor` isolation and cannot read its statics.
@@ -178,21 +179,18 @@ extension SessionExpiryTests {
         // MARK: - Getting back out of `.unreachable`
 
         /// The escape the issue asks for: the user waits for signal and taps *Try again*,
-        /// and the session they never lost resumes — on the same token, at the screen the
-        /// server says they belong on.
+        /// and the session they never lost resumes — on the same token, on the dashboard.
         ///
-        /// Both destinations are covered because `.unreachable` sits in front of both. It
+        /// Both a completed and an incomplete profile are covered: `.unreachable` sits in
+        /// front of both, and #19 removed the post-auth gate so either lands `.ready`. It
         /// also catches a `retry()` that re-authenticates instead of reusing the token,
         /// and a missing `defer { isBootstrapping = false }` — the second `bootstrap()`
         /// would return early and the state would never move.
         @Test(
             "Retrying after the signal comes back resumes the same session",
-            arguments: [
-                (SessionExpiryTests.ClientMapping.user, true),
-                (unfinishedUser, false),
-            ]
+            arguments: [ClientMapping.user, unfinishedUser]
         )
-        func retryResumesTheSession(body: String, isCompleted: Bool) async {
+        func retryResumesTheSession(body: String) async {
             let session = storedSession()
             defer { store.clear() }
             EvaStubURLProtocol.stubNetworkFailure()
@@ -208,10 +206,7 @@ extension SessionExpiryTests {
             )
             #expect(store.token == Self.token, "The retry replaced the token it was supposed to reuse")
             #expect(session.user?.email == "e2e+unit@e2e.evaapp.dev")
-            #expect(
-                isCompleted ? session.state.isReady : session.state.needsQuestionnaire,
-                "A recovered launch landed in \(session.state) for questionnaireCompleted: \(isCompleted)"
-            )
+            #expect(session.state.isReady, "A recovered launch landed in \(session.state)")
         }
 
         /// The other way out, and the reason it exists: keeping the token removed the
@@ -545,13 +540,6 @@ private extension AppSession.State {
     var isReady: Bool {
         switch self {
         case .ready: true
-        default: false
-        }
-    }
-
-    var needsQuestionnaire: Bool {
-        switch self {
-        case .needsQuestionnaire: true
         default: false
         }
     }

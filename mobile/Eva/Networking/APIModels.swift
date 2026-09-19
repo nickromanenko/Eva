@@ -32,6 +32,12 @@ struct APIUser: Decodable {
     /// and wrong for the first Apple-only one — and it would be the delete flow's cue to
     /// skip Apple revocation, which is the expensive way to be wrong.
     let authProviders: [String]
+    /// Whether she dismissed the "complete your profile" nudge (#19). Server-side, so a
+    /// dismissal survives reinstall and a second device. `false` when the API does not send
+    /// it, the same tolerant read `activated` takes: the field predates the API's own
+    /// introduction and an absent one only ever describes a pre-#19 account, which has never
+    /// dismissed anything.
+    let profileNudgeDismissed: Bool
     /// The stored profile, or `nil` until the questionnaire is answered.
     ///
     /// **`APIProfile`, not `ProfilePayload`** — what the app sends and what the API returns
@@ -47,7 +53,7 @@ struct APIUser: Decodable {
     /// of the `Encodable` half nothing ever called; a type with a hand-written
     /// `init(from:)` and no encoding to synthesize gets no keys of its own.
     private enum CodingKeys: String, CodingKey {
-        case id, email, questionnaireCompleted, activated, authProviders, profile
+        case id, email, questionnaireCompleted, activated, authProviders, profileNudgeDismissed, profile
     }
 
     init(from decoder: Decoder) throws {
@@ -57,6 +63,7 @@ struct APIUser: Decodable {
         questionnaireCompleted = try container.decode(Bool.self, forKey: .questionnaireCompleted)
         activated = try container.decodeIfPresent(Bool.self, forKey: .activated) ?? true
         authProviders = try container.decodeIfPresent([String].self, forKey: .authProviders) ?? []
+        profileNudgeDismissed = try container.decodeIfPresent(Bool.self, forKey: .profileNudgeDismissed) ?? false
         profile = try container.decodeIfPresent(APIProfile.self, forKey: .profile)
     }
 
@@ -76,6 +83,13 @@ struct APIUser: Decodable {
     /// Whether an address and password can sign this account in.
     var hasPassword: Bool {
         authProviders.contains(Self.passwordProvider)
+    }
+
+    /// Whether the "complete your profile" nudge is still owed (#19). It shows while the
+    /// profile is incomplete *and* has not been dismissed; completing the profile clears the
+    /// first, dismissing clears the second, and either one is enough to stop asking.
+    var needsProfileNudge: Bool {
+        !questionnaireCompleted && !profileNudgeDismissed
     }
 }
 

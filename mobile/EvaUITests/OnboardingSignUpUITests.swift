@@ -7,10 +7,10 @@ import XCTest
 /// email form) into the canvas' single sign-up screen, plus a log-in screen it
 /// cross-links to. This suite is the project's **only** end-to-end coverage, so it
 /// asserts the same thing the five-screen version did — sign-up creates a real account
-/// and the app routes through the questionnaire to the dashboard — and adds what the new
-/// screens made testable: log in for an account that already exists, the sign-up screen's
-/// own validation, the duplicate-address error, and that the pinned footer stays
-/// reachable with the keyboard up.
+/// and the app routes to the dashboard — and adds what the new screens made testable: log
+/// in for an account that already exists, the sign-up screen's own validation, the
+/// duplicate-address error, and that the pinned footer stays reachable with the keyboard
+/// up.
 ///
 /// Every account is `e2e+<uuid>@e2e.evaapp.dev`, which is the pattern
 /// `scripts/e2e-cleanup.ts` sweeps at the end of `scripts/verify-mobile.sh`. Anything
@@ -29,23 +29,17 @@ final class OnboardingSignUpUITests: EvaUITestCase {
 
     // MARK: - The core path
 
-    /// The assertion this suite exists for: a real sign-up, the questionnaire it routes
-    /// into, and the dashboard on the other side.
-    func testSignUpRoutesThroughTheQuestionnaireToTheDashboard() throws {
+    /// The assertion this suite exists for: a real sign-up, and the app on the other side.
+    /// Since #19 removed the post-auth questionnaire, sign-up → activation → sign-in lands
+    /// on the tab bar, and the profile is completed later from Profile.
+    func testSignUpRoutesIntoTheApp() throws {
         let app = launch()
         let email = Self.freshEmail()
 
         signUpAndActivate(app, email: email)
-        completeQuestionnaire(app)
 
-        // Done screen after a successful PUT, then the tab bar.
         XCTAssertTrue(
-            app.staticTexts["You're all set"].waitForExistence(timeout: 15),
-            "Questionnaire submission did not reach the done screen"
-        )
-        tap(app.buttons["primary.Enter Eva"], in: app)
-        XCTAssertTrue(
-            app.buttons["tab.calendar"].waitForExistence(timeout: 10),
+            app.buttons["tab.home"].waitForExistence(timeout: 10),
             "Did not land on the tab bar"
         )
     }
@@ -60,11 +54,10 @@ final class OnboardingSignUpUITests: EvaUITestCase {
     /// standing account in the real project would either be swept by
     /// `scripts/e2e-cleanup.ts` or, if named to survive it, be real garbage.
     ///
-    /// Landing back on the questionnaire is the assertion, not an accident of ordering:
-    /// this account never finished one, and `AppSession` takes
-    /// `questionnaireCompleted` from the server. So reaching "A little about you" proves
-    /// the sign-in returned a token *and* that the server's answer routed the app.
-    func testLogInWithAnExistingAccountResumesTheQuestionnaire() throws {
+    /// Landing back in the app is the assertion, not an accident of ordering: this account
+    /// never finished a profile, and #19 removed the post-auth gate — so signing in
+    /// returns a token and lands on the tab bar whether or not the profile is complete.
+    func testLogInWithAnExistingAccountLandsInTheApp() throws {
         let app = launch()
         let email = Self.freshEmail()
 
@@ -90,8 +83,8 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         tap(submit, in: app)
 
         XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 15),
-            "Log in did not restore the session and route to the unfinished questionnaire"
+            app.buttons["tab.home"].waitForExistence(timeout: 15),
+            "Log in did not restore the session and land in the app"
         )
     }
 
@@ -198,8 +191,8 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         )
 
         XCTAssertFalse(
-            app.staticTexts["A little about you"].exists,
-            "A duplicate sign-up still routed into the questionnaire"
+            app.buttons["tab.calendar"].exists,
+            "A duplicate sign-up still routed into the app"
         )
     }
 
@@ -289,7 +282,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         // credential at all — treating `eva://activated` or a foreground as proof of
         // session — and sign-up starting to capture a password again.
         XCTAssertFalse(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 5),
+            app.buttons["tab.home"].waitForExistence(timeout: 5),
             "The gate advanced by itself, which would need a password the app is not given"
         )
         XCTAssertTrue(
@@ -303,7 +296,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         // asserted, just via the path that exists.
         signIn(app, email: email, password: Self.password)
         XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 20),
+            app.buttons["tab.home"].waitForExistence(timeout: 20),
             "The account did not get in after the link was opened and the password typed"
         )
     }
@@ -355,7 +348,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
     /// hittable at a corner that pokes out — so the frames are compared too.
     ///
     /// Sign-up is the screen that had the bug and is the one measured here. Log in draws
-    /// the same scaffold, and `testLogInWithAnExistingAccountResumesTheQuestionnaire`
+    /// the same scaffold, and `testLogInWithAnExistingAccountLandsInTheApp`
     /// taps its CTA straight after typing into its password field, which is the same
     /// keyboard-up condition without the frame arithmetic.
     func testTheFooterStaysReachableWithTheKeyboardUp() throws {

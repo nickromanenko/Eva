@@ -8,7 +8,6 @@ final class AppSession {
     enum State {
         case loading
         case signedOut
-        case needsQuestionnaire
         case ready
         /// We have a token we could not validate, and we have **kept** it.
         ///
@@ -83,7 +82,7 @@ final class AppSession {
             }
             guard generation == sessionGeneration else { return }
             user = response.user
-            state = response.user.questionnaireCompleted ? .ready : .needsQuestionnaire
+            state = .ready
         } catch APIError.sessionExpired {
             // Dead today, and deliberately so. `authorized(_:)` has already cleared the
             // token and signed out, and `logOut()` bumps the generation — so the guard
@@ -227,8 +226,20 @@ final class AppSession {
         }
         guard generation == sessionGeneration else { return }
         user = response.user
-        // Stay in the onboarding flow for the done screen; enterDashboard()
-        // completes the transition.
+    }
+
+    /// Dismisses the "complete your profile" nudge, server-side (#19).
+    ///
+    /// The flag lives on `users/{uid}` so a dismissal made on one device is not asked again
+    /// on a second. It never blocks anything: the only side effect is the flag, and the
+    /// Profile route and every other write keep working regardless.
+    func dismissProfileNudge() async throws {
+        let generation = sessionGeneration
+        let response: UserResponse = try await authorized {
+            try await client.post("/me/profile-nudge/dismiss", body: EvaEmptyBody(), authorized: true)
+        }
+        guard generation == sessionGeneration else { return }
+        user = response.user
     }
 
     /// Deletes the account server-side, then drops the local session. The server does not
@@ -267,10 +278,6 @@ final class AppSession {
         // like, for an account that still exists. Same class as #59, reached differently.
         guard response.deleted else { throw APIError.decoding }
         logOut()
-    }
-
-    func enterDashboard() {
-        state = .ready
     }
 
     // MARK: - Calendar
@@ -505,7 +512,7 @@ final class AppSession {
             assertionFailureInDebug("Keychain refused to store the session token")
         }
         user = response.user
-        state = response.user.questionnaireCompleted ? .ready : .needsQuestionnaire
+        state = .ready
     }
 }
 

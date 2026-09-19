@@ -3,16 +3,12 @@ import XCTest
 /// The units setting end to end (#82): the locale picks it, Settings overrides it, and
 /// the override wins on a screen the locale would have decided differently.
 ///
-/// ## Why two of these need no account
+/// ## Where the body metrics live now
 ///
-/// `EVA_ONBOARDING_STEP=2` opens the questionnaire's first step with no session, so the
-/// two locale tests never sign up, never reach the API and never leave an account for the
-/// cleanup sweep. That is not only cheaper: a suite that signs up cannot tell a units
-/// regression from #208's missing `api/node_modules`, because both present as a failure
-/// at sign-up.
-///
-/// The third test does need Profile, and Profile needs a session, so it signs up like
-/// `ProfileLogOutUITests` does.
+/// #19 moved the questionnaire into Profile, so the weight and height steppers this suite
+/// reads live on Profile ▸ Body measurements rather than on a post-auth step. That means a
+/// session is needed to reach them — the suite signs up, where it used to open the
+/// questionnaire with no account.
 ///
 /// ## The locale is set the way the simulator sets it
 ///
@@ -25,12 +21,9 @@ final class UnitsUITests: EvaUITestCase {
     // MARK: Locale decides, with no override
 
     func testAUSLocaleTypesWeightInPoundsAndHeightInFeetAndInches() throws {
-        let app = launchQuestionnaire(locale: "en_US", language: "en-US")
-
-        XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 20),
-            "EVA_ONBOARDING_STEP did not open the questionnaire"
-        )
+        let app = launch(locale: "en_US", language: "en-US")
+        signUpAndActivate(app, email: Self.freshEmail())
+        openBodyMeasurements(app)
 
         XCTAssertTrue(
             element("stepper.weight.pounds", in: app).exists,
@@ -66,12 +59,9 @@ final class UnitsUITests: EvaUITestCase {
         // `Locale.MeasurementSystem` calls en_GB `.uk`, and the obvious reading of that is
         // stones. #82's acceptance criterion says otherwise — "with `en_GB`, kg and cm" —
         // and this is the test that holds the app to it.
-        let app = launchQuestionnaire(locale: "en_GB", language: "en-GB")
-
-        XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 20),
-            "EVA_ONBOARDING_STEP did not open the questionnaire"
-        )
+        let app = launch(locale: "en_GB", language: "en-GB")
+        signUpAndActivate(app, email: Self.freshEmail())
+        openBodyMeasurements(app)
 
         XCTAssertTrue(
             element("stepper.weight.kilograms", in: app).exists,
@@ -97,35 +87,20 @@ final class UnitsUITests: EvaUITestCase {
     // MARK: The override beats the locale, and outlives the launch
 
     func testTheSettingsOverrideBeatsTheLocaleAndSurvivesRelaunch() throws {
-        let app = XCUIApplication()
-        app.launchArguments += Self.localeArguments(locale: "en_US", language: "en-US")
-        launch(app)
+        let app = launch(locale: "en_US", language: "en-US")
+        signUpAndActivate(app, email: Self.freshEmail())
 
-        let email = Self.freshEmail()
-        signUpAndActivate(app, email: email)
-
-        // The locale is in force on the way in: this is the same assertion as the first
-        // test, made on the account path so the override below has something to beat.
+        // The locale is in force on the way in: a US device types height in feet.
+        openBodyMeasurements(app)
         XCTAssertTrue(
-            element("stepper.height.feet", in: app).waitForExistence(timeout: 10),
-            "A US locale did not reach the questionnaire in feet"
+            element("stepper.height.feet", in: app).exists,
+            "A US locale did not reach Body measurements in feet"
         )
 
-        completeQuestionnaire(app)
-        XCTAssertTrue(
-            app.staticTexts["You're all set"].waitForExistence(timeout: 15),
-            "Questionnaire submission did not reach the done screen"
-        )
-        tap(app.buttons["primary.Enter Eva"], in: app)
-
-        // MARK: Profile ▸ Units
-
-        tap(app.buttons["tab.profile"], in: app)
+        // Back to Profile, then the Units row.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         let row = app.buttons["profile.units"]
-        XCTAssertTrue(
-            row.waitForExistence(timeout: 10),
-            "Profile has no Units row — the canvas puts one in Eva experience"
-        )
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Profile has no Units row")
         XCTAssertEqual(
             row.label, "Units, Imperial",
             "The Units row is not showing what the US locale gave it"
@@ -133,10 +108,7 @@ final class UnitsUITests: EvaUITestCase {
 
         tap(row, in: app)
         let metric = app.buttons["units.option.metric"]
-        XCTAssertTrue(
-            metric.waitForExistence(timeout: 10),
-            "The Units row did not open a screen with the options on it"
-        )
+        XCTAssertTrue(metric.waitForExistence(timeout: 10), "The Units row did not open its screen")
         XCTAssertTrue(
             app.buttons["units.option.imperial"].isSelected,
             "The Units screen opened with nothing selected, or with the wrong option selected"
@@ -146,10 +118,7 @@ final class UnitsUITests: EvaUITestCase {
 
         // Back to Profile — the row is the one place the setting is visible from outside.
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(
-            row.waitForExistence(timeout: 10),
-            "The back button did not return to Profile"
-        )
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "The back button did not return to Profile")
         XCTAssertEqual(
             row.label, "Units, Metric",
             "The Units row did not follow the choice made on the screen behind it"
@@ -157,28 +126,21 @@ final class UnitsUITests: EvaUITestCase {
 
         // MARK: The override, on a screen the locale would have decided differently
         //
-        // Logging out and relaunching *without* `EVA_UITEST_RESET` is the only way to see
-        // the difference: the reset hook is what clears the stored choice, so a relaunch
-        // that keeps it is a relaunch a real user would have. The locale arguments stay,
-        // so this is still a US device — and the questionnaire has to come up metric.
-
-        tap(app.buttons["profile.logout"], in: app)
-        XCTAssertTrue(
-            app.textFields["signup.email"].waitForExistence(timeout: 10),
-            "Log out did not return the app to signed-out onboarding"
-        )
+        // Relaunching *without* `EVA_UITEST_RESET` keeps the stored choice; the reset hook
+        // is what clears it, so a relaunch that keeps it is a relaunch a real user would
+        // have. The locale arguments stay, so this is still a US device — and Body
+        // measurements has to come up metric.
 
         app.terminate()
         app.launchEnvironment.removeValue(forKey: "EVA_UITEST_RESET")
-        app.launchEnvironment["EVA_ONBOARDING_STEP"] = "2"
         app.launch()
 
+        openBodyMeasurements(app)
         XCTAssertTrue(
             element("stepper.height.centimeters", in: app).waitForExistence(timeout: 20),
             """
-            After a relaunch on a US device, the questionnaire is not in the units the \
-            user chose — either the override did not survive, or the locale is still \
-            winning.
+            After a relaunch on a US device, Body measurements is not in the units the user \
+            chose — either the override did not survive, or the locale is still winning.
             """
         )
         XCTAssertFalse(
@@ -193,15 +155,11 @@ final class UnitsUITests: EvaUITestCase {
 
     // MARK: - Launch helpers
 
-    /// The questionnaire's first step, on a device with this locale, with no account.
-    private func launchQuestionnaire(locale: String, language: String) -> XCUIApplication {
+    /// The app on a device with this locale.
+    private func launch(locale: String, language: String) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchEnvironment["EVA_UITEST_RESET"] = "1"
-        app.launchEnvironment["EVA_API_BASE_URL"] = Self.apiBaseURL
-        app.launchEnvironment["EVA_ONBOARDING_STEP"] = "2"
         app.launchArguments += Self.localeArguments(locale: locale, language: language)
-        app.launch()
-        return app
+        return launch(app)
     }
 
     /// What the simulator itself passes when its Language & Region is set, and what a
@@ -209,16 +167,5 @@ final class UnitsUITests: EvaUITestCase {
     /// leaves the language list disagreeing with it.
     private static func localeArguments(locale: String, language: String) -> [String] {
         ["-AppleLocale", locale, "-AppleLanguages", "(\(language))"]
-    }
-
-    /// An element by identifier, whatever XCUITest decided to call its type.
-    ///
-    /// A `StepperCard` row is an accessibility *container* and its value is an element
-    /// built out of two `Text`s, and which of `otherElements` / `staticTexts` each lands
-    /// in is an implementation detail of SwiftUI's accessibility tree — one that has
-    /// moved between iOS releases before. The identifier is the contract (GUARDRAILS 22);
-    /// the element type is not.
-    private func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 }

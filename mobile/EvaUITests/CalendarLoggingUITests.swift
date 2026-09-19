@@ -116,12 +116,6 @@ final class CalendarLoggingUITests: EvaUITestCase {
         createdAccountEmail = email
 
         signUpAndActivate(app, email: email)
-        completeQuestionnaire(app)
-        XCTAssertTrue(
-            app.staticTexts["You're all set"].waitForExistence(timeout: 15),
-            "Questionnaire submission did not reach the done screen"
-        )
-        tap(app.buttons["primary.Enter Eva"], in: app)
         // Home is the landing tab since #99; the calendar is one tap away.
         tap(app.buttons["tab.calendar"], in: app)
         XCTAssertTrue(

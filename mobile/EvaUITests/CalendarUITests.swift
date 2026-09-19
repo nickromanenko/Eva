@@ -94,12 +94,6 @@ final class CalendarUITests: EvaUITestCase {
         // MARK: An account, and the landing surface
 
         signUpAndActivate(app, email: email)
-        completeQuestionnaire(app)
-        XCTAssertTrue(
-            app.staticTexts["You're all set"].waitForExistence(timeout: 15),
-            "Questionnaire submission did not reach the done screen"
-        )
-        tap(app.buttons["primary.Enter Eva"], in: app)
 
         XCTAssertTrue(
             app.buttons["tab.calendar"].waitForExistence(timeout: 15),
