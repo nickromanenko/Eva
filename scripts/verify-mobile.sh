@@ -19,6 +19,11 @@ SIMULATOR=${EVA_SIMULATOR_ID:-D748EB89-9D96-4D48-9033-9AC0DA65FE7A}
 # udid under both arm64 and x86_64, so xcodebuild warns "using the first of multiple
 # matching destinations" and an operator cannot say which binary was built. arm64 is the
 # native arch everywhere Xcode 26 runs — it dropped Intel — so the pin is stable, not a guess.
+# The result bundle has a fixed name so `test-mobile.yml` can upload it (#228): the default
+# lands at a timestamped path under the derived data and cannot be found without a glob.
+# `mobile/build/` is gitignored. Removed first so a local re-run does not hit "already exists".
+RESULT_BUNDLE="$ROOT/mobile/build/Eva.xcresult"
+rm -rf "$RESULT_BUNDLE"
 BUILD_ONLY=0
 [ "${1:-}" = "--build" ] && BUILD_ONLY=1
 FAILED=0
@@ -72,7 +77,7 @@ if [ "$BUILD_ONLY" = "1" ]; then
   (cd "$ROOT/mobile" && xcodebuild \
     -project Eva.xcodeproj -scheme Eva \
     -destination "platform=iOS Simulator,id=$SIMULATOR,arch=arm64" \
-    -derivedDataPath build build-for-testing) || FAILED=1
+    -derivedDataPath build -resultBundlePath "$RESULT_BUNDLE" build-for-testing) || FAILED=1
 else
   # The UI test signs up for real, so it needs the API up.
   api_ensure_up || exit 1
@@ -117,7 +122,7 @@ else
     TEST_RUNNER_EVA_MAILBOX_URL="$MAILBOX_URL" xcodebuild \
     -project Eva.xcodeproj -scheme Eva \
     -destination "platform=iOS Simulator,id=$SIMULATOR,arch=arm64" \
-    -derivedDataPath build test) || FAILED=1
+    -derivedDataPath build -resultBundlePath "$RESULT_BUNDLE" test) || FAILED=1
 
   echo "▶ cleanup sweep (e2e accounts created by the UI test)"
   (cd "$ROOT/api" && bun run "$ROOT/scripts/e2e-cleanup.ts") || FAILED=1

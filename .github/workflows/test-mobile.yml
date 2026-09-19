@@ -149,6 +149,25 @@ jobs:
       - name: Build
         run: scripts/verify-mobile.sh --build
 
+      # The .xcresult, uploaded on success AND failure — the failing run is the one worth
+      # reading. It carries the build log (or per-test results, failure messages,
+      # attachments, timings and the accessibility hierarchy captured at each failure), and a
+      # discarded bundle turns a one-query question into a 25-45 minute re-dispatch (#228).
+      # `du -sh` reports the size on every run so it is checked, not assumed; retention-days
+      # is the storage control (a bundle is tens to low hundreds of MB with screenshots).
+      - name: Record xcresult size
+        if: always()
+        run: du -sh mobile/build/Eva.xcresult 2>/dev/null || echo "no xcresult produced"
+
+      - name: Upload xcresult
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-${{ github.job }}-run${{ github.run_id }}-${{ github.sha }}
+          path: mobile/build/Eva.xcresult
+          if-no-files-found: ignore
+          retention-days: 5
+
   suite:
     # Not on pull_request — see the header. This is the 10x-billed job.
     name: Full suite (emulators)
@@ -231,3 +250,18 @@ jobs:
         env:
           FIREBASE_CLI: bunx firebase-tools@15
         run: scripts/ci-mobile.sh
+
+      # Same upload as the build job — see the comment there. The suite's bundle is the one
+      # with real weight: per-test results and the accessibility hierarchy at each failure.
+      - name: Record xcresult size
+        if: always()
+        run: du -sh mobile/build/Eva.xcresult 2>/dev/null || echo "no xcresult produced"
+
+      - name: Upload xcresult
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-${{ github.job }}-run${{ github.run_id }}-${{ github.sha }}
+          path: mobile/build/Eva.xcresult
+          if-no-files-found: ignore
+          retention-days: 5
