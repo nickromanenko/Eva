@@ -1131,9 +1131,11 @@ gcloud run jobs execute eva-purge-events --region "$REGION"   # manual productio
 ```
 
 **In production it is a Cloud Run job**, built from the same image as the service with the
-entrypoint overridden, triggered daily by Cloud Scheduler. **A human must create both —
-this repo does not, and `Deploy API` does not either.** Until they exist, nothing purges
-and deleted events accumulate; the code is inert, not wrong. What is needed:
+entrypoint overridden, triggered daily by Cloud Scheduler. **A human must create it — this
+repo does not.** Once it exists, `Deploy API` points it at each newly deployed image, so it
+cannot drift onto stale retention code; its env and secrets are set at creation and do not
+change with code deploys. Until it exists, nothing purges and deleted events accumulate;
+the code is inert, not wrong. What is needed:
 
 ```sh
 gcloud run jobs create eva-purge-events \
