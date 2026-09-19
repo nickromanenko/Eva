@@ -59,11 +59,33 @@ struct CalendarLegend: View {
             // all nine after one. That is #213's finding met a second time, and it is why
             // `CalendarPredictionUITests` reveals this card before reading it.
             //
-            // Left lazy all the same. VoiceOver reaches these rows by scrolling, the way it
-            // reaches any lazy content on any screen, so nothing a reader does is blocked by
-            // it; and the two-column geometry here is the artboard's, which a hand-rolled
-            // stack of `HStack`s would have to reproduce by eye. If a row ever has to be
-            // readable without scrolling, that is the trade to revisit.
+            // **Left lazy all the same, and the alternative has now been built and thrown
+            // away rather than guessed at.** Three things came out of that, in the order
+            // they matter:
+            //
+            // 1. Nothing a reader does is blocked by this. VoiceOver reaches these rows by
+            //    scrolling, the way it reaches any lazy content on any screen. The absence
+            //    is from a *snapshot* of the hierarchy, not from the reader's path through
+            //    it, and mistaking one for the other is what #80 did.
+            // 2. The geometry is not the obstacle. A `VStack` of `HStack` pairs, each cell
+            //    at `.frame(maxWidth: .infinity, alignment: .leading)` with an 8pt gutter,
+            //    renders *pixel-identical* to this grid — checked through `EvaRaster` at
+            //    320, 350 and 402pt, every pixel and every ink count equal. The comment
+            //    that used to sit here said a hand-rolled stack would have to reproduce
+            //    the columns by eye; it does not.
+            // 3. **The obstacle is the identifier, and it is the reason this stays.** Under
+            //    `LazyVGrid` a row built with `children: .combine` keeps its own
+            //    `calendar.legend.row`. Under a plain stack it loses it to the card's
+            //    `calendar.legend` — measured at eleven elements for the card's identifier
+            //    and *zero* for the row's, with all nine rows published and correctly
+            //    labelled the whole time. Three arrangements were tried and all three lost
+            //    it: the half-width frame outside `row`, inside it above the accessibility
+            //    modifiers, and on the label instead.
+            //
+            // So the trade is real but it runs the other way: going eager buys a hierarchy
+            // snapshot that needs no scroll, and costs the hook `CalendarPredictionUITests`
+            // addresses these rows by. Revisit if SwiftUI stops flattening an inner
+            // identifier onto an ancestor's — not because the columns look hard.
             LazyVGrid(columns: columns, alignment: .leading, spacing: EvaSpacing.xs) {
                 row {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
