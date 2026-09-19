@@ -72,6 +72,7 @@ import {
 } from './today'
 import {
   CONDITION_CODES,
+  CONSENT_KINDS,
   MEDICATION_CODES,
   bumpTokenVersion,
   deleteUserDocument,
@@ -79,13 +80,16 @@ import {
   ensureUser,
   getAccount,
   getUser,
+  hasCollectConsent,
   isActivated,
   markActivated,
   markUserDeleted,
   readUser,
+  saveConsent,
   saveNutritionSetting,
   saveQuestionnaire,
   type ConditionCode,
+  type ConsentKind,
   type Profile,
   type User,
 } from './users'
@@ -466,6 +470,31 @@ const requireAccount = createMiddleware<{
     return c.json(error('UNAUTHORIZED', 'Invalid or expired token'), 401)
   }
   c.set('account', account.user)
+  await next()
+})
+
+/**
+ * The collection gate (A21, #86): nothing that writes health data runs without a collect
+ * consent on record.
+ *
+ * It sits *after* `requireAccount` in the chain and reads the user that gate already
+ * loaded, so the check is one field read and not a second Firestore round trip — the same
+ * bargain `requireAccount`'s own comment describes. Both shapes of "no" answer the same
+ * `403 CONSENT_REQUIRED`: an account that has never been asked (every pre-#86 account,
+ * every new one until the screen is through) and one that withdrew (the freeze, which
+ * stops collection without deleting anything). The client tells the two apart from
+ * `GET /me`'s consent record, not from the error — the remedy is the same screen either
+ * way, and the message says what is true of both.
+ */
+const requireCollectConsent = createMiddleware<{
+  Variables: { claims: TokenClaims; account: User }
+}>(async (c, next) => {
+  if (!hasCollectConsent(c.get('account'))) {
+    return c.json(
+      error('CONSENT_REQUIRED', 'Eva stores nothing about your health until you consent to it'),
+      403,
+    )
+  }
   await next()
 })
 
@@ -1567,7 +1596,43 @@ app.delete('/me', requireAuth, async (c) => {
   return c.json({ deleted: true })
 })
 
-app.put('/me/questionnaire', requireAuth, requireAccount, async (c) => {
+/**
+ * Records or withdraws one consent kind (A21, #86). `kind` is `collect` or `share`;
+ * `granted: true` records the consent with the `version` of the text the client showed,
+ * `granted: false` withdraws — the freeze, not a delete: the record keeps its version and
+ * its `at`, and gains `withdrawnAt`. Withdrawal takes no version, because the text being
+ * withdrawn from is the one already recorded.
+ *
+ * `share` is accepted and stored although it governs nothing today (its scope is on
+ * #86): the vendor list the screen names is what a future share decision hangs from, and
+ * a consent the API refused to record would make the screen's second toggle a lie.
+ */
+app.put('/me/consent/:kind', requireAuth, requireAccount, async (c) => {
+  const kind = c.req.param('kind')
+  if (!isOneOf(kind, CONSENT_KINDS)) {
+    return c.json(error('NOT_FOUND', 'No such consent kind'), 404)
+  }
+  const body = await c.req.json().catch(() => ({}))
+  if (typeof body.granted !== 'boolean') {
+    return c.json(error('VALIDATION', 'granted must be a boolean'), 400)
+  }
+  let version = ''
+  if (body.granted) {
+    // The version names the text she actually saw. The server keeps no table to check it
+    // against — re-prompting works by the recorded version differing from the next one —
+    // but a consent with no version could never be told from any other, so there is no
+    // such record.
+    version = typeof body.version === 'string' ? body.version.trim() : ''
+    if (version.length === 0 || version.length > 64) {
+      return c.json(error('VALIDATION', 'version is required when granting consent'), 400)
+    }
+  }
+  const user = await saveConsent(c.get('claims').sub, kind, body.granted, version)
+  if (!user) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
+  return c.json({ user })
+})
+
+app.put('/me/questionnaire', requireAuth, requireAccount, requireCollectConsent, async (c) => {
   const body = await c.req.json().catch(() => ({}))
   // The caller's own day, the way every calendar route resolves it, because the 18+ floor
   // is measured against it: UTC-12..UTC+14 means the server's date is a different day from
@@ -2228,14 +2293,14 @@ app.get('/me/events', requireAuth, requireAccount, async (c) => {
   })
 })
 
-app.post('/me/events', requireAuth, requireAccount, async (c) => {
+app.post('/me/events', requireAuth, requireAccount, requireCollectConsent, async (c) => {
   const body = await c.req.json().catch(() => ({}))
   const parsed = parseNewEvent(body, await getSymptomRules())
   if (!parsed.ok) return c.json(error(parsed.code, parsed.message), 400)
   return c.json({ event: await createEvent(c.get('claims').sub, parsed.value) }, 201)
 })
 
-app.patch('/me/events/:id', requireAuth, requireAccount, async (c) => {
+app.patch('/me/events/:id', requireAuth, requireAccount, requireCollectConsent, async (c) => {
   const body = await c.req.json().catch(() => ({}))
   // `type` and `localDate` are always required: with both, every payload and
   // timestamp rule can be checked here instead of after a read in the module.
@@ -2287,7 +2352,7 @@ app.delete('/me/events/:id', requireAuth, requireAccount, async (c) => {
 
 /** Undo for the delete toast. Nothing to validate — the id is the whole request, and
  *  what may be restored is a question about stored state, which the module answers. */
-app.post('/me/events/:id/restore', requireAuth, requireAccount, async (c) => {
+app.post('/me/events/:id/restore', requireAuth, requireAccount, requireCollectConsent, async (c) => {
   const result = await restoreEvent(c.get('claims').sub, c.req.param('id'))
   if (result.ok) return c.json({ event: result.event })
   if (result.reason === 'day-taken') {
@@ -2309,7 +2374,7 @@ app.post('/me/events/:id/restore', requireAuth, requireAccount, async (c) => {
 
 /** Upsert-by-day: one body signals entry per user per day, always replaced whole.
  *  The ratings sit at the top level here — the route already says what this is. */
-app.put('/me/body-signals/:date', requireAuth, requireAccount, async (c) => {
+app.put('/me/body-signals/:date', requireAuth, requireAccount, requireCollectConsent, async (c) => {
   const body = await c.req.json().catch(() => ({}))
   const localDate = c.req.param('date')
   if (!isCalendarDate(localDate)) {

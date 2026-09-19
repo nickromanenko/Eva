@@ -179,7 +179,7 @@ it is what Eva can and cannot hand over:
 |---|---|---|
 | Consumer-health-data privacy policy (WA-compliant) and general privacy policy | website `/privacy`, linked from sign-up | *counsel* |
 | Terms of service incl. subscription terms, medical disclaimer, 18+ | website `/terms` | *counsel* |
-| **Consent screen** in onboarding: two separate opt-ins (collect / share), withdrawable in Settings | canvas + mobile + `users/{uid}` (schema change) | L3 |
+| **Consent screen** in onboarding: two separate opt-ins (collect / share), withdrawable in Settings — **built (#86)**: screen, consent record, API refusal gate, Settings › Privacy withdrawal | canvas + mobile + `users/{uid}` (schema change) | copy awaits counsel (L3) |
 | Rights mechanism: access + export (#58), deletion (#8 ✓), withdraw consent, 45-day SLA | api + Settings | #58 |
 | Breach-response runbook with the 60-day / 72-hour clocks and contact lists | `docs/` | L8 |
 | Data map and DPIA | `docs/` | — |
@@ -335,9 +335,14 @@ under every regime in §2.
 ### 4.6 Consent and the first-run flow
 
 The Washington rule (§2.2) and GDPR Article 9 both want explicit, separate, withdrawable
-consent *before* collection. That is a screen the canvas does not have, between
-activation and the first log, and a stored, timestamped consent record on `users/{uid}`
-(schema change). It is the single largest undesigned screen this launch adds.
+consent *before* collection. Decision A21 (§6): one consent screen, two separate
+opt-ins, the strictest rule worldwide. **Built (#86)** — the canvas drew the screen; the
+app has it between authentication and the app, neither toggle pre-selected, the collect
+consent required to proceed, the share consent recorded although it governs nothing
+today; the API refuses health writes (`403 CONSENT_REQUIRED`) until `consent.collect`
+exists and treats withdrawal as the freeze; withdrawal and re-consent live in Settings ›
+Privacy. What remains here is counsel's review of the copy and the two-consent
+structure (L3) — a privacy-law defect if wrong, not a UI bug.
 
 ### 4.7 Website and marketing claims
 

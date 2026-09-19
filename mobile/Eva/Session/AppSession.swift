@@ -8,6 +8,14 @@ final class AppSession {
     enum State {
         case loading
         case signedOut
+        /// We have a session the server validated, and the account owes the consent
+        /// screen (#86): no collect consent on record, or one recorded against a text
+        /// this build no longer displays. The server refuses health writes either way —
+        /// this state is the screen that asks, not the enforcement. A **withdrawn**
+        /// consent never routes here: the freeze keeps her in the app with collection
+        /// stopped, and the way back is Settings › Privacy, not a gate that re-asks
+        /// what she has already declined.
+        case needsConsent
         case ready
         /// We have a token we could not validate, and we have **kept** it.
         ///
@@ -82,7 +90,7 @@ final class AppSession {
             }
             guard generation == sessionGeneration else { return }
             user = response.user
-            state = .ready
+            state = Self.state(for: response.user)
         } catch APIError.sessionExpired {
             // Dead today, and deliberately so. `authorized(_:)` has already cleared the
             // token and signed out, and `logOut()` bumps the generation — so the guard
@@ -240,6 +248,32 @@ final class AppSession {
         }
         guard generation == sessionGeneration else { return }
         user = response.user
+    }
+
+    /// Records or withdraws one consent kind (#86). The consent screen sends both of its
+    /// toggles through here on Continue; Settings › Privacy sends one at a time.
+    ///
+    /// The state is recomputed from the returned user rather than guessed at the call
+    /// site: a grant made from `.needsConsent` lands in `.ready`, and a withdrawal made
+    /// from Profile lands back in `.ready` too — the freeze is a state *in* the app, and
+    /// recomputing is what makes both paths the same code instead of two that drift.
+    func setConsent(_ kind: EvaConsentKind, granted: Bool) async throws {
+        let generation = sessionGeneration
+        let response: UserResponse = try await authorized {
+            try await client.put(
+                "/me/consent/\(kind.rawValue)",
+                body: ConsentRequestBody(
+                    granted: granted,
+                    // Withdrawal sends no version: the text being withdrawn from is the
+                    // one the record already holds.
+                    version: granted ? ConsentPolicy.version : nil
+                ),
+                authorized: true
+            )
+        }
+        guard generation == sessionGeneration else { return }
+        user = response.user
+        state = Self.state(for: response.user)
     }
 
     /// Deletes the account server-side, then drops the local session. The server does not
@@ -512,7 +546,17 @@ final class AppSession {
             assertionFailureInDebug("Keychain refused to store the session token")
         }
         user = response.user
-        state = .ready
+        state = Self.state(for: response.user)
+    }
+
+    /// Which state a session for `user` lands in: the app, or the consent screen (#86).
+    ///
+    /// One seam for both places a session is born — sign-in (`apply`) and launch
+    /// (`bootstrap`) — so the two can never disagree about who owes the screen. A session
+    /// that carries a user at all has been validated by the server; what is decided here
+    /// is only whether the consent record it sent names the text this build displays.
+    private static func state(for user: APIUser) -> State {
+        user.needsConsentGate(currentVersion: ConsentPolicy.version) ? .needsConsent : .ready
     }
 }
 

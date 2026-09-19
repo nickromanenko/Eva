@@ -48,12 +48,18 @@ struct APIUser: Decodable {
     /// and `GET /me` threw the same at every launch afterwards, which `bootstrap()` reads
     /// as `.unreachable` (#215).
     let profile: APIProfile?
+    /// The account's consent record (#86), as the API serves it. `nil` when the API does
+    /// not send `consent` at all — an API that predates #86 also has no refusal gate, so
+    /// a nil here means "this server never asks", not "she never consented", and the
+    /// session must not be gated on it. A sent-but-empty record is the real never-asked
+    /// state, and that one does gate.
+    let consent: APIUserConsent?
 
     /// Spelled out rather than synthesized. `Codable` used to generate it as a side effect
     /// of the `Encodable` half nothing ever called; a type with a hand-written
     /// `init(from:)` and no encoding to synthesize gets no keys of its own.
     private enum CodingKeys: String, CodingKey {
-        case id, email, questionnaireCompleted, activated, authProviders, profileNudgeDismissed, profile
+        case id, email, questionnaireCompleted, activated, authProviders, profileNudgeDismissed, profile, consent
     }
 
     init(from decoder: Decoder) throws {
@@ -65,6 +71,7 @@ struct APIUser: Decodable {
         authProviders = try container.decodeIfPresent([String].self, forKey: .authProviders) ?? []
         profileNudgeDismissed = try container.decodeIfPresent(Bool.self, forKey: .profileNudgeDismissed) ?? false
         profile = try container.decodeIfPresent(APIProfile.self, forKey: .profile)
+        consent = try container.decodeIfPresent(APIUserConsent.self, forKey: .consent)
     }
 
     /// Whether an identity provider is attached to this account.
@@ -91,6 +98,42 @@ struct APIUser: Decodable {
     var needsProfileNudge: Bool {
         !questionnaireCompleted && !profileNudgeDismissed
     }
+
+    /// Whether this account still owes the consent screen (#86).
+    ///
+    /// Three ways to be past it, and each is its own line because each means something
+    /// different: an API that predates the field never asks (`consent == nil`); a record
+    /// with `withdrawnAt` set was asked, granted, and withdrawn — the freeze, which stops
+    /// collection without deleting anything and is *not* re-asked, because a screen that
+    /// demanded consent she has already declined would be nagging, and the remedy lives in
+    /// Settings › Privacy; and a granted record under the version this build displays is
+    /// the normal consented state. Anything else — no collect record, or one recorded
+    /// against a text this build no longer shows — is the screen again, which is the whole
+    /// point of storing the version: "if the terms change, Eva asks again" (canvas).
+    func needsConsentGate(currentVersion: String) -> Bool {
+        guard let consent else { return false }
+        guard let collect = consent.collect else { return true }
+        if collect.withdrawnAt != nil { return false }
+        return collect.version != currentVersion
+    }
+}
+
+/// The two consent kinds the API records (#86), keyed as `users/{uid}.consent` holds them.
+/// `share` governs nothing today — its scope is on #86 — and is still decoded, because a
+/// wire type that quietly drops what it is given is the same mistake seen from the other
+/// side.
+struct APIUserConsent: Decodable {
+    let collect: APIUserConsentRecord?
+    let share: APIUserConsentRecord?
+}
+
+/// One recorded consent: which text she saw (`version`), when she granted it (`at`), and
+/// whether she has withdrawn it since (`withdrawnAt`, `nil` while the grant stands). The
+/// instants arrive as ISO-8601 strings, as every timestamp the API serves does.
+struct APIUserConsentRecord: Decodable {
+    let version: String
+    let at: String
+    let withdrawnAt: String?
 }
 
 /// The profile as the API **returns** it: `users.ts`' `Profile`, field for field.
@@ -185,6 +228,21 @@ struct Credentials: Encodable {
 /// no longer creates an account.
 struct EmailAddress: Encodable {
     let email: String
+}
+
+/// The two consent kinds, in the API's own spelling — the `:kind` of `PUT /me/consent/:kind`
+/// (#86). The record on `users/{uid}` is keyed the same way.
+enum EvaConsentKind: String {
+    case collect
+    case share
+}
+
+/// The body `PUT /me/consent/:kind` takes (#86). `version` is present only when granting —
+/// it names the text the screen displayed; withdrawing sends `nil`, because the text being
+/// withdrawn from is the one the record already holds.
+struct ConsentRequestBody: Encodable {
+    let granted: Bool
+    let version: String?
 }
 
 /// What an identity provider handed the app, in the shape `POST /auth/idp` and
