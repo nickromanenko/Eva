@@ -206,6 +206,18 @@ export const getSymptomRules = async (): Promise<SymptomRules | null> => {
   return buildSymptomRules(data.catalogues.symptoms)
 }
 
+/**
+ * The symptom catalogue as `code → label`, or `null` when it is unseeded or unreadable.
+ * The Today card's `{signal}`/`{symptom}` slots resolve a stored code to its reviewed name
+ * through this, so a code the catalogue does not know — or a read that failed — leaves the
+ * slot unfilled rather than rendering the raw code at a user (#200).
+ */
+export const getSymptomLabels = async (): Promise<Map<string, string> | null> => {
+  const data = await getRefData().catch((): null => null)
+  if (!data || data.catalogues.symptoms.length === 0) return null
+  return new Map(data.catalogues.symptoms.map((item) => [item.code, item.label]))
+}
+
 // ── Editing ────────────────────────────────────────────────────────────────────
 // Catalogue edits are document writes, not deploys (PRD:483). These exist so the
 // seed script and tests do not reach into the collection themselves; a human

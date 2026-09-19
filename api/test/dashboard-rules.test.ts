@@ -909,6 +909,8 @@ const EVERY_SLOT: Record<Slot, true> = {
     postpartumDay: true,
     readMinutes: true,
     category: true,
+    signal: true,
+    symptom: true,
 };
 
 const everySubject = (): Subject[] => [
@@ -1225,13 +1227,20 @@ describe("every subject names a template the content store actually has", () => 
             const emitted = Object.keys(subject.slots);
             for (const slot of emitted) expect(template.slots).toContain(slot as Slot);
 
-            // And every slot it does declare is filled — with one known exception, pinned
-            // here rather than waved at: `home_edu`'s two slots describe the *article*, and
-            // choosing an article is not this slice's job, nor D3's. If that changes, this
-            // line is what fails.
+            // And every slot it does declare is filled — with two known exceptions, pinned
+            // here rather than waved at. `home_edu`'s two slots describe the *article*, and
+            // choosing an article is not this slice's job, nor D3's. `home_e`'s and
+            // `home_g`'s `signal` is filled by `resolveSignals` in `today.ts` (#200), not by
+            // the ladder: its value is reviewed copy (`content/` vocabulary) plus `refdata/`
+            // labels, which the pure, text-free ladder cannot read. If any of that changes,
+            // this line is what fails.
             const unfilled = template.slots.filter((slot) => !emitted.includes(slot)).sort();
             expect(unfilled).toEqual(
-                scenario.state === "home_edu" ? ["category", "readMinutes"] : [],
+                scenario.state === "home_edu"
+                    ? ["category", "readMinutes"]
+                    : scenario.state === "home_e" || scenario.state === "home_g"
+                      ? ["signal"]
+                      : [],
             );
         }
     });

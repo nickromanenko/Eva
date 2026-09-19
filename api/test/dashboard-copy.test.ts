@@ -13,7 +13,7 @@ import {
     type Subject,
     type TemplateId,
 } from "../src/dashboard-rules";
-import type { Template } from "../src/content";
+import type { SignalVocabulary, Template } from "../src/content";
 import type { Phraser } from "../src/today";
 
 /**
@@ -643,7 +643,7 @@ const AUDIT: Record<TemplateId, Audited> = {
         state: "home_e",
         copy: {
             kicker: "Cycle day {cycleDay}",
-            title: "Eva is reading what you logged, not what the phase predicts",
+            title: "You logged {signal}",
             line2: "Your phase is context for what you reported, not a substitute for it.",
             line3: "Sleep, stress and iron affect daily energy more than cycle phase.",
             actions: ["Review what I logged"],
@@ -651,23 +651,15 @@ const AUDIT: Record<TemplateId, Audited> = {
         claims: {
             kicker: null,
             title: {
-                // **It names no signal and no clock, and neither was fixable by naming them
-                // better.** The old title asserted a low energy rating, a low sleep rating
-                // and a morning; the rung selects this card for *any* observed entry in
-                // cycle mode with a speakable phase, so severe cramps with ratings of 5 got
-                // it too. A `{signal}` slot is not the escape: `dashboard-rules.ts` holds
-                // symptom *codes* and never words by design, `SLOTS` has no key that takes
-                // one, and the phraser only substitutes what the subject already carries —
-                // so nothing in this system can turn a rating of 1 into "low energy". And
-                // the window that picked the entry is 24 hours wide, so "this morning" was
-                // false for anything logged the previous evening.
-                //
-                // What is left is the two facts the rung itself guarantees, which is a
-                // duller card than the canvas drew. The card that names what she logged
-                // needs a reviewed phrase vocabulary — codes and rating bands to words —
-                // and that is a slice, not a copy edit.
-                says: "she logged something inside the observed window, and a phase Eva could have spoken from is not what the card is speaking from",
-                holds: (c) => observed(c) !== null && phaseOf(c) !== null,
+                // **#200 gives this title its content back.** #202 had demoted it to "Eva is
+                // reading what you logged, not what the phase predicts", because nothing could
+                // turn a rating of 1 into "low energy". The `{signal}` slot is filled by
+                // `resolveSignals` from the observed entry — a low rating, a symptom, or "body
+                // signals" — and every one of those is true of the entry by construction. The
+                // phrase's own truth is a pure function, unit-tested in `phraseForEntry`
+                // below; the claim here holds the one thing the title always asserts.
+                says: "she logged something inside the observed window, and the title names it",
+                holds: (c) => observed(c) !== null,
             },
             line2: {
                 // PRD §Dashboard's own sentence for this card — "The phase is context for
@@ -713,7 +705,7 @@ const AUDIT: Record<TemplateId, Audited> = {
         state: "home_g",
         copy: {
             kicker: "Logged · last 24 hours",
-            title: "Your own log comes first",
+            title: "You logged {signal}",
             line2: "Eva can see what you logged but not what caused it.",
             actions: ["Review what I logged"],
         },
@@ -727,13 +719,14 @@ const AUDIT: Record<TemplateId, Audited> = {
                 holds: (c) => observed(c) !== null,
             },
             title: {
-                // **#177's headline case, and it names nothing on purpose.** Every logged
-                // day in the four non-cycle modes reaches this card, as do severe-symptom,
-                // low-energy-only and low-mood runs in cycle mode — so "low energy and a
-                // headache" was false in 1,351 of the 1,460 cases that render it. The only
-                // things true of all of them are that she logged, and that this card leads
-                // with it rather than with a phase. Same slot wall as `home_e`'s title.
-                says: "she logged something, and it is what this card is about",
+                // **#200 gives this title its content back.** #202 demoted it to "Your own
+                // log comes first", because "low energy and a headache" was false for every
+                // other combination the rung routes here. The `{signal}` slot is filled by
+                // `resolveSignals` from the observed entry, and every value it can carry —
+                // a low rating, a symptom, "body signals" — is true of the entry by
+                // construction. Same as `home_e`'s title: the claim holds the invariant, and
+                // `phraseForEntry`'s cases below hold the phrases themselves.
+                says: "she logged something, and the title names it",
                 holds: (c) => observed(c) !== null,
             },
             // `home_h`'s "Eva can see the pattern but not its cause", in the singular: a
@@ -1034,16 +1027,25 @@ beforeAll(async () => {
     // Imported here, not at the top of the file: the seed pulls in `content.ts`, and `today.ts`
     // pulls in `config.ts` and the Admin SDK. Same reason `dashboard-rules.test.ts` does it
     // this way, and the types both files need are `import type`, which is erased.
-    TEMPLATES = (await import("../scripts/seed-content")).TEMPLATES;
+    const seed = await import("../scripts/seed-content");
+    TEMPLATES = seed.TEMPLATES;
     byId = new Map(TEMPLATES.map((t) => [t.id, t]));
     // **#173's phraser, not a re-implementation of it.** This file used to carry its own
     // `fill` — the slot semantics matched, but a copy of the thing under audit is one edit
     // away from auditing something nobody ships. `TemplatePhraser` also filters on
     // confidence, which the copy did not; the case below is what says the two agree.
-    phraser = new (await import("../src/today")).TemplatePhraser();
+    const today = await import("../src/today");
+    phraser = new today.TemplatePhraser();
+    // #200's signal resolution, run with the seeded vocabulary and catalogue — the same
+    // inputs production reads from `content/` and `refdata/`, so the audit exercises the
+    // real resolution rather than a copy of it.
+    const VOCAB = seed.VOCABULARY;
+    const symptoms = (await import("../scripts/seed-refdata")).DEFAULT_CATALOGUES.symptoms;
+    const LABELS = new Map(symptoms.map((s) => [s.code, s.label]));
+    const labelFor = (code: string): string | null => LABELS.get(code) ?? null;
 
     WALK = CASES.map((c) => {
-        const subject = selectSubject(c.input, c.rules);
+        const subject = today.resolveSignals(selectSubject(c.input, c.rules), c.input, VOCAB, labelFor);
         const template = byId.get(subject.templateId);
         if (!template) throw new Error(`the seed has no template ${subject.templateId}`);
         // Whatever the phraser leaves out did not render: an unfilled slot removes its line,
@@ -1275,5 +1277,85 @@ describe("no card asserts something the input did not contain", () => {
         expect(all.filter((key) => !exercised.has(key)).sort()).toEqual(
             UNTRUE.map((u) => `${u.template}.${u.field}`).sort(),
         );
+    });
+});
+
+// ── The signal vocabulary's readback (#200) ───────────────────────────────────────────
+// The title claim above holds the invariant — "the title names something she logged". These
+// cases hold the phrases themselves: every branch of `phraseForEntry` is true of the entry
+// it names, and a code the catalogue does not know is never rendered as a code.
+
+describe("the signal phrase names only what the entry contains", () => {
+    const VOCAB: SignalVocabulary = {
+        energy: "low energy",
+        mood: "low mood",
+        sleep: "poor sleep",
+        fallback: "body signals",
+    };
+    const LABELS = new Map([
+        ["headache", "Headache"],
+        ["cramps", "Cramps"],
+    ]);
+    const labelFor = (code: string): string | null => LABELS.get(code) ?? null;
+
+    const entry = (over: Partial<SignalEntry>): SignalEntry => ({
+        localDate: TODAY,
+        loggedAt: `${TODAY}T08:00:00Z`,
+        energy: null,
+        mood: null,
+        sleep: null,
+        symptoms: [],
+        ...over,
+    });
+
+    let phraseForEntry: (entry: SignalEntry, vocabulary: SignalVocabulary, labelFor: (code: string) => string | null) => string;
+
+    beforeAll(async () => {
+        phraseForEntry = (await import("../src/today")).phraseForEntry;
+    });
+
+    test("a low rating names that rating, in energy-mood-sleep order", () => {
+        expect(phraseForEntry(entry({ energy: 1, sleep: 2 }), VOCAB, labelFor)).toBe("low energy");
+        expect(phraseForEntry(entry({ mood: 2 }), VOCAB, labelFor)).toBe("low mood");
+        expect(phraseForEntry(entry({ sleep: 1 }), VOCAB, labelFor)).toBe("poor sleep");
+        // The first low axis wins, whatever else is also low.
+        expect(phraseForEntry(entry({ energy: 1, mood: 1, sleep: 1 }), VOCAB, labelFor)).toBe("low energy");
+    });
+
+    test("the low boundary is 2 of 5: 2 is low, 3 is not", () => {
+        expect(phraseForEntry(entry({ energy: 2 }), VOCAB, labelFor)).toBe("low energy");
+        expect(phraseForEntry(entry({ energy: 3 }), VOCAB, labelFor)).toBe("body signals");
+    });
+
+    test("a symptom names its label, lowercased for the sentence", () => {
+        expect(
+            phraseForEntry(entry({ symptoms: [{ code: "headache", severity: "severe" }] }), VOCAB, labelFor),
+        ).toBe("headache");
+    });
+
+    test("a symptom whose code has no label is skipped, never rendered as a code", () => {
+        // #200: a code the catalogue does not know must not reach the screen. It falls
+        // through to the generic phrase instead, and the raw code appears nowhere.
+        expect(
+            phraseForEntry(entry({ symptoms: [{ code: "not-a-real-code", severity: "severe" }] }), VOCAB, labelFor),
+        ).toBe("body signals");
+        // And a labelled symptom after an unlabelled one is still reached.
+        expect(
+            phraseForEntry(
+                entry({
+                    symptoms: [
+                        { code: "not-a-real-code", severity: "severe" },
+                        { code: "cramps", severity: "normal" },
+                    ],
+                }),
+                VOCAB,
+                labelFor,
+            ),
+        ).toBe("cramps");
+    });
+
+    test("high ratings and mid ratings fall back to the generic phrase", () => {
+        expect(phraseForEntry(entry({ energy: 5, sleep: 5 }), VOCAB, labelFor)).toBe("body signals");
+        expect(phraseForEntry(entry({ mood: 4 }), VOCAB, labelFor)).toBe("body signals");
     });
 });

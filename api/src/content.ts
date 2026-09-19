@@ -87,6 +87,8 @@ export const SLOTS = [
   'postpartumDay',
   'readMinutes',
   'category',
+  'signal',
+  'symptom',
 ] as const
 export type Slot = (typeof SLOTS)[number]
 
@@ -148,6 +150,30 @@ export interface Nudge {
   action: string
   status: ContentStatus
   order: number
+}
+
+/**
+ * The reviewed vocabulary that turns a stored body-signal rating into words (#200).
+ *
+ * `dashboard-rules.ts` holds ratings as numbers and symptoms as `refdata/` codes, and is
+ * text-free by design. These phrases are the other half: a rating of 1 or 2 is "low", and
+ * "low energy" is a *judgement about a number* rather than a readback of it — which is why
+ * it is reviewed copy in this collection and not a literal in the ladder. The low band is
+ * `1–2` on the validated 1–5 scale, the same boundary `.env.example` states for the pattern
+ * rung, but it is a readback here and not that rung's configured threshold.
+ *
+ * `fallback` names the card when nothing more specific is true: a card that is *about* what
+ * she logged and cannot name it precisely still has to say something true of it.
+ */
+export interface SignalVocabulary {
+  /** `1–2` on energy, e.g. `"low energy"`. */
+  energy: string
+  /** `1–2` on mood, e.g. `"low mood"`. */
+  mood: string
+  /** `1–2` on sleep, e.g. `"poor sleep"`. */
+  sleep: string
+  /** A nameable entry with no low rating and no symptom, e.g. `"body signals"`. */
+  fallback: string
 }
 
 export interface ContentBundle {
@@ -445,3 +471,60 @@ export const retireContent = async (id: ContentId, itemId: string): Promise<bool
 
 /** Test support — nothing in `src/` calls it. */
 export const invalidateContentCache = invalidate
+
+// ── Signal vocabulary (server-internal, never served to the client) ──────────────────
+// The phrases that fill `{signal}` are not part of `GET /content`: the client receives the
+// *filled* card, never the vocabulary. They live here rather than in `today.ts` because
+// they are reviewed copy, and the only door that lets them in is the one `applyContent`
+// guards — the `REVIEW` signature.
+
+const vocabularyRef = () => collection().doc('vocabulary')
+
+const toSignalVocabulary = (raw: Record<string, unknown> | undefined): SignalVocabulary | null => {
+  if (!raw) return null
+  const energy = asString(raw.energy).trim()
+  const mood = asString(raw.mood).trim()
+  const sleep = asString(raw.sleep).trim()
+  const fallback = asString(raw.fallback).trim()
+  // A half-written document must not serve a card that names a rating but not the other two.
+  if (energy.length === 0 || mood.length === 0 || sleep.length === 0 || fallback.length === 0) {
+    return null
+  }
+  return { energy, mood, sleep, fallback }
+}
+
+let vocabularyCache: { at: number; data: SignalVocabulary } | null = null
+
+/**
+ * The signal vocabulary, or `null` when `content/vocabulary` is unseeded. A missing
+ * vocabulary leaves `{signal}` unfilled, which `TemplatePhraser` refuses for a title rather
+ * than rendering — the same fail-closed shape as an unseeded `content/`.
+ */
+export const getSignalVocabulary = async (): Promise<SignalVocabulary | null> => {
+  const now = Date.now()
+  if (vocabularyCache && now - vocabularyCache.at < CACHE_TTL_MS) return vocabularyCache.data
+  const data = toSignalVocabulary((await vocabularyRef().get()).data())
+  if (data !== null) vocabularyCache = { at: now, data }
+  return data
+}
+
+/**
+ * Writes the signal vocabulary, **refusing without a signature**, exactly as `applyContent`
+ * does. A phrase describing a person's own body is the copy the `REVIEW` gate exists for, so
+ * there is no unsigned path in.
+ */
+export const applySignalVocabulary = async (
+  vocabulary: SignalVocabulary,
+  review: Review,
+): Promise<void> => {
+  const missing = reviewProblems(review)
+  if (missing.length > 0) throw new UnreviewedContentError('vocabulary', missing)
+  await vocabularyRef().set({
+    ...vocabulary,
+    reviewedBy: review.reviewedBy,
+    reviewedAt: review.reviewedAt,
+    source: review.source,
+    updatedAt: FieldValue.serverTimestamp(),
+  })
+  vocabularyCache = null
+}

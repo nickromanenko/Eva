@@ -1,6 +1,6 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { config } from './config'
-import { getContent, type Template } from './content'
+import { getContent, getSignalVocabulary, type SignalVocabulary, type Template } from './content'
 import {
   analyzeCycles,
   toCycleEstimate,
@@ -10,7 +10,9 @@ import {
 } from './cycle'
 import {
   PatternRuleUnsetError,
+  observedSignal,
   selectSubject,
+  TEMPLATE,
   type DashboardInput,
   type DashboardRules,
   type Rung,
@@ -21,6 +23,7 @@ import {
 } from './dashboard-rules'
 import { firestore } from './firebase'
 import { lastEventChangeAt, lastLoggedDate, listEvents, type EvaEvent } from './events'
+import { getSymptomLabels } from './refdata'
 import { lastUserChangeAt, getUser, type Profile } from './users'
 
 /**
@@ -204,6 +207,73 @@ const buildCard = (subject: Subject, text: PhrasedText): TodayCard => ({
   templateId: subject.templateId,
   rung: subject.rung,
 })
+
+// ── The signal vocabulary's readback (#200) ─────────────────────────────────────────
+// `dashboard-rules.ts` holds ratings as numbers and symptoms as `refdata/` codes, and is
+// text-free. These two functions turn a stored entry into the phrase `{signal}` fills: the
+// reviewed words live in `content/` (`SignalVocabulary`) and the symptom names in `refdata/`,
+// so neither is a literal scattered in a module.
+
+/** The rating at or below which a signal is "low" — `1–2` on the validated 1–5 scale. A
+ *  readback band, not rung 2's configured pattern threshold: "low energy" describes a
+ *  number, it does not detect a pattern. */
+export const SIGNAL_LOW_AT_OR_BELOW = 2
+
+/** Lowercase the first letter of a `refdata/` label, so "Cramps" reads as "cramps" inside a
+ *  sentence. A label is the reviewed name for the chip; casing is presentation. */
+const lowerFirst = (label: string): string =>
+  label.length === 0 ? label : label[0]!.toLowerCase() + label.slice(1)
+
+/**
+ * The phrase that names what an entry reports, for the `{signal}` slot.
+ *
+ * The order is the whole decision, and every branch is true of the entry: a low rating is
+ * named before a symptom because "low energy" is the readback this slice exists for, and a
+ * symptom is named before the fallback because a concrete event outranks "body signals". A
+ * symptom whose code has no label is *skipped*, never rendered as a code — the next symptom
+ * or the fallback names the entry instead (#200: a code with no label cannot reach the
+ * screen).
+ */
+export const phraseForEntry = (
+  entry: SignalEntry,
+  vocabulary: SignalVocabulary,
+  labelFor: (code: string) => string | null,
+): string => {
+  if (entry.energy !== null && entry.energy <= SIGNAL_LOW_AT_OR_BELOW) return vocabulary.energy
+  if (entry.mood !== null && entry.mood <= SIGNAL_LOW_AT_OR_BELOW) return vocabulary.mood
+  if (entry.sleep !== null && entry.sleep <= SIGNAL_LOW_AT_OR_BELOW) return vocabulary.sleep
+  for (const symptom of entry.symptoms) {
+    const label = labelFor(symptom.code)
+    if (label !== null) return lowerFirst(label)
+  }
+  return vocabulary.fallback
+}
+
+/**
+ * Fills the `{signal}` slot for the two cards that name what she logged, and leaves every
+ * other subject untouched.
+ *
+ * A missing vocabulary leaves the slot unfilled on purpose: a title that references
+ * `{signal}` is then a `TemplateUnavailableError` in `TemplatePhraser`, never a rendered
+ * `{signal}` or an invented phrase. Pure — the two inputs it needs are passed in, which is
+ * what lets the copy audit run it against the seeded vocabulary and catalogue.
+ */
+export const resolveSignals = (
+  subject: Subject,
+  input: DashboardInput,
+  vocabulary: SignalVocabulary | null,
+  labelFor: (code: string) => string | null,
+): Subject => {
+  if (subject.templateId !== TEMPLATE.signalsToday && subject.templateId !== TEMPLATE.signalOverridesPhase) {
+    return subject
+  }
+  if (vocabulary === null) return subject
+  const entry = observedSignal(input)
+  // Unreachable through the ladder — both cards are selected only when an entry is observed
+  // — but failing open here would render `{signal}` for a subject D1 never produced.
+  if (entry === null) return subject
+  return { ...subject, slots: { ...subject.slots, signal: phraseForEntry(entry, vocabulary, labelFor) } }
+}
 
 // ── Time ───────────────────────────────────────────────────────────────────────────────
 // `events.ts` stores the user's wall clock and never an instant. D1 needs an instant for
@@ -598,8 +668,14 @@ export const getToday = async (
   const now = new Date().toISOString()
   const input = await gatherInput(uid, request.date, now, request.timeZone, rules)
   const subject = selectSubject(input, rules)
-  const content = await getContent()
-  const card = buildCard(subject, phraser.phrase(subject, content.templates))
+  const [content, vocabulary, labels] = await Promise.all([
+    getContent(),
+    getSignalVocabulary(),
+    getSymptomLabels(),
+  ])
+  const labelFor = (code: string): string | null => labels?.get(code) ?? null
+  const resolved = resolveSignals(subject, input, vocabulary, labelFor)
+  const card = buildCard(resolved, phraser.phrase(resolved, content.templates))
 
   const document: TodayDocument = {
     date: request.date,

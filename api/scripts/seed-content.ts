@@ -35,11 +35,13 @@
  */
 import {
   applyContent,
+  applySignalVocabulary,
   reviewProblems,
   UnreviewedContentError,
   type Banner,
   type Nudge,
   type Review,
+  type SignalVocabulary,
   type Template,
 } from '../src/content'
 
@@ -89,13 +91,16 @@ import {
  *   `patternRung` — or #26 fixing the dose. Both are rule changes, kept out of a signature
  *   on words.
  *
- * **Two of the ten closed by saying less rather than by saying it accurately**, and a signer
- * should know which: `home_e`'s and `home_g`'s titles stopped naming what she logged. Nothing
- * in this system turns a rating of 1 into the words "low energy" — `dashboard-rules.ts` holds
- * symptom codes and never labels, by design, and `SLOTS` has no key for one. **#200** is the
- * slice that would give those two cards their content back, and it argues the mapping belongs
- * in `content.ts` behind this same gate, because "low energy" is a judgement about a number
- * rather than a readback of it.
+ * **Two of the ten closed by saying less rather than by saying it accurately, and #200 gave
+ * them their content back.** `home_e`'s and `home_g`'s titles stopped naming what she logged,
+ * because nothing could turn a rating of 1 into "low energy" — `dashboard-rules.ts` holds
+ * symptom codes and never labels, by design, and `SLOTS` had no key for one. #200 added the
+ * `{signal}` slot, the `VOCABULARY` below (`energy`/`mood`/`sleep`/`fallback`, seeded as
+ * `content/vocabulary` behind this same gate), and `resolveSignals` in `today.ts`, which
+ * fills the slot from the observed entry — a low rating, a symptom's `refdata/` label, or
+ * "body signals". The two titles now read "You logged {signal}", which is true of whatever
+ * the rung routes to them. **Not drawn on the canvas**: this is copy authored in this PR and
+ * signed here, which the `REVIEW.source` above states rather than pretending it was verbatim.
  *
  * **Three sit in `NOTED`, beside `UNTRUE`**, because no generated input can falsify them: a
  * sentence implying a personal baseline the rule does not hold, a fixed article headline
@@ -171,10 +176,12 @@ import {
  */
 export const REVIEW: Review = {
   reviewedBy: 'Nick Romanenko',
-  reviewedAt: '2026-09-17',
+  reviewedAt: '2026-09-19',
   source:
     'docs/design/Eva App.dc.html @ #202 — Dashboard rail (CARDS, NUDGES, banners); ' +
-    'plus the reachable-subject audit in api/test/dashboard-copy.test.ts (#177)',
+    'plus the reachable-subject audit in api/test/dashboard-copy.test.ts (#177); ' +
+    '#200 gives home_e/home_g their titles back ("You logged {signal}") and adds the ' +
+    'signal vocabulary — copy authored here, not yet drawn on the canvas, signed as #200',
 }
 
 /** The 14 card variants the canvas' `CARDS` holds, in its order.
@@ -195,10 +202,10 @@ export const TEMPLATES: Template[] = [
   {
     id: 'signal_overrides_phase', rung: 'pattern', mode: 'cycle', state: 'home_e', confidence: 'plain',
     kicker: 'Cycle day {cycleDay}',
-    title: 'Eva is reading what you logged, not what the phase predicts',
+    title: 'You logged {signal}',
     line2: 'Your phase is context for what you reported, not a substitute for it.',
     line3: 'Sleep, stress and iron affect daily energy more than cycle phase.',
-    actions: ['Review what I logged'], slots: ['cycleDay'], status: 'active', order: 1,
+    actions: ['Review what I logged'], slots: ['cycleDay', 'signal'], status: 'active', order: 1,
   },
   {
     id: 'cold_start', rung: 'setup', mode: 'any', state: 'home_a', confidence: 'plain',
@@ -230,9 +237,9 @@ export const TEMPLATES: Template[] = [
   {
     id: 'signals_today', rung: 'pattern', mode: 'any', state: 'home_g', confidence: 'plain',
     kicker: 'Logged · last 24 hours',
-    title: 'Your own log comes first',
+    title: 'You logged {signal}',
     line2: 'Eva can see what you logged but not what caused it.',
-    actions: ['Review what I logged'], slots: [], status: 'active', order: 6,
+    actions: ['Review what I logged'], slots: ['signal'], status: 'active', order: 6,
   },
   {
     id: 'mood_pattern', rung: 'pattern', mode: 'any', state: 'home_h', confidence: 'plain',
@@ -346,6 +353,22 @@ export const NUDGES: Nudge[] = [
     action: 'Continue setup', status: 'active', order: 3 },
 ]
 
+/**
+ * The signal vocabulary (#200): a stored rating of `1–2` turned into reviewed words.
+ *
+ * `dashboard-rules.ts` holds ratings as numbers and is text-free by design, so a rating of 2
+ * never became "low energy" — which is why `home_e`'s and `home_g`'s titles were closed in
+ * #202 by saying *less* ("Your own log comes first") rather than by naming what she logged.
+ * These four phrases are that content, back. "Low energy" is a judgement about a number, not
+ * a readback of it, so it is copy here and not a literal in the ladder.
+ */
+export const VOCABULARY: SignalVocabulary = {
+  energy: 'low energy',
+  mood: 'low mood',
+  sleep: 'poor sleep',
+  fallback: 'body signals',
+}
+
 const main = async () => {
   const missing = reviewProblems(REVIEW)
   if (missing.length > 0) {
@@ -362,8 +385,9 @@ const main = async () => {
     await applyContent('templates', TEMPLATES, REVIEW, { rewrite: true })
     await applyContent('banners', BANNERS, REVIEW, { rewrite: true })
     await applyContent('nudges', NUDGES, REVIEW, { rewrite: true })
+    await applySignalVocabulary(VOCABULARY, REVIEW)
     console.log(
-      `seeded content/: ${TEMPLATES.length} templates, ${BANNERS.length} banners, ${NUDGES.length} nudges`,
+      `seeded content/: ${TEMPLATES.length} templates, ${BANNERS.length} banners, ${NUDGES.length} nudges, signal vocabulary`,
     )
   } catch (err) {
     if (err instanceof UnreviewedContentError) {
