@@ -86,6 +86,7 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
+| `request-timeout.ts` | The per-request timeout that names a hung request in the log before Bun's `idleTimeout` kills the connection (#225) | Pure leaf: wraps the handler in a timer, reads no clock and no Firestore. Logs only the route path — no payload, address or token |
 
 Layering: `index.ts` → (`auth`, `identity-toolkit`, `providers`, `rate-limit`, `users`,
 `events`, `refdata`, `content`, `today`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward,
