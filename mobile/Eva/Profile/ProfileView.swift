@@ -42,7 +42,18 @@ struct ProfileView: View {
     /// the first settings row this screen has, and the first piece of #19 to land here.
     let units: EvaUnitPreference
 
+    /// The editable profile behind the Personal profile rows (#19). Seeded from the
+    /// account's stored profile; a new account gets the same defaults the questionnaire
+    /// used to start from.
+    @State private var editor: ProfileEditorModel
+
     @State private var isConfirmingDeletion = false
+
+    init(session: AppSession, units: EvaUnitPreference) {
+        self.session = session
+        self.units = units
+        _editor = State(initialValue: ProfileEditorModel(profile: session.user?.profile))
+    }
 
     var body: some View {
         ZStack {
@@ -56,6 +67,7 @@ struct ProfileView: View {
                         .foregroundStyle(Color.evaPrimaryText)
 
                     identityCard
+                    personalProfileSection
                     connectedAccountsCard
                     evaExperienceSection
                     logOutCard
@@ -100,6 +112,81 @@ struct ProfileView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(EvaSpacing.md)
         .evaCardSurface()
+    }
+
+    /// The artboard's **Personal profile** section — the questionnaire fields as settings
+    /// rows (#19).
+    ///
+    /// Each row pushes to an editor for that field group, and each editor's Save re-sends
+    /// the whole profile (`PUT /me/questionnaire`). The row order and labels are the
+    /// artboard's own; the detail screens are composed out of the existing chip and
+    /// body-metric controls, because the canvas draws the rows and not the screens behind
+    /// them.
+    private var personalProfileSection: some View {
+        ProfileSettingsSection(title: "Personal profile") {
+            ProfileSettingsRow(
+                label: "Body measurements",
+                meta: "Date of birth, height, weight",
+                value: "",
+                identifier: "profile.bodyMeasurements"
+            ) {
+                BodyMeasurementsSettingsView(editor: editor, units: units, session: session)
+            }
+
+            ProfileSettingsRow(
+                label: "Goals & lifestyle",
+                value: goalsValue,
+                identifier: "profile.goals"
+            ) {
+                GoalsSettingsView(editor: editor, session: session)
+            }
+
+            ProfileSettingsRow(
+                label: "Activity",
+                meta: "Mostly sitting · Lightly active · Active · Very active",
+                value: editor.lifestyle ?? "",
+                identifier: "profile.activity"
+            ) {
+                ActivitySettingsView(editor: editor, session: session)
+            }
+
+            ProfileSettingsRow(
+                label: "Preferred sports",
+                value: sportsValue,
+                identifier: "profile.sports"
+            ) {
+                SportsSettingsView(editor: editor, session: session)
+            }
+
+            ProfileSettingsRow(
+                label: "Health information",
+                meta: "Conditions and history",
+                value: "",
+                identifier: "profile.health"
+            ) {
+                HealthSettingsView(editor: editor, session: session)
+            }
+
+            ProfileSettingsRow(
+                label: "Hormonal medications",
+                meta: "Kept private",
+                value: "",
+                identifier: "profile.medications"
+            ) {
+                MedicationsSettingsView(editor: editor, session: session)
+            }
+        }
+    }
+
+    /// The goals row's trailing value, the artboard's "3 active" shape. Empty until she has
+    /// chosen one, so an unanswered profile does not claim a count it has not got.
+    private var goalsValue: String {
+        editor.goals.isEmpty ? "" : "\(editor.goals.count) active"
+    }
+
+    /// The sports row's trailing value, the artboard's bare "4" count.
+    private var sportsValue: String {
+        editor.sports.isEmpty ? "" : "\(editor.sports.count)"
     }
 
     /// The artboard's "Manage connected accounts" row, opened out into the card it would

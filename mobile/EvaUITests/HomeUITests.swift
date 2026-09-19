@@ -56,12 +56,6 @@ final class HomeUITests: EvaUITestCase {
         // MARK: An account, and where it lands
 
         signUpAndActivate(app, email: email)
-        completeQuestionnaire(app)
-        XCTAssertTrue(
-            app.staticTexts["You're all set"].waitForExistence(timeout: 15),
-            "Questionnaire submission did not reach the done screen"
-        )
-        tap(app.buttons["primary.Enter Eva"], in: app)
 
         XCTAssertTrue(
             app.buttons["tab.home"].waitForExistence(timeout: 15),

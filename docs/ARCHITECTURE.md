@@ -925,9 +925,9 @@ fact that contradicts a check that ran.
 **Documents written before #81 carry `profile.age`, and nothing rewrites them.** There is no
 date of birth derivable from an age, so the migration is a read: `users.ts` drops the legacy
 key, serves a profile with no `dateOfBirth` as no profile at all, and reports
-`questionnaireCompleted` as false over it — so the app asks the four steps again and the 18+
+`questionnaireCompleted` as false over it — so the app asks for the profile again and the 18+
 floor is applied to the answer. The account still opens and nothing is deleted; the stored
-map is replaced the next time she saves the questionnaire.
+map is replaced the next time she saves the profile.
 
 `authTokens/{sha256(token)}` — the activation and password-reset links (#6). Top-level
 rather than under `users/`, because the document is looked up by the token alone, before
@@ -1424,9 +1424,10 @@ engine talks to the API" — with `AppSession` standing in as its only implement
 #78 builds the store. `LocalTodayCard` (§8.2) is what replaces it, and nothing in
 `HomeModel` changes when it does. The same shape `CalendarEventSource` has.
 
-`AppSession.State` (`loading → signedOut | needsQuestionnaire | ready | unreachable`)
-drives the root view. **The server is the source of truth for `questionnaireCompleted`** — never
-reintroduce a local `@AppStorage` flag for it.
+`AppSession.State` (`loading → signedOut | ready | unreachable`) drives the root view.
+**The server is the source of truth for `questionnaireCompleted`** — never reintroduce a
+local `@AppStorage` flag for it. #19 removed the post-auth questionnaire gate: a new user
+lands in the app and completes the profile from Profile.
 
 ### The canonical unit: SI, always (#82)
 

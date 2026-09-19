@@ -84,7 +84,7 @@ class EvaUITestCase: XCTestCase {
         type(email, into: app.textFields["signup.email"], in: app)
     }
 
-    /// Sign up, pass the activation gate, and land on the questionnaire.
+    /// Sign up, pass the activation gate, and land in the app.
     ///
     /// Sign-up creates no account (#120): it sends an address and a link, and the account
     /// comes into existence when that link is spent *with a password*. A simulator has no
@@ -96,8 +96,11 @@ class EvaUITestCase: XCTestCase {
     /// password, because the user never typed one into it. So this signs in the way a
     /// person would, on the log-in screen, with the password they chose on the web.
     ///
-    /// Every suite that needs an account goes through here, so the four of them keep
-    /// meaning the same thing by "signed up".
+    /// Since #19 there is no post-auth questionnaire: signing in lands on the tab bar, and
+    /// the profile is completed later from Profile.
+    ///
+    /// Every suite that needs an account goes through here, so they keep meaning the same
+    /// thing by "signed up".
     func signUpAndActivate(
         _ app: XCUIApplication,
         email: String,
@@ -126,8 +129,8 @@ class EvaUITestCase: XCTestCase {
         signIn(app, email: email, password: Self.password, file: file, line: line)
 
         XCTAssertTrue(
-            app.staticTexts["A little about you"].waitForExistence(timeout: 20),
-            "Signing in after activation did not reach the questionnaire",
+            app.buttons["tab.home"].waitForExistence(timeout: 20),
+            "Signing in after activation did not reach the app",
             file: file, line: line
         )
     }
@@ -168,9 +171,6 @@ class EvaUITestCase: XCTestCase {
     /// successful log-ins would return two empty strings and compare equal — and #55's
     /// deleted-account check would pass for an account that is still there.
     ///
-    /// Both destinations are checked because callers arrive with different accounts: an
-    /// account that never finished the questionnaire lands on "A little about you", one
-    /// that did lands on the tab bar.
     /// Signs in through the log-in screen and asserts it got somewhere.
     ///
     /// Needed since #120: sign-up creates no account and the app never sees a password, so
@@ -353,11 +353,6 @@ class EvaUITestCase: XCTestCase {
             file: file, line: line
         )
         XCTAssertFalse(
-            app.staticTexts["A little about you"].exists,
-            "A failed log in still routed into the app for \(email)",
-            file: file, line: line
-        )
-        XCTAssertFalse(
             app.buttons["tab.calendar"].exists,
             "A failed log in still reached the app for \(email)",
             file: file, line: line
@@ -365,28 +360,29 @@ class EvaUITestCase: XCTestCase {
         return error.label
     }
 
-    /// Chips are navigated by `chip.<label>` since #14 gave `ChipToggleButton` an
-    /// identifier. They used to be looked up by their label, which still resolves — an
-    /// element with both an identifier and a label answers to either — but a test that
-    /// keeps using the label would not notice the identifier being dropped again, which
-    /// is the thing GUARDRAILS §22 is about.
-    func completeQuestionnaire(_ app: XCUIApplication) {
-        tap(app.buttons["primary.Continue"], in: app)     // about you
-        tap(app.buttons["chip.Energy"], in: app)          // goals
-        tap(app.buttons["primary.Continue"], in: app)
-        tap(app.buttons["chip.None of these"], in: app)   // health
-        tap(app.buttons["chip.None"], in: app)            // hormonal medication (#81)
-        // That question holds this step's CTA (#215). Asserted here so a chip tap that does
-        // not register fails on the step that asked, instead of three screens later as a
-        // submission that never reaches the done screen — which is how #215 presented.
+    /// Navigates from wherever the tab bar is, to Profile ▸ Body measurements, and waits
+    /// for the editor to open. The body-metric steppers moved here from the questionnaire
+    /// in #19, so the units suite drives them through this screen.
+    func openBodyMeasurements(_ app: XCUIApplication) {
+        tap(app.buttons["tab.profile"], in: app)
+        let row = app.buttons["profile.bodyMeasurements"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Profile has no Body measurements row")
+        tap(row, in: app)
         XCTAssertTrue(
-            app.buttons["primary.Continue"].isEnabled,
-            "The health step's CTA stayed held — the medication chip tap did not register"
+            element("stepper.weight.kilograms", in: app).waitForExistence(timeout: 10)
+                || element("stepper.weight.pounds", in: app).waitForExistence(timeout: 1),
+            "Body measurements did not open its editor"
         )
-        tap(app.buttons["primary.Continue"], in: app)
-        tap(app.buttons["chip.Active"], in: app)          // lifestyle
-        tap(app.buttons["chip.Yoga"], in: app)
-        tap(app.buttons["primary.Build my plan"], in: app)
+    }
+
+    /// An element by identifier, whatever XCUITest decided to call its type.
+    ///
+    /// A `StepperCard` row is an accessibility *container* and its value is an element
+    /// built out of two `Text`s, and which of `otherElements` / `staticTexts` each lands
+    /// in is an implementation detail of SwiftUI's accessibility tree. The identifier is
+    /// the contract (GUARDRAILS 22); the element type is not.
+    func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
     // MARK: - Element helpers
@@ -522,10 +518,10 @@ class EvaUITestCase: XCTestCase {
     ///
     /// It does **not** also scroll to make an element *exist*. That is the neighbouring
     /// hole, it is real — a `LazyVGrid`'s cells are absent from the hierarchy until the
-    /// scroll comes near them, which is why `chip.None` breaks `completeQuestionnaire` on
-    /// `main` since #211 — and it is not this branch's to close. Verified separately, not
-    /// assumed: `CalendarLoggingUITests` fails identically on `origin/main` at 73cf0d6
-    /// with none of #82 present.
+    /// scroll comes near them, which is why `chip.None` went red when #211 put the
+    /// medication chips in a grid — and it is not this branch's to close. Verified
+    /// separately, not assumed: `CalendarLoggingUITests` fails identically on
+    /// `origin/main` at 73cf0d6 with none of #82 present.
     func scrollIntoView(
         _ element: XCUIElement,
         in app: XCUIApplication,
@@ -543,8 +539,8 @@ class EvaUITestCase: XCTestCase {
         // #211 is what taught this: it put the medication chips in a `LazyVGrid` on the
         // health step, and eight of sixteen UI tests went red on `chip.None` while
         // `chip.None of these` one section above — a plain `VStack` — resolved fine. Every
-        // account-creating suite runs `completeQuestionnaire`, so one absent chip read as
-        // something systemic.
+        // account-creating suite drove that step, so one absent chip read as something
+        // systemic.
         //
         // A short probe first so the common case stays fast, then swipes, then the full
         // wait as the assertion. An element that is genuinely missing still fails, with the

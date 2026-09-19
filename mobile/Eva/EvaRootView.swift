@@ -19,8 +19,8 @@ struct EvaRootView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(LinearGradient.evaScreenBackground.ignoresSafeArea())
-            case .signedOut, .needsQuestionnaire:
-                OnboardingFlowView(session: session, units: units)
+            case .signedOut:
+                OnboardingFlowView(session: session)
             case .ready:
                 EvaTabView(session: session, units: units)
             case .unreachable:
