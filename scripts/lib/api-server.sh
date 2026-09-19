@@ -6,6 +6,20 @@
 #   is running, so the probe below confirms it is *our* API before using one.
 #
 # Exports API_URL and EVA_API_URL (api/test reads the latter).
+#
+# Reserved ports — the one list, so the next service does not collide (#112). The draw
+# ranges belong to the test files that boot their own API and ask before taking a port.
+#
+#   3003          dev API (api_ensure_up default, and the app's DEBUG base URL)
+#   3103–3113     scripts/ci-api.sh server window (EVA_API_PORT=3103)
+#   3303          scripts/verify-mobile.sh UI-test mailbox (EVA_MAILBOX_PORT default)
+#   3303–3313     scripts/ci-mobile.sh API window (EVA_API_PORT=3303) — which is why
+#                 ci-mobile.sh overrides the mailbox to 3320 rather than the default above
+#   3320          scripts/ci-mobile.sh UI-test mailbox (EVA_MAILBOX_PORT)
+#   4321          website dev server (Astro)
+#   8080/9099/9199  Firebase emulators (firestore/auth/hub)
+#   3100–3299     api/test/events.test.ts draw range
+#   3400–3599     api/test/today.test.ts draw range
 
 API_URL=${EVA_API_URL:-}
 API_STARTED=0

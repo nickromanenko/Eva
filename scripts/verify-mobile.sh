@@ -86,9 +86,19 @@ else
   # which a simulator cannot do. `api/scripts/uitest-mailbox.ts` is the stand-in: it is
   # started here, on loopback, and torn down with this script. See its header for why it
   # is safe to have at all.
-  MAILBOX_PORT=${EVA_MAILBOX_PORT:-3103}
+  MAILBOX_PORT=${EVA_MAILBOX_PORT:-3303}
   MAILBOX_URL="http://127.0.0.1:$MAILBOX_PORT"
-  MAILBOX_LOG=$(mktemp -t eva-mailbox)
+  # A stale mailbox from an interrupted run answers /health just like a live one, so the
+  # poll below would adopt it and the suite would run against a process it did not start.
+  # Refuse up front (#174, #112) rather than adopt whatever answers.
+  if ! api_port_free "$MAILBOX_PORT"; then
+    echo "✗ UI-test mailbox port $MAILBOX_PORT is already in use — a stale mailbox from an"
+    echo "  earlier run is probably holding it. Stop it (or set EVA_MAILBOX_PORT) and retry."
+    exit 1
+  fi
+  # A full template, not `mktemp -t eva-mailbox`: BSD reads `-t`'s argument as a prefix,
+  # GNU coreutils requires the X's and errors — the same bug #67 fixed in api-server.sh.
+  MAILBOX_LOG=$(mktemp "${TMPDIR:-/tmp}/eva-mailbox.XXXXXX") || { echo "✗ could not create a mailbox log"; exit 1; }
   (cd "$ROOT/api" && PORT="$MAILBOX_PORT" EVA_API_URL="$API_URL" \
     exec bun run scripts/uitest-mailbox.ts) >"$MAILBOX_LOG" 2>&1 &
   MAILBOX_PID=$!
