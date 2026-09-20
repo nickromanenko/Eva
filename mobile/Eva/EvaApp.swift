@@ -5,6 +5,9 @@ struct EvaApp: App {
     @State private var session = AppSession()
     /// Metric or imperial, from the device locale until Settings overrides it (#82).
     @State private var units = EvaUnitPreference.shared
+    /// The country whose emergency guidance the app shows (#87), from the device region
+    /// until Settings overrides it.
+    @State private var country = EvaCountrySetting.shared
 
     var body: some Scene {
         WindowGroup {
@@ -19,10 +22,10 @@ struct EvaApp: App {
             if EvaSpecimenLaunch.isEnabled {
                 EvaSpecimenView()
             } else {
-                EvaRootView(session: session, units: units)
+                EvaRootView(session: session, units: units, country: country)
             }
             #else
-            EvaRootView(session: session, units: units)
+            EvaRootView(session: session, units: units, country: country)
             #endif
         }
     }

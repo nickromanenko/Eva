@@ -28,21 +28,28 @@ struct HomeView: View {
 
     let session: AppSession
     let router: EvaTabRouter
+    /// The country whose emergency guidance the flag card shows (#87). Read at render,
+    /// never captured: a country changed in Settings applies the moment she comes back.
+    let country: EvaCountrySetting
 
     @State private var model: HomeModel
     @Environment(\.scenePhase) private var scenePhase
 
-    init(session: AppSession, router: EvaTabRouter) {
+    init(session: AppSession, router: EvaTabRouter, country: EvaCountrySetting) {
         self.session = session
         self.router = router
+        self.country = country
         #if DEBUG
         // `EVA_TODAY_CARD` seeds a canvas state so the states can be reviewed and tested
         // before `GET /me/today` exists. Absent — which is every build that is not a UI
         // test or a screenshot run — this is `session` and nothing below knows the
         // difference. See `EvaTodayCardLaunch`.
-        _model = State(initialValue: HomeModel(source: EvaTodayCardLaunch.seeded ?? session))
+        _model = State(initialValue: HomeModel(
+            source: EvaTodayCardLaunch.seeded ?? session,
+            guidanceSource: session
+        ))
         #else
-        _model = State(initialValue: HomeModel(source: session))
+        _model = State(initialValue: HomeModel(source: session, guidanceSource: session))
         #endif
     }
 
@@ -118,12 +125,27 @@ struct HomeView: View {
         case .loading:
             loadingCard
         case .card(let card):
-            TodayCardView(card: card, perform: perform)
+            TodayCardView(card: card, flagGuidance: flagGuidance(for: card), perform: perform)
         case .noCard:
             noCardBanner
         case .unavailable(let message):
             failureBanner(message)
         }
+    }
+
+    /// The guidance line a flag card shows (#87), or `nil` to keep the card's own.
+    ///
+    /// Resolved from the table the model fetched against **this device's** country, both
+    /// read at render time: the country can change in Settings and come back with her,
+    /// and neither the card object nor the table has to be re-fetched for the words to
+    /// follow. Not a flag card, no table, or no fallback in it → `nil`, and the card
+    /// says what the server filled.
+    private func flagGuidance(for card: EvaTodayCard) -> String? {
+        guard card.tone == .flag else { return nil }
+        return EvaRefData.emergencyGuidance(
+            from: model.emergencyGuidance ?? [],
+            forCountry: country.country
+        )?.urgentCareWording
     }
 
     /// The first read, before anything has arrived.
@@ -195,5 +217,5 @@ struct HomeView: View {
 }
 
 #Preview {
-    HomeView(session: AppSession(), router: EvaTabRouter())
+    HomeView(session: AppSession(), router: EvaTabRouter(), country: EvaCountrySetting())
 }

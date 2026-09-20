@@ -39,24 +39,32 @@ import SwiftUI
 struct TodayCardView: View {
 
     let card: EvaTodayCard
+    /// The red-flag card's guidance line, resolved on the device from the per-country
+    /// emergency table (#87) — the `refdata/` wording for the country this device shows.
+    /// `nil` keeps the card's own line; see `EvaTodayCard.withFlagGuidance` for the one
+    /// rule this parameter rides on.
+    var flagGuidance: String? = nil
     /// Called for an action that has somewhere to go. Never called for a disabled one.
     let perform: (EvaTodayCardTarget) -> Void
 
     var body: some View {
+        // The one substitution the device may make (#87), applied once so the drawn card
+        // and the string VoiceOver reads cannot disagree about the guidance line.
+        let shown = card.withFlagGuidance(flagGuidance)
         VStack(alignment: .leading, spacing: EvaSpacing.md) {
-            block
-            if !card.actions.isEmpty { actions }
+            block(shown)
+            if !shown.actions.isEmpty { actions(shown) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(EvaSpacing.lg)
-        .modifier(EvaTodayCardSurface(tone: card.tone))
+        .modifier(EvaTodayCardSurface(tone: shown.tone))
     }
 
     // MARK: - The words
 
     /// Kicker, title, line 2, the suggestion and the meta line — one accessibility element
     /// labelled with the canvas' `aria` string.
-    private var block: some View {
+    private func block(_ card: EvaTodayCard) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             if let kicker = card.kicker, !kicker.isEmpty {
                 kickerPill(kicker)
@@ -153,7 +161,7 @@ struct TodayCardView: View {
 
     // MARK: - The actions
 
-    private var actions: some View {
+    private func actions(_ card: EvaTodayCard) -> some View {
         VStack(spacing: EvaSpacing.xs) {
             ForEach(Array(card.actions.enumerated()), id: \.offset) { index, action in
                 button(action, isPrimary: index == 0)

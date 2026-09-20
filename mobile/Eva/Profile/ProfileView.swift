@@ -41,6 +41,9 @@ struct ProfileView: View {
     /// The device's units setting (#82). The artboard's `Eva experience ▸ Units` row is
     /// the first settings row this screen has, and the first piece of #19 to land here.
     let units: EvaUnitPreference
+    /// The device's country for emergency guidance (#87). Read by the Support section's
+    /// row, and changed on the screen behind it.
+    let country: EvaCountrySetting
 
     /// The editable profile behind the Personal profile rows (#19). Seeded from the
     /// account's stored profile; a new account gets the same defaults the questionnaire
@@ -49,9 +52,10 @@ struct ProfileView: View {
 
     @State private var isConfirmingDeletion = false
 
-    init(session: AppSession, units: EvaUnitPreference) {
+    init(session: AppSession, units: EvaUnitPreference, country: EvaCountrySetting) {
         self.session = session
         self.units = units
+        self.country = country
         _editor = State(initialValue: ProfileEditorModel(profile: session.user?.profile))
     }
 
@@ -70,6 +74,7 @@ struct ProfileView: View {
                     personalProfileSection
                     connectedAccountsCard
                     evaExperienceSection
+                    supportSection
                     privacySection
                     logOutCard
                     dangerZone
@@ -307,6 +312,25 @@ struct ProfileView: View {
         }
     }
 
+    /// The artboard's **Support** section, with the one row whose content is decided:
+    /// "Medical and emergency information — region-aware, per country" (PRD §Support row
+    /// 4), which the canvas draws with the meta "When to contact a provider" (#87).
+    ///
+    /// The canvas names three more rows — Help centre, Contact support, Report a problem
+    /// — and none has decided content, so none is drawn: a row that toasts out of scope
+    /// is the thing this screen stopped doing (#55). They arrive with their content.
+    private var supportSection: some View {
+        ProfileSettingsSection(title: "Support") {
+            ProfileSettingsRow(
+                label: "Medical and emergency information",
+                meta: "When to contact a provider",
+                identifier: "profile.emergency"
+            ) {
+                EmergencyInfoSettingsView(session: session, country: country)
+            }
+        }
+    }
+
     /// Settings › Privacy (#86): where both consents are shown and withdrawn. The canvas
     /// names the place rather than drawing the screen; `PrivacySettingsView` is it.
     private var privacySection: some View {
@@ -398,6 +422,10 @@ struct ProfileView: View {
 
 #Preview("Profile") {
     NavigationStack {
-        ProfileView(session: AppSession(), units: EvaUnitPreference())
+        ProfileView(
+            session: AppSession(),
+            units: EvaUnitPreference(),
+            country: EvaCountrySetting()
+        )
     }
 }
