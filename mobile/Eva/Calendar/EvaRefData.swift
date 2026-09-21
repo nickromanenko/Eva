@@ -22,11 +22,21 @@ struct EvaRefData: Decodable, Sendable, Hashable {
         let symptoms: [Item]
         let sportActivities: [Item]
         let appointmentTypes: [Item]
+        /// The per-country emergency guidance table (#87). Empty until the server seeds
+        /// it or sends it — every read below treats that as "no guidance", which leaves
+        /// the red-flag card with its own (already neutral) wording.
+        let emergencyGuidance: [EmergencyEntry]
 
-        init(symptoms: [Item] = [], sportActivities: [Item] = [], appointmentTypes: [Item] = []) {
+        init(
+            symptoms: [Item] = [],
+            sportActivities: [Item] = [],
+            appointmentTypes: [Item] = [],
+            emergencyGuidance: [EmergencyEntry] = []
+        ) {
             self.symptoms = symptoms
             self.sportActivities = sportActivities
             self.appointmentTypes = appointmentTypes
+            self.emergencyGuidance = emergencyGuidance
         }
 
         init(from decoder: any Decoder) throws {
@@ -34,10 +44,12 @@ struct EvaRefData: Decodable, Sendable, Hashable {
             symptoms = try container.decodeIfPresent([Item].self, forKey: .symptoms) ?? []
             sportActivities = try container.decodeIfPresent([Item].self, forKey: .sportActivities) ?? []
             appointmentTypes = try container.decodeIfPresent([Item].self, forKey: .appointmentTypes) ?? []
+            emergencyGuidance = try container.decodeIfPresent(
+                [EmergencyEntry].self, forKey: .emergencyGuidance) ?? []
         }
 
         private enum CodingKeys: String, CodingKey {
-            case symptoms, sportActivities, appointmentTypes
+            case symptoms, sportActivities, appointmentTypes, emergencyGuidance
         }
     }
 
@@ -114,6 +126,97 @@ struct EvaRefData: Decodable, Sendable, Hashable {
         }
     }
 
+    // MARK: Emergency guidance (#87)
+
+    /// The code of the one entry that is not a country — what every country the table
+    /// does not carry resolves to. Mirrors `FALLBACK_GUIDANCE_CODE` on the API.
+    static let fallbackGuidanceCode = "fallback"
+
+    /// One row of the per-country emergency guidance table (#87).
+    ///
+    /// `code` is an ISO 3166-1 alpha-2 country code (`US`, `GB`) — except the fallback
+    /// row, whose code is `EvaRefData.fallbackGuidanceCode`. `label` is the country's
+    /// display name, which is what the Settings picker draws. Fields decode leniently
+    /// like every other catalogue row's, because the table is hand-editable in the
+    /// console and one row typed by a person must not take the screen down.
+    struct EmergencyEntry: Decodable, Sendable, Hashable, Identifiable {
+        let code: String
+        let label: String
+        /// The country's national emergency number, or `nil` where the entry states
+        /// none — which is always the case for the fallback: no number at all is safer
+        /// than a guessed one (#87). `nil` is the seed file saying so, not a lost field.
+        let emergencyNumber: String?
+        /// The wording for urgent maternity care: the complete sentence(s) the red-flag
+        /// card's guidance line becomes for this country. Rendered verbatim, never
+        /// edited here — the device adds no copy of its own.
+        let urgentCareWording: String
+        /// Support resources (PRD §Pregnancy loss 5). Empty on the fallback.
+        let support: [SupportResource]
+        /// Retired entries still resolve — but a retired *country* resolves to the
+        /// fallback, not to wording nobody stands behind any more. See `emergencyGuidance(forCountry:)`.
+        let status: Item.Status
+
+        var id: String { code }
+
+        init(
+            code: String,
+            label: String,
+            emergencyNumber: String? = nil,
+            urgentCareWording: String = "",
+            support: [SupportResource] = [],
+            status: Item.Status = .active
+        ) {
+            self.code = code
+            self.label = label
+            self.emergencyNumber = emergencyNumber
+            self.urgentCareWording = urgentCareWording
+            self.support = support
+            self.status = status
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            code = try container.decode(String.self, forKey: .code)
+            label = try container.decodeIfPresent(String.self, forKey: .label) ?? code
+            emergencyNumber = try container.decodeIfPresent(String.self, forKey: .emergencyNumber)
+            urgentCareWording = try container.decodeIfPresent(
+                String.self, forKey: .urgentCareWording) ?? ""
+            support = try container.decodeIfPresent(
+                [SupportResource].self, forKey: .support) ?? []
+            status = (try? container.decodeIfPresent(Item.Status.self, forKey: .status))
+                .flatMap { $0 } ?? .active
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case code, label, status, emergencyNumber, urgentCareWording, support
+        }
+    }
+
+    /// One named support service and how to reach it. A row that cannot say both is not
+    /// a resource, and the server's parser drops it before it is ever served — this side
+    /// only decodes what survived.
+    struct SupportResource: Decodable, Sendable, Hashable, Identifiable {
+        let label: String
+        let detail: String
+
+        var id: String { label }
+
+        init(label: String, detail: String) {
+            self.label = label
+            self.detail = detail
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
+            detail = try container.decodeIfPresent(String.self, forKey: .detail) ?? ""
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case label, detail
+        }
+    }
+
     /// Which catalogue a code belongs to. The three are separate namespaces on the
     /// server, so a lookup has to say which one it means.
     enum Catalogue: Sendable {
@@ -154,6 +257,57 @@ struct EvaRefData: Decodable, Sendable, Hashable {
         items(catalogue).first { $0.code == code }
     }
 
+    /// The guidance for a country, or `nil` when there is nothing to show.
+    ///
+    /// Convenience over `emergencyGuidance(from:forCountry:)` for a whole catalogue.
+    func emergencyGuidance(forCountry country: String?) -> EmergencyEntry? {
+        Self.emergencyGuidance(from: catalogues.emergencyGuidance, forCountry: country)
+    }
+
+    /// The device-side half of `resolveEmergencyGuidance` (api/src/refdata.ts), which is
+    /// the written-down contract and the reason this function's rules read the way they
+    /// do. The country **never leaves the device** (LAUNCH §2.4): the whole table
+    /// arrives from `GET /refdata` and this lookup is the only thing that runs on it.
+    ///
+    /// - A country the table carries *and* stands behind (`status == .active`) wins.
+    /// - A **retired** entry loses to the fallback: retirement here means "no longer
+    ///   offering this country's wording", and showing it because the row still exists
+    ///   would make retirement cosmetic.
+    /// - An unknown, malformed or empty country resolves to the fallback too. This is
+    ///   not an error path — it is a woman the table cannot name, and she still gets
+    ///   the neutral line rather than nothing.
+    /// - The fallback itself carries **no number and no resources**, so no code this
+    ///   table has never heard of can ever be shown another country's emergency
+    ///   number, however the table is edited.
+    /// - `nil` — no fallback row in the table **and** no active entry for the country.
+    ///   The caller then leaves the card's own wording in place, which is the same
+    ///   neutral sentence the fallback carries (`refdata.test.ts` holds the two
+    ///   byte-equal).
+    ///
+    /// The country code is whatever `Locale.region` and the Settings override produce:
+    /// trimmed, uppercased, and required to be exactly two letters before it is looked
+    /// up — anything else (`419`, `en_US`, `""`) is *unknown*, never a partial match.
+    static func emergencyGuidance(
+        from entries: [EmergencyEntry],
+        forCountry country: String?
+    ) -> EmergencyEntry? {
+        let fallback = entries.first(where: { $0.code == Self.fallbackGuidanceCode })
+        guard let country, !country.isEmpty else { return fallback }
+        // The same trim the API's `String.prototype.trim` performs, including the
+        // zero-width no-break space it strips and `whitespacesAndNewlines` does not —
+        // the two implementations are one contract, and `"\u{FEFF}US"` resolves to the
+        // US entry on both sides or it resolves differently on one of them.
+        let trimmed = country.trimmingCharacters(
+            in: CharacterSet(charactersIn: "\u{FEFF}").union(.whitespacesAndNewlines)
+        )
+        let code = trimmed.uppercased()
+        guard code.count == 2, code.allSatisfy({ $0.isLetter }), code.allSatisfy({ $0.isASCII })
+        else { return fallback }
+        guard let match = entries.first(where: { $0.code == code }), match.status == .active
+        else { return fallback }
+        return match
+    }
+
     /// A value-axis option as words — `egg-white` → "Egg-white", `low` → "Low".
     ///
     /// The one place in C2 where the client puts words to catalogue data, and it is
@@ -191,5 +345,12 @@ extension Optional where Wrapped == EvaRefData {
 
     func item(_ code: String, in catalogue: EvaRefData.Catalogue) -> EvaRefData.Item? {
         self?.item(code, in: catalogue)
+    }
+
+    /// The guidance for a country, or `nil` when the catalogue has not arrived — which
+    /// leaves every consumer on the wording the card or the screen already carries, the
+    /// same answer an unreadable catalogue gets.
+    func emergencyGuidance(forCountry country: String?) -> EvaRefData.EmergencyEntry? {
+        self?.emergencyGuidance(forCountry: country)
     }
 }

@@ -138,6 +138,33 @@ struct EvaTodayCard: Equatable, Sendable {
         if let line3, !line3.isEmpty { parts.append(line3) }
         return parts.joined(separator: " ")
     }
+
+    /// The card as the screen draws it, with a flag card's guidance line replaced by the
+    /// per-country emergency wording (#87) — or unchanged, when there is none to apply.
+    ///
+    /// **The one place the device may swap a word the server sent**, and the exception
+    /// that proves the rule above: the replacement words are not written in the app, they
+    /// come from the `refdata/` emergency-guidance table the server serves — the same
+    /// kind of server-owned copy every chip label comes from. What the device contributes
+    /// is *which country's row* resolves, from a setting that never leaves the device
+    /// (LAUNCH §2.4). The card keeps its own line when the table has not arrived, when
+    /// the resolved entry carries no wording, or when this is not a flag card — an
+    /// escalation card without a table says the neutral sentence the template already
+    /// carries, which is the fallback row's sentence byte for byte.
+    func withFlagGuidance(_ wording: String?) -> EvaTodayCard {
+        guard tone == .flag, let wording, !wording.isEmpty else { return self }
+        return EvaTodayCard(
+            templateId: templateId,
+            rung: rung,
+            tone: tone,
+            kicker: kicker,
+            title: title,
+            line2: wording,
+            line3: line3,
+            meta: meta,
+            actions: actions
+        )
+    }
 }
 
 extension EvaTodayCard: Decodable {

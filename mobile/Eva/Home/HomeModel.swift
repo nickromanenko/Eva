@@ -27,6 +27,24 @@ protocol TodayCardSource {
 
 extension AppSession: TodayCardSource {}
 
+/// Where the Home tab gets the per-country emergency guidance table (#87).
+///
+/// A second seam beside `TodayCardSource` rather than a second method on it, because the
+/// two facts have different half-lives: the card is generated once per day, the guidance
+/// table is server-edited refdata — and the fixture source that seeds canvas states
+/// (`SeededTodayCardSource`) answers cards and deliberately not guidance, which a shared
+/// protocol would force it to fake.
+@MainActor
+protocol EmergencyGuidanceSource {
+    /// The whole per-country table, or `nil` when it cannot be had. **Takes no country
+    /// argument, on purpose**: which country resolves it is decided on this device
+    /// (`EvaCountrySetting`) and is never sent to the server (LAUNCH §2.4). A parameter
+    /// here would be the bug the acceptance criteria forbid.
+    func emergencyGuidance() async -> [EvaRefData.EmergencyEntry]?
+}
+
+extension AppSession: EmergencyGuidanceSource {}
+
 /// What the Home tab knows: the day's card, whether the last read reached the API, and
 /// when it last did.
 ///
@@ -96,6 +114,14 @@ final class HomeModel {
     /// The `content/` version the card was filled from (#97). Recorded, not rendered.
     private(set) var contentVersion: String?
 
+    /// The per-country emergency guidance table (#87), as `GET /refdata` served it this
+    /// launch. Held **whole** — which country resolves it is decided at render time from
+    /// `EvaCountrySetting`, so a country changed in Settings shows on the flag card the
+    /// moment she comes back, without a refresh. `nil` while not yet read or when the
+    /// read failed, which the card renders as "keep your own wording" — the neutral
+    /// fallback sentence, not a blank escalation.
+    private(set) var emergencyGuidance: [EvaRefData.EmergencyEntry]?
+
     var card: EvaTodayCard? {
         if case .card(let card) = state { return card }
         return nil
@@ -106,6 +132,10 @@ final class HomeModel {
     var showsOfflineBar: Bool { isOffline && card != nil }
 
     private let source: any TodayCardSource
+    /// Where the guidance table comes from (#87). `nil` — the fixtures, previews, and
+    /// every unit test that constructs a model without one — means the card renders
+    /// exactly what the server sent, which is the neutral wording anyway.
+    private let guidanceSource: (any EmergencyGuidanceSource)?
     /// Read per request, never captured: a user who flies somewhere else gets the card for
     /// the date her device now says, which is the same rule `localDate` follows.
     private let timeZone: @MainActor () -> TimeZone
@@ -116,10 +146,12 @@ final class HomeModel {
 
     init(
         source: any TodayCardSource,
+        guidanceSource: (any EmergencyGuidanceSource)? = nil,
         timeZone: @escaping @MainActor () -> TimeZone = { .current },
         clock: @escaping @MainActor () -> Date = { Date() }
     ) {
         self.source = source
+        self.guidanceSource = guidanceSource
         self.timeZone = timeZone
         self.clock = clock
     }
@@ -164,6 +196,20 @@ final class HomeModel {
         } catch {
             fail(with: APIError.decoding)
         }
+
+        await loadGuidanceIfNeeded()
+    }
+
+    /// The guidance table, once per launch of this model (#87).
+    ///
+    /// Read **after** the card, never instead of it: a failed guidance read is not an
+    /// error state, it is the card keeping its own wording. Successful reads are not
+    /// repeated — the table is refdata, and #78's cached copy is what makes a refresh
+    /// cheaper than a re-fetch; until then one fetch per model lifetime is the same
+    /// budget the calendar's catalogue lives on.
+    private func loadGuidanceIfNeeded() async {
+        guard emergencyGuidance == nil, let guidanceSource else { return }
+        emergencyGuidance = await guidanceSource.emergencyGuidance()
     }
 
     private func fail(with error: APIError) {

@@ -1,5 +1,5 @@
-import { FieldValue } from 'firebase-admin/firestore'
 import { createHash } from 'node:crypto'
+import { FieldValue } from 'firebase-admin/firestore'
 import { firestore } from './firebase'
 
 /** Owner of `refdata/` (GUARDRAILS rule 10). Nothing else touches it.
@@ -19,12 +19,17 @@ import { firestore } from './firebase'
  *    write, so a queued offline entry is never dropped for being out of fashion. It is
  *    simply not offered as a new choice. `retireCode` is the supported removal. */
 
-export type CatalogueId = 'symptoms' | 'sportActivities' | 'appointmentTypes'
+export type CatalogueId = 'symptoms' | 'sportActivities' | 'appointmentTypes' | 'emergencyGuidance'
 
 /** The catalogues `GET /refdata` serves, in the order it serves them. Any other
  *  document in the collection is ignored by the API — reference data is only
  *  reference data once something reads it. */
-export const CATALOGUE_IDS = ['symptoms', 'sportActivities', 'appointmentTypes'] as const
+export const CATALOGUE_IDS = [
+  'symptoms',
+  'sportActivities',
+  'appointmentTypes',
+  'emergencyGuidance',
+] as const
 
 export type ItemStatus = 'active' | 'retired'
 
@@ -55,12 +60,56 @@ export interface OptionItem extends BaseItem {
   freeText: boolean
 }
 
-export type CatalogueItem = SymptomItem | OptionItem
+/** One support resource inside an emergency-guidance entry — a named public service and
+ *  how to reach it. A `label` without a reachable `detail` would be a promise the row
+ *  cannot keep, so both are required and both must be non-empty. */
+export interface EmergencySupportResource {
+  label: string
+  detail: string
+}
+
+/**
+ * One country's emergency guidance, or the fallback.
+ *
+ * `code` is an ISO 3166-1 alpha-2 country code — uppercase, the same shape
+ * `Locale.region` hands an iOS device — except for the one entry whose code is
+ * `fallback`, which is what every code the table does not carry resolves to.
+ *
+ * **Why this is refdata and not `content/`**: the red-flag card's *template* is content
+ * (#97), but which country's wording fills its guidance line is decided on the device,
+ * because the device never sends its country anywhere (LAUNCH §2.4 data minimisation).
+ * The server cannot resolve it, so the whole table travels to every client and the
+ * client resolves locally — which is exactly the refdata shape: server-editable copy
+ * that reaches the app without a release, hashed into the same `version` the client
+ * caches against.
+ */
+export interface EmergencyGuidanceEntry extends BaseItem {
+  /**
+   * The country's national emergency number — `"911"`, `"112 or 999"` — or `null` where
+   * the entry deliberately states none. **The fallback is always `null`**: no number at
+   * all is safer than a guessed one (issue #87), and a null here is the seed file saying
+   * so rather than a field someone forgot.
+   */
+  emergencyNumber: string | null
+  /**
+   * The wording for urgent maternity care: the complete sentence(s) the device puts in
+   * the red-flag card's guidance line for this country, ending in the same
+   * "Eva cannot assess this." tail the signed template carries. The device renders this
+   * verbatim — it never edits an entry's words.
+   */
+  urgentCareWording: string
+  /** Support resources (PRD §Pregnancy loss 5), quiet-list rows. Empty on the fallback:
+   *  an uncovered country gets the guidance sentence and *nothing invented*. */
+  support: EmergencySupportResource[]
+}
+
+export type CatalogueItem = SymptomItem | OptionItem | EmergencyGuidanceEntry
 
 export interface Catalogues {
   symptoms: SymptomItem[]
   sportActivities: OptionItem[]
   appointmentTypes: OptionItem[]
+  emergencyGuidance: EmergencyGuidanceEntry[]
 }
 
 export interface RefData {
@@ -107,6 +156,32 @@ const toOptionItem = (raw: Record<string, unknown>, index: number): OptionItem =
   freeText: raw.freeText === true,
 })
 
+/** A support-resource row that cannot say both what it is and how to reach it is not a
+ *  resource — it is a name on a screen. Dropped, not defaulted: an empty `detail` would
+ *  render as a helpline with no number. */
+const toSupportResource = (raw: unknown): EmergencySupportResource | null => {
+  if (typeof raw !== 'object' || raw === null) return null
+  const row = raw as Record<string, unknown>
+  const label = asString(row.label)
+  const detail = asString(row.detail)
+  if (label.length === 0 || detail.length === 0) return null
+  return { label, detail }
+}
+
+const toEmergencyEntry = (raw: Record<string, unknown>, index: number): EmergencyGuidanceEntry => ({
+  code: asString(raw.code),
+  label: asString(raw.label, asString(raw.code)),
+  order: typeof raw.order === 'number' ? raw.order : index,
+  status: asStatus(raw.status),
+  // `undefined` and `null` both mean "no number": a hand-edited row omitting the field
+  // must not read as a row that lost it.
+  emergencyNumber: typeof raw.emergencyNumber === 'string' ? raw.emergencyNumber : null,
+  urgentCareWording: asString(raw.urgentCareWording),
+  support: Array.isArray(raw.support)
+    ? raw.support.map(toSupportResource).filter((r): r is EmergencySupportResource => r !== null)
+    : [],
+})
+
 const byOrderThenCode = (a: BaseItem, b: BaseItem) =>
   a.order - b.order || a.code.localeCompare(b.code)
 
@@ -116,7 +191,12 @@ const parseItems = (id: string, data: unknown): CatalogueItem[] => {
   const rows = raw.filter(
     (row): row is Record<string, unknown> => typeof row === 'object' && row !== null,
   )
-  const items = id === 'symptoms' ? rows.map(toSymptomItem) : rows.map(toOptionItem)
+  const items =
+    id === 'symptoms'
+      ? rows.map(toSymptomItem)
+      : id === 'emergencyGuidance'
+        ? rows.map(toEmergencyEntry)
+        : rows.map(toOptionItem)
   return items.filter((item) => item.code.length > 0).sort(byOrderThenCode)
 }
 
@@ -155,6 +235,50 @@ export const buildSymptomRules = (items: SymptomItem[]): SymptomRules => {
   }
 }
 
+// ── Emergency guidance (#87) ───────────────────────────────────────────────────────────
+// Resolution runs **on the device**, which never sends its country anywhere (LAUNCH
+// §2.4) — so the API has no route parameter and no logging to avoid. This helper exists
+// anyway, as the written-down rule the device mirrors and the tests exercise: one
+// resolution contract, stated once, so the client's copy cannot quietly diverge from it.
+
+/** The one entry whose code is not a country. Present in every seed of the catalogue. */
+export const FALLBACK_GUIDANCE_CODE = 'fallback'
+
+/** What a country code must look like: two letters, nothing else. Anything else — a
+ *  region group like `419`, a locale id, an empty string, `undefined` — is *unknown*,
+ *  and unknown resolves to the fallback. Never an error: a bad country is not a bad
+ *  request, it is a woman the table cannot name, and she still gets the neutral line. */
+const COUNTRY_CODE = /^[A-Z]{2}$/
+
+/**
+ * The guidance a device in `countryCode` shows, or `null` when there is neither a
+ * fallback nor an active entry for the country — which happens only when the catalogue
+ * is missing its fallback entry (or could not be read at all), and the device then keeps
+ * the card's own wording.
+ *
+ * The order of the answers is the safety property the acceptance criteria ask for:
+ *
+ * - an **active** entry whose code is the country wins, whether or not a fallback exists;
+ * - a **retired** entry (or an unknown, malformed or absent code) resolves to the
+ *   fallback — a retired country's wording is wording nobody stands behind any more,
+ *   and showing it because the code still exists would make retirement cosmetic;
+ * - the fallback never resolves to itself a second time: it carries **no number**, so
+ *   a country the table has never heard of can never be shown another country's
+ *   emergency number, however the table is edited.
+ */
+export const resolveEmergencyGuidance = (
+  entries: readonly EmergencyGuidanceEntry[],
+  countryCode: string | null | undefined,
+): EmergencyGuidanceEntry | null => {
+  const fallback = entries.find((entry) => entry.code === FALLBACK_GUIDANCE_CODE) ?? null
+  if (typeof countryCode !== 'string') return fallback
+  const code = countryCode.trim().toUpperCase()
+  if (!COUNTRY_CODE.test(code)) return fallback
+  const match = entries.find((entry) => entry.code === code)
+  if (match && match.status === 'active') return match
+  return fallback
+}
+
 /** Reference data is read on nearly every write (symptom validation) and changes a
  *  few times a year, so it is held in memory. The window is the staleness a catalogue
  *  edit takes to reach an instance, and the reason routes cost no Firestore read. */
@@ -177,6 +301,7 @@ const loadCatalogues = async (): Promise<Catalogues> => {
     symptoms: (parsed[0] ?? []) as SymptomItem[],
     sportActivities: (parsed[1] ?? []) as OptionItem[],
     appointmentTypes: (parsed[2] ?? []) as OptionItem[],
+    emergencyGuidance: (parsed[3] ?? []) as EmergencyGuidanceEntry[],
   }
 }
 

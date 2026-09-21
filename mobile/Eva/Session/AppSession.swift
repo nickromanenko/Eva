@@ -356,6 +356,30 @@ final class AppSession {
         }
     }
 
+    /// The per-country emergency guidance table (#87), or `nil` when it cannot be had.
+    ///
+    /// The same `GET /refdata` document the calendar's catalogue comes from, sliced to
+    /// the guidance rows. `nil` is the "not available" answer — a failed read, an API
+    /// that predates the table — and every consumer treats it the same way: the red-flag
+    /// card keeps the neutral wording it arrived with, which is the fallback sentence
+    /// anyway (`refdata.test.ts` holds the two byte-equal). A missing table must never
+    /// blank an escalation card.
+    ///
+    /// **Takes no country argument, on purpose.** The country is resolved on the device
+    /// (`EvaCountrySetting`) and never sent anywhere — LAUNCH §2.4's data minimisation,
+    /// and the reason this method's signature has nothing to pass. The table travels
+    /// whole to every client; the lookup is local.
+    ///
+    /// Errors are swallowed rather than thrown, unlike `refData()`: the calendar treats a
+    /// failed catalogue read as "draw the codes", and the card treats a failed guidance
+    /// read as "keep the card's own words" — neither is worth a failed session over, and
+    /// a dead session is `authorized`'s to handle on the card read that shares the
+    /// refresh with this one.
+    func emergencyGuidance() async -> [EvaRefData.EmergencyEntry]? {
+        guard let refData = try? await refData() else { return nil }
+        return refData.catalogues.emergencyGuidance
+    }
+
     /// The calendar's prediction overlay. `GET /me/cycle/predictions?from=&to=&timeZone=`
     /// (#205, C12a).
     ///

@@ -1,5 +1,6 @@
 /**
- * Seeds `refdata/` — the option lists the client draws.
+ * Seeds `refdata/` — the option lists the client draws, and the per-country emergency
+ * guidance table (#87).
  *
  *   cd api && bun run seed:refdata            # add anything missing, touch nothing else
  *   cd api && bun run seed:refdata --relabel  # also reset labels to the ones below
@@ -24,12 +25,15 @@
  */
 
 import {
-  CATALOGUE_IDS,
   applyCatalogue,
-  readCatalogue,
+  CATALOGUE_IDS,
   type CatalogueItem,
+  type EmergencyGuidanceEntry,
+  type EmergencySupportResource,
+  FALLBACK_GUIDANCE_CODE,
   type ItemStatus,
   type OptionItem,
+  readCatalogue,
   type SymptomItem,
 } from '../src/refdata'
 
@@ -159,10 +163,100 @@ const APPOINTMENT_TYPES: OptionItem[] = numbered([
   option('other', 'Other', true),
 ])
 
+/**
+ * Emergency guidance per country (#87) — LAUNCH §4.3's table of the emergency number and
+ * the wording for urgent maternity care, for the top English-speaking storefronts, plus
+ * the neutral fallback everywhere else, and each country's support resources.
+ *
+ * The client resolves its country **on the device** and never sends it to the server
+ * (LAUNCH §2.4), so this table travels whole to every client and the resolution rule it
+ * must match lives in `resolveEmergencyGuidance` (src/refdata.ts): unknown or malformed
+ * code, retired entry → `fallback`, always.
+ *
+ * ## Who signs this, per entry
+ *
+ * **Every non-fallback entry is signed under the A33 owner override** (LAUNCH §5: the
+ * clinical-reviewer requirement bypassed by owner decision): **Nick Romanenko,
+ * 2026-09-20**, the same signature `seed-content.ts`'s `REVIEW` carries. What that
+ * signature stands behind, stated per entry so it can be audited:
+ *
+ * - The **emergency numbers** are the countries' official national emergency numbers —
+ *   public telecom facts, not clinical judgement: 911 (US, CA), 999 (UK), 112/999 (IE —
+ *   both answered, 112 everywhere in the EU, 999 the Irish number), 000 (AU), 111 (NZ).
+ * - The **wording** adds exactly one sentence to the red-flag copy a reviewer already
+ *   signed (`content/templates/red_flag`, seed-content.ts): "If you need urgent help,
+ *   call {number} now." Nothing jurisdiction-specific beyond the number itself, per
+ *   A33's "describe the body, not the health system".
+ * - The **support resources** are each service's published public line — national
+ *   crisis lines (988 US/CA, Samaritans 116 123 UK/IE, Lifeline 13 11 14 AU, 1737 NZ)
+ *   and the perinatal services a pregnancy-loss reader is the audience for (PSI, Sands,
+ *   PANDA). A service Eva cannot name with confidence stays out: **a guessed helpline is
+ *   the same defect as a guessed emergency number.**
+ *
+ * The fallback is the one deliberately unsigned entry — it is the neutral wording the
+ * signed template already carries, byte for byte, with no number and no resources. An
+ * uncovered country gets "contact your provider or a local urgent care service" and
+ * nothing invented, because no number at all is safer than a guessed one (#87).
+ */
+const guided = (
+  code: string,
+  label: string,
+  emergencyNumber: string | null,
+  urgentCareWording: string,
+  support: EmergencySupportResource[] = [],
+): Seed<EmergencyGuidanceEntry> => ({ code, label, emergencyNumber, urgentCareWording, support })
+
+/** The red-flag template's guidance line, verbatim. `refdata.test.ts` holds the two
+ *  together: change one without the other and the suite says so. */
+const FALLBACK_WORDING =
+  'Contact your provider or a local urgent care service for guidance. Eva cannot assess this.'
+
+const EMERGENCY_GUIDANCE: EmergencyGuidanceEntry[] = numbered([
+  guided(FALLBACK_GUIDANCE_CODE, 'Everywhere else', null, FALLBACK_WORDING),
+  guided(
+    'US',
+    'United States',
+    '911',
+    'If you need urgent help, call 911 now. ' + FALLBACK_WORDING,
+    [
+      { label: '988 Suicide & Crisis Lifeline', detail: 'Call or text 988' },
+      { label: 'Postpartum Support International', detail: 'Call or text 1-800-944-4773' },
+    ],
+  ),
+  guided('CA', 'Canada', '911', 'If you need urgent help, call 911 now. ' + FALLBACK_WORDING, [
+    { label: '988 Suicide Crisis Helpline', detail: 'Call or text 988' },
+  ]),
+  guided(
+    'GB',
+    'United Kingdom',
+    '999',
+    'If you need urgent help, call 999 now. ' + FALLBACK_WORDING,
+    [
+      { label: 'Samaritans', detail: 'Call 116 123, free, any time' },
+      { label: 'Sands', detail: 'Call 0808 164 3332' },
+    ],
+  ),
+  guided(
+    'IE',
+    'Ireland',
+    '112 or 999',
+    'If you need urgent help, call 112 or 999 now. ' + FALLBACK_WORDING,
+    [{ label: 'Samaritans', detail: 'Call 116 123, free, any time' }],
+  ),
+  guided('AU', 'Australia', '000', 'If you need urgent help, call 000 now. ' + FALLBACK_WORDING, [
+    { label: 'Lifeline Australia', detail: 'Call 13 11 14' },
+    { label: 'PANDA', detail: 'Call 1300 726 306' },
+  ]),
+  guided('NZ', 'New Zealand', '111', 'If you need urgent help, call 111 now. ' + FALLBACK_WORDING, [
+    { label: '1737, Need to talk?', detail: 'Call or text 1737' },
+  ]),
+])
+
 export const DEFAULT_CATALOGUES: Record<(typeof CATALOGUE_IDS)[number], CatalogueItem[]> = {
   symptoms: [...SYMPTOMS, ...RETIRED_SYMPTOMS],
   sportActivities: SPORT_ACTIVITIES,
   appointmentTypes: APPOINTMENT_TYPES,
+  emergencyGuidance: EMERGENCY_GUIDANCE,
 }
 
 const main = async () => {

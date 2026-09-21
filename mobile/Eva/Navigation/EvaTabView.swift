@@ -22,6 +22,9 @@ struct EvaTabView: View {
     let session: AppSession
     /// Passed through to Profile, where the Units row lives (#82).
     let units: EvaUnitPreference
+    /// Passed through to Home (the flag card's guidance, #87) and Profile (the row where
+    /// the country is changed).
+    let country: EvaCountrySetting
 
     /// Tab selection, plus the one request a tab can make of another: the Today card's
     /// `Log now` opens the calendar's picker. See `EvaTabRouter`.
@@ -53,13 +56,13 @@ struct EvaTabView: View {
     private func screen(_ tab: EvaTab) -> some View {
         switch tab {
         case .home:
-            HomeView(session: session, router: router)
+            HomeView(session: session, router: router, country: country)
         case .calendar:
             CalendarView(session: session, router: router)
         case .profile:
             // A stack of its own, so #19's settings detail screens push inside the tab
             // the way the canvas draws them.
-            NavigationStack { ProfileView(session: session, units: units) }
+            NavigationStack { ProfileView(session: session, units: units, country: country) }
         }
     }
 }
@@ -179,5 +182,5 @@ struct EvaTabBar: View {
 }
 
 #Preview {
-    EvaTabView(session: AppSession(), units: EvaUnitPreference())
+    EvaTabView(session: AppSession(), units: EvaUnitPreference(), country: EvaCountrySetting())
 }

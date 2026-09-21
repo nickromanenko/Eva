@@ -1,21 +1,25 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { FieldValue } from 'firebase-admin/firestore'
-import { adminAuth, firestore } from '../src/firebase'
-import { signUpActivated } from './support/session'
-import {
-  CATALOGUE_IDS,
-  buildSymptomRules,
-  applyCatalogue,
-  catalogueVersion,
-  readCatalogue,
-  retireCode,
-  seedIfMissing,
-  type Catalogues,
-  type OptionItem,
-  type SymptomItem,
-} from '../src/refdata'
-import { DEFAULT_CATALOGUES } from '../scripts/seed-refdata'
 import { RETIREMENTS } from '../scripts/retire-refdata'
+import { TEMPLATES } from '../scripts/seed-content'
+import { DEFAULT_CATALOGUES } from '../scripts/seed-refdata'
+import { adminAuth, firestore } from '../src/firebase'
+import {
+  applyCatalogue,
+  buildSymptomRules,
+  CATALOGUE_IDS,
+  type Catalogues,
+  catalogueVersion,
+  type EmergencyGuidanceEntry,
+  FALLBACK_GUIDANCE_CODE,
+  type OptionItem,
+  readCatalogue,
+  resolveEmergencyGuidance,
+  retireCode,
+  type SymptomItem,
+  seedIfMissing,
+} from '../src/refdata'
+import { signUpActivated } from './support/session'
 
 /**
  * Integration tests against the REAL Firebase project, same pattern as events.test.ts.
@@ -114,11 +118,12 @@ const symptomItem = (code: string, label: string, values: string[] | null = null
   values,
 })
 
-/** The three served catalogues, with one of them filled in — enough to hash. */
+/** The four served catalogues, with one of them filled in — enough to hash. */
 const catalogues = (symptoms: SymptomItem[]): Catalogues => ({
   symptoms,
   sportActivities: [],
   appointmentTypes: [],
+  emergencyGuidance: [],
 })
 
 const bodySignals = (body: Record<string, unknown>) =>
@@ -172,12 +177,13 @@ describe('refdata: the endpoint', () => {
     expect((await json<ErrorResponse>(res)).error.code).toBe('UNAUTHORIZED')
   })
 
-  test('serves the three catalogues, every item with a code and a label', async () => {
+  test('serves the four catalogues, every item with a code and a label', async () => {
     expect(Object.keys(live.catalogues).sort()).toEqual([...CATALOGUE_IDS].sort())
     // Seeded by beforeAll if this project had never seen them.
     expect(live.catalogues.symptoms.length).toBeGreaterThan(0)
     expect(live.catalogues.sportActivities.length).toBeGreaterThan(0)
     expect(live.catalogues.appointmentTypes.length).toBeGreaterThan(0)
+    expect(live.catalogues.emergencyGuidance.length).toBeGreaterThan(0)
 
     for (const id of CATALOGUE_IDS) {
       const items = live.catalogues[id]
@@ -470,5 +476,135 @@ describe('events: history survives the catalogue changing under it', () => {
   test('and it can still be deleted', async () => {
     const res = await api(`/me/events/${legacyId}`, { method: 'DELETE' })
     expect(res.status).toBe(200)
+  })
+})
+
+describe('emergency guidance (#87)', () => {
+  /**
+   * The per-country table LAUNCH §4.3 answers "Emergency guidance is region-aware" with.
+   *
+   * These are mostly assertions against the **live seeded catalogue**, because the thing
+   * being tested is content: what a device in a covered country is shown, and — the one
+   * safety property the issue names — that a country the table does not carry resolves
+   * to the fallback and **never to another country's number**. Resolution itself runs on
+   * the device (the country is never sent to the server), so `resolveEmergencyGuidance`
+   * is exercised here as the written-down contract the client mirrors, against entries
+   * in memory where the live rows cannot reach it (retirement).
+   */
+  const liveGuidance = (): EmergencyGuidanceEntry[] => live.catalogues.emergencyGuidance
+  // Lazy like `liveGuidance`: these read `live`, which does not exist until `beforeAll`
+  // has run. An eager call here evaluates at describe-registration time and throws
+  // before any test has started.
+  const covered = () =>
+    liveGuidance().filter((entry) => entry.code !== FALLBACK_GUIDANCE_CODE)
+  const fallback = () => liveGuidance().find((entry) => entry.code === FALLBACK_GUIDANCE_CODE)
+
+  test('the seed ships a fallback and the six storefront countries', () => {
+    expect(covered().map((entry) => entry.code).sort()).toEqual(['AU', 'CA', 'GB', 'IE', 'NZ', 'US'])
+    for (const entry of liveGuidance()) {
+      expect(entry.label.length).toBeGreaterThan(0)
+      expect(entry.urgentCareWording.length).toBeGreaterThan(0)
+    }
+  })
+
+  test('the fallback carries no number and no resources — nothing invented for an uncovered country', () => {
+    const entry = fallback()!
+    expect(entry).toBeDefined()
+    // The safety property, stated on the data: no number at all is safer than a
+    // guessed one (#87). The fallback's wording tells her whom to *contact*; it never
+    // dials for her.
+    expect(entry.emergencyNumber).toBeNull()
+    expect(entry.support).toEqual([])
+  })
+
+  test('every covered entry states its number in its own wording, and ends in the signed tail', () => {
+    for (const entry of covered()) {
+      expect(entry.emergencyNumber).not.toBeNull()
+      expect(entry.urgentCareWording).toContain(entry.emergencyNumber!)
+      // Ends, not merely contains: the tail is the card's last word, so a wording that
+      // buried it mid-sentence would be signed copy with something appended after it.
+      expect(entry.urgentCareWording).toMatch(/Eva cannot assess this\.$/)
+      // A support row that cannot be acted on is not a resource (seed-refdata.ts).
+      for (const resource of entry.support) {
+        expect(resource.label.length).toBeGreaterThan(0)
+        expect(resource.detail.length).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  test('the fallback wording is byte-identical to the red-flag template the device falls back to', () => {
+    // The device substitutes a flag card's guidance line with the resolved entry's
+    // wording. When refdata never arrives, the card keeps the template's own line — so
+    // the fallback entry and the template line must be the same sentence, or an
+    // uncovered country would see her card change wording depending on whether a
+    // catalogue had loaded.
+    const redFlag = TEMPLATES.find((template) => template.id === 'red_flag')!
+    expect(redFlag).toBeDefined()
+    expect(fallback()!.urgentCareWording).toBe(redFlag.line2 ?? '')
+  })
+
+  test('an unknown country resolves to the fallback and never to another country’s number', () => {
+    for (const country of [
+      'ZZ',
+      'DE',
+      'FR',
+      'JP',
+      '  ',
+      'USA',
+      '419',
+      '',
+      null,
+      undefined,
+    ]) {
+      const resolved = resolveEmergencyGuidance(liveGuidance(), country)
+      expect(resolved?.code).toBe(FALLBACK_GUIDANCE_CODE)
+      // The acceptance criterion, twice over: no number, whatever the table carries.
+      expect(resolved?.emergencyNumber).toBeNull()
+    }
+  })
+
+  test('a covered country resolves to its own entry, case and padding aside', () => {
+    expect(resolveEmergencyGuidance(liveGuidance(), 'US')?.emergencyNumber).toBe('911')
+    expect(resolveEmergencyGuidance(liveGuidance(), 'gb')?.emergencyNumber).toBe('999')
+    expect(resolveEmergencyGuidance(liveGuidance(), ' NZ ')?.emergencyNumber).toBe('111')
+    // The zero-width no-break space is what JS `trim` strips and a naive whitespace
+    // strip misses — pinned here because the device's resolver claims the same
+    // contract, and its test pins the same case.
+    expect(resolveEmergencyGuidance(liveGuidance(), '\uFEFFUS')?.emergencyNumber).toBe('911')
+  })
+
+  test('a retired country resolves to the fallback, not to its own stale wording', () => {
+    const entries: EmergencyGuidanceEntry[] = [
+      { ...fallback()! },
+      { ...covered()[0]!, status: 'retired' },
+    ]
+    const resolved = resolveEmergencyGuidance(entries, covered()[0]!.code)
+    expect(resolved?.code).toBe(FALLBACK_GUIDANCE_CODE)
+    expect(resolved?.emergencyNumber).toBeNull()
+  })
+
+  test('an empty or unreadable catalogue resolves to nothing rather than to any entry', () => {
+    expect(resolveEmergencyGuidance([], 'US')).toBeNull()
+    expect(resolveEmergencyGuidance([covered()[0]!], 'US')).not.toBeNull()
+    // No fallback in the table: a covered country resolves to its own row (the row is
+    // still there), but an unknown one resolves to null — the device then keeps the
+    // card's own wording, which is the same neutral sentence.
+    expect(resolveEmergencyGuidance([covered()[0]!], 'DE')).toBeNull()
+  })
+
+  test('the version hash covers the guidance table: an edit re-versions every client', () => {
+    const withGuidance = catalogues([])
+    withGuidance.emergencyGuidance = liveGuidance()
+    expect(catalogueVersion(withGuidance)).not.toBe(catalogueVersion(catalogues([])))
+  })
+
+  test('the route has no country dimension: /refdata?country= serves the identical body', async () => {
+    // The data-minimisation half of #87, pinned from the receiving side: a client that
+    // did send its country — which the device never does — would get exactly the same
+    // catalogue back, so the server cannot hold, differentiate on, or learn a country
+    // through this route. The resolution runs on the device; the API stays blind.
+    const withCountry = await api('/refdata?country=US&countryCode=DE')
+    expect(withCountry.status).toBe(200)
+    expect(await json<RefDataBody>(withCountry)).toEqual(live)
   })
 })

@@ -1194,9 +1194,11 @@ exercise from a test. Per-user scoping means the code that runs in production is
 code the tests run, pointed at one account.
 
 `refdata/{catalogueId}` — the option lists the client draws, one document per
-catalogue (`symptoms`, `sportActivities`, `appointmentTypes`). Owned by
-`api/src/refdata.ts`. Content is data, not code: adding an option or fixing a label is
-a Firestore write, never a deploy (PRD:483).
+catalogue (`symptoms`, `sportActivities`, `appointmentTypes`), plus the per-country
+emergency guidance table (`emergencyGuidance`, #87) — emergency number, urgent-care
+wording and support resources per ISO country, with a `fallback` entry that carries no
+number at all. Owned by `api/src/refdata.ts`. Content is data, not code: adding an
+option or fixing a label is a Firestore write, never a deploy (PRD:483).
 
 ```
 items[]        { code, label, order, status: 'active' | 'retired', … }
