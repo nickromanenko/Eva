@@ -28,6 +28,11 @@ final class EmergencyGuidanceUITests: EvaUITestCase {
     /// how the canvas drew it, not how the fallback reads.
     private static let fixtureFragment =
         "Contact your maternity provider or local urgent care service"
+    /// What every **covered** wording has that the fallback has not: a number sentence.
+    /// The fallback states no number at all, so a card showing any of these — or the word
+    /// "call", which only the number sentences carry — is a card that resolved to a
+    /// country when it should have resolved to the fallback, whichever country it was.
+    private static let coveredNumberFragments = ["911", "999", "000", "111", "112"]
 
     func testTheFlagCardShowsTheCountrysWordingOrTheFallback() throws {
         let app = launch()
@@ -38,8 +43,11 @@ final class EmergencyGuidanceUITests: EvaUITestCase {
         relaunch(app, card: "home_flag", country: "US")
         let covered = app.otherElements["home.card"]
         XCTAssertTrue(covered.waitForExistence(timeout: 20), "The flag card never drew")
+        // The card lands *before* the guidance fetch does, and the substitution applies
+        // when the table arrives — so the assertion waits for the wording, not for the
+        // card. A timeout here means the table never reached the card.
         XCTAssertTrue(
-            covered.label.contains(Self.coveredFragment),
+            wait(for: Self.coveredFragment, in: covered),
             "A US card did not show the US wording: \(covered.label)"
         )
         XCTAssertTrue(
@@ -50,6 +58,12 @@ final class EmergencyGuidanceUITests: EvaUITestCase {
             covered.label.contains(Self.fixtureFragment),
             "A US card still shows the fixture's neutral line — the table did not reach it"
         )
+        for number in Self.coveredNumberFragments where number != "911" {
+            XCTAssertFalse(
+                covered.label.contains(number),
+                "A US card carries \(number) — a covered country was shown another's wording"
+            )
+        }
 
         // MARK: An uncovered country: the fallback, and never another country's number
 
@@ -57,16 +71,19 @@ final class EmergencyGuidanceUITests: EvaUITestCase {
         let uncovered = app.otherElements["home.card"]
         XCTAssertTrue(uncovered.waitForExistence(timeout: 20), "The flag card never drew")
         XCTAssertTrue(
-            uncovered.label.contains(Self.fallbackFragment),
+            wait(for: Self.fallbackFragment, in: uncovered),
             "An uncovered region did not resolve to the fallback: \(uncovered.label)"
         )
         XCTAssertFalse(
-            uncovered.label.contains(Self.coveredFragment),
-            "An uncovered region was shown the US emergency number"
+            uncovered.label.lowercased().contains("call "),
+            "An uncovered region was shown a number sentence: \(uncovered.label)"
         )
-        XCTAssertFalse(
-            uncovered.label.contains("999"), "An uncovered region was shown a number at all"
-        )
+        for number in Self.coveredNumberFragments {
+            XCTAssertFalse(
+                uncovered.label.contains(number),
+                "An uncovered region was shown \(number) — someone's emergency number"
+            )
+        }
 
         app.terminate()
     }
@@ -112,6 +129,23 @@ final class EmergencyGuidanceUITests: EvaUITestCase {
     }
 
     // MARK: - Helpers
+
+    /// Polls the card's label until it carries `fragment` — `waitForExistence` cannot
+    /// wait on *content*, and the guidance fetch lands after the card does
+    /// (`HomeModel.read` applies the card first), so the first read of the label can be
+    /// the pre-substitution one. A slow round trip is the normal path here, not a flake.
+    private func wait(
+        for fragment: String,
+        in card: XCUIElement,
+        timeout: TimeInterval = 10
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if card.label.contains(fragment) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        } while Date() < deadline
+        return card.label.contains(fragment)
+    }
 
     /// Relaunches the same install with the session **kept**, one canvas state, and the
     /// per-launch country the picker is not needed for. Removing `EVA_UITEST_RESET` is

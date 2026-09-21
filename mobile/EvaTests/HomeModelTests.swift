@@ -290,3 +290,88 @@ struct HomeModelTests {
         #expect(source.zones == ["Europe/Lisbon", "Pacific/Auckland"])
     }
 }
+
+/// An in-memory `EmergencyGuidanceSource` that records what the Home tab asked it for,
+/// the same way `RecordingTodayCardSource` does for the card (#87).
+@MainActor
+private final class RecordingGuidanceSource: EmergencyGuidanceSource {
+
+    private(set) var reads = 0
+    /// `nil` makes every read fail, the way a dead network or a pre-table API does.
+    let table: [EvaRefData.EmergencyEntry]?
+
+    init(table: [EvaRefData.EmergencyEntry]?) {
+        self.table = table
+    }
+
+    func emergencyGuidance() async -> [EvaRefData.EmergencyEntry]? {
+        reads += 1
+        return table
+    }
+}
+
+@MainActor
+extension HomeModelTests {
+
+    // MARK: - The guidance table (#87)
+
+    private func guidanceModel(
+        _ source: RecordingTodayCardSource,
+        guidance: RecordingGuidanceSource
+    ) -> HomeModel {
+        HomeModel(
+            source: source,
+            guidanceSource: guidance,
+            timeZone: { Self.zone },
+            clock: { Date(timeIntervalSince1970: 1_755_936_720) }
+        )
+    }
+
+    @Test("The guidance table loads with the card, and a refresh does not fetch it again")
+    func guidanceLoadsOncePerModel() async {
+        let guidance = RecordingGuidanceSource(table: [])
+        let model = guidanceModel(
+            RecordingTodayCardSource(card: .phaseFixture), guidance: guidance
+        )
+
+        await model.start()
+        #expect(model.emergencyGuidance != nil)
+        #expect(guidance.reads == 1)
+
+        await model.refresh()
+        #expect(guidance.reads == 1)
+    }
+
+    @Test("A failed guidance read is not an error state, and the next refresh retries it")
+    func failedGuidanceReadRetriesOnRefresh() async {
+        let guidance = RecordingGuidanceSource(table: nil)
+        let model = guidanceModel(
+            RecordingTodayCardSource(card: .phaseFixture), guidance: guidance
+        )
+
+        await model.start()
+        #expect(model.emergencyGuidance == nil)
+        // The card is standing and the screen is not in a failure state — the failed
+        // read is the card keeping its own wording, nothing louder.
+        #expect(model.state == .card(.phaseFixture))
+
+        await model.refresh()
+        #expect(guidance.reads == 2)
+        // `nil` is also the "still failing" answer, and the card is still standing.
+        #expect(model.emergencyGuidance == nil)
+        #expect(model.state == .card(.phaseFixture))
+    }
+
+    @Test("A model with no guidance source renders the card and nothing else")
+    func noGuidanceSourceLeavesTheCardAlone() async {
+        let model = HomeModel(
+            source: RecordingTodayCardSource(card: .phaseFixture),
+            timeZone: { Self.zone },
+            clock: { Date() }
+        )
+
+        await model.start()
+        #expect(model.state == .card(.phaseFixture))
+        #expect(model.emergencyGuidance == nil)
+    }
+}

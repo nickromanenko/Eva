@@ -521,7 +521,9 @@ describe('emergency guidance (#87)', () => {
     for (const entry of covered()) {
       expect(entry.emergencyNumber).not.toBeNull()
       expect(entry.urgentCareWording).toContain(entry.emergencyNumber!)
-      expect(entry.urgentCareWording).toContain('Eva cannot assess this.')
+      // Ends, not merely contains: the tail is the card's last word, so a wording that
+      // buried it mid-sentence would be signed copy with something appended after it.
+      expect(entry.urgentCareWording).toMatch(/Eva cannot assess this\.$/)
       // A support row that cannot be acted on is not a resource (seed-refdata.ts).
       for (const resource of entry.support) {
         expect(resource.label.length).toBeGreaterThan(0)
@@ -565,6 +567,10 @@ describe('emergency guidance (#87)', () => {
     expect(resolveEmergencyGuidance(liveGuidance(), 'US')?.emergencyNumber).toBe('911')
     expect(resolveEmergencyGuidance(liveGuidance(), 'gb')?.emergencyNumber).toBe('999')
     expect(resolveEmergencyGuidance(liveGuidance(), ' NZ ')?.emergencyNumber).toBe('111')
+    // The zero-width no-break space is what JS `trim` strips and a naive whitespace
+    // strip misses — pinned here because the device's resolver claims the same
+    // contract, and its test pins the same case.
+    expect(resolveEmergencyGuidance(liveGuidance(), '\uFEFFUS')?.emergencyNumber).toBe('911')
   })
 
   test('a retired country resolves to the fallback, not to its own stale wording', () => {
@@ -590,5 +596,15 @@ describe('emergency guidance (#87)', () => {
     const withGuidance = catalogues([])
     withGuidance.emergencyGuidance = liveGuidance()
     expect(catalogueVersion(withGuidance)).not.toBe(catalogueVersion(catalogues([])))
+  })
+
+  test('the route has no country dimension: /refdata?country= serves the identical body', async () => {
+    // The data-minimisation half of #87, pinned from the receiving side: a client that
+    // did send its country — which the device never does — would get exactly the same
+    // catalogue back, so the server cannot hold, differentiate on, or learn a country
+    // through this route. The resolution runs on the device; the API stays blind.
+    const withCountry = await api('/refdata?country=US&countryCode=DE')
+    expect(withCountry.status).toBe(200)
+    expect(await json<RefDataBody>(withCountry)).toEqual(live)
   })
 })

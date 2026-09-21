@@ -293,7 +293,14 @@ struct EvaRefData: Decodable, Sendable, Hashable {
     ) -> EmergencyEntry? {
         let fallback = entries.first(where: { $0.code == Self.fallbackGuidanceCode })
         guard let country, !country.isEmpty else { return fallback }
-        let code = country.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        // The same trim the API's `String.prototype.trim` performs, including the
+        // zero-width no-break space it strips and `whitespacesAndNewlines` does not —
+        // the two implementations are one contract, and `"\u{FEFF}US"` resolves to the
+        // US entry on both sides or it resolves differently on one of them.
+        let trimmed = country.trimmingCharacters(
+            in: CharacterSet(charactersIn: "\u{FEFF}").union(.whitespacesAndNewlines)
+        )
+        let code = trimmed.uppercased()
         guard code.count == 2, code.allSatisfy({ $0.isLetter }), code.allSatisfy({ $0.isASCII })
         else { return fallback }
         guard let match = entries.first(where: { $0.code == code }), match.status == .active

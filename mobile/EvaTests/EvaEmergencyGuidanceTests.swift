@@ -59,7 +59,7 @@ struct EvaEmergencyGuidanceTests {
 
     @Test(
         "Case and padding do not change which country resolves",
-        arguments: ["us", "Us", " US", "US ", " uS "]
+        arguments: ["us", "Us", " US", "US ", " uS ", "\u{FEFF}US"]
     )
     func normalisation(variant: String) {
         #expect(EvaRefData.emergencyGuidance(from: Self.entries, forCountry: variant)?.code == "US")
