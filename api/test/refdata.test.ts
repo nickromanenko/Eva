@@ -265,6 +265,21 @@ describe('refdata: the endpoint', () => {
     const stale = await api('/refdata', { headers: { 'if-none-match': '"0000000000000000"' } })
     expect(stale.status).toBe(200)
   })
+
+  test('version query wins when non-empty and otherwise falls through to If-None-Match', async () => {
+    const header = `"${live.version}"`
+
+    const queryWins = await api('/refdata?version=not-the-current-one', {
+      headers: { 'if-none-match': header },
+    })
+    expect(queryWins.status).toBe(200)
+
+    const absentQuery = await api('/refdata', { headers: { 'if-none-match': header } })
+    expect(absentQuery.status).toBe(304)
+
+    const emptyQuery = await api('/refdata?version=', { headers: { 'if-none-match': header } })
+    expect(emptyQuery.status).toBe(304)
+  })
 })
 
 describe('refdata: codes are permanent, labels are not', () => {

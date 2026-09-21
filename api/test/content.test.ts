@@ -152,6 +152,22 @@ describe('GET /content', () => {
       expect(res.status).toBe(304)
     }
   })
+
+  test('version query wins when non-empty and otherwise falls through to If-None-Match', async () => {
+    const { version } = await json<ContentBody>(await api('/content'))
+    const header = `"${version}"`
+
+    const queryWins = await api('/content?version=0000000000000000', {
+      headers: { 'if-none-match': header },
+    })
+    expect(queryWins.status).toBe(200)
+
+    const absentQuery = await api('/content', { headers: { 'if-none-match': header } })
+    expect(absentQuery.status).toBe(304)
+
+    const emptyQuery = await api('/content?version=', { headers: { 'if-none-match': header } })
+    expect(emptyQuery.status).toBe(304)
+  })
 })
 
 describe('the version is a hash of the content', () => {

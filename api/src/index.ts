@@ -1800,7 +1800,7 @@ app.get('/content', requireAuth, requireAccount, async (c) => {
   const content = await getContent()
   c.header('ETag', `"${content.version}"`)
   c.header('Cache-Control', 'private, no-cache')
-  const known = c.req.query('version') ?? etagValue(c.req.header('if-none-match'))
+  const known = c.req.query('version') || etagValue(c.req.header('if-none-match'))
   if (known === content.version) return c.body(null, 304)
   return c.json(content)
 })
@@ -1811,7 +1811,7 @@ app.get('/refdata', requireAuth, requireAccount, async (c) => {
   // Reference data changes rarely but must not go stale silently: revalidate always,
   // and the revalidation is a 304 with an empty body.
   c.header('Cache-Control', 'private, no-cache')
-  const known = c.req.query('version') ?? etagValue(c.req.header('if-none-match'))
+  const known = c.req.query('version') || etagValue(c.req.header('if-none-match'))
   if (known === refdata.version) return c.body(null, 304)
   return c.json(refdata)
 })
