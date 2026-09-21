@@ -1786,6 +1786,22 @@ const etagValue = (header: string | undefined): string | undefined =>
   header?.trim().replace(/^W\//, '').replace(/^"|"$/g, '')
 
 /**
+ * The version the client already holds: the `version` query when it says anything, the
+ * `If-None-Match` header otherwise (#147).
+ *
+ * Both cache routes used to read this as `query ?? header`, and `??` only falls through
+ * on `null`/`undefined` — so `?version=`, an empty value, short-circuited the header and
+ * a client that sent an empty parameter beside a valid validator got a full `200` instead
+ * of a `304`. Empty means absent: the query wins when non-empty, the header is the
+ * fallback, and the precedence is pinned by test on both routes.
+ */
+const knownVersion = (c: Context): string | undefined => {
+  const query = c.req.query('version')
+  if (query !== undefined && query !== '') return query
+  return etagValue(c.req.header('if-none-match'))
+}
+
+/**
  * The Dashboard's words (#97). Same handshake as `/refdata` and for the same reasons: the
  * device caches the bundle against a content-derived `version`, revalidates on every
  * launch, and gets a `304` with no body when nothing changed — which is what makes the
@@ -1800,7 +1816,7 @@ app.get('/content', requireAuth, requireAccount, async (c) => {
   const content = await getContent()
   c.header('ETag', `"${content.version}"`)
   c.header('Cache-Control', 'private, no-cache')
-  const known = c.req.query('version') ?? etagValue(c.req.header('if-none-match'))
+  const known = knownVersion(c)
   if (known === content.version) return c.body(null, 304)
   return c.json(content)
 })
@@ -1811,7 +1827,7 @@ app.get('/refdata', requireAuth, requireAccount, async (c) => {
   // Reference data changes rarely but must not go stale silently: revalidate always,
   // and the revalidation is a 304 with an empty body.
   c.header('Cache-Control', 'private, no-cache')
-  const known = c.req.query('version') ?? etagValue(c.req.header('if-none-match'))
+  const known = knownVersion(c)
   if (known === refdata.version) return c.body(null, 304)
   return c.json(refdata)
 })
