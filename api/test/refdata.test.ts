@@ -265,6 +265,22 @@ describe('refdata: the endpoint', () => {
     const stale = await api('/refdata', { headers: { 'if-none-match': '"0000000000000000"' } })
     expect(stale.status).toBe(200)
   })
+
+  test('the two doors have a pinned precedence: query wins when it says something, header otherwise', async () => {
+    // #147 — the same precedence /content pins, asserted here because the two routes
+    // carry one copy-pasted read: query wins when non-empty, the header is the fallback
+    // when the query is absent **or empty** (`?version=` used to short-circuit `??` and
+    // force a full body past a valid validator).
+    const header = { 'if-none-match': `"${live.version}"` }
+
+    expect((await api(`/refdata?version=${live.version}`, { headers: header })).status).toBe(304)
+    expect((await api('/refdata?version=not-the-current-one', { headers: header })).status).toBe(
+      200,
+    )
+    expect((await api('/refdata', { headers: header })).status).toBe(304)
+    expect((await api('/refdata?version=', { headers: header })).status).toBe(304)
+    expect((await api('/refdata?version=')).status).toBe(200)
+  })
 })
 
 describe('refdata: codes are permanent, labels are not', () => {

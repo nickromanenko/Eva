@@ -152,6 +152,25 @@ describe('GET /content', () => {
       expect(res.status).toBe(304)
     }
   })
+
+  test('the two doors have a pinned precedence: query wins when it says something, header otherwise', async () => {
+    // #147: both routes used to read `query ?? header`, and `??` only falls through on
+    // null/undefined — so `?version=`, an empty value, short-circuited the header and a
+    // client sending an empty parameter beside a valid validator got a full 200. Empty
+    // means absent; the query wins only when non-empty.
+    const { version } = await json<ContentBody>(await api('/content'))
+    const header = { 'if-none-match': `"${version}"` }
+
+    // Query non-empty and current: it wins (and a stale query would win the other way).
+    expect((await api(`/content?version=${version}`, { headers: header })).status).toBe(304)
+    expect((await api('/content?version=0000000000000000', { headers: header })).status).toBe(200)
+    // Query absent: the header is read.
+    expect((await api('/content', { headers: header })).status).toBe(304)
+    // Query empty: the header is still read — the case that used to break.
+    expect((await api('/content?version=', { headers: header })).status).toBe(304)
+    // No validator at all: the body, whatever the query held.
+    expect((await api('/content?version=')).status).toBe(200)
+  })
 })
 
 describe('the version is a hash of the content', () => {
