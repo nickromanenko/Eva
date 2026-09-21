@@ -578,8 +578,8 @@ describe('which forwarded entry is the caller', () => {
  * still a backoff by name and no longer a defence.
  */
 /**
- * The one `RATE_LIMIT_*` value that is not a limit, and the one `0` that is not a quieter
- * setting (#37).
+ * The two `RATE_LIMIT_*` values here that are not limits, and whose `0` is not a quieter
+ * setting (#37, #148).
  *
  * `callerFromForwarded` returns `null` below one hop, `clientIp` returns `null` for every
  * request, and `consumeProviderAttempt`/`consumeTokenAttempt` both skip a null IP — so a
@@ -587,36 +587,39 @@ describe('which forwarded entry is the caller', () => {
  * throttling from `/auth/idp`, `/me/auth/providers`, `/auth/activate` and
  * `/auth/password/reset`, where it is the only dimension there is. Every other knob in
  * this block documents `0` as a deliberate disable switch, which is exactly what makes it
- * a plausible thing for someone to type here meaning "no proxies in front of me".
+ * plausible to read their zero values as local escape hatches. The window is broader:
+ * zero also removes every per-IP counter and the backoff's cap and decay.
  *
  * A subprocess, because `config.ts` reads the environment once at import and this process
  * has already imported it — the shape `config-emulators.test.ts` established.
  */
-describe('a hop count below one refuses the boot', () => {
-  const BASE_ENV = {
-    FIREBASE_PROJECT_ID: 'demo-eva-config-test',
-    FIREBASE_WEB_API_KEY: 'not-a-real-key',
-    JWT_SECRET: 'not-a-real-secret',
-    EMAIL_TRANSPORT: 'log',
-    POSTMARK_FROM: 'config-test@example.test',
-    PUBLIC_WEB_URL: 'http://localhost:4321',
-  }
+const RATE_LIMIT_BOOT_ENV = {
+  FIREBASE_PROJECT_ID: 'demo-eva-config-test',
+  FIREBASE_WEB_API_KEY: 'not-a-real-key',
+  JWT_SECRET: 'not-a-real-secret',
+  EMAIL_TRANSPORT: 'log',
+  POSTMARK_FROM: 'config-test@example.test',
+  PUBLIC_WEB_URL: 'http://localhost:4321',
+}
 
-  const boot = async (hops: string) => {
-    const proc = Bun.spawn(['bun', 'run', 'src/config.ts'], {
-      cwd: `${import.meta.dir}/..`,
-      env: {
-        PATH: process.env.PATH ?? '',
-        ...BASE_ENV,
-        NODE_ENV: 'test',
-        RATE_LIMIT_TRUSTED_PROXY_HOPS: hops,
-      },
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()])
-    return { code, stderr }
-  }
+const bootWithRateLimit = async (name: string, value: string) => {
+  const proc = Bun.spawn(['bun', 'run', 'src/config.ts'], {
+    cwd: `${import.meta.dir}/..`,
+    env: {
+      PATH: process.env.PATH ?? '',
+      ...RATE_LIMIT_BOOT_ENV,
+      NODE_ENV: 'test',
+      [name]: value,
+    },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()])
+  return { code, stderr }
+}
+
+describe('a hop count below one refuses the boot', () => {
+  const boot = (hops: string) => bootWithRateLimit('RATE_LIMIT_TRUSTED_PROXY_HOPS', hops)
 
   test('0 is refused, and says what it expected', async () => {
     const { code, stderr } = await boot('0')
@@ -628,6 +631,22 @@ describe('a hop count below one refuses the boot', () => {
 
   test('1 and 2 boot', async () => {
     for (const hops of ['1', '2']) expect((await boot(hops)).code).toBe(0)
+  }, 15_000)
+})
+
+describe('a shared rate-limit window below one refuses the boot', () => {
+  const boot = (seconds: string) => bootWithRateLimit('RATE_LIMIT_WINDOW_SECONDS', seconds)
+
+  test('0 is refused, and says what it expected', async () => {
+    const { code, stderr } = await boot('0')
+
+    expect(code).not.toBe(0)
+    expect(stderr).toContain('RATE_LIMIT_WINDOW_SECONDS')
+    expect(stderr).toContain('at least 1')
+  }, 15_000)
+
+  test('1 and the default value boot', async () => {
+    for (const seconds of ['1', '900']) expect((await boot(seconds)).code).toBe(0)
   }, 15_000)
 })
 
