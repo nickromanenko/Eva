@@ -35,10 +35,9 @@ const optionalCount = (name: string, fallback: number): number => {
 
 /**
  * Like `optionalCount`, but with a floor — for a knob where `0` is not a quieter setting
- * but a different, silently broken configuration. `RATE_LIMIT_TRUSTED_PROXY_HOPS=0` is the
- * case this exists for: every other `RATE_LIMIT_*` var documents `0` as "disable this
- * dimension", so `0` reads like a local-dev switch, while it would in fact strip per-IP
- * throttling from every route at once — including the ones where it is the only dimension.
+ * but a different, silently broken configuration. The proxy-hop count and the shared
+ * window use it because `0` on either strips throttling from several routes at once rather
+ * than disabling one named dimension.
  */
 const optionalCountAtLeast = (name: string, fallback: number, min: number): number => {
   const value = optionalCount(name, fallback)
@@ -485,14 +484,19 @@ export const config = {
   jwtTtlSeconds: 30 * 24 * 60 * 60,
   /**
    * Throttling for `/auth/*` (issue #5). Any *limit* set to `0` disables that dimension;
-   * the two knobs that are not limits are different — `RATE_LIMIT_BACKOFF_BASE_SECONDS=0`
-   * disables the whole per-address dimension, and `RATE_LIMIT_TRUSTED_PROXY_HOPS` will not
-   * accept `0` at all. Both say so below.
+   * the three knobs that are not limits are different — `RATE_LIMIT_BACKOFF_BASE_SECONDS=0`
+   * disables the whole per-address dimension, while `RATE_LIMIT_WINDOW_SECONDS` and
+   * `RATE_LIMIT_TRUSTED_PROXY_HOPS` will not accept `0` at all. Each says so below.
    * Per-IP is the loose backstop (carrier NAT puts many users behind one address);
    * per-address is the sharp one. Counters are per instance — see `rate-limit.ts`.
    */
   rateLimit: {
-    windowSeconds: optionalCount('RATE_LIMIT_WINDOW_SECONDS', 15 * 60),
+    /**
+     * Shared by every per-IP counter and by the per-address backoff's cap and decay. A
+     * zero would disable both dimensions across `/auth/*`, so it is refused rather than
+     * presented as one more local-development switch (#148).
+     */
+    windowSeconds: optionalCountAtLeast('RATE_LIMIT_WINDOW_SECONDS', 15 * 60, 1),
     signinPerIp: optionalCount('RATE_LIMIT_SIGNIN_PER_IP', 60),
     signinPerEmail: optionalCount('RATE_LIMIT_SIGNIN_PER_EMAIL', 10),
     signupPerIp: optionalCount('RATE_LIMIT_SIGNUP_PER_IP', 30),
