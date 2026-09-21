@@ -318,6 +318,14 @@ export class UnreviewedContentError extends Error {
   }
 }
 
+/** Thrown before a writer could normalise away stored rows that have no usable id. */
+export class UnusableContentRowsError extends Error {
+  constructor(id: string, indexes: number[]) {
+    super(`content/${id} has rows with no usable id at indexes: ${indexes.join(', ')}`)
+    this.name = 'UnusableContentRowsError'
+  }
+}
+
 /** The check `applyContent` refuses on. Exported so the seed script can report every
  *  problem at once instead of one write at a time. */
 export const reviewProblems = (review: Partial<Review> | undefined): string[] => {
@@ -335,6 +343,34 @@ let lastWarnedAt = 0
 const invalidate = (): void => {
   cache = null
   lastWarnedAt = 0
+}
+
+type StoredContentRow = { id: string; status?: ContentStatus }
+
+const rawContentItems = (data: Record<string, unknown> | undefined): unknown[] =>
+  Array.isArray(data?.items) ? data.items : []
+
+/**
+ * Writers refuse rows the read path cannot identify instead of turning a write for one
+ * item into a destructive normalisation pass over the whole document.
+ */
+const storedContentRows = (id: ContentId, rows: unknown[]): StoredContentRow[] => {
+  const unusable: number[] = []
+  const usable: StoredContentRow[] = []
+  rows.forEach((row, index) => {
+    if (
+      typeof row !== 'object' ||
+      row === null ||
+      typeof (row as { id?: unknown }).id !== 'string' ||
+      (row as { id: string }).id.length === 0
+    ) {
+      unusable.push(index)
+    } else {
+      usable.push(row as StoredContentRow)
+    }
+  })
+  if (unusable.length > 0) throw new UnusableContentRowsError(id, unusable)
+  return usable
 }
 
 const loadBundle = async (): Promise<ContentBundle> => {
@@ -415,19 +451,15 @@ export const applyContent = async (
   // be the thing that quietly deletes a field this parser does not model yet. The read path
   // is where unknown shapes are dropped; the write path leaves what it did not come to
   // change.
-  const existing: { id: string; status?: ContentStatus }[] = (
-    Array.isArray(stored?.items) ? (stored.items as unknown[]) : []
-  ).filter(
-    (row): row is { id: string; status?: ContentStatus } =>
-      typeof row === 'object' &&
-      row !== null &&
-      typeof (row as { id?: unknown }).id === 'string' &&
-      (row as { id: string }).id.length > 0,
-  )
-  if (existing.length > 0) {
+  const rawItems = rawContentItems(stored)
+  // Every stored row counts as existing copy for the review gate, including one the
+  // read path cannot identify. Otherwise malformed unsigned copy could be erased and
+  // the replacement stamped with this call's signature.
+  if (rawItems.length > 0) {
     const unsigned = reviewProblems(stored as Partial<Review>)
     if (unsigned.length > 0) throw new UnreviewedContentError(id, unsigned)
   }
+  const existing = storedContentRows(id, rawItems)
   // First wins on a repeated id, the same survivor `parseItems` picks. Last-wins here
   // would mean a duplicate typed into the console is hidden by the read path — the good
   // row keeps being served — right up until a legitimate re-seed promotes the second one
@@ -462,10 +494,7 @@ export const applyContent = async (
  *  still describes. */
 export const retireContent = async (id: ContentId, itemId: string): Promise<boolean> => {
   const stored = (await collection().doc(id).get()).data()
-  const items = (Array.isArray(stored?.items) ? (stored.items as unknown[]) : []).filter(
-    (row): row is { id: string; status?: ContentStatus } =>
-      typeof row === 'object' && row !== null && typeof (row as { id?: unknown }).id === 'string',
-  )
+  const items = storedContentRows(id, rawContentItems(stored))
   const item = items.find((entry) => entry.id === itemId)
   if (!item || item.status === 'retired') return false
   item.status = 'retired'
