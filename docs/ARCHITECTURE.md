@@ -1275,6 +1275,13 @@ Three things differ from `refdata/`, and each is the point of the collection:
   reviewer's name. The record can say the wrong person reviewed a line while every
   document in the collection is properly signed.
 
+  Stored rows with no usable non-empty string `id` are refused by both `applyContent`
+  and `retireContent`; the writers never silently normalise them away. Every raw row
+  counts when `applyContent` decides whether an existing document needs a signature,
+  so malformed unsigned copy cannot bypass the review refusal. A signed document with
+  such rows raises `UnusableContentRowsError` and must be repaired explicitly in the
+  console before either writer can proceed (option A from #151).
+
   **Two paths still write unsigned, and the read path does not re-check.** The Firebase
   console bypasses the module entirely — the Admin SDK is the only way in, and a person
   with project access is one of the ways in. `retireContent` is the other: flipping an

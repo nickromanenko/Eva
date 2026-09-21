@@ -5,6 +5,7 @@ import {
   CONTENT_IDS,
   SLOTS,
   UnreviewedContentError,
+  UnusableContentRowsError,
   applyContent,
   contentVersion,
   invalidateContentCache,
@@ -318,6 +319,29 @@ describe('copy nobody signed is not servable', () => {
     const after = (await collection().doc(id).get()).data()!
     expect(after.items).toHaveLength(1)
     expect(after.reviewedBy).toBeUndefined()
+  })
+
+  test('both writers refuse stored rows with no usable id instead of deleting them', async () => {
+    const id = scratch()
+    const unusable = [{ title: 'copy nobody signed', order: 0 }, { id: 7, order: 1 }]
+    await collection().doc(id).set({ items: unusable })
+
+    // Malformed rows still count as existing copy: they cannot bypass the review gate.
+    await expect(
+      applyContent(id as never, [{ id: 'mine', order: 2, status: 'active' }], REVIEW),
+    ).rejects.toBeInstanceOf(UnreviewedContentError)
+
+    // A signature does not make destructive normalisation safe. Both full-document
+    // writers refuse before they can discard rows the read path cannot identify.
+    await collection().doc(id).set(REVIEW, { merge: true })
+    await expect(
+      applyContent(id as never, [{ id: 'mine', order: 2, status: 'active' }], REVIEW),
+    ).rejects.toBeInstanceOf(UnusableContentRowsError)
+    await expect(retireContent(id as never, '')).rejects.toBeInstanceOf(
+      UnusableContentRowsError,
+    )
+
+    expect((await collection().doc(id).get()).data()?.items).toEqual(unusable)
   })
 
   test('a signature is stored beside the items, not inside them', async () => {
