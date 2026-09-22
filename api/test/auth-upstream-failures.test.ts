@@ -42,16 +42,17 @@ setDefaultTimeout(20_000)
  * **The `mock.module` caveat, stated because it constrains this file.** Bun's module mocks
  * are process-global and permanent: they replace the live bindings every already-imported
  * module sees, and they are not scoped to the file that installed them. `bun test` runs
- * test files sequentially, so this file and `signin-non-enumeration.test.ts` each hold the
- * mock only while their own tests run — but the last one loaded leaves its mock installed
- * for the rest of the process, and both files share one cached `src/index` and therefore
- * one set of rate-limit counters. Hence: this file dispatches through a mutable `upstream`
- * that each test sets, rather than baking a fixed failure into the mock; it uses addresses
- * that appear in no other suite; and it resets the throttle before every test and after the
- * last, so whichever order the two files run in, neither spends the other's budget.
+ * test files sequentially, so this file dispatches through a mutable `upstream` that each
+ * test sets rather than baking a fixed failure into the mock. It also uses addresses that
+ * appear in no other suite, resets the shared throttle before every test and after the last,
+ * and restores the module in `afterAll`. Restoring is this file's job: otherwise whichever
+ * suite loads next inherits a fake whose cleared `upstream` can only throw.
  */
 
-const identityToolkit = await import('../src/identity-toolkit')
+// A copy, not the namespace object: `mock.module` replaces the bindings inside the live
+// namespace, so a reference captured here would become this file's own mock and restoring
+// it in `afterAll` would change nothing.
+const identityToolkit = { ...(await import('../src/identity-toolkit')) }
 const { IdentityToolkitError } = identityToolkit
 
 // Captured as a value *before* the mock below replaces the module's bindings, so the last
@@ -247,6 +248,9 @@ beforeEach(() => {
   hideAccountOnce = false
 })
 afterAll(async () => {
+  // Hand the module back exactly as it was found before any live cleanup can fail or time
+  // out. Bun's mocks are permanent and process-global, so this must not wait behind I/O.
+  mock.module('../src/identity-toolkit', () => identityToolkit)
   resetAuthRateLimits()
   upstream = null
   for (const uid of strays) {
