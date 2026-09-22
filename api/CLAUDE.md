@@ -306,12 +306,6 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   not a measurement: nothing honest reaches it, and a genuine hang still fails.
   `setDefaultTimeout` is file-scoped and does not override a per-test timeout, so a case
   that needs longer still says so where it is.
-  - The one exception is `unhandled-errors.test.ts`, whose `FAST = 5_000` is deliberate:
-    the file is in-process and fully mocked. That is no longer true — since #120 every
-    `signup()` there reaches `adminAuth.getUserByEmail` for real, and `issueToken` writes to
-    Firestore — so it is the last live round trip in `api/test/` still on Bun's default.
-    **Filed as #142**, and to be fixed by making the claim true again rather than by raising
-    the number: the file's whole design is a seam that needs no network.
   - Bun names the two failures differently, and that is worth knowing before reading a red
     run: an assertion prints `error: expect(received).toBe(expected)` with both values; a
     timeout prints `^ this test timed out after 20000ms.` and no assertion at all.
