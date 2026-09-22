@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { mintToken } from '../src/auth'
 import { config } from '../src/config'
+import type { TokenKind } from '../src/email-tokens'
 import { resetAuthRateLimits } from '../src/rate-limit'
 
 /**
@@ -31,9 +32,10 @@ import { resetAuthRateLimits } from '../src/rate-limit'
  * process. Three consequences are handled here:
  *
  * 1. This file installs its own `identity-toolkit` mock rather than relying on another
- *    file's: these tests need signup and signin to *succeed* upstream to reach Firestore
- *    at all, and whichever mock is installed when this file loads fails every call.
- * 2. `afterAll` puts all three modules back, by re-mocking each to the namespace this
+ *    file's: sign-in must succeed upstream to reach the user-store seam, while sign-up's
+ *    Auth address lookup is answered locally. Whichever mock is installed when this file
+ *    loads otherwise decides both paths for the whole process.
+ * 2. `afterAll` puts all five modules back, by re-mocking each to the namespace this
  *    file captured. Without it the run order decides whether another suite passes:
  *    `bun test` does **not** run files alphabetically — this one currently runs first,
  *    and `auth-upstream-failures.test.ts` captures `signUpWithPassword` as a value at
@@ -56,9 +58,7 @@ const identityToolkit = { ...(await import('../src/identity-toolkit')) }
 const users = { ...(await import('../src/users')) }
 const events = { ...(await import('../src/events')) }
 const emailTokens = { ...(await import('../src/email-tokens')) }
-/** The real issuer, captured before the mock below replaces it, so the activation helper
- *  can mint a token that the route will actually find. */
-const realIssueToken = emailTokens.issueToken
+const email = { ...(await import('../src/email')) }
 
 /** The uid every credential call hands back. Fabricated, and never written anywhere. */
 const UID = 'unhandled-errors-test-uid'
@@ -71,8 +71,32 @@ const PASSWORD = 'correct-horse-8'
 
 /** What the next credential call does. `null` is a bug in the test, never a success. */
 let credential: (() => { localId: string; email: string }) | null = null
-/** What `email-tokens.issueToken` does next: throw, or fall through to the real one. */
+/** What the Auth address lookup does next. The ordinary sign-up fixture answers absent. */
+let authLookup: ((email: string) => string | null) | null = null
+/** What `email-tokens.issueToken` does next: throw, or write to the in-memory fake. */
 let tokenStore: null | (() => void) = null
+
+type FakeToken = {
+  uid: string | null
+  email: string
+  kind: TokenKind
+  used: boolean
+}
+
+let tokenSequence = 0
+const fakeTokens = new Map<string, FakeToken>()
+
+const issueFakeToken = async (
+  uid: string | null,
+  email: string,
+  kind: TokenKind,
+): Promise<string> => {
+  if (tokenStore) tokenStore()
+  tokenSequence += 1
+  const raw = tokenSequence.toString(36).padStart(emailTokens.TOKEN_LENGTH, 'a')
+  fakeTokens.set(raw, { uid, email, kind, used: false })
+  return raw
+}
 
 /** What `users.ensureUser` / `users.getUser` do next: throw, or answer with an account.
  *  Every authenticated route now reads the user document before its handler runs (#8's
@@ -90,20 +114,41 @@ mock.module('../src/identity-toolkit', () => ({
   ...identityToolkit,
   signInWithPassword: async () => (credential ?? unset('Identity Toolkit'))(),
   signUpWithPassword: async () => (credential ?? unset('Identity Toolkit'))(),
+  findAuthUidByEmail: async (email: string) =>
+    (authLookup ?? unset('Identity Toolkit address lookup'))(email),
 }))
 
 // Sign-up's only Firestore write is the activation token (#120) — it no longer creates an
 // account — so this is the seam that makes "Firestore is down inside sign-up" reachable.
 mock.module('../src/email-tokens', () => ({
   ...emailTokens,
-  issueToken: async (
-    uid: string | null,
-    email: string,
-    kind: 'activation' | 'reset',
-  ): Promise<string> => {
-    if (tokenStore) tokenStore()
-    return realIssueToken(uid, email, kind)
+  issueToken: issueFakeToken,
+  consumeToken: async (raw: string, kind: TokenKind) => {
+    const token = fakeTokens.get(raw)
+    if (!token || token.kind !== kind || token.used) {
+      return { ok: false as const, reason: 'invalid' as const }
+    }
+    token.used = true
+    return { ok: true as const, uid: token.uid, email: token.email }
   },
+  deleteTokensForAccount: async (uid: string, address: string | null) => {
+    for (const [raw, token] of fakeTokens) {
+      if (
+        token.uid === uid ||
+        (token.uid === null && address !== null && token.email === address)
+      ) {
+        fakeTokens.delete(raw)
+      }
+    }
+  },
+}))
+
+// Delivery is outside this file's subject. Keep sign-up in-process even when the local
+// environment is configured for Postmark rather than the log transport.
+mock.module('../src/email', () => ({
+  ...email,
+  sendActivationEmail: async () => {},
+  sendPasswordResetEmail: async () => {},
 }))
 
 mock.module('../src/users', () => ({
@@ -199,16 +244,6 @@ const send = async (
 
 const signup = (email = EMAIL) => send('POST', '/auth/signup', { body: { email } })
 
-/**
- * A sign-up then the link spent, which is where the account is created (#120) and therefore
- * where the failures this file is about now happen. Sign-up itself reaches Firestore only
- * to issue the token.
- */
-const activate = async (email = EMAIL) => {
-  await signup(email)
-  const token = await realIssueToken(null, email, 'activation')
-  return send('POST', '/auth/activate', { body: { token, password: PASSWORD } })
-}
 const signin = (email = EMAIL) =>
   send('POST', '/auth/signin', { body: { email, password: PASSWORD } })
 
@@ -269,9 +304,12 @@ const line = (index = 0) => JSON.parse(logged[index]!) as Record<string, unknown
 beforeEach(() => {
   resetAuthRateLimits()
   credential = null
+  authLookup = () => null
   userStore = null
   deleteEvent = null
   tokenStore = null
+  tokenSequence = 0
+  fakeTokens.clear()
   logged = []
   spy = spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
     logged.push(args.map((a) => String(a)).join(' '))
@@ -281,8 +319,11 @@ afterEach(() => spy?.mockRestore())
 afterAll(() => {
   resetAuthRateLimits()
   credential = null
+  authLookup = null
   userStore = null
   deleteEvent = null
+  tokenStore = null
+  fakeTokens.clear()
   // Hand the modules back exactly as they were found. Bun's module mocks are permanent
   // and process-global, so this is the only thing that keeps this file's fixtures from
   // becoming the next file's idea of the real implementation.
@@ -290,6 +331,7 @@ afterAll(() => {
   mock.module('../src/users', () => users)
   mock.module('../src/events', () => events)
   mock.module('../src/email-tokens', () => emailTokens)
+  mock.module('../src/email', () => email)
 })
 
 describe('a Firestore outage inside an auth route', () => {
@@ -436,7 +478,7 @@ describe('onError is the floor, not a replacement', () => {
       // is throwing throughout this describe, so a rule that stopped answering for
       // itself would surface as a shaped 500 instead of this 400.
       await signup()
-      const token = await realIssueToken(null, EMAIL, 'activation')
+      const token = await issueFakeToken(null, EMAIL, 'activation')
       const answer = await send('POST', '/auth/activate', {
         body: { token, password: 'short' },
       })
