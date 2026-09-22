@@ -1307,12 +1307,24 @@ Three things differ from `refdata/`, and each is the point of the collection:
   for the computed half, the review requirement above for the words.
 
 Ids are permanent and opaque and nothing is deleted, only retired (`retireContent`),
-exactly as for `refdata/` — a retired item is still served so an already-rendered card
-still resolves. Until someone seeds it the collection is simply empty: `GET /content`
-answers `200` with three empty arrays and warns on the server the way `refdata.ts` does,
-because a Dashboard with no copy is a deployment state, not a request error. The empty
-bundle is the one result the 60s cache does not hold, so an instance is serving the real
-copy within a request of the seed rather than a minute later.
+exactly as for `refdata/`. **Retirement is a selection contract:** a consumer must use
+only `status: 'active'` rows when choosing a new card, banner or nudge. The Today-card
+consumer enforces this in `TemplatePhraser`; D6 and D7 inherit the same requirement for
+nudges and banners. Retired rows remain in `GET /content` only so an already-rendered or
+stored card can still resolve its id; retirement does not blank a card already on screen.
+
+There is no harder `withdrawn` status in v1. Omitting copy from the bundle would orphan
+stored references, while a device that already cached or rendered it would still keep it
+until revalidation, so omission does not provide immediate retraction. If a future
+incident policy requires hard withdrawal, the client first needs an explicit missing-id
+fallback; only then can the API safely omit withdrawn rows. With no live clinical copy,
+that extra state and fallback are not justified for v1 (#146).
+
+Until someone seeds it the collection is simply empty: `GET /content` answers `200` with
+three empty arrays and warns on the server the way `refdata.ts` does, because a Dashboard
+with no copy is a deployment state, not a request error. The empty bundle is the one
+result the 60s cache does not hold, so an instance is serving the real copy within a
+request of the seed rather than a minute later.
 
 `users/{uid}/today/{date}` — the Today card, one document per local day (#98, slice D3
 of #10). Owned by `api/src/today.ts`. The document id **is** the user's local date, so

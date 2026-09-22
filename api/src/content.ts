@@ -25,7 +25,9 @@ import { firestore } from './firebase'
  *   template id; relabelling copy must never change the id, and an id is never reused
  *   for different words.
  * - **Nothing is deleted, only retired.** A template a cached card points at still has
- *   to resolve, so removal is `retireTemplate`, never a side effect of re-seeding.
+ *   to resolve, so removal is `retireContent`, never a side effect of re-seeding. Retired
+ *   rows stay in `GET /content`, but consumers must not select them for new cards,
+ *   banners or nudges; `TemplatePhraser` enforces that rule for today's card.
  *
  * What this module deliberately does **not** do: choose a template for a day (D1), fill
  * one (D3), or render one (D4–D8). It holds the words and says who signed them.

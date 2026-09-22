@@ -437,7 +437,11 @@ describe('TemplatePhraser', () => {
     }
   })
 
-  test('a retired template is not used', () => {
+  test('a retired template is never selected, even ahead of an active copy', () => {
+    const retired = template({ status: 'retired', order: 0, title: 'Withdrawn words' })
+    const active = template({ status: 'active', order: 1, title: 'Active words' })
+
+    expect(phraser.phrase(subject({}), [retired, active]).title).toBe('Active words')
     expect(() => phraser.phrase(subject({}), [template({ status: 'retired' })])).toThrow(
       TemplateUnavailableError,
     )
