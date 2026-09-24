@@ -26,6 +26,7 @@ import {
   PROVIDER_IDS,
   addressOfAuthAccount,
   deleteAuthAccount,
+  federatedProvidersOf,
   findAuthUidByEmail,
   idTokenForUid,
   claimUnprovenAccount,
@@ -93,10 +94,13 @@ import {
   saveConsent,
   saveNutritionSetting,
   saveQuestionnaire,
+  servedUser,
+  type Account,
   type ConditionCode,
   type ConsentKind,
   type Profile,
   type User,
+  type UserRecord,
 } from './users'
 
 const app = new Hono()
@@ -523,7 +527,7 @@ const upstreamUnavailable = (
  * applies to it unchanged.
  */
 const requireAccount = createMiddleware<{
-  Variables: { claims: TokenClaims; account: User }
+  Variables: { claims: TokenClaims; account: UserRecord }
 }>(async (c, next) => {
   const claims = c.get('claims')
   const account = await getAccount(claims.sub)
@@ -535,15 +539,53 @@ const requireAccount = createMiddleware<{
   // by definition, cannot be told anything about it. A superseded session is told the
   // same nothing, and for the stronger version of the same reason: whoever is holding it
   // may well be the person the reset was aimed at.
-  //
+  if (!isCurrentSession(account, claims)) {
+    return c.json(error('UNAUTHORIZED', 'Invalid or expired token'), 401)
+  }
+  c.set('account', account.user)
+  await next()
+})
+
+/**
+ * The question `requireAccount` asks, named so that `requireServedAccount` asks exactly the
+ * same one rather than a copy of it.
+ */
+const isCurrentSession = (account: Account | null, claims: TokenClaims): account is Account =>
   // **Equality, not `<`.** "Minted at the current generation" is the property; a token
   // claiming a generation this account has never reached is not a session of ours
   // either, and reading it as good would make a rolled-back document hand every stale
   // token back its access.
-  if (!account || tokenVersionOf(claims) !== account.tokenVersion) {
+  account !== null && tokenVersionOf(claims) === account.tokenVersion
+
+/**
+ * `requireAccount`, for the one route that serves the user it gates on (`GET /me`) — plus
+ * Firebase Auth's answer to which federated identities she holds, read **beside** the
+ * account read rather than after it (#117).
+ *
+ * `User.authProviders` takes `apple.com` / `google.com` from Auth now, so `/me` costs one
+ * Admin SDK read on top of the Firestore read it always made — measured on #117 at about the
+ * same cost as that read. Issued together, the route waits for the slower of the two
+ * instead of their sum. The Auth read therefore happens before the session is known to be
+ * current; nothing from it is answered unless the session is, and it only ever reads the
+ * token's own uid. No Auth user is the same dead-token answer as no document.
+ *
+ * Only for a route that serves the gated user as it is. A route that serves the user its
+ * own write returns reads Auth beside that write instead; every other route stays on
+ * `requireAccount` and pays nothing.
+ */
+const requireServedAccount = createMiddleware<{
+  Variables: { claims: TokenClaims; account: UserRecord; served: User }
+}>(async (c, next) => {
+  const claims = c.get('claims')
+  const [account, federated] = await Promise.all([
+    getAccount(claims.sub),
+    federatedProvidersOf(claims.sub),
+  ])
+  if (!isCurrentSession(account, claims) || federated === null) {
     return c.json(error('UNAUTHORIZED', 'Invalid or expired token'), 401)
   }
   c.set('account', account.user)
+  c.set('served', servedUser(account.user, federated))
   await next()
 })
 
@@ -561,7 +603,7 @@ const requireAccount = createMiddleware<{
  * way, and the message says what is true of both.
  */
 const requireCollectConsent = createMiddleware<{
-  Variables: { claims: TokenClaims; account: User }
+  Variables: { claims: TokenClaims; account: UserRecord }
 }>(async (c, next) => {
   if (!hasCollectConsent(c.get('account'))) {
     return c.json(
@@ -650,13 +692,19 @@ app.post('/auth/signin', async (c) => {
       // Self-healing: also the attach point for future providers (same uid → same doc).
       // The account's token generation comes back with it (#76), off the snapshot
       // `ensureUser` already read, so this mints at the current one without asking.
-      const account = await ensureUser(localId, email, 'password')
+      // Auth's half of `authProviders` (#117) rides beside it: the credentials are already
+      // verified, so this reveals nothing, and the sign-in floor below hides its cost.
+      const [account, federated] = await Promise.all([
+        ensureUser(localId, email, 'password'),
+        federatedProvidersOf(localId),
+      ])
       // `null` means the account is being deleted. The credentials are real, and that is
       // exactly why this must not mint a token: signing in is the one path that could
       // otherwise walk an account back out of its own deletion. Answered as a failed
       // sign-in — the same answer a wrong password gets, which is also the honest one,
       // because the account those credentials named is gone.
-      if (!account) {
+      // No Auth user is the same fact seen from the other side.
+      if (!account || !federated) {
         return c.json(error('INVALID_CREDENTIALS', 'Wrong email or password'), 401)
       }
       const user = account.user
@@ -671,7 +719,7 @@ app.post('/auth/signin', async (c) => {
       }
       return c.json({
         token: await mintToken(localId, email, account.tokenVersion),
-        user,
+        user: servedUser(user, federated),
       })
     } catch (err) {
       if (err instanceof IdentityToolkitError) {
@@ -1189,9 +1237,14 @@ app.post('/auth/password/reset', async (c) => {
   // it carries a lower one and is refused at the account gate on its next request. So she
   // stays signed in on the phone she is holding and is signed out everywhere else, which
   // is the outcome the issue asked for without needing to identify anything.
+  // Read **after** the retraction above, never beside `getUser`: the federated half of
+  // `authProviders` (#117) has to describe the account as this route leaves it, and on the
+  // activation path the retraction has just unlinked every identity it held.
+  const federated = await federatedProvidersOf(uid)
+  if (!federated) return tokenFailure(c, 'invalid')
   return c.json({
     token: await mintToken(uid, user.email, tokenVersion),
-    user: { ...user, activated: true },
+    user: servedUser({ ...user, activated: true }, federated),
   })
 })
 
@@ -1430,12 +1483,15 @@ app.post('/auth/idp', async (c) => {
 
   try {
     const { localId, email } = await signInWithIdp(await providerIdToken(parsed.value))
-    // A **read**, deliberately, and before anything else. `ensureUser` writes — it
-    // unions the provider into `authProviders` — and running it first meant a credential
-    // this route was about to refuse still left its provider mirrored on the account it
-    // collided with. Permanently, and where the app can see it: Profile reads
-    // `authProviders` to decide whether to offer "Connect Apple", so a false entry takes
-    // away the real owner's only way to link the identity that is actually theirs.
+    // A **read**, deliberately, and before anything else. `ensureUser` writes, and nothing
+    // may be written on the say-so of a credential this route is about to refuse. Found
+    // as the refused provider left permanently in the stored `authProviders` of the
+    // account it collided with, where Profile read it to decide whether to offer "Connect
+    // Apple". Since #117 the served list takes Apple and Google from Auth, not from that
+    // array — and what keeps a refused identity out of it is that a refusal mints nothing
+    // and leaves the account unactivated, and every path that activates one
+    // (`claimForActivation`, the reset, the claim below) strips federated identities
+    // first. The order here still matters for the tombstone and the claim.
     const existing = await readUser(localId)
     // Mid-deletion, the same case `/auth/signin` refuses: the credential is real and
     // that is exactly why this must not mint a token, or a provider sign-in would walk
@@ -1479,11 +1535,10 @@ app.post('/auth/idp', async (c) => {
     // activated on that person's behalf.
     //
     // The condition is `!user.activated` **alone**. An earlier version also required
-    // `authProviders` to contain "password", which reads Eva's Firestore mirror rather
+    // `authProviders` to contain "password", which reads Eva's Firestore document rather
     // than Firebase's record of the account — and those diverge in exactly the case
     // that matters, because sign-up writes the Auth user before the document.
-    // `claimUnprovenAccount` does test for a password, but against Firebase's
-    // `providerData`, which is the authoritative record the mirror only copies.
+    // `claimUnprovenAccount` reads Firebase's `providerData`, the authoritative record.
     //
     // Fails **closed**: the throw is not a provider failure, so it falls through to
     // `app.onError` as a 500 and no token is minted. Continuing would hand out a
@@ -1503,8 +1558,15 @@ app.post('/auth/idp', async (c) => {
     // Only now, once the credential has earned the account. The second tombstone check
     // is `ensureUser`'s own, and closes the window between the read above and this
     // write: a `DELETE /me` landing in between must still win.
-    const account = await ensureUser(localId, address ?? email, PROVIDER_IDS[parsed.value.provider])
-    if (!account) return refuseProvider(c, 'idp', 'deleted-race')
+    //
+    // Auth's half of `authProviders` (#117) is read here too, after the claim and not
+    // before it, so it describes the account the claim left — never an identity the claim
+    // just stripped.
+    const [account, federated] = await Promise.all([
+      ensureUser(localId, address ?? email, PROVIDER_IDS[parsed.value.provider]),
+      federatedProvidersOf(localId),
+    ])
+    if (!account || !federated) return refuseProvider(c, 'idp', 'deleted-race')
     // The claim above has already taken the account, so there is nothing left to
     // retract — and `proveAddress` must not run here: a provider sign-in would unlink
     // the very identity that just signed in.
@@ -1518,7 +1580,7 @@ app.post('/auth/idp', async (c) => {
     // and a token that said one thing while `GET /me` said another is how #119 was found.
     return c.json({
       token: await mintToken(localId, account.user.email, account.tokenVersion),
-      user: { ...account.user, activated: true },
+      user: servedUser({ ...account.user, activated: true }, federated),
     })
   } catch (err) {
     const answer = providerFailure(c, 'idp', err)
@@ -1563,10 +1625,17 @@ app.post('/me/auth/providers', requireAuth, requireAccount, async (c) => {
     // No bump: linking adds a credential and removes none, so the caller's other
     // devices have no reason to be signed out (see `bumpTokenVersion` for the rule,
     // and for what an unlink route would owe instead).
-    const linked = await ensureUser(account.id, account.email, PROVIDER_IDS[parsed.value.provider])
+    // The answer's `authProviders` takes the new identity from Auth, which the link above
+    // has just written (#117) — so it is read after that, beside the document write.
+    const [linked, federated] = await Promise.all([
+      ensureUser(account.id, account.email, PROVIDER_IDS[parsed.value.provider]),
+      federatedProvidersOf(account.id),
+    ])
     // A delete landed between the account gate and here.
-    if (!linked) return c.json(error('UNAUTHORIZED', 'Invalid or expired token'), 401)
-    return c.json({ user: linked.user })
+    if (!linked || !federated) {
+      return c.json(error('UNAUTHORIZED', 'Invalid or expired token'), 401)
+    }
+    return c.json({ user: servedUser(linked.user, federated) })
   } catch (err) {
     const answer = providerFailure(c, 'link', err)
     if (answer) return answer
@@ -1592,7 +1661,7 @@ const revokeApple = async (authorizationCode: string): Promise<void> => {
   )
 }
 
-app.get('/me', requireAuth, requireAccount, (c) => c.json({ user: c.get('account') }))
+app.get('/me', requireAuth, requireServedAccount, (c) => c.json({ user: c.get('served') }))
 
 /**
  * Her data, as one JSON file the app saves (#58; GDPR Art. 15 and 20, CCPA access —
@@ -1841,9 +1910,13 @@ app.put('/me/consent/:kind', requireAuth, requireAccount, async (c) => {
       return c.json(error('VALIDATION', 'version is required when granting consent'), 400)
     }
   }
-  const user = await saveConsent(c.get('claims').sub, kind, body.granted, version)
-  if (!user) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
-  return c.json({ user })
+  // Auth's half of `authProviders` (#117), read beside the write rather than after it.
+  const [user, federated] = await Promise.all([
+    saveConsent(c.get('claims').sub, kind, body.granted, version),
+    federatedProvidersOf(c.get('claims').sub),
+  ])
+  if (!user || !federated) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
+  return c.json({ user: servedUser(user, federated) })
 })
 
 app.put('/me/questionnaire', requireAuth, requireAccount, requireCollectConsent, async (c) => {
@@ -1857,9 +1930,13 @@ app.put('/me/questionnaire', requireAuth, requireAccount, requireCollectConsent,
   const profile = parseProfile(body, clock.value)
   if (!profile.ok) return c.json(error(profile.code, profile.message), 400)
 
-  const user = await saveQuestionnaire(c.get('claims').sub, profile.value)
-  if (!user) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
-  return c.json({ user })
+  // Auth's half of `authProviders` (#117), read beside the write rather than after it.
+  const [user, federated] = await Promise.all([
+    saveQuestionnaire(c.get('claims').sub, profile.value),
+    federatedProvidersOf(c.get('claims').sub),
+  ])
+  if (!user || !federated) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
+  return c.json({ user: servedUser(user, federated) })
 })
 
 /**
@@ -1876,9 +1953,13 @@ app.put('/me/nutrition-settings', requireAuth, requireAccount, async (c) => {
   if (typeof body.qualitativeOnly !== 'boolean') {
     return c.json(error('VALIDATION', 'qualitativeOnly must be a boolean'), 400)
   }
-  const user = await saveNutritionSetting(c.get('claims').sub, body.qualitativeOnly)
-  if (!user) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
-  return c.json({ user })
+  // Auth's half of `authProviders` (#117), read beside the write rather than after it.
+  const [user, federated] = await Promise.all([
+    saveNutritionSetting(c.get('claims').sub, body.qualitativeOnly),
+    federatedProvidersOf(c.get('claims').sub),
+  ])
+  if (!user || !federated) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
+  return c.json({ user: servedUser(user, federated) })
 })
 
 /**
@@ -1889,9 +1970,13 @@ app.put('/me/nutrition-settings', requireAuth, requireAccount, async (c) => {
  * No body is read — there is nothing to validate.
  */
 app.post('/me/profile-nudge/dismiss', requireAuth, requireAccount, async (c) => {
-  const user = await dismissProfileNudge(c.get('claims').sub)
-  if (!user) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
-  return c.json({ user })
+  // Auth's half of `authProviders` (#117), read beside the write rather than after it.
+  const [user, federated] = await Promise.all([
+    dismissProfileNudge(c.get('claims').sub),
+    federatedProvidersOf(c.get('claims').sub),
+  ])
+  if (!user || !federated) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
+  return c.json({ user: servedUser(user, federated) })
 })
 
 /**
@@ -2582,25 +2667,31 @@ app.delete('/me/events/:id', requireAuth, requireAccount, async (c) => {
 
 /** Undo for the delete toast. Nothing to validate — the id is the whole request, and
  *  what may be restored is a question about stored state, which the module answers. */
-app.post('/me/events/:id/restore', requireAuth, requireAccount, requireCollectConsent, async (c) => {
-  const result = await restoreEvent(c.get('claims').sub, c.req.param('id'))
-  if (result.ok) return c.json({ event: result.event })
-  if (result.reason === 'day-taken') {
-    // 409, not 404: the entry is not missing, the day is occupied. Restoring would
-    // have to overwrite a newer entry, so the client is told rather than obeyed.
-    return c.json(
-      error('DAY_ALREADY_LOGGED', "That day already has an entry, so this one can't be restored"),
-      409,
-    )
-  }
-  if (result.reason === 'expired') {
-    return c.json(
-      error('NOT_FOUND', `That entry is past its ${RETENTION_DAYS}-day recovery window`),
-      404,
-    )
-  }
-  return c.json(error('NOT_FOUND', 'No such event'), 404)
-})
+app.post(
+  '/me/events/:id/restore',
+  requireAuth,
+  requireAccount,
+  requireCollectConsent,
+  async (c) => {
+    const result = await restoreEvent(c.get('claims').sub, c.req.param('id'))
+    if (result.ok) return c.json({ event: result.event })
+    if (result.reason === 'day-taken') {
+      // 409, not 404: the entry is not missing, the day is occupied. Restoring would
+      // have to overwrite a newer entry, so the client is told rather than obeyed.
+      return c.json(
+        error('DAY_ALREADY_LOGGED', "That day already has an entry, so this one can't be restored"),
+        409,
+      )
+    }
+    if (result.reason === 'expired') {
+      return c.json(
+        error('NOT_FOUND', `That entry is past its ${RETENTION_DAYS}-day recovery window`),
+        404,
+      )
+    }
+    return c.json(error('NOT_FOUND', 'No such event'), 404)
+  },
+)
 
 /** Upsert-by-day: one body signals entry per user per day, always replaced whole.
  *  The ratings sit at the top level here — the route already says what this is. */

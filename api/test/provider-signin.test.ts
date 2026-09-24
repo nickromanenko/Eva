@@ -185,6 +185,9 @@ const send = async (
 const post = (path: string, body: unknown, headers?: Record<string, string>) =>
   send('POST', path, body, headers)
 
+const get = (path: string, headers?: Record<string, string>) =>
+  send('GET', path, undefined, headers)
+
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` })
 
 /** Every `users/{uid}` id holding this address. The whole point of the identity rule is
@@ -304,6 +307,16 @@ const idTokenFromPassword = async (email: string, password: string): Promise<str
   if (!res.ok) return null
   return ((await res.json()) as { idToken?: string }).idToken ?? null
 }
+
+/** Firebase Auth's own list of identities on the account — what the served federated
+ *  entries must agree with (#117). */
+const providerIdsInAuth = async (uid: string): Promise<string[]> =>
+  (await adminAuth.getUser(uid)).providerData.map((p) => p.providerId).sort()
+
+/** The stored `users/{uid}.authProviders` array, raw. Since #117 only its `password` entry
+ *  is read by the API; tests read the rest to prove nothing was written. */
+const storedProviders = async (uid: string): Promise<unknown> =>
+  (await firestore.collection('users').doc(uid).get()).get('authProviders')
 
 const activatedAt = async (uid: string): Promise<unknown> =>
   (await firestore.collection('users').doc(uid).get()).get('activatedAt')
@@ -476,7 +489,8 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
       // The account the route was NOT pointed at is untouched — no link, no
       // activation, and its password still its own.
       const original = (await getUser(passwordUid))!
-      expect(original.authProviders).toEqual(['password'])
+      expect(original.passwordChosen).toBe(true)
+      expect(await providerIdsInAuth(passwordUid)).toEqual(['password'])
       expect(original.activated).toBe(false)
       expect(await passwordStillWorks(email, PASSWORD)).toBe(true)
     },
@@ -706,15 +720,16 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
     'a refused credential leaves no trace on the account it collided with',
     async () => {
       // The victim's own account, already real and already activated — the state a
-      // refusal must not touch. The damage is not the 401; it is that
-      // `users/{uid}.authProviders` is what the app reads to decide whether to offer
-      // "Connect Apple", so a provider mirrored there by a request that was refused
-      // takes away the real owner's only way to link the identity that is theirs.
+      // refusal must not touch. The damage this was written for is not the 401; it is a
+      // provider written into the stored `authProviders` by a request that was refused,
+      // which the app read to decide whether to offer "Connect Apple". The served list no
+      // longer reads that array's federated entries (#117) — the case below this one pins
+      // what keeps a refused identity out of it now — but the refused request still must
+      // not write, so the stored array is what is compared.
       const victimEmail = newEmail()
       const uid = await trackedUnactivatedAccount(victimEmail)
       await markActivated(uid)
-      const before = (await getUser(uid))!.authProviders
-      expect(before).toEqual(['password'])
+      const before = await storedProviders(uid)
 
       // An unverified account whose only provider carries a stranger's address.
       await adminAuth.updateUser(uid, { emailVerified: false })
@@ -725,7 +740,35 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
       idp = () => ({ localId: uid, email: victimEmail })
       expect((await post('/auth/idp', appleBody())).status).toBe(401)
 
-      expect((await getUser(uid))!.authProviders).toEqual(before)
+      expect(await storedProviders(uid)).toEqual(before)
+    },
+    SLOW,
+  )
+
+  test(
+    'a refused identity is gone from what the owner is served once she recovers the account',
+    async () => {
+      // What keeps the property above true of the *served* list since #117, where Apple
+      // and Google come from Auth: a refusal leaves the identity linked in Auth (Firebase
+      // linked it before Eva ever saw the request), but it mints nothing and leaves the
+      // account unactivated — and every way to a session on an unactivated account strips
+      // federated identities first. Here the owner recovers through a reset link.
+      const victimEmail = newEmail()
+      const uid = await trackedUnactivatedAccount(victimEmail)
+      await attachProvider(uid, PROVIDER_IDS.apple, newEmail())
+      idp = () => ({ localId: uid, email: victimEmail })
+      expect((await post('/auth/idp', appleBody())).status).toBe(401)
+      // Still linked in Auth: the refusal did not remove it, so what follows is what does.
+      expect(await providerIdsInAuth(uid)).toContain(PROVIDER_IDS.apple)
+
+      const token = await issueToken(uid, victimEmail, 'reset')
+      const reset = await post('/auth/password/reset', { token, password: 'owners-own-9' })
+      expect(reset.status).toBe(200)
+      expect(reset.body.user.authProviders).toEqual(['password'])
+
+      const me = await get('/me', bearer(reset.body.token))
+      expect(me.status).toBe(200)
+      expect(me.body.user.authProviders).toEqual(['password'])
     },
     SLOW,
   )
@@ -2305,8 +2348,11 @@ describe('POST /me/auth/providers — linking is deliberate, and never a merge',
       expect(res.status).toBe(200)
       expect(res.body.user.id).toBe(uid)
       expect(res.body.user.authProviders).toEqual(['password', PROVIDER_IDS.apple])
-      // Persisted, not just reported.
-      expect((await getUser(uid))!.authProviders).toEqual(['password', PROVIDER_IDS.apple])
+      // Held, not just reported: a later read agrees.
+      expect((await get('/me', bearer(token))).body.user.authProviders).toEqual([
+        'password',
+        PROVIDER_IDS.apple,
+      ])
       // Linked against *this* account's Firebase ID token, which is what makes it a
       // link rather than a sign-in.
       expect(lastIdp?.linkTo).toBe(`firebase-id-token-for-${uid}`)
@@ -2330,7 +2376,8 @@ describe('POST /me/auth/providers — linking is deliberate, and never a merge',
       expect(res.status).toBe(409)
       expect(res.body.error.code).toBe('PROVIDER_ALREADY_LINKED')
       // The account is exactly as it was: no provider added, no silent merge.
-      expect((await getUser(uid))!.authProviders).toEqual(['password'])
+      expect(await providerIdsInAuth(uid)).toEqual(['password'])
+      expect((await get('/me', bearer(token))).body.user.authProviders).toEqual(['password'])
     },
     SLOW,
   )
@@ -2703,4 +2750,128 @@ describe('identity-toolkit puts the nonce on the wire', () => {
     expect(postBody.get('providerId')).toBe(PROVIDER_IDS.google)
     expect(postBody.has('nonce')).toBe(false)
   })
+})
+
+describe('authProviders is assembled per response, never trusted from the document (#117)', () => {
+  /** An activated password account and a session for it. */
+  const signedIn = async (): Promise<{ uid: string; email: string; token: string }> => {
+    const email = newEmail()
+    const uid = await trackedUnactivatedAccount(email)
+    await markActivated(uid)
+    return { uid, email, token: await mintToken(uid, email, 0) }
+  }
+
+  const federatedOnly = (ids: string[]): string[] => ids.filter((id) => id !== 'password').sort()
+
+  test(
+    'an out-of-band identity a claim strips is gone from what GET /me serves',
+    async () => {
+      // The drift the issue was filed for. An identity attached out of band, carrying an
+      // address that is not the account's, and — as a drifted document has it — listed in
+      // the stored array. The owner's Apple sign-in claims the account and unlinks it
+      // from Auth; nothing prunes the document, and nothing needs to.
+      const email = newEmail()
+      const uid = await trackedUnactivatedAccount(email)
+      await attachProvider(uid, PROVIDER_IDS.google, newEmail())
+      await firestore
+        .collection('users')
+        .doc(uid)
+        .update({ authProviders: ['password', PROVIDER_IDS.google] })
+      idp = resolveTo(uid, email)
+
+      const res = await post('/auth/idp', appleBody())
+      expect(res.status).toBe(200)
+
+      const inAuth = await providerIdsInAuth(uid)
+      expect(inAuth).not.toContain(PROVIDER_IDS.google)
+      const me = await get('/me', bearer(res.body.token))
+      expect(me.status).toBe(200)
+      // What she is served agrees with Firebase, on both routes that answered her.
+      expect(federatedOnly(me.body.user.authProviders)).toEqual(federatedOnly(inAuth))
+      expect(me.body.user.authProviders).toEqual(['password', PROVIDER_IDS.apple])
+      expect(res.body.user.authProviders).toEqual(['password', PROVIDER_IDS.apple])
+      // And nothing was deleted to get there: the dormant entry is still stored.
+      expect(await storedProviders(uid)).toContain(PROVIDER_IDS.google)
+    },
+    SLOW,
+  )
+
+  test(
+    'a stale federated entry in the document is ignored, and one only Auth holds is served',
+    async () => {
+      const { uid, email, token } = await signedIn()
+      // The document claims Apple, which Auth does not hold; Auth holds Google, which the
+      // document does not list. Each half answers from its own owner.
+      await firestore
+        .collection('users')
+        .doc(uid)
+        .update({ authProviders: ['password', PROVIDER_IDS.apple] })
+      await attachProvider(uid, PROVIDER_IDS.google, email)
+
+      const me = await get('/me', bearer(token))
+
+      expect(me.status).toBe(200)
+      expect(me.body.user.authProviders).toEqual(['password', PROVIDER_IDS.google])
+    },
+    SLOW,
+  )
+
+  test(
+    'an Apple-first account the claim gave a random password is still served without "password"',
+    async () => {
+      // Why `password` is the document's to answer and not Auth's: a fresh provider
+      // account has no document, so the claim runs and overwrites its password with random
+      // bytes — and Firebase lists `password` from then on. Nobody chose it. Served from
+      // Auth, Profile would show "Email and password" to every Apple-first user.
+      const email = newEmail()
+      const uid = await createAuthUser(email)
+      idp = resolveTo(uid, email)
+
+      const res = await post('/auth/idp', appleBody())
+      expect(res.status).toBe(200)
+      // The premise, asserted so this cannot pass for the wrong reason.
+      expect(await providerIdsInAuth(uid)).toEqual(['password', PROVIDER_IDS.apple].sort())
+
+      expect(res.body.user.authProviders).toEqual([PROVIDER_IDS.apple])
+      const me = await get('/me', bearer(res.body.token))
+      expect(me.body.user.authProviders).toEqual([PROVIDER_IDS.apple])
+    },
+    SLOW,
+  )
+
+  test(
+    'every route that answers with a user serves the same assembled list',
+    async () => {
+      const { uid, email, token } = await signedIn()
+      await attachProvider(uid, PROVIDER_IDS.google, email)
+      const expected = ['password', PROVIDER_IDS.google]
+      const put = (path: string, body: unknown) => send('PUT', path, body, bearer(token))
+
+      const consent = await put('/me/consent/collect', { granted: true, version: '2026-08-30' })
+      expect(consent.status).toBe(200)
+      expect(consent.body.user.authProviders).toEqual(expected)
+
+      const questionnaire = await put('/me/questionnaire', {
+        dateOfBirth: '1996-03-14',
+        weightKg: 60,
+        heightCm: 170,
+        goals: [],
+        conditions: [],
+        medications: 'none',
+        lifestyle: 'active',
+        sports: [],
+      })
+      expect(questionnaire.status).toBe(200)
+      expect(questionnaire.body.user.authProviders).toEqual(expected)
+
+      const nutrition = await put('/me/nutrition-settings', { qualitativeOnly: true })
+      expect(nutrition.status).toBe(200)
+      expect(nutrition.body.user.authProviders).toEqual(expected)
+
+      const nudge = await post('/me/profile-nudge/dismiss', {}, bearer(token))
+      expect(nudge.status).toBe(200)
+      expect(nudge.body.user.authProviders).toEqual(expected)
+    },
+    SLOW,
+  )
 })

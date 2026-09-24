@@ -54,7 +54,9 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   Auth user is deleted. Two transports, one owner. `signInWithIdp` is the Apple/Google seam
   (#7): Firebase returns the uid it keyed to the provider's `sub`, which is what makes
   "identity is `sub`, and only `sub`" true by construction. Never add an email lookup to it.
-  Also classifies every upstream failure as `email-exists | rejected | unavailable`;
+  `federatedProvidersOf` answers which Apple/Google identities the Auth account holds *now* —
+  the Auth half of every served `User.authProviders` (#117); see `users.ts` below for the
+  other half. Also classifies every upstream failure as `email-exists | rejected | unavailable`;
   routes branch on that kind and never on Google's reason string, which must not reach a
   body, a header, or a log line (#32).
 - `providers.ts` — the only two calls that go to Apple or Google *directly*, and the only
@@ -84,6 +86,15 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   and a session counter is not the client's business — the same reasoning that keeps
   `lastUserChangeAt` off that shape. Every reader gets it from a snapshot it was already
   loading: `getAccount` for the gate, `ensureUser` for the two sign-in routes.
+  **It serves `UserRecord`, never `User` (#117).** `User.authProviders` is assembled per
+  response by `servedUser`: `password` from the stored `authProviders` (`passwordChosen` — an
+  Eva fact; Firebase also lists the random password a claim sets, so it cannot answer it),
+  `apple.com`/`google.com` from `federatedProvidersOf`, handed in by the route. The federated
+  entries in the stored array are **dormant**: still written by `ensureUser` so a rollback to
+  the pre-#117 build keeps Apple revocation working, never read, never deleted (a human
+  call). Do not start reading them again. A route that returns a `User` reads Auth beside its
+  own Firestore call (`requireServedAccount` for `GET /me`); a route that does not must not
+  read it at all.
 - `events.ts` — the only module that touches `users/{uid}/events/`. Calendar entries:
   create, range read by `localDate`, edit, soft delete. Never log a payload — health data.
   `positiveTest` (#80) is the second fact stored here that **nothing reads**, and the first
@@ -449,11 +460,16 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   stayed armed against a pre-registering attacker's password — the subtlest call in that
   issue. #120 removes the reason: the only credential an account can have at activation is
   the one supplied in that same request by whoever proved the address.
-- **`/auth/idp` reads before it writes (#7).** `ensureUser` unions the provider into
-  `authProviders`, so calling it before the claim gate left a refused credential's provider
-  on a stranger's document — which is what the app reads to decide whether to offer
+- **`/auth/idp` reads before it writes (#7).** `ensureUser` unions the provider into the
+  stored `authProviders`, so calling it before the claim gate left a refused credential's
+  provider on a stranger's document — which is what the app read to decide whether to offer
   "Connect Apple". Use `readUser` to decide, `ensureUser` only once the claim says
-  `claimed`.
+  `claimed`. Since #117 the served federated entries come from Auth, where a refused identity
+  stays linked; it still never reaches the owner, because a refusal mints nothing and leaves
+  the account unactivated, and every path to a session on an unactivated account
+  (activation, reset, a successful claim) unlinks federated identities first. Read the
+  federated half of a response **after** any step that changes Auth — the claim, the
+  retraction, the link — never beside the read that precedes it.
 - A provider session comes back already activated, stores no display name, and adds no
   field to `users/{uid}`.
 - CORS is on exactly the two routes the website's link pages call (`/auth/activate`,
