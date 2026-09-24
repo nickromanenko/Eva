@@ -159,6 +159,12 @@ mock.module('../src/users', () => ({
   // along. Without it here the gate calls the real Firestore and the mocked outage below
   // never reaches the handler it is supposed to be testing.
   getAccount: async () => (userStore ?? unset('users.getAccount'))(),
+  // `/auth/signin` reads before it writes since #119, through the same seam: the account
+  // `userStore` names, or its throw.
+  readUser: async () => ({
+    deleted: false,
+    user: ((userStore ?? unset('users.readUser'))() as { user: unknown }).user,
+  }),
 }))
 
 mock.module('../src/events', () => ({
@@ -749,6 +755,105 @@ describe('a throw that is not an Error, and a path that is not a route', () => {
 
       expect(answer.status).toBe(404)
       expect(answer.body.error.code).toBe('NOT_FOUND')
+    },
+    FAST,
+  )
+})
+
+/**
+ * A JSON body that is not an object (#119). `null` used to reach `body.provider` — or
+ * `body.email`, or `body.appleAuthorizationCode` — and throw a `TypeError`, which this file's
+ * floor answered as a 500 *and a line*: on the unauthenticated `/auth/idp`, a free way to
+ * fill the one signal that is meant to mean "we shipped a bug". An array, a number or a
+ * string was refused only by whichever field check a route happened to make first, and
+ * `DELETE /me` made none — it read `[]` as "no Apple code" and deleted.
+ *
+ * Fixed once, in the shared body parse, so the list below is every route that reads a body
+ * and it is asserted of all of them: a route added later that parses its own body is the
+ * thing this is here to catch.
+ */
+describe('a JSON body that is not an object is a 400, never a 500 (#119)', () => {
+  /** A live account that has also consented, so the consent-gated routes reach their
+   *  handlers — the gate would otherwise answer first and prove nothing. */
+  const consentingAccount = () => ({
+    user: {
+      ...liveAccount().user,
+      consent: {
+        collect: { version: 'test', at: '2026-01-01T00:00:00.000Z', withdrawnAt: null },
+        share: null,
+      },
+    },
+    tokenVersion: 0,
+  })
+
+  const ROUTES: [method: string, path: string, authenticated: boolean][] = [
+    ['POST', '/auth/signup', false],
+    ['POST', '/auth/signin', false],
+    ['POST', '/auth/activate', false],
+    ['POST', '/auth/activation/resend', false],
+    ['POST', '/auth/password/forgot', false],
+    ['POST', '/auth/password/reset', false],
+    ['POST', '/auth/idp', false],
+    ['POST', '/me/auth/providers', true],
+    ['DELETE', '/me', true],
+    ['PUT', '/me/consent/collect', true],
+    ['PUT', '/me/questionnaire', true],
+    ['PUT', '/me/nutrition-settings', true],
+    ['POST', '/me/events', true],
+    ['PATCH', `/me/events/${EVENT_ID}`, true],
+    ['PUT', '/me/body-signals/2026-08-27', true],
+  ]
+
+  const NOT_OBJECTS: unknown[] = [null, [], [{ email: EMAIL }], 5, 'x', true]
+
+  for (const [method, path, authenticated] of ROUTES) {
+    test(
+      `${method} ${path}`,
+      async () => {
+        // Anything that got past the parse would reach one of these and throw, or — for
+        // `DELETE /me` — carry on deleting; either way not the answer asserted below.
+        userStore = consentingAccount
+        credential = succeeds
+        const token = authenticated ? await mintToken(UID, EMAIL, 0) : undefined
+
+        for (const body of NOT_OBJECTS) {
+          const answer = await send(method, path, { body, token })
+
+          expect({ body, status: answer.status }).toEqual({ body, status: 400 })
+          expect(answer.body.error.code).toBe('VALIDATION')
+          expect(Object.keys(answer.body.error).sort()).toEqual(['code', 'message'])
+        }
+        // Not one line: no `unhandled_error`, and nothing else either.
+        expect(logged).toEqual([])
+      },
+      FAST,
+    )
+  }
+})
+
+describe('a body that is absent or not JSON is still `{}` to the route (#119)', () => {
+  test(
+    "each route's own validation answers, in its own words",
+    async () => {
+      // The other half of `readBody`: only *valid* JSON that is not an object is the
+      // non-object refusal. Missing and unparseable bodies reach the route as `{}`, so the
+      // message is the route's, not the shared one.
+      for (const body of [undefined, '{not json']) {
+        const res = await server.fetch(
+          new Request('http://api.test/auth/idp', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body,
+          }),
+        )
+        const answer = (await res.json()) as Answer['body']
+        expect(res.status).toBe(400)
+        expect(answer.error).toEqual({
+          code: 'VALIDATION',
+          message: "provider must be 'apple' or 'google'",
+        })
+      }
+      expect(logged).toEqual([])
     },
     FAST,
   )

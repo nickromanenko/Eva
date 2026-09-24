@@ -62,7 +62,8 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   `DELETE /me` (an ES256 client secret signed with WebCrypto — no JWT library, and never
   `JWT_SECRET`). Every credential it needs is optional; unconfigured is a `503` on that one
   capability, never a boot failure, and never a failed delete. Writes no log line.
-- `rate-limit.ts` — attempt counters behind the `/auth/*` throttle. In-memory, so the
+- `rate-limit.ts` — attempt counters behind the `/auth/*` throttle, and `DELETE /me`'s
+  per-account one (#119: keyed by the token's uid, deliberately no per-IP dimension). In-memory, so the
   limit is per Cloud Run instance — the guarantee, and what would have to change to make
   it real, are written out at the top of the file and in ARCHITECTURE §3. It never sees
   whether an account exists, and it never logs a key (they are addresses and IPs).
@@ -282,7 +283,22 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   interrupted delete can be retried with the same token — but it checks the token version
   by hand, because "a reset invalidates every session" cannot be false on the route that
   destroys the account. It checks only while a document still exists, so the retry (which
-  happens after the tombstone) is untouched.
+  happens after the tombstone) is untouched. It is throttled per account (#119,
+  `RATE_LIMIT_DELETE_PER_ACCOUNT`) so one token cannot replay it for thirty days; the budget
+  is several retries wide, and the route stays idempotent inside it.
+- **Every body is read through `readBody` (#119).** Never `c.req.json()` in a handler.
+  Absent or unparseable is `{}`; valid JSON that is not an object throws
+  `BodyNotAnObjectError`, which `app.onError` answers `400 VALIDATION` without a log line —
+  the one throw it recognises by class. `unhandled-errors.test.ts` lists every body-reading
+  route; add a new one there.
+- **`users/{uid}.email` is the Auth account's address, and no route mints a session on a
+  document that says otherwise (#119).** `sameAddress` is the comparison; `/auth/idp`,
+  `/auth/password/reset` and `/auth/signin` each refuse with the answer they already give a
+  bad credential. `/auth/idp` compares with the Auth account (`addressOfAuthAccount`), never
+  with `signInWithIdp`'s `email` — that is the provider's claim, and it legitimately differs
+  for a linked relay — except on a first sign-in, where there is no document and the claim
+  must equal the Auth address before one is written. Every check reads before anything is
+  written. Refuse, never refresh. ARCHITECTURE §3 has the reasoning and the cost.
 - **A password reset ends every other session (#76).** `POST /auth/password/reset` bumps
   `tokenVersion` **before** `setPassword`, deliberately: bump-then-fail signs everyone out
   and leaves the old password working, set-then-fail changes the password and leaves the
