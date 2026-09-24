@@ -1,4 +1,4 @@
-import { FieldValue, Timestamp } from 'firebase-admin/firestore'
+import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { firestore } from './firebase'
 
 /** Owner of `users/{uid}/events/` (GUARDRAILS rule 10). Nothing else touches it.
@@ -385,6 +385,43 @@ export const deleteAllUserEvents = async (uid: string): Promise<number> => {
     for (const doc of snapshot.docs) batch.delete(doc.ref)
     await batch.commit()
     deleted += snapshot.size
+  }
+}
+
+/**
+ * Every event of one user, a page at a time — the calendar half of `GET /me/export` (#58).
+ *
+ * **Every stored entry, soft-deleted ones included**, each in exactly the shape
+ * `listEvents` serves, so a deleted entry is told apart by its `deletedAt` and by nothing
+ * else. That includes an entry past its recovery window that the purge has not reached yet:
+ * the export answers "what does Eva hold about me", and an entry still stored is held,
+ * whatever the retention promise says should already have happened to it. The same
+ * reasoning `deleteAllUserEvents` gives for taking soft-deleted entries, from the other
+ * side — the account's own request is about all of it.
+ *
+ * **Ordered by document id, not by `localDate`.** An ordered query silently drops a
+ * document that lacks the field it is ordered on, and an export that can lose an entry
+ * without saying so is the one failure it may not have; the document id is on every
+ * document. It also needs no index, and it makes the cursor strictly increasing, so an
+ * entry can appear at most once even while she keeps logging during the download.
+ *
+ * Not a point-in-time snapshot: an entry written or edited while the pages are being read
+ * may or may not be in them. A page at a time is what keeps 20,000 entries out of memory at
+ * once; the caller streams each page out before asking for the next. Yields nothing at all
+ * for an account with no events, rather than one empty page.
+ */
+export async function* exportEvents(
+  uid: string,
+  pageSize: number,
+): AsyncGenerator<EvaEvent[], void, undefined> {
+  const ordered = events(uid).orderBy(FieldPath.documentId()).limit(pageSize)
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | null = null
+  for (;;) {
+    const page = await (cursor === null ? ordered : ordered.startAfter(cursor)).get()
+    if (page.empty) return
+    yield page.docs.map(toEvent)
+    if (page.size < pageSize) return
+    cursor = page.docs.at(-1) ?? null
   }
 }
 

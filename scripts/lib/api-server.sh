@@ -20,6 +20,7 @@
 #   8080/9099/9199  Firebase emulators (firestore/auth/hub)
 #   3100–3299     api/test/events.test.ts draw range
 #   3400–3599     api/test/today.test.ts draw range
+#   3600–3799     api/test/export.test.ts draw range
 
 API_URL=${EVA_API_URL:-}
 API_STARTED=0

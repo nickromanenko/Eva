@@ -417,6 +417,30 @@ export const consumeTokenAttempt = (route: TokenRoute, ip: string | null): boole
   ip === null || tokenLimiters[route].consume(ip)
 
 /**
+ * `GET /me/export` (#58) — the one authenticated route counted here, and counted because
+ * it is the one whose cost grows with the account rather than with the request.
+ *
+ * Keyed by **uid**, not by address: the caller is already authenticated, so the account is
+ * the identity being spent, and an address would let a sign-in attempt and an export share
+ * nothing while naming the same person. Per IP is the backstop, as everywhere in this file.
+ * A uid is not a secret, but it is an account identifier, so it joins the other keys under
+ * "never logged".
+ */
+const exportLimiters = {
+  byIp: createRateLimiter(config.rateLimit.exportPerIp, config.rateLimit.windowSeconds),
+  byUser: createRateLimiter(config.rateLimit.exportPerUser, config.rateLimit.windowSeconds),
+}
+
+/** Counts one export and says whether to serve it. IP first and short-circuiting, for
+ *  `consumeAuthAttempt`'s reason: a throttled IP does not go on spending an account's
+ *  budget. `ip` is `null` when the caller's address is unknown, which skips that
+ *  dimension. */
+export const consumeExportAttempt = (ip: string | null, uid: string): boolean => {
+  if (ip !== null && !exportLimiters.byIp.consume(ip)) return false
+  return exportLimiters.byUser.consume(uid)
+}
+
+/**
  * Counts one attempt on `route` and says whether to serve it. `ip` is `null` when the
  * caller's address is unknown, which skips the per-IP dimension.
  *
@@ -514,4 +538,6 @@ export const resetAuthRateLimits = (): void => {
   for (const limiter of Object.values(tokenLimiters)) limiter.reset()
   for (const limiter of Object.values(providerLimiters)) limiter.reset()
   deleteLimiter.reset()
+  exportLimiters.byIp.reset()
+  exportLimiters.byUser.reset()
 }

@@ -34,6 +34,7 @@ before a PR that touches `content.ts`.
 index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.ts · users.ts
          ──► events.ts · today.ts · refdata.ts · email.ts · email-tokens.ts
          ──► firebase.ts · config.ts
+         ──► data-export.ts (leaf; `import type` only)
 
 today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · cycle.ts
 ```
@@ -67,6 +68,9 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   limit is per Cloud Run instance — the guarantee, and what would have to change to make
   it real, are written out at the top of the file and in ARCHITECTURE §3. It never sees
   whether an account exists, and it never logs a key (they are addresses and IPs).
+  It also holds the one authenticated throttle, `consumeExportAttempt` for `GET /me/export`
+  (#58): per IP, then per **uid** — the account is the identity an export spends, and a uid
+  joins the keys that are never logged.
 - `users.ts` — the only module that touches `users/`. `markUserDeleted` stamps the
   tombstone that starts an account delete (#8): while it is set `getUser` answers `null`
   and `ensureUser` refuses to revive the document, which is what stops a deleted account
@@ -92,7 +96,10 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   §4 "Retention" says why, and what a human still has to create for it to run).
   `deleteAllUserEvents` is the exception that proves the rule: account deletion takes
   soft-deleted entries too, because a recovery window inside a deleted account is a
-  promise to nobody.
+  promise to nobody. `exportEvents` (#58) is the same rule on the read side: every stored
+  entry, soft-deleted included, in `toEvent`'s shape, a page at a time ordered by document
+  id — never by `localDate`, because an ordered query drops a document missing the field and
+  an export may not lose an entry silently.
 - `email-tokens.ts` — the only module that touches `authTokens/`. The tokens behind
   activation and password-reset links (#6): 32 random bytes handed out once, stored only
   as a SHA-256, single-use, spent in a transaction, each with its own TTL (24h / 60min).
@@ -264,6 +271,17 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   so the range checks the boot refuses and the ones the maths refuses are one implementation
   rather than two copies that can drift. Both cost nothing at runtime: `cycle.ts` imports only
   types and `nutrition.ts` imports nothing.
+- `data-export.ts` — the body of `GET /me/export` (#58). Pure leaf: the account and the
+  page generators `exportEvents` (`events.ts`) and `exportTodayCards` (`today.ts`) in, a
+  `ReadableStream` of one JSON document out, pulling the next page only when the response
+  wants more bytes. Two properties are the design and each has a test: it reads the **first
+  page of both collections before it returns**, so a Firestore down at the start is an
+  ordinary `500` rather than a `200` with half a body; and it writes the closing `]}` last,
+  so a body cut short by a later failure is never valid JSON. That failure errors the stream
+  with a constant `ExportAbortedError` — Bun prints a stream's error, and Firestore's message
+  can carry a uid — and hands the real one to the route's `onAbort`, which logs its class
+  name only. What the export leaves out (session generation, cache bookkeeping, link-token
+  hashes) is listed in ARCHITECTURE §4 "Data export".
 - `request-timeout.ts` — the per-request timeout that names a hung request in the log before
   Bun's `idleTimeout` kills the connection (#225). Pure leaf: wraps the handler in a timer,
   reads no clock and no Firestore, and logs only the route path — no payload, address or
