@@ -1,12 +1,17 @@
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, mock, setDefaultTimeout, spyOn, test } from 'bun:test'
 import { adminAuth, firestore } from '../src/firebase'
 import { mintToken } from '../src/auth'
 import { config } from '../src/config'
+import { consumeToken, deleteTokensForAccount, issueToken } from '../src/email-tokens'
 import { addressOfAuthAccount } from '../src/identity-toolkit'
 import { default as server } from '../src/index'
 import { consumeAuthAttempt, resetAuthRateLimits } from '../src/rate-limit'
 import { markUserDeleted, saveQuestionnaire } from '../src/users'
 import { activateAccount, createLegacyAccount, signUpActivated } from './support/session'
+
+// A value snapshot, so the ordering test can wrap the route's process-global module binding
+// and then restore exactly what this file found rather than restoring its own wrapper.
+const emailTokens = { ...(await import('../src/email-tokens')) }
 
 /**
  * `DELETE /me` — immediate and complete (#8), and the resurrection path it has to close.
@@ -417,16 +422,15 @@ describe('DELETE /me removes the account and everything keyed to it', () => {
   )
 })
 
-describe('a delete interrupted after the first step', () => {
+describe('a delete interrupted after the tombstone', () => {
   let email = ''
   let token = ''
   let uid = ''
 
   /**
-   * The partial state is produced by calling `markUserDeleted` directly — step 1 of the
-   * route's four, with steps 2–4 never run. That is the shape of every failure the route
-   * can suffer, because the mark is what it does first: whatever throws afterwards, this
-   * is what is left behind.
+   * The partial state is produced by calling `markUserDeleted` directly — step 2 of the
+   * route's five, with steps 3–5 never run. A failure in the preliminary token sweep leaves
+   * the account live; this is the inert, resumable shape left by anything after the mark.
    *
    * The account is created through the Admin SDK and then signed in to, rather than
    * signed up: the credentials are real either way, and it keeps the suite off the
@@ -714,6 +718,200 @@ describe("deleting an account returns its address's throttle budget", () => {
       expect(consumeAuthAttempt('signin', null, email)).toBe(true)
       expect(consumeAuthAttempt('signin', null, bystander)).toBe(false)
       resetAuthRateLimits()
+    },
+    SLOW,
+  )
+})
+
+describe('deleting an account does not trust an unproven address as a token key', () => {
+  test(
+    "the moved address's pending token survives, while the uid's token does not",
+    async () => {
+      const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+      const moved = `e2e+moved-${crypto.randomUUID()}@e2e.evaapp.dev`
+      const { uid } = await adminAuth.createUser({
+        email: own,
+        password,
+        emailVerified: true,
+      })
+      createdUids.push(uid)
+      await userDoc(uid).set({
+        email: own,
+        authProviders: ['password'],
+        questionnaireCompleted: false,
+        profile: null,
+        activatedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      const owned = await issueToken(uid, own, 'reset')
+      const bystander = await issueToken(null, moved, 'activation')
+
+      try {
+        // Admin SDK stages the state an idToken holder reaches through accounts:update
+        // when that project setting permits it: the address moves and becomes unproven.
+        await adminAuth.updateUser(uid, { email: moved, emailVerified: false })
+        expect(await addressOfAuthAccount(uid)).toEqual({ address: moved, proven: false })
+
+        const res = await api('/me', {
+          method: 'DELETE',
+          token: await mintToken(uid, own, 0),
+        })
+        expect(res.status).toBe(200)
+
+        // The uid query still removes this account's rows, independent of its address.
+        expect(await consumeToken(owned, 'reset')).toEqual({ ok: false, reason: 'invalid' })
+        // The address query is skipped: this pre-account link is not the deleter's to erase.
+        expect(await consumeToken(bystander, 'activation')).toEqual({
+          ok: true,
+          uid: null,
+          email: moved,
+        })
+      } finally {
+        await deleteTokensForAccount(uid, moved)
+      }
+    },
+    SLOW,
+  )
+
+  test(
+    'a proven address is swept before the tombstone and before Auth releases it',
+    async () => {
+      const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+      const { uid } = await adminAuth.createUser({
+        email: own,
+        password,
+        emailVerified: true,
+      })
+      createdUids.push(uid)
+      await userDoc(uid).set({
+        email: own,
+        authProviders: ['password'],
+        questionnaireCompleted: false,
+        profile: null,
+        activatedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      const beforeDelete = await issueToken(null, own, 'activation')
+      let duringSweep: string | null = null
+      let afterAuthDelete: string | null = null
+      let sweptWhileLive = false
+      const realDeleteUser = adminAuth.deleteUser.bind(adminAuth)
+      const deleteSpy = spyOn(adminAuth, 'deleteUser').mockImplementation(async (target) => {
+        await realDeleteUser(target)
+        if (target === uid) afterAuthDelete = await issueToken(null, own, 'activation')
+      })
+      mock.module('../src/email-tokens', () => ({
+        ...emailTokens,
+        deleteTokensForAccount: async (target: string, address: string | null, cutoff?: Date) => {
+          if (target === uid) {
+            const doc = await userDoc(uid).get()
+            expect(doc.get('deletedAt') ?? null).toBeNull()
+            sweptWhileLive = true
+            // Model a second DELETE delayed after taking its live/proven snapshot: a faster
+            // request has released the address and its next holder now has a link.
+            await Bun.sleep(10)
+            duringSweep = await issueToken(null, own, 'activation')
+          }
+          await emailTokens.deleteTokensForAccount(target, address, cutoff)
+        },
+      }))
+
+      try {
+        const res = await server.fetch(
+          new Request('http://api.test/me', {
+            method: 'DELETE',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${await mintToken(uid, own, 0)}`,
+            },
+          }),
+        )
+        expect(res.status).toBe(200)
+      } finally {
+        // Restore process-global state before any assertion or cleanup can throw.
+        mock.module('../src/email-tokens', () => emailTokens)
+        deleteSpy.mockRestore()
+      }
+
+      try {
+        expect(sweptWhileLive).toBe(true)
+        expect(await consumeToken(beforeDelete, 'activation')).toEqual({
+          ok: false,
+          reason: 'invalid',
+        })
+        expect(duringSweep).not.toBeNull()
+        if (duringSweep === null) throw new Error('the delayed sweep did not issue a race token')
+        expect(await consumeToken(duringSweep, 'activation')).toEqual({
+          ok: true,
+          uid: null,
+          email: own,
+        })
+        expect(afterAuthDelete).not.toBeNull()
+        if (afterAuthDelete === null) throw new Error('deleteUser did not issue the race token')
+        expect(await consumeToken(afterAuthDelete, 'activation')).toEqual({
+          ok: true,
+          uid: null,
+          email: own,
+        })
+      } finally {
+        await emailTokens.deleteTokensForAccount(uid, own)
+      }
+    },
+    SLOW,
+  )
+
+  test(
+    'a tombstoned retry skips the address half even when Auth still calls it proven',
+    async () => {
+      const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+      const { uid } = await adminAuth.createUser({
+        email: own,
+        password,
+        emailVerified: true,
+      })
+      createdUids.push(uid)
+      await userDoc(uid).set({
+        email: own,
+        authProviders: ['password'],
+        questionnaireCompleted: false,
+        profile: null,
+        activatedAt: new Date(),
+        deletedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      const owned = await issueToken(uid, own, 'reset')
+      const nextHolder = await issueToken(null, own, 'activation')
+
+      try {
+        const res = await server.fetch(
+          new Request('http://api.test/me', {
+            method: 'DELETE',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${await mintToken(uid, own, 0)}`,
+            },
+          }),
+        )
+        expect(res.status).toBe(200)
+
+        // Retrying still finishes this account's uid-linked cleanup.
+        expect(await consumeToken(owned, 'reset')).toEqual({ ok: false, reason: 'invalid' })
+        // But the tombstone means signup may already have issued this address to its next
+        // holder, so emailVerified alone is no longer authority to erase it.
+        expect(await consumeToken(nextHolder, 'activation')).toEqual({
+          ok: true,
+          uid: null,
+          email: own,
+        })
+      } finally {
+        await emailTokens.deleteTokensForAccount(uid, own)
+      }
     },
     SLOW,
   )

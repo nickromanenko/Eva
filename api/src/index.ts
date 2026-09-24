@@ -1465,16 +1465,18 @@ app.get('/me', requireAuth, requireAccount, (c) => c.json({ user: c.get('account
  * The order is the design, and it is chosen so that every partial failure is safe *and*
  * resumable rather than fast:
  *
- *   1. mark the user document deleted — one write, and from that instant the account is
+ *   1. while the account is still live, delete its uid-linked tokens and, only for a
+ *      proven address, the pre-account tokens whose uid is null (#139);
+ *   2. mark the user document deleted — one write, and from that instant the account is
  *      inert: every gated route 401s and sign-in refuses to revive it;
- *   2. delete the Firebase Auth user — the credentials stop opening anything and the
+ *   3. delete the Firebase Auth user — the credentials stop opening anything and the
  *      address is free to sign up again;
- *   3. delete every event, soft-deleted ones included, and every activation or reset
- *      token (#6) — a token document carries the account's address;
- *   4. delete the user document, which is the tombstone step 1 wrote.
+ *   4. delete every event, soft-deleted ones included, and every stored Today card;
+ *   5. delete the user document, which is the tombstone step 2 wrote.
  *
- * Data goes before the tombstone and the tombstone goes last on purpose. The invariant
- * that buys is: **a missing user document implies a missing Auth user**, so there is no
+ * Address-keyed link cleanup goes before the tombstone so a new holder cannot race into
+ * its sweep; health data goes after the mark and before the document is removed. The
+ * invariant that ordering buys is: **a missing user document implies a missing Auth user**, so there is no
  * state in which health data outlives its owner unmarked, and none in which somebody can
  * sign in to an account whose document has already gone (which is what would let
  * `ensureUser` create a fresh one). The cost is the milder failure mode — an interrupted
@@ -1495,6 +1497,9 @@ app.get('/me', requireAuth, requireAccount, (c) => c.json({ user: c.get('account
  * `getAccount` answers `null` and this falls straight through, exactly as before.
  */
 app.delete('/me', requireAuth, async (c) => {
+  // Bounds the weaker, address-keyed half of token cleanup. Two deletes can overlap; a
+  // delayed request must not erase a link issued after the faster one released the address.
+  const tokenDeletionCutoff = new Date()
   const claims = c.get('claims')
   const { sub } = claims
   // One read, on a route that already makes a dozen round trips — not the per-request
@@ -1535,6 +1540,15 @@ app.delete('/me', requireAuth, async (c) => {
   // at creation and can be left pointing at an address the account no longer holds (#121),
   // and as a *delete* key a stale address wipes somebody else's live links.
   const { address, proven } = await addressOfAuthAccount(sub)
+  // Sweep while Auth still reserves the address *and* the live activated document makes
+  // sign-up refuse it. After the tombstone, sign-up can treat this Auth account as an
+  // unactivated reservation and issue a new uid-null token; after Auth deletion the address
+  // is free outright. Either ordering would let this delete erase the next holder's link.
+  // The uid half remains unconditional. A moved, unproven address is skipped: stranding
+  // this account's own pre-account token until TTL is safer than deleting another person's.
+  // The request-start cutoff also makes overlapping deletes safe: neither can touch a link
+  // issued to the address's next holder after deletion began.
+  await deleteTokensForAccount(sub, live !== null && proven ? address : null, tokenDeletionCutoff)
   await markUserDeleted(sub)
   // After the tombstone, so the account is already inert whatever Apple answers, and
   // before the Auth user goes, so the ordering below is untouched. Revocation is Apple's
@@ -1548,7 +1562,6 @@ app.delete('/me', requireAuth, async (c) => {
   // that no longer exists. Before `deleteUserDocument` for the same reason the events are —
   // a subcollection outlives its parent document in Firestore.
   await deleteAllUserToday(sub)
-  await deleteTokensForAccount(sub, address)
   await deleteUserDocument(sub)
   // The address's own throttle counters go with it (#56). In-memory and per-instance, so
   // this is a small courtesy rather than a guarantee — but being refused a fresh sign-up
@@ -1581,11 +1594,6 @@ app.delete('/me', requireAuth, async (c) => {
   // still holds the address the token was mailed to, so a moved address can be re-proved
   // through the attacker's own inbox. That is #140, pre-existing, and the place to fix this
   // properly.
-  //
-  // The call above is **not** covered by this reasoning and is deliberately left as it is:
-  // `deleteTokensForAccount`'s address half deletes rows with `uid == null`, which by
-  // construction were issued before this account existed and may be someone else's. That
-  // is #139, filed rather than fixed here (GUARDRAILS 26).
   //
   // Last, after everything that can fail. A throw above leaves the counters standing,
   // which is the harmless direction there too.

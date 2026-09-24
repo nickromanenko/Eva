@@ -976,13 +976,20 @@ never revoked), and each document holds the address it was sent to. Without the 
 times — which for a health app is the sensitive artefact, even though the tokens
 themselves are useless. `deleteTokensForAccount` pages in batches for the same reason: an
 unbounded collection needs an unbounded delete, and one 500-op batch would leave
-`DELETE /me` unable to finish at all. It sweeps by **uid and by address**, because since
-#120 an activation token is issued before its account exists and carries `uid: null` — a
-uid query alone cannot see the tokens of anyone who signed up and never activated.
+`DELETE /me` unable to finish at all. It always sweeps by **uid**, and also by address only
+when the account is still live and Firebase Auth says it proved that address. That weaker
+address sweep is bounded to rows created before the deletion request began, so a delayed,
+overlapping delete cannot erase a link issued after another request released the address.
+Since #120 an activation token is issued before its account exists and carries `uid: null`,
+so the address half is needed to remove those links — but an unproven address is movable
+account state, and a tombstoned address may already have a next holder. In either case
+deletion skips the address half and TTL reaps the stranded row; retaining one's own expiring
+row is safer than deleting another person's link (#139).
 
 The document ID **is** the hash, so nothing here can be turned back into a link, and there
-is no index from an account to a usable token. Account deletion takes them all — the
-document carries the address.
+is no index from an account to a usable token. Account deletion takes every row keyed to
+the uid and, for a live account's proven address, the pre-account rows that both could not
+carry it yet and predate the deletion request.
 
 `users/{uid}/events/{eventId}` — one subcollection for every calendar entry,
 discriminated by `type` (`cycle`, `bodySignals`, `sport`, `appointment`, `positiveTest`;
@@ -1107,31 +1114,36 @@ soft-deleted entries still inside their 30-day window** — and `users/{uid}/tod
 from event retention above, not a conflict with it: deleting one entry is an edit someone
 may want to undo, deleting an account is a decision about all of it, and a recovery window
 inside an account that no longer exists is a promise to nobody. Nothing else is keyed to a
-uid except `authTokens/` (#6), which goes with it — by address as well as by uid, since a
-token issued before its account existed has no uid to be found by (#120), and the address
-is the sensitive thing those documents hold. `refdata/` and `content/` are global, and the `/auth/*`
-throttle's counters are in memory and keyed by address and IP rather than by account.
+uid except `authTokens/` (#6). Its uid-linked rows always go; its pre-account `uid: null`
+rows go by address only while the account is still live and Auth says that address was
+proven (#139). An unproven address is not a deletion key, so those rows expire by TTL.
+`refdata/` and `content/` are global, and the `/auth/*` throttle's counters are in memory
+and keyed by address and IP rather than by account.
 
 The order is the design, because a partial failure has to be safe *and* resumable:
 
-1. mark `users/{uid}` deleted — from that instant the account is inert (every gated route
+1. delete uid-linked tokens and, only for a proven address, its pre-account tokens. This is
+   before the tombstone and Auth deletion: the live activated document makes sign-up refuse
+   that reserved address, so a new holder's link cannot appear inside the sweep (#139);
+2. mark `users/{uid}` deleted — from that instant the account is inert (every gated route
    `401`s, sign-in refuses to revive it);
-2. delete the Firebase Auth user — the credentials open nothing and the address is free
+3. delete the Firebase Auth user — the credentials open nothing and the address is free
    again;
-3. delete every event, soft-deleted ones included, a batch at a time, then every stored
-   Today card, and every activation and reset token — a token document carries the address;
-4. delete `users/{uid}`, the tombstone step 1 wrote.
+4. delete every event, soft-deleted ones included, a batch at a time, then every stored
+   Today card;
+5. delete `users/{uid}`, the tombstone step 2 wrote.
 
-`today/` is in step 3 rather than forgotten because a filled card is her own logged data
+`today/` is in step 4 rather than forgotten because a filled card is her own logged data
 written out as prose: leaving it would make the Dashboard cache the one readable summary of
 an account that no longer exists. It is also a *subcollection*, which in Firestore outlives
-the parent document, so deleting it after step 4 would orphan it rather than remove it —
+the parent document, so deleting it after step 5 would orphan it rather than remove it —
 the same reason the events go where they do. `api/test/account-deletion.test.ts` enumerates
 both subcollections with `listDocuments`, which is what makes a new one added without a
 sweep fail the suite rather than pass it quietly.
 
-Data goes before the tombstone, and the tombstone goes last, so that **a missing user
-document implies a missing Auth user**. There is therefore no state in which health data
+Link-token cleanup goes before the tombstone mark; health data goes after the mark and
+before the tombstone document is removed, so that **a missing user document implies a
+missing Auth user**. There is therefore no state in which health data
 outlives its owner unmarked, and none in which someone can sign in to an account whose
 document has already gone — which is the state in which `ensureUser` would create a fresh
 one. The failure mode that remains is the mild one: an interrupted delete can leave an Auth
@@ -1139,7 +1151,7 @@ user with nothing behind it, and the account is already unusable when it does. E
 is idempotent, so a retry resumes rather than errors, and deleting twice is a `200`.
 
 One residual race is worth knowing rather than discovering: a sign-in that passed Identity
-Toolkit microseconds before step 2 can land its `ensureUser` after step 4 and recreate the
+Toolkit microseconds before step 2 can land its `ensureUser` after step 5 and recreate the
 document. It needs the password and a window of milliseconds, and the account owner is the
 one deleting; closing it would mean keeping a permanent record of every deleted uid, which
 is a worse trade for a health app than the race is.
