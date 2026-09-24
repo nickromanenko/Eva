@@ -872,7 +872,7 @@ const activate = async (c: Context, raw: unknown, body: Record<string, unknown>)
   // this user their password, recoverable through reset. That is the direction to fail in,
   // and it is the same trade the ordering above is chosen for.
   try {
-    await markCredentialsProven(uid)
+    await markCredentialsProven(uid, result.email)
   } catch {
     // No uid, no address, no reason string (GUARDRAILS 12) — this says only that an
     // account finished activation without its flag, which is what an operator needs.
@@ -1005,6 +1005,18 @@ app.post('/auth/password/reset', async (c) => {
   // that is a dead link instead of a crash.
   if (result.uid === null) return tokenFailure(c, 'invalid')
   const uid = result.uid
+  // The token proves the mailbox it was sent to, not whichever address this uid happens
+  // to hold now (#140). An idToken holder can move their Auth address out of band; letting
+  // an older reset token continue would set a password and stamp that new address proven.
+  // Compare before changing any credential. The issue originally expected this comparison
+  // to reuse an Auth read, but this route had none: the authoritative lookup is one new round
+  // trip, and doing it after updateUser(password) would discover the mismatch only after the
+  // credential had already changed. There is no supported Eva address-change flow, so the
+  // safe recovery from a mismatch is a fresh link for the current address.
+  const currentAddress = await addressOfAuthAccount(uid)
+  if (normalizeEmail(currentAddress.address) !== result.email) {
+    return tokenFailure(c, 'invalid')
+  }
   // Gone or going: the credentials must not be reset on an account mid-delete, and the
   // link is as dead as the account.
   const user = await getUser(uid)
@@ -1071,7 +1083,9 @@ app.post('/auth/password/reset', async (c) => {
   // reset. That is the direction to fail in, and it is the same trade the ordering is
   // chosen for.
   try {
-    await markCredentialsProven(uid)
+    // Writes the proved address together with the flag, closing the narrower race in which
+    // `accounts:update` moves it after the comparison above but before this final stamp.
+    await markCredentialsProven(uid, result.email)
   } catch {
     // No uid, no address, no reason string (GUARDRAILS 12).
     console.log(JSON.stringify({ event: 'credentials_unproven_after_reset' }))
@@ -1589,11 +1603,8 @@ app.delete('/me', requireAuth, async (c) => {
   // **Not CI** — CI runs the emulators, which allow the move, so that half of the test
   // asserts the permissive behaviour and can never fail for this reason.
   //
-  // If it were reachable, the gate would still only raise the price — `/auth/password/reset`
-  // re-stamps `emailVerified` from a token it resolves by uid, without checking the account
-  // still holds the address the token was mailed to, so a moved address can be re-proved
-  // through the attacker's own inbox. That is #140, pre-existing, and the place to fix this
-  // properly.
+  // If the setting changes, `/auth/password/reset` no longer re-opens this path: #140 binds
+  // proof to the address carried by the link and refuses a uid whose Auth address moved.
   //
   // Last, after everything that can fail. A throw above leaves the counters standing,
   // which is the harmless direction there too.

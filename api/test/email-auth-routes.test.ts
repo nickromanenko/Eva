@@ -3,6 +3,7 @@ import { applicationDefault } from 'firebase-admin/app'
 import { config } from '../src/config'
 import { ACTIVATION_TTL_SECONDS, RESET_TTL_SECONDS, issueToken } from '../src/email-tokens'
 import { adminAuth, firestore } from '../src/firebase'
+import { markCredentialsProven } from '../src/identity-toolkit'
 import { markUserDeleted } from '../src/users'
 import { createUnactivatedAccount, signIn } from './support/session'
 
@@ -489,6 +490,58 @@ describe('an account that went away between the email and the click', () => {
 describe('POST /auth/password/reset', () => {
   const NEW_PASSWORD = 'brand-new-42'
 
+  test(
+    'a link cannot prove an address the account moved to after it was issued',
+    async () => {
+      const { email, uid } = await unactivated()
+      expect((await activate(await issueToken(uid, email, 'activation'))).status).toBe(200)
+      const token = await issueToken(uid, email, 'reset')
+      const moved = address()
+      createdEmails.push(moved)
+
+      // Walk the public Identity Toolkit path when the environment permits it: sign in,
+      // then move the account with the idToken and public web API key. The production
+      // project's enumeration-protection setting currently refuses that move; the Auth
+      // emulator allows it, which is the state the API must remain safe in if the setting
+      // changes. Admin SDK stages the identical state for the real-project route check.
+      const authSignIn = await fetch(
+        `${config.identityToolkitBaseUrl}/v1/accounts:signInWithPassword?key=${config.firebaseWebApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email, password: PASSWORD, returnSecureToken: true }),
+        },
+      )
+      expect(authSignIn.ok).toBe(true)
+      const { idToken } = (await authSignIn.json()) as { idToken: string }
+      const update = await fetch(
+        `${config.identityToolkitBaseUrl}/v1/accounts:update?key=${config.firebaseWebApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idToken, email: moved, returnSecureToken: false }),
+        },
+      )
+      if (config.usingEmulators) {
+        expect(update.ok).toBe(true)
+      } else {
+        expect(update.ok).toBe(false)
+        expect(await update.text()).toContain('OPERATION_NOT_ALLOWED')
+        await adminAuth.updateUser(uid, { email: moved, emailVerified: false })
+      }
+
+      const reset = await post('/auth/password/reset', { token, password: NEW_PASSWORD })
+      expect(reset.status).toBe(400)
+      expect(reset.error!.code).toBe('INVALID_TOKEN')
+
+      const authUser = await adminAuth.getUser(uid)
+      expect(authUser.email).toBe(moved)
+      expect(authUser.emailVerified).toBe(false)
+      expect(await passwordOpens(moved, NEW_PASSWORD)).toBe(false)
+      expect(await passwordOpens(moved, PASSWORD)).toBe(true)
+    },
+  )
+
   test('a good token sets the password and hands back a session', async () => {
     const { email, uid } = await unactivated()
     const token = await issueToken(uid, email, 'reset')
@@ -581,6 +634,66 @@ describe('POST /auth/password/reset', () => {
     expect(
       (await post('/auth/password/reset', { token, password: NEW_PASSWORD })).error!.code,
     ).toBe('INVALID_TOKEN')
+  })
+})
+
+describe('the address marked proven is the address the link proved', () => {
+  test('a concurrent move cannot make the final activation stamp bless the new address', async () => {
+    const proved = address()
+    const moved = address()
+    createdEmails.push(proved, moved)
+    const uid = await createUnactivatedAccount(proved, PASSWORD)
+    createdUids.push(uid)
+
+    // The race after activation has resolved the uid but before its final proof stamp.
+    await adminAuth.updateUser(uid, { email: moved, emailVerified: false })
+    await markCredentialsProven(uid, proved)
+
+    const account = await adminAuth.getUser(uid)
+    expect(account.email).toBe(proved)
+    expect(account.emailVerified).toBe(true)
+  })
+})
+
+describe.skipIf(!config.usingEmulators)('Firebase provider merge behavior, observed', () => {
+  test('a verified provider merge wipes an unverified password and verifies the address', async () => {
+    const email = address()
+    createdEmails.push(email)
+    const uid = await createUnactivatedAccount(email, PASSWORD)
+    createdUids.push(uid)
+    expect((await adminAuth.getUser(uid)).emailVerified).toBe(false)
+    expect(await passwordOpens(email, PASSWORD)).toBe(true)
+
+    // The Auth emulator accepts strict JSON as a fake provider id_token. This drives the
+    // real accounts:signInWithIdp merge implementation rather than this repo's provider
+    // boundary mock, pinning the behavior the #140 threat model depends on.
+    const providerToken = JSON.stringify({
+      sub: `google-${crypto.randomUUID()}`,
+      email,
+      email_verified: true,
+    })
+    const response = await fetch(
+      `${config.identityToolkitBaseUrl}/v1/accounts:signInWithIdp?key=${config.firebaseWebApiKey}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          postBody: new URLSearchParams({
+            id_token: providerToken,
+            providerId: 'google.com',
+          }).toString(),
+          requestUri: `https://${config.firebaseProjectId}.firebaseapp.com`,
+          returnSecureToken: true,
+        }),
+      },
+    )
+    expect(response.ok).toBe(true)
+    expect(((await response.json()) as { localId: string }).localId).toBe(uid)
+
+    const account = await adminAuth.getUser(uid)
+    expect(account.emailVerified).toBe(true)
+    expect(account.providerData.map((provider) => provider.providerId)).toContain('google.com')
+    expect(await passwordOpens(email, PASSWORD)).toBe(false)
   })
 })
 

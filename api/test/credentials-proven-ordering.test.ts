@@ -43,15 +43,17 @@ setDefaultTimeout(20_000)
 const identityToolkit = { ...(await import('../src/identity-toolkit')) }
 const users = { ...(await import('../src/users')) }
 const emailTokens = { ...(await import('../src/email-tokens')) }
+const email = { ...(await import('../src/email')) }
 
 /** Every stamp call the routes make, in the order they were made. */
 let calls: string[] = []
+let resetMail: { to: string; token: string } | null = null
 
 mock.module('../src/identity-toolkit', () => ({
   ...identityToolkit,
-  markCredentialsProven: async (uid: string) => {
+  markCredentialsProven: async (uid: string, expectedAddress: string) => {
     calls.push('markCredentialsProven')
-    return identityToolkit.markCredentialsProven(uid)
+    return identityToolkit.markCredentialsProven(uid, expectedAddress)
   },
 }))
 
@@ -60,6 +62,13 @@ mock.module('../src/users', () => ({
   markActivated: async (uid: string) => {
     calls.push('markActivated')
     return users.markActivated(uid)
+  },
+}))
+
+mock.module('../src/email', () => ({
+  ...email,
+  sendPasswordResetEmail: async (to: string, token: string) => {
+    resetMail = { to, token }
   },
 }))
 
@@ -123,6 +132,7 @@ afterAll(async () => {
   // the run, so it happens before anything that can fail.
   mock.module('../src/identity-toolkit', () => identityToolkit)
   mock.module('../src/users', () => users)
+  mock.module('../src/email', () => email)
 
   for (const uid of createdUids) {
     await adminAuth.deleteUser(uid).catch(() => {})
@@ -145,6 +155,36 @@ afterAll(async () => {
 })
 
 describe('markCredentialsProven runs after markActivated', () => {
+  test('the requested reset link is bound to the address it was mailed to', async () => {
+    const original = address()
+    const moved = address()
+    const uid = await unactivatedAccount(original)
+    await users.markActivated(uid)
+    await identityToolkit.markCredentialsProven(uid, original)
+
+    resetMail = null
+    expect((await post('/auth/password/forgot', { email: original })).status).toBe(200)
+    // The assignment happens through the mocked module while `post` runs; TypeScript cannot
+    // see that side effect and otherwise keeps the variable narrowed to the null above.
+    const sent = resetMail as { to: string; token: string } | null
+    expect(sent?.to).toBe(original)
+    if (sent === null) throw new Error('forgot-password sent no reset email')
+
+    // The public accounts:update path is exercised in email-auth-routes.test.ts; Admin SDK
+    // makes the same moved/unverified state deterministic in both Firebase environments.
+    await adminAuth.updateUser(uid, { email: moved, emailVerified: false })
+    const answer = await post('/auth/password/reset', {
+      token: sent.token,
+      password: NEW_PASSWORD,
+    })
+
+    expect(answer.status).toBe(400)
+    expect((answer.body.error as { code: string }).code).toBe('INVALID_TOKEN')
+    const account = await adminAuth.getUser(uid)
+    expect(account.email).toBe(moved)
+    expect(account.emailVerified).toBe(false)
+  })
+
   test('on /auth/password/reset — the call site #127 corrected', async () => {
     const email = address()
     const uid = await unactivatedAccount(email)
