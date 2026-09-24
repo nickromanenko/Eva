@@ -66,7 +66,7 @@ struct RateLimitedResponseTests {
             body: Self.throttled,
             headers: ["Retry-After": "900"]
         )
-        let client = APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { nil })
+        let client = APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { nil }, session: EvaStubURLProtocol.session)
         let before = Date()
 
         await #expect(throws: APIError.self) {
@@ -90,7 +90,7 @@ struct RateLimitedResponseTests {
     @Test("a 429 with no usable Retry-After is still .rateLimited, with no deadline")
     func mapsWithoutAHeader() async throws {
         EvaStubURLProtocol.stub(status: 429, body: Self.throttled)
-        let client = APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { nil })
+        let client = APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { nil }, session: EvaStubURLProtocol.session)
 
         do {
             let _: AuthResponse = try await client.post("/auth/signin", body: ["email": "a@b.co"])
@@ -110,7 +110,7 @@ struct RateLimitedResponseTests {
         // not read would otherwise arrive as a generic `.server` and leave the CTA enabled,
         // which is the one behaviour this issue exists to remove.
         EvaStubURLProtocol.stub(status: 429, body: "not json at all")
-        let client = APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { nil })
+        let client = APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { nil }, session: EvaStubURLProtocol.session)
 
         do {
             let _: AuthResponse = try await client.post("/auth/signin", body: ["email": "a@b.co"])
@@ -126,7 +126,7 @@ struct RateLimitedResponseTests {
             status: 401,
             body: #"{"error":{"code":"INVALID_CREDENTIALS","message":"Wrong email or password"}}"#
         )
-        let client = APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { nil })
+        let client = APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { nil }, session: EvaStubURLProtocol.session)
 
         do {
             let _: AuthResponse = try await client.post("/auth/signin", body: ["email": "a@b.co"])

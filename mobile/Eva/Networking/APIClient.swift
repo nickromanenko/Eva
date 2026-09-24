@@ -5,11 +5,42 @@ struct APIClient: Sendable {
     var baseURL: URL
     /// Supplies the JWT for authorized requests.
     var token: @Sendable () -> String?
+    /// What every request loads through. Injectable so tests can hand in a session that
+    /// carries their stub `URLProtocol`, built from the same `sessionConfiguration()`.
+    var session: URLSession = APIClient.session
 
     static let `default` = APIClient(
         baseURL: APIClient.resolveBaseURL(),
         token: { KeychainTokenStore.shared.token }
     )
+
+    /// The session every Eva API call goes through (#279).
+    ///
+    /// **Not the shared session.** That one writes cacheable responses into
+    /// `URLCache.shared`, whose disk store is `Library/Caches/<bundle id>/Cache.db` — and
+    /// verifying #58 found it holding `/me`, `/me/events`, `/me/today` and the
+    /// `/auth/signin` response with its JWT, surviving sign-out and account deletion.
+    /// Everything this API returns is health data (GUARDRAILS 12), so a second,
+    /// unmanaged copy of it on disk is the thing to not have.
+    ///
+    /// The fix is here rather than a `no-store` header on the server because the client
+    /// is what writes the disk: turning the cache off at the source covers every route,
+    /// error bodies and unauthorized ones like `/auth/signin` included, without relying
+    /// on each handler remembering. Nothing is lost — `/refdata` and `/content` revalidate
+    /// through their own `version` handshake, and the durable copy is #78's store.
+    static let session = URLSession(configuration: sessionConfiguration())
+
+    /// `.ephemeral` keeps cookies and credentials in memory only (the API uses neither,
+    /// but nothing should default to disk), and `urlCache = nil` removes the in-memory
+    /// response cache too, so there is no cache object for a response to land in at all.
+    /// The timeouts are `.default`'s — the 60s request timeout `UnreachableView` and
+    /// `OfflineLaunchTests` describe is unchanged.
+    static func sessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return configuration
+    }
 
     /// Info.plist key carrying the API host for this build configuration. Written by
     /// XcodeGen from `EVA_API_BASE_URL_DEFAULT` in `mobile/project.yml` — Debug is
@@ -115,7 +146,7 @@ struct APIClient: Sendable {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch {
             throw APIError.network
         }
