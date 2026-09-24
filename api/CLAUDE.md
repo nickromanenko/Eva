@@ -393,6 +393,16 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   rather than failing a request whose real work is already done; each logs its own event
   (`credentials_unproven_after_activation`, `credentials_unproven_after_reset`) and nothing
   else (GUARDRAILS 12).
+- **A link proves its own address, never a uid's later address (#140).** Reset compares the
+  token's address with the current Auth address before changing the password; a mismatch is
+  a dead link. Both activation and reset then pass that token address to
+  `markCredentialsProven`, which writes the address and `emailVerified` together. That
+  closes the narrower race after the comparison: an earlier concurrent move is restored to
+  the proved address, and a later move clears the flag again. Eva has no address-change
+  route; the supported recovery from a mismatch is a fresh link for the current address.
+  The issue's “no new round trip” premise was stale: reset previously held only the token's
+  values, not the current Auth address. The one authoritative lookup must precede the
+  password write, because detecting a mismatch afterwards is already too late.
 - **Both paths through `/auth/activate` share one set of guards.** The `email-exists` race
   and the ordinary "account already exists" branch both fall through the same
   `deleted` / `activated` refusals and the same tail. They were separate once, and the race

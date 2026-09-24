@@ -635,6 +635,12 @@ export const retractUnprovenIdentities = async (uid: string): Promise<void> => {
  * in the request that spent the link, by whoever proved the address. So activation is now
  * exactly as strong a claim as a reset, and the attack above has nowhere to start.
  *
+ * `expectedAddress` is written together with the flag, not merely checked beforehand.
+ * An idToken holder can move the Auth address concurrently; writing the address proved by
+ * the link makes either ordering safe: this write restores the proved address, or a later
+ * move clears `emailVerified` again. The reset route additionally refuses an address that
+ * had already moved before it changes any credential (#140).
+ *
  * What did *not* change is the ordering: this must run **after** `markActivated`, never
  * before. `emailVerified` is what turns off `claimUnprovenAccount`'s address test and
  * `activatedAt` is what turns off the claim itself, so an account carrying the first without
@@ -643,8 +649,11 @@ export const retractUnprovenIdentities = async (uid: string): Promise<void> => {
  * exception, and while its own `retractUnprovenIdentities` made the window unexploitable
  * there, a rule with a live counter-example is one the next person reads as advisory.
  */
-export const markCredentialsProven = async (uid: string): Promise<void> => {
-  await adminAuth.updateUser(uid, { emailVerified: true })
+export const markCredentialsProven = async (
+  uid: string,
+  expectedAddress: string,
+): Promise<void> => {
+  await adminAuth.updateUser(uid, { email: expectedAddress, emailVerified: true })
 }
 
 /**
