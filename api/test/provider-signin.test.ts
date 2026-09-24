@@ -2874,4 +2874,88 @@ describe('authProviders is assembled per response, never trusted from the docume
     },
     SLOW,
   )
+
+  /**
+   * The routes below each answer with a `User` from a code path of their own, so each gets a
+   * case where the stored array and Auth **disagree** in both directions: the document lists
+   * Google, which Auth does not hold, and Auth holds Apple, which the document does not list.
+   * Only an answer taken from Auth passes; one taken from the document, from `ensureUser`'s
+   * in-memory union, or an empty federated half each fail.
+   */
+  const disagreeing = async (uid: string, email: string): Promise<void> => {
+    await firestore
+      .collection('users')
+      .doc(uid)
+      .update({ authProviders: ['password', PROVIDER_IDS.google] })
+    await attachProvider(uid, PROVIDER_IDS.apple, email)
+  }
+
+  test(
+    "POST /auth/signin serves Auth's federated identities, not the document's",
+    async () => {
+      const { uid, email } = await signedIn()
+      await disagreeing(uid, email)
+
+      const res = await post('/auth/signin', { email, password: PASSWORD })
+
+      expect(res.status).toBe(200)
+      expect(res.body.user.authProviders).toEqual(['password', PROVIDER_IDS.apple])
+    },
+    SLOW,
+  )
+
+  test(
+    'POST /auth/password/reset on an activated account keeps the identities Auth holds',
+    async () => {
+      // Activated, so the reset retracts nothing: Apple stays linked and must be served.
+      // The stripped half of this route is the recovery case further up.
+      const { uid, email } = await signedIn()
+      await disagreeing(uid, email)
+
+      const token = await issueToken(uid, email, 'reset')
+      const res = await post('/auth/password/reset', { token, password: 'owners-own-9' })
+
+      expect(res.status).toBe(200)
+      expect(res.body.user.authProviders).toEqual(['password', PROVIDER_IDS.apple])
+      expect(await providerIdsInAuth(uid)).toContain(PROVIDER_IDS.apple)
+    },
+    SLOW,
+  )
+
+  test(
+    'POST /me/auth/providers answers with what Auth holds after the link',
+    async () => {
+      // `ensureUser` unions the linked provider into the stored array and into the value it
+      // returns; serving that would carry the stale Google entry along with it.
+      const { uid, email, token } = await signedIn()
+      await firestore
+        .collection('users')
+        .doc(uid)
+        .update({ authProviders: ['password', PROVIDER_IDS.google] })
+      idp = resolveTo(uid, email)
+
+      const res = await post('/me/auth/providers', appleBody(), bearer(token))
+
+      expect(res.status).toBe(200)
+      expect(res.body.user.authProviders).toEqual(['password', PROVIDER_IDS.apple])
+    },
+    SLOW,
+  )
+
+  test(
+    'GET /me for a document with no Auth user behind it is a dead session',
+    async () => {
+      // Not reachable through Eva's own delete ordering, which tombstones the document
+      // before the Auth user goes — but when it happens, an empty federated half would be
+      // a guess served as a fact. The gate answers as it does for any dead token.
+      const { uid, token } = await signedIn()
+      await adminAuth.deleteUser(uid)
+
+      const res = await get('/me', bearer(token))
+
+      expect(res.status).toBe(401)
+      expect(res.body.error.code).toBe('UNAUTHORIZED')
+    },
+    SLOW,
+  )
 })
