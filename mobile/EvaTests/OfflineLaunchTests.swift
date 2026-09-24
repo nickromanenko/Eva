@@ -113,6 +113,10 @@ extension SessionExpiryTests {
 
             #expect(store.token == Self.token, "A \(status) at launch cleared the Keychain")
             #expect(session.state.isUnreachable, "A \(status) at launch left the app in \(session.state)")
+            // `.unreachable` is also what a request that never reached the stub looks like
+            // (#279): a client built without `session:` fails on `.invalid` as a network
+            // error. This is what tells the two apart.
+            #expect(EvaStubURLProtocol.requestCount > 0, "The launch never reached the stub")
         }
 
         /// A 200 that is not a `UserResponse` — the captive portal that answers every
@@ -130,6 +134,10 @@ extension SessionExpiryTests {
 
             #expect(store.token == Self.token, "An undecodable reply cleared the Keychain")
             #expect(session.state.isUnreachable, "An undecodable reply left the app in \(session.state)")
+            // `.unreachable` is also what a request that never reached the stub looks like
+            // (#279): a client built without `session:` fails on `.invalid` as a network
+            // error. This is what tells the two apart.
+            #expect(EvaStubURLProtocol.requestCount > 0, "The launch never reached the stub")
         }
 
         // MARK: - The failure that is

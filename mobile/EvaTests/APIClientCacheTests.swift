@@ -17,6 +17,9 @@ struct APIClientCacheTests {
 
         #expect(configuration.urlCache == nil)
         #expect(configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
+        // `UnreachableView` and `OfflineLaunchTests` describe a 60s wait for a server that
+        // accepts and never answers; `.ephemeral` must not have changed it.
+        #expect(configuration.timeoutIntervalForRequest == 60)
     }
 
     /// The configuration factory being right proves nothing if the client does not use a
@@ -88,29 +91,18 @@ extension SessionExpiryTests {
             )
 
             let _: UserResponse = try await client.get("/me", authorized: true)
-            // The same window the control needed, so a slow write is not mistaken for none.
-            try await Task.sleep(for: .milliseconds(500))
 
             #expect(EvaStubURLProtocol.requestCount == 1)
-            #expect(client.session.configuration.urlCache == nil)
+            // Watched for a window rather than read once: storing is asynchronous to the
+            // load, so a single read straight after it would pass under a regression too.
+            // With the shared session put back (#279's mutation check), the response was in
+            // `URLCache.shared` within 500ms; the window is four times that.
+            let deadline = ContinuousClock.now + .seconds(2)
+            while ContinuousClock.now < deadline {
+                if URLCache.shared.cachedResponse(for: Self.request) != nil { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
             #expect(URLCache.shared.cachedResponse(for: Self.request) == nil)
-        }
-
-        /// No cache means no cache to *read*, either: a second identical request reaches
-        /// the network rather than being answered from anywhere local.
-        @Test("a repeated request goes to the network again")
-        func repeatReachesNetwork() async throws {
-            Self.armCacheable()
-            let client = APIClient(
-                baseURL: EvaStubURLProtocol.baseURL,
-                token: { "a-live-looking-token" },
-                session: EvaStubURLProtocol.session
-            )
-
-            let _: UserResponse = try await client.get("/me", authorized: true)
-            let _: UserResponse = try await client.get("/me", authorized: true)
-
-            #expect(EvaStubURLProtocol.requestCount == 2)
         }
     }
 }

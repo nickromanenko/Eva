@@ -13,12 +13,13 @@ import Testing
 /// configuration the app ships — no URL cache, ephemeral storage, the same timeouts — so
 /// a test cannot pass on a configuration the app does not use.
 ///
-/// It only claims requests to `stub.eva.invalid`, for two reasons. Nothing else in the
-/// hosting app process — `EvaApp` builds a real `AppSession` and bootstraps at launch —
-/// has its traffic silently rewritten. And `.invalid` is guaranteed never to resolve
-/// (RFC 2606), so if registration ever stops taking effect these tests fail with
-/// `APIError.network` rather than quietly reaching a real server and passing for the
-/// wrong reason.
+/// It only claims requests to `stub.eva.invalid`, and `.invalid` is guaranteed never to
+/// resolve (RFC 2606), so a client that is **not** given this session can never reach a
+/// real server. It fails with `APIError.network` instead — which is not the same as
+/// failing the test. `APIClient.session` is the default, so a test that forgets
+/// `session:` bypasses the stub without a word, and for `OfflineLaunchTests`
+/// `.network` is the *expected* outcome. Any test whose passing result a network failure
+/// could also produce asserts `requestCount > 0` as well.
 ///
 /// ## Three ways to arm it, in order of how much a test needs to say
 ///
