@@ -349,9 +349,9 @@ export const idTokenForUid = async (uid: string): Promise<string> => {
 const USER_NOT_FOUND = 'auth/user-not-found'
 
 /**
- * Deletes the Firebase Auth user — step two of account deletion (#8), after the account
- * has been marked deleted in Firestore and before any of its data is swept. From here on
- * the address is free to sign up again and the old credentials open nothing.
+ * Deletes the Firebase Auth user — step three of account deletion (#8), after link-token
+ * cleanup and the Firestore tombstone, but before health data is swept. From here on the
+ * address is free to sign up again and the old credentials open nothing.
  *
  * Idempotent: an already-deleted user is the state this is asking for, so it is success,
  * not a failure to report. That is what lets a `DELETE /me` retried after a partial

@@ -647,9 +647,10 @@ export const saveConsent = async (
  *  refuses to revive it, so signing in cannot bring it back either. Nothing clears it —
  *  an account has no Undo, unlike a single event.
  *
- *  It is deliberately the *first* step of a delete and the tombstone the rest of the
- *  sweep runs under: whatever fails after it, the account is already inert and the
- *  retry is a plain re-run.
+ *  It is deliberately the first **inerting** step and step 2 of deletion overall: the
+ *  bounded link-token cleanup runs while the account still proves ownership of its address,
+ *  then this tombstone protects the health-data sweep. Whatever fails after it, the account
+ *  is already inert and the retry is a plain re-run.
  *
  *  `false` means there was no document to mark — an already-finished delete, or an Auth
  *  user that never got one. That is not an error; the caller carries on, which is what

@@ -142,6 +142,36 @@ const deleteMatching = async (query: FirebaseFirestore.Query): Promise<void> => 
   }
 }
 
+const deleteMatchingAtOrBefore = async (
+  query: FirebaseFirestore.Query,
+  cutoff: Timestamp,
+): Promise<void> => {
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | null = null
+  for (;;) {
+    // Firestore's implicit final ordering is document ID, which gives this cursor a stable
+    // walk without adding a composite-index requirement to the two equality filters.
+    let page = query.limit(DELETE_BATCH)
+    if (cursor !== null) page = page.startAfter(cursor)
+    const owned = await page.get()
+    if (owned.empty) return
+
+    const batch = firestore.batch()
+    let deletes = 0
+    for (const doc of owned.docs) {
+      const createdAt = doc.get('createdAt')
+      // An address is the weaker ownership key. A malformed legacy row therefore fails
+      // closed here and remains for TTL instead of being erased on an inference.
+      if (createdAt instanceof Timestamp && createdAt.toMillis() <= cutoff.toMillis()) {
+        batch.delete(doc.ref)
+        deletes += 1
+      }
+    }
+    if (deletes > 0) await batch.commit()
+    cursor = owned.docs.at(-1) ?? null
+    if (owned.size < DELETE_BATCH) return
+  }
+}
+
 /**
  * Removes every token belonging to an account, used or not — part of account deletion
  * (#8), because a token document carries the account's address and a deleted account keeps
@@ -154,26 +184,33 @@ const deleteMatching = async (query: FirebaseFirestore.Query): Promise<void> => 
  * reaped them. The address is the other half of what identifies them, and it is the half the
  * new shape has.
  *
- * `address` is nullable because the delete route can only learn it from the document it is
- * about to remove, and a resumed delete that already passed that step has nothing left to
- * sweep by.
+ * `address` is nullable because the delete route only supplies it for a live account whose
+ * current Auth address is proven (#139). A movable address is not authority to delete
+ * somebody else's pending link, and a tombstoned retry can race with the address's next
+ * holder. `addressCreatedAtOrBefore` closes the same race between simultaneous deletes:
+ * the slower request may only remove address rows that existed when that request began.
  *
- * A batch at a time, re-querying rather than paging a cursor, exactly as
- * `deleteAllUserEvents` does. Nothing bounds how many tokens an account can accumulate —
- * every Resend issues one and only reset tokens are ever revoked — so a single batch
- * would throw past 500 and leave `DELETE /me` unable to finish, permanently: the
- * tombstone would stay, every retry would fail the same way, and the documents holding
- * the address would survive. An unbounded collection needs an unbounded delete.
+ * A batch at a time: the unconditional uid half re-queries after each delete, while the
+ * cutoff-bound address half advances a document cursor across both deleted and protected
+ * rows. Nothing bounds how many tokens an account can accumulate — every Resend issues one
+ * and only reset tokens are ever revoked — so a single batch would throw past 500 and leave
+ * `DELETE /me` unable to reach its tombstone. The account would remain live and every retry
+ * would fail the same way while documents holding the address survived. An unbounded
+ * collection needs an unbounded delete.
  */
 export const deleteTokensForAccount = async (
   uid: string,
   address: string | null,
+  addressCreatedAtOrBefore: Date = new Date(),
 ): Promise<void> => {
   await deleteMatching(tokens().where('uid', '==', uid))
   // Scoped to `uid: null`, which is the only shape a uid query cannot reach. Without it this
   // is an address-keyed delete over the whole collection, and an address is not a strong
   // enough key to own other people's documents by.
   if (address !== null) {
-    await deleteMatching(tokens().where('email', '==', address).where('uid', '==', null))
+    await deleteMatchingAtOrBefore(
+      tokens().where('email', '==', address).where('uid', '==', null),
+      Timestamp.fromDate(addressCreatedAtOrBefore),
+    )
   }
 }

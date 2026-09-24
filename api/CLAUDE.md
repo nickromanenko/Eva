@@ -96,10 +96,13 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   activation and password-reset links (#6): 32 random bytes handed out once, stored only
   as a SHA-256, single-use, spent in a transaction, each with its own TTL (24h / 60min).
   Issuing a reset token invalidates every unused one the account already has. A token issued
-  before its account exists carries `uid: null` (#120), so `deleteTokensForAccount` sweeps by
-  **address as well as uid** — a uid query alone cannot see the tokens of anyone who signed
-  up and never activated, and `DELETE /me` left them behind. Writes
-  nothing to the console — a raw token or its hash in a log line is the link itself.
+  before its account exists carries `uid: null` (#120), so `deleteTokensForAccount` can sweep
+  by **address as well as uid** — a uid query alone cannot see the pre-account rows. The delete
+  route always supplies the uid, but supplies the address only for a live account when Auth
+  says it was proven, and bounds that sweep to rows created before deletion began. An
+  unproven, movable address, a tombstoned retry, or an overlapping delete is not authority
+  to delete the next holder's in-flight link (#139). Writes nothing to the console — a raw
+  token or its hash in a log line is the link itself.
 - `email.ts` — the only user of `POSTMARK_API_KEY`, and the only outbound mail. Postmark
   over REST with `fetch`, no SDK (GUARDRAILS 25). Two messages, no personalisation: a
   link, how long it lasts, and what to do if you did not ask for it. `EMAIL_TRANSPORT=log`
