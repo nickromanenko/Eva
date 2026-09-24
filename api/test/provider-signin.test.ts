@@ -96,8 +96,10 @@ mock.module('../src/identity-toolkit', () => ({
   },
   // The route cases run on both the live project and the emulators, while
   // `createCustomToken` needs a signing credential on the live path (and on Cloud Run an
-  // IAM role that is an infra gate). The dedicated emulator-only case below calls the real
-  // function and covers the complete custom-token -> Firebase-ID-token chain.
+  // IAM role that is an infra gate). The fake also carries the uid in the clear, which is
+  // what lets the link test assert `linkTo` names the bearer's own account — a real ID
+  // token is opaque there. The dedicated emulator-only case below calls the real function
+  // and covers the complete custom-token -> Firebase-ID-token chain.
   idTokenForUid: async (uid: string) => `firebase-id-token-for-${uid}`,
 }))
 
@@ -1847,11 +1849,16 @@ describe('the provider routes are throttled, and separately', () => {
         throw new IdentityToolkitError('INVALID_IDP_RESPONSE', 400)
       }
 
+      // Every request inside the budget is answered normally — otherwise a budget of 1
+      // would pass too, and every address would get one sign-in per window (#116).
+      const statuses: number[] = []
       let last: Answer | null = null
       for (let i = 0; i < overBudget; i++) {
         last = await post('/auth/idp', appleBody(), from(IP))
+        statuses.push(last.status)
       }
 
+      expect(statuses.slice(0, -1)).toEqual(Array(config.rateLimit.idpPerIp).fill(401))
       expect(last!.status).toBe(429)
       expect(last!.body.error.code).toBe('RATE_LIMITED')
       expect(
@@ -1927,10 +1934,13 @@ describe('the provider routes are throttled, and separately', () => {
       idp = () => {
         throw new IdentityToolkitError('INVALID_IDP_RESPONSE', 400)
       }
+      const statuses: number[] = []
       let last: Answer | null = null
       for (let i = 0; i < overBudget; i++) {
         last = await post('/me/auth/providers', appleBody(), { ...bearer(token), ...from(IP) })
+        statuses.push(last.status)
       }
+      expect(statuses.slice(0, -1)).toEqual(Array(config.rateLimit.idpPerIp).fill(401))
       expect(last!.status).toBe(429)
       expect(last!.body.error.code).toBe('RATE_LIMITED')
 
