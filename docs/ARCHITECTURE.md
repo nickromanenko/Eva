@@ -178,7 +178,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `POST /auth/idp` | — | `200 { token, user }` — Apple or Google; signs up and signs in at once, already activated |
 | `GET /me` | Bearer | `{ user }` |
 | `POST /me/auth/providers` | Bearer | `{ user }` — attaches a provider to *this* account; `409 PROVIDER_ALREADY_LINKED` when its `sub` belongs to another |
-| `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately; an optional `appleAuthorizationCode` also revokes the Apple token |
+| `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately; an optional `appleAuthorizationCode` also revokes the Apple token. `429 RATE_LIMITED` past `RATE_LIMIT_DELETE_PER_ACCOUNT` calls for one account in a window (#119) |
 | `PUT /me/questionnaire` | Bearer | `{ user }` — behind `requireCollectConsent` (#86): the profile is health data, and nothing about her is written before the collect consent exists |
 | `PUT /me/nutrition-settings` | Bearer | `{ user }` — `{ qualitativeOnly: boolean }`, the self-serve "qualitative mode" toggle (#212, A31) |
 | `POST /me/profile-nudge/dismiss` | Bearer | `{ user }` — marks the "complete your profile" nudge dismissed (#19); server-side, survives reinstall |
@@ -649,6 +649,30 @@ depend on it, and **a failed revocation never fails the delete**: one log line
 sweep carries on. The cost, stated: an account deleted without a code is deleted without
 revocation, and nothing is kept that could revoke it afterwards.
 
+**It is throttled per account, and the Apple code is not bound to the account (#119).** The
+route skips the account gate so an interrupted delete can be retried with the same token,
+which also let one token replay it for the thirty days a JWT lives — each call a POST to
+Apple, a tombstone write, a sweep and a log line. `RATE_LIMIT_DELETE_PER_ACCOUNT` (10 per
+`RATE_LIMIT_WINDOW_SECONDS`) is counted against the token's verified `sub`, after the body
+is validated and before the first write or upstream call. Ten is several interrupted deletes
+and their retries, so the route stays idempotent inside it and the retry after the
+tombstone still answers `200`. There is **no per-IP dimension**, unlike every other
+throttle: deletion is the one thing a user must always be able to do, and behind carrier NAT
+a per-IP budget is one a stranger can spend for her, while a uid's budget can only be spent
+by someone holding a token for that account — who could delete it anyway. Deleting does not
+forget the counter; the replay it bounds is of a token whose account is already gone.
+
+The submitted `appleAuthorizationCode` is still not checked against *this* account's Apple
+identity. Binding it would mean verifying the `id_token` Apple's token endpoint returns
+alongside the refresh token — its signature against Apple's JWKS, `iss`, `aud`, `exp` — and
+comparing its `sub` with the account's `apple.com` entry: the JWKS ownership §3 already
+declines for sign-in, where Firebase does it for us. What leaving it costs is bounded: a
+usable code comes only from a real device authorization for our own App ID, it is
+single-use and minutes-lived, it is spent at Apple for the Apple ID that authorized it, and
+the route deletes the caller's own account either way. So the worst a mismatched code does
+is revoke Eva's Sign in with Apple grant for the Apple ID that produced it — a sign-out at
+Apple, not data — and it takes holding that code to do it.
+
 **Failures map by the same rule as everything else.** `providers.ts` reduces Apple's and
 Google's answers to `unconfigured | rejected | unavailable`, `identity-toolkit.ts` gains a
 fourth kind, `provider-linked`, and the routes branch on the kind and never on the reason:
@@ -698,6 +722,17 @@ from the app's error and it names exactly one line. The cost, stated: no stack, 
 line locates a fault to a route and a class rather than a line number. If that is ever too
 thin the answer is a reviewed field — an error class of ours carrying a safe code — not
 the message.
+
+**A JSON body that is not an object is `400 VALIDATION`, answered once (#119).** Every route
+that reads a body reads it through `readBody` in `index.ts`: no body, or a body that is not
+JSON, is `{}` as it always was, so each route's own validation answers — and `DELETE /me`,
+whose body is optional, still deletes. Valid JSON that is not an object (`null`, an array, a
+number, a string) throws `BodyNotAnObjectError`, and `onError` answers it `400 VALIDATION`
+**before** it writes its line. That is the one throw `onError` recognises by class: `null`
+used to reach `body.provider` as a `TypeError`, which was a 500 and an `unhandled_error` line
+on the unauthenticated `/auth/idp` — a free way to fill the signal that is meant to mean "we
+shipped a bug". Hono calls `onError` at the handler's own level of its `compose`, so
+middleware around the route (`noStore`, CORS) still wraps the answer.
 
 Two limits worth knowing. Hono hands `onError` only a thrown `Error`; anything else
 (`throw "boom"`) is rethrown to the runtime and answers its own unshaped 500 — nothing in
@@ -835,6 +870,71 @@ revoking, rather than a list of deleted uids: it stops answering the moment a de
 and is gone when the delete finishes, so nothing about a deleted account is retained in
 order to keep refusing it. The cost is one Firestore read per authenticated request.
 
+### `users/{uid}.email` is the Auth account's address, or there is no session (#119)
+
+**What the field means.** `users/{uid}.email` is the address of the Firebase Auth account
+with that uid, written when the document is created and never rewritten. `GET /me` serves it
+and the app shows it (Home, Profile) and keys nothing on it. It is not an identifier — the
+uid is (GUARDRAILS 9) — and it is not the provider's address: an Apple relay or a Google
+address linked from Profile is a *credential* on the account, not its address.
+
+**The rule.** No route mints a session on a document whose address is not the Auth
+account's current one. Decided on #119 as *refuse*, not *refresh*: nothing rewrites the
+document's address to match.
+
+*Why it can diverge.* The document is written once; Firebase's copy can move under it.
+`accounts:update` with the public web API key moves an Auth address (the live project
+currently refuses an unverified target — `account-deletion.test.ts` pins that — so this is
+defence in depth there and the whole defence wherever that setting is off), and then
+"link accounts that use the same email" does the rest: someone creates a provider-only
+account, has Eva write its document, repoints the Auth address at a victim with no account,
+and the victim's first Google sign-in merges onto that uid. Firebase strips the repointer's
+credential on the merge, so it is not a takeover, but the victim was handed a session on a
+document whose address, profile and events were the repointer's.
+
+*Why refuse rather than refresh.* Refreshing would give the victim a document full of a
+stranger's health data under her own address, silently, and would change what `GET /me`
+returns for an account without anyone deciding it should. A document naming a different
+address from the credential that just signed in is a state no Eva flow produces, and the
+data behind it belongs to whoever the document names.
+
+*What it is compared against, and why not the credential's claim.* `signInWithIdp`'s
+`email` is the provider token's claim, never the account's (`identity-toolkit.ts` says why).
+On a Firebase **merge** the account holds the credential's address by construction — that
+equality is why Firebase merged — so the account's address and the credential's are the same
+thing exactly where #119 needs them to be. They differ for a `sub` that was already linked:
+Apple's relay on a password account (`POST /me/auth/providers`, the only route Hide My Email
+users have into an existing account) or an Apple ID whose address changed. Firebase neither
+merges nor rewrites the account's address there — observed in the Auth emulator's
+`signInWithIdp`, which applies no account update when it resolves by provider — so comparing
+with the claim would lock those users out on every sign-in. `/auth/idp` therefore reads the
+Auth account (`addressOfAuthAccount`, one Admin read per provider sign-in) and compares
+the document with that.
+
+Where it is enforced, which is every route that mints:
+
+| Route | Compared | Refusal |
+|---|---|---|
+| `POST /auth/idp` | document vs. the Auth account's address, **before** the claim writes anything | `401 INVALID_CREDENTIALS`, logged as `provider_signin_refused` with `stage: "address"` |
+| `POST /auth/password/reset` | document vs. the link's address, which #140 has already required to be the Auth account's | `400 INVALID_TOKEN`, before the bump and the password write |
+| `POST /auth/signin` | document vs. the address Identity Toolkit matched the password on | `401 INVALID_CREDENTIALS`, byte-identical to a wrong password and inside the floor |
+
+`/auth/activate` mints nothing and is not on the list. A new document is written with the
+Auth account's address rather than the claim, and `/auth/idp`'s token carries the
+document's address, so the token and `GET /me` agree (the mismatch between them is how #119
+was noticed).
+
+Case and surrounding whitespace are not a difference — Firebase stores addresses lower-cased,
+and a document written before `normalizeEmail` may not be — and an absent address on either
+side is. Every document Eva writes has one.
+
+**The cost, stated.** The victim in the merge case is refused on every door: Google, a reset
+link to her own address, and a password. Her address is held by an account she cannot enter
+and nobody else can either, and there is no self-serve way out; recovering it is a support
+action (delete that uid by hand). That is the direction chosen — a stranger's document
+handed to her was the alternative — and the state is only reachable where `accounts:update`
+accepts an unverified address.
+
 ### A password reset invalidates every session (#76)
 
 The same gate is where a reset takes effect, and it is the same argument one step further:
@@ -879,7 +979,7 @@ revocation at all.
 provider resolving to the same Auth account lands on the same document.
 
 ```
-email                  string
+email                  string          // the Auth account's address at creation; never rewritten (§3, #119)
 authProviders          string[]        // arrayUnion: "password", "apple.com", "google.com"
 questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
@@ -1119,7 +1219,9 @@ uid except `authTokens/` (#6). Its uid-linked rows always go; its pre-account `u
 rows go by address only while the account is still live and Auth says that address was
 proven (#139). An unproven address is not a deletion key, so those rows expire by TTL.
 `refdata/` and `content/` are global, and the `/auth/*` throttle's counters are in memory
-and keyed by address and IP rather than by account.
+and keyed by address and IP rather than by account. The one counter keyed by uid is
+`DELETE /me`'s own (#119), in memory, and it outlives the delete on purpose — it bounds the
+replay of a token whose account is already gone — and expires with its window.
 
 The order is the design, because a partial failure has to be safe *and* resumable:
 

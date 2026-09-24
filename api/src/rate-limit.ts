@@ -390,6 +390,26 @@ const providerLimiters: Record<ProviderRoute, RateLimiter> = {
 export const consumeProviderAttempt = (route: ProviderRoute, ip: string | null): boolean =>
   ip === null || providerLimiters[route].consume(ip)
 
+/**
+ * `DELETE /me` (#119), counted per account and only per account — the uid a verified token
+ * names. The route skips the account gate so an interrupted delete can be retried with the
+ * same token, which also meant one token could replay it for thirty days, each call a POST
+ * to Apple, a tombstone write and a sweep. This bounds that without touching the retry: the
+ * limit is several deletes' worth, and the route stays idempotent inside it.
+ *
+ * No per-IP dimension, unlike every other limiter here. Deletion is the one thing a user
+ * must always be able to do, and behind carrier NAT a per-IP budget is one a stranger can
+ * spend for her. A uid is not: only the holder of a token for that account can count
+ * against it, and holding one already lets them delete it.
+ */
+const deleteLimiter = createRateLimiter(
+  config.rateLimit.deletePerAccount,
+  config.rateLimit.windowSeconds,
+)
+
+/** Counts one `DELETE /me` against the account `uid` names. */
+export const consumeDeleteAttempt = (uid: string): boolean => deleteLimiter.consume(uid)
+
 /** Counts one attempt on a link route. Per IP only — see `TokenRoute`. An unknown address
  *  (no `x-forwarded-for`) is served: the alternative is refusing every caller behind a
  *  proxy that strips it. */
@@ -484,8 +504,8 @@ export const authLimiterShapes = (): Record<
     ]),
   ) as Record<AuthRoute, { byIp: LimiterShape; byEmail: LimiterShape }>
 
-/** Drops every auth counter, link routes included. Test support — nothing in `src/`
- *  calls it. */
+/** Drops every counter in this file, link routes and `DELETE /me` included. Test support —
+ *  nothing in `src/` calls it. */
 export const resetAuthRateLimits = (): void => {
   for (const route of Object.values(limiters)) {
     route.byIp.reset()
@@ -493,4 +513,5 @@ export const resetAuthRateLimits = (): void => {
   }
   for (const limiter of Object.values(tokenLimiters)) limiter.reset()
   for (const limiter of Object.values(providerLimiters)) limiter.reset()
+  deleteLimiter.reset()
 }

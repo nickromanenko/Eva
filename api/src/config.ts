@@ -566,6 +566,17 @@ export const config = {
      * had not verified would be a lockout primitive anyone could aim.
      */
     idpPerIp: optionalCount('RATE_LIMIT_IDP_PER_IP', 60),
+    /**
+     * `DELETE /me` (#119), per **account** over the ordinary window. The route is
+     * authenticated and deliberately outside the account gate, so without this one token
+     * replays it for the 30 days the JWT lives, each call a POST to Apple, a tombstone
+     * write and a sweep. Ten is several interrupted deletes and their retries; nobody
+     * deletes the same account more often than that on purpose. Keyed on the token's
+     * verified `sub`, so nobody can spend another person's budget — and no per-IP
+     * dimension, because behind carrier NAT that would let a stranger delay someone
+     * else's deletion. `0` disables it.
+     */
+    deletePerAccount: optionalCount('RATE_LIMIT_DELETE_PER_ACCOUNT', 10),
   },
   /** Transactional email (issue #6). Read only in `email.ts`. */
   email: {

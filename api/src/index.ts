@@ -11,6 +11,7 @@ import {
   authRetryAfterSeconds,
   callerFromForwarded,
   consumeAuthAttempt,
+  consumeDeleteAttempt,
   consumeProviderAttempt,
   consumeTokenAttempt,
   forgetEmail,
@@ -153,6 +154,14 @@ const errorName = (err: unknown): string => {
  * It stays as a floor, not because anything changed about it.)
  */
 app.onError((err, c) => {
+  // The one refusal that arrives here by design rather than by accident: `readBody` below
+  // throws it, so that "a JSON body that is not an object" is answered once rather than by
+  // a guard in each of fifteen handlers. It is a caller's mistake, not a fault of ours, so
+  // it answers the ordinary edge-validation 400 and writes no line — an `unhandled_error`
+  // per `null` body is the signal poisoning #119 is about.
+  if (err instanceof BodyNotAnObjectError) {
+    return c.json(error('VALIDATION', 'The request body must be a JSON object'), 400)
+  }
   // Short enough to read out over a support call, random enough to be unique among the
   // 500s anyone is looking through. It identifies a log line, never a user.
   const ref = crypto.randomUUID().slice(0, 8)
@@ -262,6 +271,46 @@ app.use('*', wrapNonErrors)
  */
 app.notFound((c) => c.json(error('NOT_FOUND', 'No such route'), 404))
 
+/** Thrown by `readBody` and answered by `app.onError` as `400 VALIDATION` (#119). A class of
+ *  ours so the handler can recognise it by `instanceof`, never by a message. */
+class BodyNotAnObjectError extends Error {
+  override name = 'BodyNotAnObjectError'
+}
+
+/**
+ * The request's JSON body, for every route that reads one — **the** shared body parse (#119).
+ *
+ * Two answers that look alike and are not:
+ *
+ * - **No body, or not JSON at all** is `{}`, exactly what every route's
+ *   `c.req.json().catch(() => ({}))` gave before. Each route's own validation then refuses
+ *   the missing fields in its own words, and `DELETE /me` — whose body is optional — still
+ *   deletes, which is the documented case for an old client or a declined Apple prompt.
+ * - **Valid JSON that is not an object** — `null`, an array, a number, a string — throws
+ *   `BodyNotAnObjectError`, which `app.onError` answers `400 VALIDATION` without a log line.
+ *   `null` used to reach `body.provider` and throw a `TypeError`, which was a `500` and an
+ *   `unhandled_error` line on the unauthenticated `/auth/idp`: a free way to fill the one
+ *   signal meant to mean "we shipped a bug". An array or a number was merely *usually*
+ *   refused, by whichever field check happened to come first — and not at all by
+ *   `DELETE /me`, which read `[]` as "no Apple code" and deleted.
+ *
+ * Thrown rather than returned so the guard is here once and each handler's call stays one
+ * line; `onError` is reached at the handler's own level of Hono's `compose`, so `noStore`
+ * and CORS still wrap the answer.
+ */
+const readBody = async (c: Context): Promise<Record<string, unknown>> => {
+  let parsed: unknown
+  try {
+    parsed = await c.req.json()
+  } catch {
+    return {}
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new BodyNotAnObjectError()
+  }
+  return parsed as Record<string, unknown>
+}
+
 /**
  * `EMAIL_MAX_LENGTH` is RFC 5321's cap on a path. It is here rather than left to the
  * pattern because every accepted address becomes a key in the throttle's maps
@@ -282,6 +331,27 @@ const normalizeEmail = (email: unknown): string | null => {
   if (normalized.length > EMAIL_MAX_LENGTH) return null
   return /\S+@\S+\.\S+/.test(normalized) ? normalized : null
 }
+
+/**
+ * Whether `users/{uid}.email` still names the address the account's credential answers to —
+ * the check every route that mints a session makes before minting one (#119).
+ *
+ * The document's copy is written once, when the document is created, and nothing rewrites
+ * it; Firebase's copy can move under it (`accounts:update` with the public web API key, and
+ * a Firebase merge that lands a stranger's credential on the account that held the address).
+ * So a document whose address differs from the credential's is one that belongs to somebody
+ * other than whoever is signing in, and the decision on #119 is to **refuse** rather than
+ * hand them its profile and its events, or rewrite its address to theirs.
+ *
+ * Case and surrounding space are not a difference: Firebase stores addresses lower-cased,
+ * and a document written before `normalizeEmail` existed may not be. An address absent on
+ * either side *is* one — there is nothing to say the document is the caller's, and every
+ * path that writes a document writes an address.
+ */
+const sameAddress = (stored: unknown, current: unknown): boolean =>
+  typeof stored === 'string' &&
+  typeof current === 'string' &&
+  stored.trim().toLowerCase() === current.trim().toLowerCase()
 
 /**
  * The password rule, stated exactly as the page that asks for a password states it —
@@ -502,7 +572,7 @@ app.get('/', (c) => c.text('Eva API'))
 app.get('/health', (c) => c.json({ status: 'ok' }))
 
 app.post('/auth/signup', async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   const email = normalizeEmail(body.email)
   if (!email) return c.json(error('VALIDATION', 'A valid email is required'), 400)
   const throttled = throttleAuth(c, 'signup', email)
@@ -542,7 +612,7 @@ app.post('/auth/signup', async (c) => {
 })
 
 app.post('/auth/signin', async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   const email = normalizeEmail(body.email)
   const password = typeof body.password === 'string' ? body.password : ''
   if (!email || !password) {
@@ -571,7 +641,12 @@ app.post('/auth/signin', async (c) => {
       // otherwise walk an account back out of its own deletion. Answered as a failed
       // sign-in — the same answer a wrong password gets, which is also the honest one,
       // because the account those credentials named is gone.
-      if (!account) {
+      //
+      // A document whose address is not the one this password answers to is somebody
+      // else's (#119, `sameAddress`): Identity Toolkit matched `email` against the Auth
+      // account's *current* address, which can have moved since the document was written.
+      // Same answer as a wrong password, and inside the floor, so it says nothing more.
+      if (!account || !sameAddress(account.user.email, email)) {
         return c.json(error('INVALID_CREDENTIALS', 'Wrong email or password'), 401)
       }
       const user = account.user
@@ -889,7 +964,7 @@ const activate = async (c: Context, raw: unknown, body: Record<string, unknown>)
 app.post('/auth/activate', async (c) => {
   const throttled = throttleToken(c, 'activate')
   if (throttled) return throttled
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   return activate(c, body.token, body)
 })
 
@@ -921,7 +996,7 @@ app.post('/auth/activate', async (c) => {
  * minute, buys nobody anything they cannot have in one request.
  */
 app.post('/auth/activation/resend', async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   const email = normalizeEmail(body.email)
   if (!email) return c.json(error('VALIDATION', 'A valid email is required'), 400)
   const throttled = throttleAuth(c, 'resend', email)
@@ -954,7 +1029,7 @@ app.post('/auth/activation/resend', async (c) => {
 })
 
 app.post('/auth/password/forgot', async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   const email = normalizeEmail(body.email)
   if (!email) return c.json(error('VALIDATION', 'A valid email is required'), 400)
   const throttled = throttleAuth(c, 'forgot', email)
@@ -986,7 +1061,7 @@ app.post('/auth/password/forgot', async (c) => {
 app.post('/auth/password/reset', async (c) => {
   const throttled = throttleToken(c, 'reset')
   if (throttled) return throttled
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   if (body.token === undefined || body.token === null || body.token === '') {
     return c.json(error('VALIDATION', 'A token is required'), 400)
   }
@@ -1021,6 +1096,13 @@ app.post('/auth/password/reset', async (c) => {
   // link is as dead as the account.
   const user = await getUser(uid)
   if (!user) return tokenFailure(c, 'invalid')
+  // The link proved `result.email`, and the comparison above made that the Auth account's
+  // address too — but the *document* can still name another one (#119). That is the
+  // Firebase-merge case reached by its other door: the owner of an address whose Auth
+  // account was repointed at it out of band asks for a reset, and would be handed a
+  // session on the document — profile, events — of whoever repointed it. Refused before
+  // anything is written, like every other dead link on this route.
+  if (!sameAddress(user.email, result.email)) return tokenFailure(c, 'invalid')
 
   // **Every other session ends here** (#76), and this is the whole of the decision: the
   // reason a woman resets her password is usually that somebody else has it, so a reset
@@ -1266,7 +1348,7 @@ const PROVIDER_REJECTED = "That sign-in couldn't be completed. Please try again.
 const refuseProvider = (
   c: Context,
   route: ProviderRoute,
-  stage: 'credential' | 'upstream' | 'deleted' | 'claim' | 'deleted-race',
+  stage: 'credential' | 'upstream' | 'deleted' | 'address' | 'claim' | 'deleted-race',
 ) => {
   console.error(JSON.stringify({ event: 'provider_signin_refused', route, stage }))
   return c.json(error('INVALID_CREDENTIALS', PROVIDER_REJECTED), 401)
@@ -1330,7 +1412,7 @@ const providerFailure = (c: Context, route: ProviderRoute, err: unknown) => {
  * link to a relay address to prove something Apple has already proved.
  */
 app.post('/auth/idp', async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   const parsed = parseProviderCredential(body)
   if (!parsed.ok) return c.json(error('VALIDATION', parsed.message), 400)
   const throttled = throttleProvider(c, 'idp')
@@ -1350,6 +1432,28 @@ app.post('/auth/idp', async (c) => {
     // an account back out of its own deletion.
     if (existing.deleted) {
       return refuseProvider(c, 'idp', 'deleted')
+    }
+    // **The document must name the address the Auth account holds (#119)**, and it is
+    // asked of Firebase, because `email` above is the provider token's own claim and not
+    // the account's. That distinction is what makes this safe to enforce:
+    //
+    // - After a Firebase *merge* — "link accounts that use the same email" — the account
+    //   holds the credential's address by construction; that equality is why Firebase
+    //   merged. So a document naming another address is the case #119 describes: an
+    //   account repointed at an unregistered victim, merged into on their first Google
+    //   sign-in, whose profile and events are the repointer's. Refused, before the claim
+    //   below can write anything, with the answer every refused credential gets.
+    // - A `sub` already linked — Apple's relay on a password account, via
+    //   `POST /me/auth/providers`, or an Apple ID whose address changed — keeps the
+    //   account's own address, because Firebase neither merges nor rewrites it there. Its
+    //   token claim differs from the document and always will, so comparing against the
+    //   claim would lock out exactly the returning users the link route exists for.
+    //
+    // A new document is written with this address too, not the claim, so the rule stays
+    // true of every document from its first write.
+    const { address } = await addressOfAuthAccount(localId)
+    if (existing.user && !sameAddress(existing.user.email, address)) {
+      return refuseProvider(c, 'idp', 'address')
     }
     // An unactivated account is one nobody has proven they own, and #6 creates it
     // before the address is confirmed — so every credential already on it was attached
@@ -1382,7 +1486,7 @@ app.post('/auth/idp', async (c) => {
     // Only now, once the credential has earned the account. The second tombstone check
     // is `ensureUser`'s own, and closes the window between the read above and this
     // write: a `DELETE /me` landing in between must still win.
-    const account = await ensureUser(localId, email, PROVIDER_IDS[parsed.value.provider])
+    const account = await ensureUser(localId, address ?? email, PROVIDER_IDS[parsed.value.provider])
     if (!account) return refuseProvider(c, 'idp', 'deleted-race')
     // The claim above has already taken the account, so there is nothing left to
     // retract — and `proveAddress` must not run here: a provider sign-in would unlink
@@ -1393,8 +1497,10 @@ app.post('/auth/idp', async (c) => {
     // above is the one thing on this path that does, and it can only run on an
     // unactivated account — which, by the argument on `bumpTokenVersion`, has no
     // sessions to end.
+    // The account's address, not the provider's claim: the two differ for a linked relay,
+    // and a token that said one thing while `GET /me` said another is how #119 was found.
     return c.json({
-      token: await mintToken(localId, email, account.tokenVersion),
+      token: await mintToken(localId, account.user.email, account.tokenVersion),
       user: { ...account.user, activated: true },
     })
   } catch (err) {
@@ -1418,7 +1524,7 @@ app.post('/auth/idp', async (c) => {
  * the same choice ARCHITECTURE §2 makes for passwords.
  */
 app.post('/me/auth/providers', requireAuth, requireAccount, async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   const parsed = parseProviderCredential(body)
   if (!parsed.ok) return c.json(error('VALIDATION', parsed.message), 400)
   const throttled = throttleProvider(c, 'link')
@@ -1531,14 +1637,14 @@ app.delete('/me', requireAuth, async (c) => {
   // A code and not a stored refresh token, deliberately: keeping Apple's refresh token
   // would put a long-lived third-party credential in a health app's user document and
   // would widen `users/{uid}`, which #7 does not do. See `providers.ts` for the cost.
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   // Absent and malformed are **not** the same answer, though one expression used to give
   // them one. Absent is the documented case above and deletes without revoking. Present
   // but over-long or not a string is a client bug, and folding it into "absent" meant the
   // account was deleted with Apple's entitlement quietly unmet — no error, no log line,
   // and nothing the caller could see. Every other field on this API is refused at the
   // edge; this one now is too.
-  const rawAppleCode = (body as Record<string, unknown>).appleAuthorizationCode
+  const rawAppleCode = body.appleAuthorizationCode
   const supplied = rawAppleCode !== undefined && rawAppleCode !== null
   if (supplied && !isBounded(rawAppleCode, APPLE_AUTH_CODE_MAX_LENGTH)) {
     return c.json(
@@ -1547,6 +1653,19 @@ app.delete('/me', requireAuth, async (c) => {
     )
   }
   const appleAuthorizationCode = supplied ? (rawAppleCode as string) : null
+  // Per account, after validation and before the first write or upstream call (#119) — the
+  // same place every other throttle sits. Without it one token replays this route for the
+  // thirty days it lives: a POST to Apple, a tombstone write, a sweep and a log line each
+  // time. The budget is several deletes and their retries, so the idempotence the retry
+  // depends on is untouched inside it; `consumeDeleteAttempt` says why there is no per-IP
+  // dimension. The Apple code is still not bound to *this* account's Apple identity: that
+  // would mean verifying the `id_token` Apple returns, which is JWKS work `providers.ts`
+  // deliberately does not own, and ARCHITECTURE §3 records what leaving it costs.
+  if (!consumeDeleteAttempt(sub)) {
+    return c.json(error('RATE_LIMITED', 'Too many attempts. Try again later.'), 429, {
+      'retry-after': String(authRetryAfterSeconds('signin')),
+    })
+  }
 
   // Read **from Firebase Auth**, and before `deleteAuthAccount` below removes it, for the
   // token sweep — which since #120 cannot find an activation token by uid, because there
@@ -1631,7 +1750,7 @@ app.put('/me/consent/:kind', requireAuth, requireAccount, async (c) => {
   if (!isOneOf(kind, CONSENT_KINDS)) {
     return c.json(error('NOT_FOUND', 'No such consent kind'), 404)
   }
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   if (typeof body.granted !== 'boolean') {
     return c.json(error('VALIDATION', 'granted must be a boolean'), 400)
   }
@@ -1652,7 +1771,7 @@ app.put('/me/consent/:kind', requireAuth, requireAccount, async (c) => {
 })
 
 app.put('/me/questionnaire', requireAuth, requireAccount, requireCollectConsent, async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   // The caller's own day, the way every calendar route resolves it, because the 18+ floor
   // is measured against it: UTC-12..UTC+14 means the server's date is a different day from
   // hers for several hours out of every twenty-four, and a birthday is exactly the kind of
@@ -1677,7 +1796,7 @@ app.put('/me/questionnaire', requireAuth, requireAccount, requireCollectConsent,
  * safeguard for a named request is health data.
  */
 app.put('/me/nutrition-settings', requireAuth, requireAccount, async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   if (typeof body.qualitativeOnly !== 'boolean') {
     return c.json(error('VALIDATION', 'qualitativeOnly must be a boolean'), 400)
   }
@@ -2329,14 +2448,14 @@ app.get('/me/events', requireAuth, requireAccount, async (c) => {
 })
 
 app.post('/me/events', requireAuth, requireAccount, requireCollectConsent, async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   const parsed = parseNewEvent(body, await getSymptomRules())
   if (!parsed.ok) return c.json(error(parsed.code, parsed.message), 400)
   return c.json({ event: await createEvent(c.get('claims').sub, parsed.value) }, 201)
 })
 
 app.patch('/me/events/:id', requireAuth, requireAccount, requireCollectConsent, async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   // `type` and `localDate` are always required: with both, every payload and
   // timestamp rule can be checked here instead of after a read in the module.
   const type = parseEventType(body.type)
@@ -2410,7 +2529,7 @@ app.post('/me/events/:id/restore', requireAuth, requireAccount, requireCollectCo
 /** Upsert-by-day: one body signals entry per user per day, always replaced whole.
  *  The ratings sit at the top level here — the route already says what this is. */
 app.put('/me/body-signals/:date', requireAuth, requireAccount, requireCollectConsent, async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await readBody(c)
   const localDate = c.req.param('date')
   if (!isCalendarDate(localDate)) {
     return c.json(error('VALIDATION', 'date must be YYYY-MM-DD'), 400)
