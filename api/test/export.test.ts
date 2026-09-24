@@ -210,7 +210,7 @@ beforeAll(async () => {
   await sport(bob, day(2), `${bobMarker} note`)
 
   // Carol: one ordinary entry, one stored entry with no `localDate`, `createdAt` or
-  // `updatedAt`, and one card with no `date` field — each the field another ordering would
+  // `updatedAt`, and one card with neither `date` nor `generatedAt` — each the field another ordering would
   // sort on, and a query ordered on a field skips every document that lacks it.
   await sport(carol, day(2), 'carol ordinary')
   await userDoc(carol.uid)
@@ -220,7 +220,7 @@ beforeAll(async () => {
   await userDoc(carol.uid)
     .collection('today')
     .doc(day(4))
-    .set({ generatedAt: 'carol-bare-card', contentVersion: 'v', card: { title: 't' } })
+    .set({ contentVersion: 'carol-bare-card', card: { title: 't' } })
 }, 120_000)
 
 afterAll(async () => {
@@ -399,7 +399,7 @@ describe('GET /me/export — the download', () => {
     const ids = body.events.map((e) => e.id)
     expect(ids).toContain('carol-no-fields')
     expect(ids).toHaveLength(2)
-    expect(body.today.map((t) => t.generatedAt)).toEqual(['carol-bare-card'])
+    expect(body.today.map((t) => t.contentVersion)).toEqual(['carol-bare-card'])
   })
 
   test('leaks no internal field and no credential', async () => {
@@ -574,7 +574,8 @@ describe('openExport', () => {
   })
 })
 
-describe('the owning modules page, never one unbounded read', () => {
+// Page sizes only: a single unbounded read sliced into pages would still pass this.
+describe('the owning modules yield bounded pages', () => {
   test('exportEvents and exportTodayCards yield pages no larger than asked for', async () => {
     const eventPages: number[] = []
     for await (const page of exportEvents(alice.uid, 1)) eventPages.push(page.length)
