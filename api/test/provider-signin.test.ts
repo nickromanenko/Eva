@@ -62,10 +62,17 @@ setDefaultTimeout(20_000)
 // namespace, so a reference taken from it later would be this file's own mock.
 const identityToolkit = { ...(await import('../src/identity-toolkit')) }
 const { IdentityToolkitError, PROVIDER_IDS, claimUnprovenAccount } = identityToolkit
+const providers = { ...(await import('../src/providers')) }
 
 /** Captured before the mock replaces it, so the last describe can drive the real client
  *  against a stubbed `fetch` while every other test sees the fake. */
 const realSignInWithIdp = identityToolkit.signInWithIdp
+const realIdTokenForUid = identityToolkit.idTokenForUid
+
+/** The route-level catch around Apple revocation is below `providers.ts`' own shaped
+ * outcomes. Keep one controllable seam so the otherwise-unreachable unexpected-throw
+ * branch is exercised without making any request to Apple. */
+let revokeAppleToken: typeof providers.revokeAppleToken = providers.revokeAppleToken
 
 /** What the next `signInWithIdp` does. `null` is a bug in the test: a default that quietly
  *  succeeded would write a document for a fabricated uid into the live project. */
@@ -87,11 +94,16 @@ mock.module('../src/identity-toolkit', () => ({
     lastIdp = { credential, linkTo }
     return (idp ?? unset)(credential, linkTo)
   },
-  // The Admin-SDK half of linking. Faked because `createCustomToken` needs a signing
-  // credential the test process is not guaranteed to hold (and on Cloud Run needs an IAM
-  // role that is an infra gate) — what this suite is testing is what the route does with
-  // the ID token, not how it got one.
+  // The route cases run on both the live project and the emulators, while
+  // `createCustomToken` needs a signing credential on the live path (and on Cloud Run an
+  // IAM role that is an infra gate). The dedicated emulator-only case below calls the real
+  // function and covers the complete custom-token -> Firebase-ID-token chain.
   idTokenForUid: async (uid: string) => `firebase-id-token-for-${uid}`,
+}))
+
+mock.module('../src/providers', () => ({
+  ...providers,
+  revokeAppleToken: (authorizationCode: string) => revokeAppleToken(authorizationCode),
 }))
 
 // Imported after the mock, and never as a listening server.
@@ -291,6 +303,7 @@ beforeEach(() => {
   resetAuthRateLimits()
   idp = null
   lastIdp = null
+  revokeAppleToken = providers.revokeAppleToken
 })
 
 /**
@@ -319,6 +332,7 @@ afterAll(async () => {
   }
   // Hand the module back as it was found — Bun's mocks are permanent and process-global.
   mock.module('../src/identity-toolkit', () => identityToolkit)
+  mock.module('../src/providers', () => providers)
 }, 120_000)
 
 describe("the provider ids are Firebase's strings, not ours", () => {
@@ -1388,6 +1402,53 @@ describe("POST /auth/idp — identity is the provider's sub, and only sub", () =
     // Either way the boundary is never reached: there is no ID token to hand it.
     expect(lastIdp).toBeNull()
   })
+
+  test(
+    'a successful Google exchange reaches Firebase and returns a session',
+    async () => {
+      const email = newEmail()
+      const uid = await createAuthUser(email)
+      idp = resolveTo(uid, email)
+      const originalClientId = config.providers.googleIosClientId
+      ;(config.providers as { googleIosClientId: string | null }).googleIosClientId =
+        'test-client.apps.googleusercontent.com'
+
+      const realFetch = globalThis.fetch
+      globalThis.fetch = (async (input: any) => {
+        const url = String(input?.url ?? input)
+        if (!url.includes('oauth2.googleapis.com/token')) {
+          throw new Error(`unexpected fetch in Google success test: ${url}`)
+        }
+        return new Response(JSON.stringify({ id_token: 'google-id-token-from-exchange' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as typeof fetch
+
+      let res: Answer
+      try {
+        res = await post('/auth/idp', {
+          provider: 'google',
+          code: 'auth-code',
+          codeVerifier: 'code-verifier',
+          redirectUri: 'com.googleusercontent.apps.test:/oauth2redirect',
+        })
+      } finally {
+        globalThis.fetch = realFetch
+        ;(config.providers as { googleIosClientId: string | null }).googleIosClientId =
+          originalClientId
+      }
+
+      expect(res.status).toBe(200)
+      expect(res.body.token).toBeString()
+      expect(lastIdp?.credential).toEqual({
+        provider: 'google',
+        idToken: 'google-id-token-from-exchange',
+      })
+      expect(lastIdp?.linkTo).toBeUndefined()
+    },
+    SLOW,
+  )
 })
 
 describe('the declared maximums are the maximums', () => {
@@ -1852,6 +1913,32 @@ describe('the provider routes are throttled, and separately', () => {
     },
     SLOW,
   )
+
+  test(
+    'linking is throttled too, and exhausting it does not spend sign-in',
+    async () => {
+      // The half the test above names and does not drive: without it, deleting the
+      // throttle from `/me/auth/providers` left the suite green (#116).
+      const email = newEmail()
+      const uid = await trackedUnactivatedAccount(email)
+      await markActivated(uid)
+      const token = await mintToken(uid, email, 0)
+
+      idp = () => {
+        throw new IdentityToolkitError('INVALID_IDP_RESPONSE', 400)
+      }
+      let last: Answer | null = null
+      for (let i = 0; i < overBudget; i++) {
+        last = await post('/me/auth/providers', appleBody(), { ...bearer(token), ...from(IP) })
+      }
+      expect(last!.status).toBe(429)
+      expect(last!.body.error.code).toBe('RATE_LIMITED')
+
+      // Sign-in, from the same address, still has its own budget.
+      expect((await post('/auth/idp', appleBody(), from(IP))).status).toBe(401)
+    },
+    SLOW,
+  )
 })
 
 describe('POST /me/auth/providers — linking is deliberate, and never a merge', () => {
@@ -1936,6 +2023,41 @@ describe('POST /me/auth/providers — linking is deliberate, and never a merge',
 })
 
 describe('DELETE /me — Apple revocation never fails the delete', () => {
+  test(
+    'an unexpected revocation throw still deletes and is logged as threw',
+    async () => {
+      const email = newEmail()
+      const uid = await trackedUnactivatedAccount(email)
+      const token = await mintToken(uid, email, 0)
+      const APPLE_CODE = 'apple-code-that-must-never-be-logged'
+      revokeAppleToken = async () => {
+        throw new Error('unexpected provider implementation failure')
+      }
+      const logged: string[] = []
+      const spy = spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+        logged.push(args.map(String).join(' '))
+      })
+
+      let res: Answer
+      try {
+        res = await send('DELETE', '/me', { appleAuthorizationCode: APPLE_CODE }, bearer(token))
+      } finally {
+        spy.mockRestore()
+      }
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual({ deleted: true })
+      expect(await getUser(uid)).toBeNull()
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain('"stage":"threw"')
+      expect(logged[0]).toContain('"upstreamStatus":null')
+      expect(logged[0]).not.toContain(APPLE_CODE)
+      expect(logged[0]).not.toContain(email)
+      expect(logged[0]).not.toContain(uid)
+    },
+    SLOW,
+  )
+
   test(
     'an unrevokable code still deletes the account, and logs no credential',
     async () => {
@@ -2036,6 +2158,30 @@ describe('DELETE /me — Apple revocation never fails the delete', () => {
       // Nothing was attempted, so nothing failed. This is the assertion that bites
       // on both verify paths.
       expect(logged.join(' ')).not.toContain('apple_revocation_failed')
+    },
+    SLOW,
+  )
+})
+
+describe.skipIf(!config.usingEmulators)('the real custom-token exchange', () => {
+  test(
+    'idTokenForUid returns a Firebase ID token for the requested uid',
+    async () => {
+      const uid = await createAuthUser(newEmail())
+
+      const idToken = await realIdTokenForUid(uid)
+      const lookup = await fetch(
+        `${config.identityToolkitBaseUrl}/v1/accounts:lookup?key=${config.firebaseWebApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        },
+      )
+
+      expect(lookup.ok).toBe(true)
+      const body = (await lookup.json()) as { users?: Array<{ localId?: string }> }
+      expect(body.users?.[0]?.localId).toBe(uid)
     },
     SLOW,
   )
