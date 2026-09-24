@@ -71,6 +71,23 @@ final class DeleteAccountUITests: EvaUITestCase {
             "The modal promises a 30-day window the API does not give: \(body.label)"
         )
 
+        // MARK: Export is offered (#58)
+        //
+        // Present, labelled, and live — the canvas draws it next to the confirmation and
+        // #58 is what makes it real. Not tapped here: the file exporter it opens is a
+        // system sheet this test would have to drive and dismiss before it could go on,
+        // and nothing below depends on it. What this does check is the other half of the
+        // acceptance criterion — offering export must not put deletion out of reach — by
+        // finding the confirm button with the export button present.
+        XCTAssertTrue(
+            app.staticTexts["delete.exportNote"].exists,
+            "The modal does not offer export before deletion"
+        )
+        let export = app.buttons["delete.export"]
+        XCTAssertTrue(export.exists, "There is no \"Export data instead\" button")
+        XCTAssertEqual(export.label, "Export data instead")
+        XCTAssertTrue(export.isEnabled, "The export button is not live")
+
         // MARK: The gate
 
         let confirm = app.buttons["delete.confirm"]

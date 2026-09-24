@@ -364,10 +364,16 @@ page rather than an in-app copy: the policy has legal positions still marked *co
 and the one place they change is the one place they are read. Neither the footer nor the
 row is built yet; both are drawn.
 
-**The modal drops "Export data instead".** The artboard offers an export button and an
-"Export your data first" card beside the confirmation. There is no export feature (#58),
-and an inert button next to an irreversible action reads as an offered escape route and
-is not one. Restore both when #58 ships — not before.
+**"Export data instead" is back (#58).** #55 dropped the export button and the "Export
+your data first" card because there was no export, and an inert button next to an
+irreversible action reads as an offered escape route. `GET /me/export` now exists, so both
+are restored as the original artboard (`7ee0ec9`) drew them — the card under the body, the
+button first in the action stack — which is what the canvas' `SPEC.danger` note asks for.
+The card takes §2's Success tint, border and ink (the artboard's `#5C7434` ink and .30
+border are near-misses of `evaSuccessInk` and `evaSuccessBorder`), `EvaRadius.control` for
+its 16px radius, and Caption for its `500 12.5px` text. The file is saved through the
+system file exporter rather than a share sheet, and the button never disables the confirm
+button — offering export does not make deletion harder to reach.
 
 **The card shadow is neutral, where the canvas draws it pink (#12).** §4 gives
 `0 12px 30px -18px rgba(40,33,38,.35)`; the artboards overwhelmingly do not.

@@ -97,9 +97,41 @@ struct APIClient: Sendable {
         try await send(path: path, method: "DELETE", body: body, authorized: authorized)
     }
 
+    /// A `GET` whose body is a file rather than a model — `GET /me/export` (#58) is the
+    /// first. The bytes are handed back untouched, together with the name the server gave
+    /// the file in `Content-Disposition`.
+    ///
+    /// Failures go through exactly the same mapping as every JSON call: a 401 that ends
+    /// the session, a 429 with its `Retry-After`, the error envelope. Only the success
+    /// branch differs, and the reason it cannot share `send`'s is that decoding the body
+    /// would be both pointless and wrong — the app does not read an export, it hands it
+    /// to the user.
+    func download(_ path: String, authorized: Bool = false) async throws -> APIDownload {
+        let (data, response) = try await perform(
+            path: path, method: "GET", body: nil as Never?, authorized: authorized
+        )
+        let disposition = response.value(forHTTPHeaderField: "Content-Disposition")
+        return APIDownload(data: data, filename: Self.filename(fromContentDisposition: disposition))
+    }
+
     private func send<Body: Encodable, Response: Decodable>(
         path: String, method: String, query: [URLQueryItem] = [], body: Body?, authorized: Bool
     ) async throws -> Response {
+        let (data, _) = try await perform(
+            path: path, method: method, query: query, body: body, authorized: authorized
+        )
+        do {
+            return try JSONDecoder().decode(Response.self, from: data)
+        } catch {
+            throw APIError.decoding
+        }
+    }
+
+    /// The request and every failure mapping, shared by `send` and `download`. Returns only
+    /// on a 2xx; everything else is thrown as the `APIError` it means.
+    private func perform<Body: Encodable>(
+        path: String, method: String, query: [URLQueryItem] = [], body: Body?, authorized: Bool
+    ) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: Self.url(base: baseURL, path: path, query: query))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -120,13 +152,10 @@ struct APIClient: Sendable {
             throw APIError.network
         }
 
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if (200..<300).contains(status) {
-            do {
-                return try JSONDecoder().decode(Response.self, from: data)
-            } catch {
-                throw APIError.decoding
-            }
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        if (200..<300).contains(status), let http {
+            return (data, http)
         }
         let failure = try? JSONDecoder().decode(APIFailure.self, from: data)
         let message = failure?.error.message ?? "Something went wrong (\(status))."
@@ -160,8 +189,7 @@ struct APIClient: Sendable {
         // as an upper bound. Anything unparseable, absent or non-positive becomes `nil`
         // rather than a guess.
         if status == 429 {
-            let header = (response as? HTTPURLResponse)?
-                .value(forHTTPHeaderField: "Retry-After")
+            let header = http?.value(forHTTPHeaderField: "Retry-After")
             throw APIError.rateLimited(message: message, retryAt: Self.retryAt(from: header))
         }
         throw APIError.server(code: failure?.error.code ?? "UNKNOWN", message: message, status: status)
@@ -183,6 +211,39 @@ struct APIClient: Sendable {
         return components.url ?? withPath
     }
 
+    /// The `filename` parameter of a `Content-Disposition` header, reduced to something
+    /// that is safe to offer as a file name — or `nil`, and the caller picks its own.
+    ///
+    /// Only the quoted and bare `filename=` forms are read. RFC 6266's `filename*=` (an
+    /// RFC 8187 encoded name) is not: the API names its files in ASCII
+    /// (`eva-export-YYYY-MM-DD.json`), and a parser for a form the server never sends is
+    /// code nobody exercises.
+    ///
+    /// The name is untrusted input even from our own server, because it becomes a path
+    /// component the moment it is saved. So anything with a separator in it is cut to its
+    /// last component, and a name that is empty, or only dots, after that is refused.
+    static func filename(fromContentDisposition header: String?) -> String? {
+        guard let header else { return nil }
+        for parameter in header.split(separator: ";") {
+            let pair = parameter.split(separator: "=", maxSplits: 1)
+            guard pair.count == 2,
+                  pair[0].trimmingCharacters(in: .whitespaces).lowercased() == "filename"
+            else { continue }
+            var value = pair[1].trimmingCharacters(in: .whitespaces)
+            if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") {
+                value = String(value.dropFirst().dropLast())
+            }
+            let name = value
+                .split(whereSeparator: { $0 == "/" || $0 == "\\" })
+                .last
+                .map(String.init)?
+                .trimmingCharacters(in: .whitespaces)
+            guard let name, !name.isEmpty, name.contains(where: { $0 != "." }) else { return nil }
+            return name
+        }
+        return nil
+    }
+
     /// `Retry-After` as an instant, or `nil`.
     ///
     /// Only the delay-seconds form is read. RFC 9110 also allows an HTTP-date, which #5
@@ -196,6 +257,14 @@ struct APIClient: Sendable {
         else { return nil }
         return now.addingTimeInterval(seconds)
     }
+}
+
+/// A response body taken as bytes, with the file name the server attached to it.
+struct APIDownload: Sendable {
+    let data: Data
+    /// From `Content-Disposition`, already reduced to a single safe path component. `nil`
+    /// when the server named nothing usable.
+    let filename: String?
 }
 
 private struct APIFailure: Decodable {
