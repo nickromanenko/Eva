@@ -35,11 +35,12 @@ import SwiftUI
 /// arrives after the account is gone is a request against an account that no longer
 /// exists.
 ///
-/// The file goes through `.fileExporter`, not a share sheet: the export is the user's
-/// entire health record, and the exporter's one destination — a place the user picks in
-/// Files — is the least surprising thing to do with it. The bytes stay in memory until
-/// the exporter writes them and are dropped as soon as it finishes or is dismissed, so
-/// Eva leaves no temporary copy behind (`EvaDataExport`).
+/// The file goes to the system's save-to-Files sheet, not a share sheet: the export is
+/// the user's entire health record, and one destination the user picks is the least
+/// surprising thing to do with it. The app writes the one copy itself, protected, and the
+/// sheet *moves* it; the staging directory is removed when the sheet goes, whatever
+/// happened in it. `EvaDataExport` says why this is not `.fileExporter` — which was
+/// measured leaving a copy in `tmp/`.
 ///
 /// **The card's inks are §2's Success tokens.** The artboard draws it
 /// `rgba(205,231,157,.26)` / `rgba(142,173,86,.3)` / `#5C7434`; the tint is
@@ -92,9 +93,11 @@ struct DeleteAccountModal: View {
 
     @State private var exportErrorMessage: String?
     @State private var isExporting = false
-    /// The fetched export, held only between the response and the exporter finishing.
-    @State private var export: EvaDataExport?
-    @State private var isExporterPresented = false
+    /// The staged file while the save sheet is up. The bytes themselves are not held:
+    /// once written, the file is the only copy.
+    @State private var stagedExport: StagedExport?
+    /// What `onDismiss` cleans up: by the time it runs, `stagedExport` is already `nil`.
+    @State private var lastStaged: URL?
     @State private var exportTask: Task<Void, Never>?
 
     @FocusState private var isFieldFocused: Bool
@@ -139,17 +142,20 @@ struct DeleteAccountModal: View {
                 .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .fileExporter(
-            isPresented: $isExporterPresented,
-            item: export,
-            contentTypes: [.json],
-            defaultFilename: export?.filename,
-            onCompletion: exportFinished,
-            onCancellation: { export = nil }
-        )
+        // `onDismiss` rather than the picker's callbacks, so the staged copy goes however
+        // the sheet does — saved, cancelled, or swept away with the modal.
+        .sheet(item: $stagedExport, onDismiss: discardStagedExport) { staged in
+            EvaFileExportPicker(file: staged.file) { _ in stagedExport = nil }
+                .ignoresSafeArea()
+        }
         // Cancel tears the modal down with a request possibly still open. Its answer would
         // land on a view that is gone; cancelling it is cheaper than letting it arrive.
-        .onDisappear { exportTask?.cancel() }
+        // The staging directory goes too, in case the modal is torn down some way that
+        // skips the sheet's `onDismiss`.
+        .onDisappear {
+            exportTask?.cancel()
+            discardStagedExport()
+        }
     }
 
     // MARK: - The card
@@ -362,8 +368,13 @@ struct DeleteAccountModal: View {
             do {
                 let fetched = try await session.exportData()
                 guard !Task.isCancelled else { return }
-                export = fetched
-                isExporterPresented = true
+                do {
+                    let file = try fetched.stage()
+                    lastStaged = file
+                    stagedExport = StagedExport(file: file)
+                } catch {
+                    exportErrorMessage = "Eva couldn't save your file on this iPhone. Try again."
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 exportErrorMessage = Self.exportFailureMessage(for: error)
@@ -371,12 +382,12 @@ struct DeleteAccountModal: View {
         }
     }
 
-    /// Whatever the outcome, the bytes are released here: once the exporter has written
-    /// the file — or failed to — there is no reason for the record to stay in memory.
-    private func exportFinished(_ result: Result<URL, any Error>) {
-        export = nil
-        if case .failure = result {
-            exportErrorMessage = "Your export wasn't saved. Try again."
+    /// Removes the staging directory. After a save the file has already been moved out
+    /// and this takes the empty directory; after a cancel it takes the file too.
+    private func discardStagedExport() {
+        if let lastStaged {
+            EvaDataExport.discard(lastStaged)
+            self.lastStaged = nil
         }
     }
 
@@ -436,6 +447,12 @@ struct DeleteAccountModal: View {
             }
         }
     }
+}
+
+/// One staged export, as the `.sheet(item:)` that presents the save sheet needs it.
+private struct StagedExport: Identifiable {
+    let file: URL
+    var id: URL { file }
 }
 
 /// The artboard's elevated modal surface, which has no named expression yet.

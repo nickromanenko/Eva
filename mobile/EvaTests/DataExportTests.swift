@@ -87,6 +87,49 @@ extension SessionExpiryTests {
             )
         }
 
+        /// Through the session, not just the client: the export is inside `authorized(_:)`,
+        /// so a dead token on it signs out and clears the Keychain like any other call.
+        @Test("a 401 through session.exportData() ends the session")
+        @MainActor
+        func unauthorizedThroughSessionSignsOut() async {
+            let store = KeychainTokenStore.shared
+            store.clear()
+            store.save("a-live-looking-token")
+            defer { store.clear() }
+            let session = AppSession(
+                client: APIClient(
+                    baseURL: EvaStubURLProtocol.baseURL,
+                    token: { KeychainTokenStore.shared.token }
+                ),
+                tokenStore: store
+            )
+            EvaStubURLProtocol.stub(status: 200, body: ClientMapping.user)
+            await session.bootstrap()
+            guard case .ready = session.state else {
+                Issue.record("The fixture never got signed in (\(session.state)), so nothing below means anything")
+                return
+            }
+
+            EvaStubURLProtocol.stub(
+                status: 401,
+                body: #"{"error":{"code":"UNAUTHORIZED","message":"Missing or invalid token"}}"#
+            )
+            do {
+                _ = try await session.exportData()
+                Issue.record("A 401 was returned as a file")
+            } catch APIError.sessionExpired {
+                // Expected.
+            } catch {
+                Issue.record("Threw \(error), not .sessionExpired")
+            }
+
+            #expect(EvaStubURLProtocol.lastAuthorization == "Bearer a-live-looking-token")
+            if case .signedOut = session.state {} else {
+                Issue.record("A 401 on the export left the app in \(session.state)")
+            }
+            #expect(store.token == nil, "A dead token was left in the Keychain")
+        }
+
         @Test("a 429 is .rateLimited with its window, like every other route")
         func rateLimited() async {
             EvaStubURLProtocol.stub(
@@ -230,5 +273,61 @@ struct DataExportFailureMessageTests {
             DeleteAccountModal.exportFailureMessage(for: APIError.network)
                 == APIError.network.localizedDescription
         )
+    }
+}
+
+/// The one copy of the export that ever touches this device's disk (#58): the app writes
+/// it, protected, into a directory of its own, and removes that directory afterwards.
+/// `.fileExporter` was measured leaving its own copy in `tmp/`, which is why
+/// this exists at all — see `EvaDataExport`.
+@Suite("Issue #58 · the staged export file")
+struct DataExportStagingTests {
+
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "DataExportStagingTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+
+    @Test("it is written under the server's name, byte for byte, with complete protection")
+    func writesProtectedFile() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let export = EvaDataExport(data: Data(exportBody.utf8), serverFilename: serverFilename)
+
+        let file = try export.stage(in: root)
+
+        #expect(file.lastPathComponent == serverFilename)
+        #expect(try Data(contentsOf: file) == Data(exportBody.utf8))
+        let protection = try FileManager.default.attributesOfItem(atPath: file.path)[.protectionKey]
+            as? FileProtectionType
+        // The simulator does not always report a protection class; a device does. What it
+        // must never report is a weaker one.
+        if let protection {
+            #expect(protection == .complete)
+        }
+    }
+
+    @Test("two exports on the same day do not collide")
+    func separateDirectories() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let export = EvaDataExport(data: Data(exportBody.utf8), serverFilename: serverFilename)
+
+        let first = try export.stage(in: root)
+        let second = try export.stage(in: root)
+
+        #expect(first != second)
+        #expect(first.lastPathComponent == second.lastPathComponent)
+    }
+
+    @Test("discard removes the file and its directory, and is safe to repeat")
+    func discardRemovesEverything() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = try EvaDataExport(data: Data(exportBody.utf8), serverFilename: serverFilename)
+            .stage(in: root)
+
+        EvaDataExport.discard(file)
+        EvaDataExport.discard(file)
+
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(!FileManager.default.fileExists(atPath: file.deletingLastPathComponent().path))
+        // Nothing else under the root was touched, and nothing was left in it.
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
     }
 }
