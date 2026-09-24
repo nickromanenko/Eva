@@ -905,9 +905,12 @@ equality is why Firebase merged — so the account's address and the credential'
 thing exactly where #119 needs them to be. They differ for a `sub` that was already linked:
 Apple's relay on a password account (`POST /me/auth/providers`, the only route Hide My Email
 users have into an existing account) or an Apple ID whose address changed. Firebase neither
-merges nor rewrites the account's address there — observed in the Auth emulator's
-`signInWithIdp`, which applies no account update when it resolves by provider — so comparing
-with the claim would lock those users out on every sign-in. `/auth/idp` therefore reads the
+merges nor rewrites the account's address there, so comparing with the claim would lock those
+users out on every sign-in. **That is verified against the Auth emulator only** — its
+`signInWithIdp` applies no account update when it resolves by provider — **not against the
+real project**, where no test can obtain a real provider token. If production ever did
+rewrite the account's address on a linked sign-in, those users would be refused here, and a
+device test with a linked relay is how to find out. `/auth/idp` therefore reads the
 Auth account (`addressOfAuthAccount`, one Admin read per provider sign-in) and compares
 the document with that.
 
@@ -915,14 +918,24 @@ Where it is enforced, which is every route that mints:
 
 | Route | Compared | Refusal |
 |---|---|---|
-| `POST /auth/idp` | document vs. the Auth account's address, **before** the claim writes anything | `401 INVALID_CREDENTIALS`, logged as `provider_signin_refused` with `stage: "address"` |
+| `POST /auth/idp` | document vs. the Auth account's address; with **no document yet**, the credential's claim vs. the Auth account's address. Both before the claim writes anything | `401 INVALID_CREDENTIALS`, logged as `provider_signin_refused` with `stage: "address"` |
 | `POST /auth/password/reset` | document vs. the link's address, which #140 has already required to be the Auth account's | `400 INVALID_TOKEN`, before the bump and the password write |
-| `POST /auth/signin` | document vs. the address Identity Toolkit matched the password on | `401 INVALID_CREDENTIALS`, byte-identical to a wrong password and inside the floor |
+| `POST /auth/signin` | document vs. the address Identity Toolkit matched the password on, read **before** `ensureUser` writes | `401 INVALID_CREDENTIALS`, byte-identical to a wrong password and inside the floor |
 
-`/auth/activate` mints nothing and is not on the list. A new document is written with the
-Auth account's address rather than the claim, and `/auth/idp`'s token carries the
-document's address, so the token and `GET /me` agree (the mismatch between them is how #119
-was noticed).
+`/auth/activate` mints nothing and is not on the list.
+
+**The first sign-in is checked too, or the attack runs in the other order.** Without it: make
+an Auth account with one's own Apple identity at Firebase directly, repoint its address at a
+victim, and call `/auth/idp` first — the document is born naming the victim, activated, and
+the victim's later merge passes the comparison above. So with no document, the credential's
+claim must equal the Auth account's address before one is written. On a fresh provider
+account Firebase copied the claim onto the account, so they agree; a returning Apple user
+whose token carries no address gets the account's own address from `signInWithIdp`, so they
+agree there too. Only an address moved out of band separates them. (The claim's own address
+test also refuses the literal case — a moved address clears `emailVerified` — but that rests
+on the flag, and this does not.) The document is then written with the Auth account's
+address, and `/auth/idp`'s token carries the document's, so the token and `GET /me` agree
+(the mismatch between them is how #119 was noticed).
 
 Case and surrounding whitespace are not a difference — Firebase stores addresses lower-cased,
 and a document written before `normalizeEmail` may not be — and an absent address on either

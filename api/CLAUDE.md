@@ -296,7 +296,9 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   `/auth/password/reset` and `/auth/signin` each refuse with the answer they already give a
   bad credential. `/auth/idp` compares with the Auth account (`addressOfAuthAccount`), never
   with `signInWithIdp`'s `email` — that is the provider's claim, and it legitimately differs
-  for a linked relay. Refuse, never refresh. ARCHITECTURE §3 has the reasoning and the cost.
+  for a linked relay — except on a first sign-in, where there is no document and the claim
+  must equal the Auth address before one is written. Every check reads before anything is
+  written. Refuse, never refresh. ARCHITECTURE §3 has the reasoning and the cost.
 - **A password reset ends every other session (#76).** `POST /auth/password/reset` bumps
   `tokenVersion` **before** `setPassword`, deliberately: bump-then-fail signs everyone out
   and leaves the old password working, set-then-fail changes the password and leaves the

@@ -11,6 +11,7 @@ import {
 } from 'bun:test'
 import { mintToken } from '../src/auth'
 import { config } from '../src/config'
+import { FieldValue } from 'firebase-admin/firestore'
 import { adminAuth, firestore } from '../src/firebase'
 import { resetAuthRateLimits } from '../src/rate-limit'
 import { issueToken } from '../src/email-tokens'
@@ -1503,6 +1504,7 @@ describe("a document whose address is not the account's is never handed out (#11
       const { uid, original, moved } = await repointed()
       // Firebase resolved the credential by address, so its claim *is* the new address.
       idp = async () => ({ localId: uid, email: moved })
+      const before = (await firestore.collection('users').doc(uid).get()).data()!
 
       const logged: string[] = []
       const spy = spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
@@ -1528,6 +1530,9 @@ describe("a document whose address is not the account's is never handed out (#11
       const doc = (await firestore.collection('users').doc(uid).get()).data()!
       expect(doc.email).toBe(original)
       expect(doc.authProviders).toEqual([PROVIDER_IDS.apple])
+      // Not touched at all — `ensureUser` would have bumped this, `markActivated` restamped.
+      expect(doc.updatedAt.toMillis()).toBe(before.updatedAt.toMillis())
+      expect(doc.activatedAt.toMillis()).toBe(before.activatedAt.toMillis())
     },
     SLOW,
   )
@@ -1580,12 +1585,63 @@ describe("a document whose address is not the account's is never handed out (#11
     SLOW,
   )
 
+  /** Captures `console.error` around one request, so a test can say which refusal fired. */
+  const refusalStages = async (request: () => Promise<Answer>): Promise<[Answer, unknown[]]> => {
+    const logged: string[] = []
+    const spy = spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(args.map(String).join(' '))
+    })
+    try {
+      const res = await request()
+      return [res, logged.map((l) => JSON.parse(l).stage)]
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
   test(
-    'a new document takes the Auth address, not the provider claim',
+    'the reordered attack: an account repointed before its first Eva sign-in gets no document',
     async () => {
-      // So the rule is true of a document from its first write. The claim and the account
-      // can differ here only for an identity attached out of band, but a document written
-      // with the claim would then be refused on its owner's very next sign-in.
+      // The attacker goes first. An Auth account made with their own Apple identity at
+      // Firebase directly — verified, as a fresh provider account is — then repointed at a
+      // victim with `accounts:update`, which clears `emailVerified`. Signing in here next
+      // used to write the document with the victim's address, activated, so the victim's
+      // later merge passed every comparison. Refused, and nothing is written.
+      //
+      // Two layers refuse this today: the address check, and behind it the claim's own
+      // address test (the account is unverified and the Apple entry carries the old
+      // address). The stage pins that the first one is what answered.
+      const original = newEmail()
+      const uid = await createAuthUser(original)
+      await attachProvider(uid, PROVIDER_IDS.apple, original)
+      const victim = newEmail()
+      await adminAuth.updateUser(uid, { email: victim, emailVerified: false })
+      // Firebase resolves the attacker's `sub`; the claim is their token's own address.
+      idp = async () => ({ localId: uid, email: original })
+
+      const [res, stages] = await refusalStages(() => post('/auth/idp', appleBody()))
+
+      expect(res.status).toBe(401)
+      expect(res.body.error.code).toBe('INVALID_CREDENTIALS')
+      expect(res.body.token).toBeUndefined()
+      expect(stages).toEqual(['address'])
+      expect((await firestore.collection('users').doc(uid).get()).exists).toBe(false)
+      expect(await accountsForEmail(victim)).toEqual([])
+      // Nothing claimed either: the attacker's identity is still where they put it.
+      expect((await adminAuth.getUser(uid)).providerData.map((p) => p.providerId)).toEqual([
+        PROVIDER_IDS.apple,
+      ])
+    },
+    SLOW,
+  )
+
+  test(
+    'a first sign-in whose claim is not the Auth address is refused even on a verified account',
+    async () => {
+      // The case the claim does *not* catch, because it only tests an unverified address:
+      // the same divergence on an account Firebase considers verified. Not reachable
+      // through `accounts:update` today (moving an address clears the flag), which is
+      // exactly why the check cannot lean on that flag.
       const email = newEmail()
       const uid = await createAuthUser(email)
       const other = newEmail()
@@ -1594,11 +1650,65 @@ describe("a document whose address is not the account's is never handed out (#11
         return { localId: uid, email: other }
       }
 
+      const [res, stages] = await refusalStages(() => post('/auth/idp', appleBody()))
+
+      expect(res.status).toBe(401)
+      expect(res.body.token).toBeUndefined()
+      expect(stages).toEqual(['address'])
+      expect((await firestore.collection('users').doc(uid).get()).exists).toBe(false)
+      expect(await activatedAt(uid)).toBeUndefined()
+    },
+    SLOW,
+  )
+
+  test(
+    'a returning Apple user whose token carries no address still gets a first document',
+    async () => {
+      // The route half of it. `signInWithIdp` fills an absent claim from the Auth account —
+      // "a second sign-in resolves the account even when the provider sends no address"
+      // drives the real client through that — so what reaches the route is the account's
+      // address, and the new-document check compares it with itself.
+      const email = newEmail()
+      const uid = await createAuthUser(email)
+      idp = async (credential) => {
+        await resolveTo(uid, email)(credential)
+        return { localId: uid, email: (await adminAuth.getUser(uid)).email! }
+      }
+
       const res = await post('/auth/idp', appleBody())
 
       expect(res.status).toBe(200)
       expect(res.body.user.email).toBe(email)
-      expect(await accountsForEmail(email)).toEqual([uid])
+    },
+    SLOW,
+  )
+
+  test(
+    'a document with no address at all is a difference, not a match',
+    async () => {
+      // Nothing Eva writes lacks one, so an absent address says nothing about whose the
+      // document is — and "cannot tell" is refused, not waved through.
+      const email = newEmail()
+      const uid = await createAuthUser(email)
+      idp = resolveTo(uid, email)
+      expect((await post('/auth/idp', appleBody())).status).toBe(200)
+      await firestore.collection('users').doc(uid).update({ email: FieldValue.delete() })
+
+      const res = await post('/auth/idp', appleBody())
+
+      expect(res.status).toBe(401)
+      expect(res.body.token).toBeUndefined()
+
+      // And the other side: an Auth account with no address, reached for the first time
+      // with a claim that has one. No document is born from the claim alone.
+      const { uid: bare } = await adminAuth.createUser({})
+      createdUids.push(bare)
+      idp = async () => ({ localId: bare, email: newEmail() })
+
+      const first = await post('/auth/idp', appleBody())
+
+      expect(first.status).toBe(401)
+      expect((await firestore.collection('users').doc(bare).get()).exists).toBe(false)
     },
     SLOW,
   )
@@ -1622,9 +1732,13 @@ describe("a document whose address is not the account's is never handed out (#11
       expect(res.status).toBe(400)
       expect(res.body.error.code).toBe('INVALID_TOKEN')
       expect(res.body.token).toBeUndefined()
-      // Nothing written: the old password still opens it, and it is still not activated.
+      // Nothing written: the old password still opens it, it is still not activated, and
+      // no session generation was spent — the bump comes after this refusal.
       expect(await passwordStillWorks(moved, PASSWORD)).toBe(true)
       expect(await activatedAt(uid)).toBeNull()
+      expect(
+        (await firestore.collection('users').doc(uid).get()).get('tokenVersion'),
+      ).toBeUndefined()
     },
     SLOW,
   )
@@ -1636,6 +1750,7 @@ describe("a document whose address is not the account's is never handed out (#11
       // boundary is faked for the reason `passwordSignIn` gives; the document is real.
       const { uid, moved } = await repointed()
       passwordSignIn = async () => ({ localId: uid, email: moved })
+      const before = (await firestore.collection('users').doc(uid).get()).data()!
 
       const res = await post('/auth/signin', { email: moved, password: PASSWORD })
 
@@ -1645,6 +1760,10 @@ describe("a document whose address is not the account's is never handed out (#11
         message: 'Wrong email or password',
       })
       expect(res.body.token).toBeUndefined()
+      // Read before written: no `password` unioned in, no `updatedAt` bumped.
+      const after = (await firestore.collection('users').doc(uid).get()).data()!
+      expect(after.authProviders).toEqual(before.authProviders)
+      expect(after.updatedAt.toMillis()).toBe(before.updatedAt.toMillis())
     },
     SLOW,
   )
@@ -2254,20 +2373,58 @@ describe('POST /me/auth/providers — linking is deliberate, and never a merge',
  * budget has to bound that and still leave the retry, and deletion's idempotence, alone.
  */
 describe('DELETE /me is throttled per account, and a retry still deletes (#119)', () => {
-  test('one token replayed past the budget is 429, and another account is unaffected', async () => {
+  test('past the budget the refusal comes before any write or Apple call, and is per account', async () => {
     const budget = config.rateLimit.deletePerAccount
     expect(budget).toBeGreaterThan(0)
-    // A uid with nothing behind it: the replay the issue describes, of a token whose
-    // account is already gone. Each call still walks every step, idempotently.
-    const replayed = await mintToken(`delete-replay-${crypto.randomUUID()}`, newEmail(), 0)
+    // The replay the issue describes: one token, over and over. Spent against a uid
+    // chosen here and with nothing behind it yet, so the budget can be exhausted without
+    // deleting the account the refused request is then aimed at — each call still walks
+    // every step, idempotently, over nothing.
+    const uid = `delete-replay-${crypto.randomUUID()}`
+    const email = newEmail()
+    const token = await mintToken(uid, email, 0)
     for (let i = 0; i < budget; i++) {
-      expect((await send('DELETE', '/me', {}, bearer(replayed))).status).toBe(200)
+      expect((await send('DELETE', '/me', {}, bearer(token))).status).toBe(200)
     }
 
-    const refused = await send('DELETE', '/me', {}, bearer(replayed))
+    // Now there is an account behind that uid, and a request carrying an Apple code.
+    await adminAuth.createUser({ uid, email, password: PASSWORD })
+    createdUids.push(uid)
+    await firestore
+      .collection('users')
+      .doc(uid)
+      .set({
+        email,
+        authProviders: ['password'],
+        questionnaireCompleted: false,
+        profile: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+    let revocations = 0
+    revokeAppleToken = async () => {
+      revocations += 1
+      return { ok: true, stage: 'revoked', upstreamStatus: null }
+    }
+
+    const refused = await send(
+      'DELETE',
+      '/me',
+      { appleAuthorizationCode: 'a-fresh-apple-code' },
+      bearer(token),
+    )
+
     expect(refused.status).toBe(429)
     expect(refused.body.error.code).toBe('RATE_LIMITED')
-    expect(refused.headers).toContain('retry-after')
+    expect(refused.headers).toContain(
+      JSON.stringify(['retry-after', String(config.rateLimit.windowSeconds)]),
+    )
+    // Refused before anything: no call to Apple, no tombstone, the Auth user still there.
+    expect(revocations).toBe(0)
+    const doc = await firestore.collection('users').doc(uid).get()
+    expect(doc.exists).toBe(true)
+    expect(doc.get('deletedAt')).toBeUndefined()
+    expect((await adminAuth.getUser(uid)).uid).toBe(uid)
 
     // Per account, not per caller: the same client deleting a different account is not
     // refused, so nobody can spend a budget that is not theirs.
@@ -2282,10 +2439,20 @@ describe('DELETE /me is throttled per account, and a retry still deletes (#119)'
       const uid = await trackedUnactivatedAccount(email)
       const token = await mintToken(uid, email, 0)
 
-      expect((await send('DELETE', '/me', {}, bearer(token))).status).toBe(200)
+      // No body at all — the documented "no Apple code" case — is still `{}` to the route
+      // (#119 moved the parse, and must not have made the optional body required).
+      expect((await send('DELETE', '/me', undefined, bearer(token))).status).toBe(200)
       expect(await getUser(uid)).toBeNull()
-      // The client retrying an answer it never saw.
-      expect((await send('DELETE', '/me', {}, bearer(token))).status).toBe(200)
+      // The client retrying an answer it never saw, with a body that is not JSON at all:
+      // unparseable is `{}` too, not the non-object refusal.
+      const retry = await server.fetch(
+        new Request('http://api.test/me', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json', ...bearer(token) },
+          body: '{not json',
+        }),
+      )
+      expect(retry.status).toBe(200)
     },
     SLOW,
   )

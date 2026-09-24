@@ -632,6 +632,17 @@ app.post('/auth/signin', async (c) => {
   return atLeast(SIGNIN_FLOOR_MS, async () => {
     try {
       const { localId } = await signInWithPassword(email, password)
+      // A document whose address is not the one this password answers to is somebody
+      // else's (#119, `sameAddress`): Identity Toolkit matched `email` against the Auth
+      // account's *current* address, which can have moved since the document was written.
+      // A **read** first, as `/auth/idp` does, because `ensureUser` writes — a refused
+      // sign-in must leave the document exactly as it was. Same answer as a wrong
+      // password, and inside the floor, so it says nothing more. One extra read on a
+      // path whose success already sits well above the floor.
+      const existing = await readUser(localId)
+      if (existing.user && !sameAddress(existing.user.email, email)) {
+        return c.json(error('INVALID_CREDENTIALS', 'Wrong email or password'), 401)
+      }
       // Self-healing: also the attach point for future providers (same uid → same doc).
       // The account's token generation comes back with it (#76), off the snapshot
       // `ensureUser` already read, so this mints at the current one without asking.
@@ -641,12 +652,7 @@ app.post('/auth/signin', async (c) => {
       // otherwise walk an account back out of its own deletion. Answered as a failed
       // sign-in — the same answer a wrong password gets, which is also the honest one,
       // because the account those credentials named is gone.
-      //
-      // A document whose address is not the one this password answers to is somebody
-      // else's (#119, `sameAddress`): Identity Toolkit matched `email` against the Auth
-      // account's *current* address, which can have moved since the document was written.
-      // Same answer as a wrong password, and inside the floor, so it says nothing more.
-      if (!account || !sameAddress(account.user.email, email)) {
+      if (!account) {
         return c.json(error('INVALID_CREDENTIALS', 'Wrong email or password'), 401)
       }
       const user = account.user
@@ -1449,10 +1455,17 @@ app.post('/auth/idp', async (c) => {
     //   token claim differs from the document and always will, so comparing against the
     //   claim would lock out exactly the returning users the link route exists for.
     //
-    // A new document is written with this address too, not the claim, so the rule stays
-    // true of every document from its first write.
+    // **With no document yet, the claim is the only witness, so it has to agree too.**
+    // Otherwise the same attack runs in the other order: create an Auth account with
+    // one's own Apple identity at Firebase directly, repoint its address at a victim, and
+    // sign in here first — the document would be born naming the victim, activated, and
+    // pass the comparison above on the victim's later merge. On a fresh provider account
+    // Firebase copied the claim onto the account, so the two agree; a returning Apple
+    // user whose token carries no address gets the account's address from
+    // `signInWithIdp` itself, so they agree there too. Only an address moved out of band
+    // separates them. Both checks run before the claim below, so a refusal writes nothing.
     const { address } = await addressOfAuthAccount(localId)
-    if (existing.user && !sameAddress(existing.user.email, address)) {
+    if (!sameAddress(existing.user ? existing.user.email : email, address)) {
       return refuseProvider(c, 'idp', 'address')
     }
     // An unactivated account is one nobody has proven they own, and #6 creates it

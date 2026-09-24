@@ -159,6 +159,12 @@ mock.module('../src/users', () => ({
   // along. Without it here the gate calls the real Firestore and the mocked outage below
   // never reaches the handler it is supposed to be testing.
   getAccount: async () => (userStore ?? unset('users.getAccount'))(),
+  // `/auth/signin` reads before it writes since #119, through the same seam: the account
+  // `userStore` names, or its throw.
+  readUser: async () => ({
+    deleted: false,
+    user: ((userStore ?? unset('users.readUser'))() as { user: unknown }).user,
+  }),
 }))
 
 mock.module('../src/events', () => ({
@@ -823,4 +829,32 @@ describe('a JSON body that is not an object is a 400, never a 500 (#119)', () =>
       FAST,
     )
   }
+})
+
+describe('a body that is absent or not JSON is still `{}` to the route (#119)', () => {
+  test(
+    "each route's own validation answers, in its own words",
+    async () => {
+      // The other half of `readBody`: only *valid* JSON that is not an object is the
+      // non-object refusal. Missing and unparseable bodies reach the route as `{}`, so the
+      // message is the route's, not the shared one.
+      for (const body of [undefined, '{not json']) {
+        const res = await server.fetch(
+          new Request('http://api.test/auth/idp', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body,
+          }),
+        )
+        const answer = (await res.json()) as Answer['body']
+        expect(res.status).toBe(400)
+        expect(answer.error).toEqual({
+          code: 'VALIDATION',
+          message: "provider must be 'apple' or 'google'",
+        })
+      }
+      expect(logged).toEqual([])
+    },
+    FAST,
+  )
 })
