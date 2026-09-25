@@ -38,7 +38,7 @@ done < <(git ls-files -- '*.p8' 'AuthKey_*' 2>/dev/null)
 # path that is already tracked.
 while IFS= read -r f; do
   [ -z "$f" ] && continue
-  report "$f" "the local key directory (or a link to it) must never be committed"
+  report "$f" "the local key directory (or a link to it) must never be committed — check whether it holds key material or only a link before rotating anything"
 done < <(git ls-files -- '.secrets' '*/.secrets' '.secrets/*' '*/.secrets/*' 2>/dev/null)
 
 # Content. `git grep` searches tracked files only, which is the set that matters.
