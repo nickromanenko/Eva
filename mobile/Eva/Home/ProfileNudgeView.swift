@@ -58,6 +58,10 @@ struct ProfileNudgeView: View {
         }
         .padding(EvaSpacing.md)
         .evaCardSurface()
+        // `.contain` first: an identifier on a plain stack is stamped onto every child and
+        // overwrites theirs, which left `nudge.dismiss` and `text.Add details` reading as
+        // `nudge.profile` and unreachable by identifier (GUARDRAILS 22).
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("nudge.profile")
     }
 }
