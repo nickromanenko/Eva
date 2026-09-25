@@ -390,7 +390,13 @@ watching. `APPLE_SIGNIN_KEY` is in Secret Manager and cannot be checked from tha
   returning-user path.
 - **Testing.** Sign in with Apple needs a real device and a real Apple ID; the simulator
   cannot complete it. So the UI-test suite cannot drive the Apple path, the way #6 could
-  not drive a mailbox. #7 will say what stands in for it rather than pretend otherwise.
+  not drive a mailbox. What stands in for it (#118): `AppleSignInNonceTests` pins which
+  nonce goes to Apple and which to the API — the one part of the app's half that can be
+  swapped and still compile — and `ProviderSignInUITests` covers the buttons, Profile's
+  connected rows and the delete modal's Apple note without tapping through to Apple. For
+  the Apple-connected half, the UI-test mailbox's `POST /link-apple` attaches a placeholder
+  `apple.com` identity through the Admin SDK: real to `GET /me`, useless to Apple. The
+  sheet, the token and the server's nonce check remain device-only.
 - **App Store policy.** Offering Google sign-in obliges the app to offer Sign in with
   Apple too. Both ship together in #7, so this is satisfied by construction — but it is
   the reason neither can ship alone.

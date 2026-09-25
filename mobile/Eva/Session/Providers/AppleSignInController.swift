@@ -10,7 +10,8 @@ import UIKit
 /// beside the `identityToken`. Apple copies the hash it was given into the token's
 /// `nonce` claim, so the API can prove the token was minted for the request the app just
 /// made. Send the hash to the API instead and the check becomes "this hash equals this
-/// hash", which any replayed token also passes.
+/// hash", which any replayed token also passes. `AppleSignInNonce` owns that pairing, so
+/// this file never handles either string.
 ///
 /// ## Cancelling is not an error
 ///
@@ -43,17 +44,19 @@ final class AppleSignInController {
     /// this returns. The full name is not, and Eva has no field for a name today, so
     /// nothing is lost by leaving `.fullName` out of the request entirely.
     func signIn() async throws -> ProviderCredential? {
-        let rawNonce = AuthCrypto.rawNonce()
+        // The pair, not two strings: which one goes where is `AppleSignInNonce`'s to
+        // decide, and it is tested there (#118).
+        let nonce = AppleSignInNonce()
         let request = ASAuthorizationAppleIDProvider().createRequest()
         request.requestedScopes = [.email]
-        request.nonce = AuthCrypto.sha256Hex(rawNonce)
+        nonce.configure(request)
 
         guard let credential = try await authorize(request) else { return nil }
         guard let token = credential.identityToken,
               let identityToken = String(data: token, encoding: .utf8) else {
             throw ProviderSignInError.malformedProviderResponse
         }
-        return .apple(identityToken: identityToken, rawNonce: rawNonce)
+        return nonce.credential(identityToken: identityToken)
     }
 
     /// A fresh `authorizationCode`, for the one thing an Eva JWT cannot buy: revoking
