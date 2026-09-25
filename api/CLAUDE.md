@@ -202,7 +202,7 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
     data moved after it was built; new copy in `content/` is deliberately not such a change.
     The comparison is against a stored `dataChangedAt`, not against `generatedAt` — see
     ARCHITECTURE §4 for why that distinction is the whole rule.
-  - **The cache write is a transaction that reads the account first (#286).** A card is her
+  - **The cache write is a transaction that also reads the account (#286).** A card is her
     data in prose, so one written after `DELETE /me` swept `today/` is an orphan like any
     event. `AccountGoneError` from it is deliberately not re-exported with the 503 refusals:
     `app.onError` answers it, once, for every writer.
@@ -305,7 +305,7 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   **the hide-numbers preference's only home**: #252's `users/{uid}.nutritionQualitativeOnly`
   and `PUT /me/nutrition-settings` were retired by #283, and a value still stored on a user
   document is dormant — never read, never written, never deleted (a human call). Deleted by
-  `DELETE /me` before the user document, and the PATCH's transaction reads the account first
+  `DELETE /me` before the user document, and the PATCH's transaction also reads the account
   (`assertAccountLive`, #286) so a racing save cannot recreate it after that sweep. Logs
   nothing. `lastNutritionProfileChangeAt` is `today.ts`'s regeneration signal (#102): the
   banner rail ranks by a finished setup's focus areas, so saving the profile is new data for

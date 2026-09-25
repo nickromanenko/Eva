@@ -796,7 +796,7 @@ export const getToday = async (
     card,
     banners,
   }
-  // **In a transaction that reads the account first (#286).** A cache, but not a harmless
+  // **In a transaction that also reads the account (#286).** A cache, but not a harmless
   // one: the card is her logged data written out as prose, built from inputs read while the
   // account was live. Written after `DELETE /me` swept `today/`, it would be the one readable
   // summary of a deleted account, stranded where nothing deletes it. Refused, it throws

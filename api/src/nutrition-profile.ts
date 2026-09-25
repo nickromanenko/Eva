@@ -360,7 +360,7 @@ export type SaveNutritionProfileResult =
  * stored, in a transaction — so two devices answering different steps cannot each pass a
  * check the other then breaks. Nothing is written when the answer is a refusal.
  *
- * **The same transaction reads the account first** (#286, `assertAccountLive`): the first
+ * **The same transaction also reads the account** (#286, `assertAccountLive`): the first
  * write *creates* this document, so a PATCH that passed the account gate just before
  * `DELETE /me` could otherwise land after `deleteNutritionProfile` and leave a goal and a
  * target weight under a deleted account. It throws `AccountGoneError` instead.
