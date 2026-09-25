@@ -1,5 +1,8 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { mintToken } from '../src/auth'
+import { config } from '../src/config'
 import { TOKEN_LENGTH } from '../src/email-tokens'
 import { IdentityToolkitError } from '../src/identity-toolkit'
 import { resetAuthRateLimits } from '../src/rate-limit'
@@ -334,4 +337,59 @@ describe('the error path carries no-store too', () => {
     },
     FAST,
   )
+})
+
+describe('the middleware order around the link routes', () => {
+  test(
+    'a CORS preflight on /auth/activate is allowed and still no-store',
+    async () => {
+      // `webCors` answers a preflight itself and never calls `next()`, so anything registered
+      // *after* it is skipped for this response. This pins `noStoreByDefault` ahead of it.
+      const res = await server.fetch(
+        new Request('http://api.test/auth/activate', {
+          method: 'OPTIONS',
+          headers: {
+            origin: config.publicWebOrigin,
+            'access-control-request-method': 'POST',
+            'access-control-request-headers': 'content-type',
+          },
+        }),
+      )
+      expect(res.status).toBe(204)
+      expect(res.headers.get('access-control-allow-origin')).toBe(config.publicWebOrigin)
+      expectNoStore(res)
+    },
+    FAST,
+  )
+})
+
+describe('who sets Cache-Control', () => {
+  /**
+   * Every line of `src/` that names the header, attributed to the route or `const` it sits
+   * under. The default is `noStoreByDefault`'s; a route opting out of it is a decision — a
+   * fourth one (an `ETag` on `/me`, say) has to be added to this list on purpose, not
+   * slipped in beside a handler. Comments are skipped: prose may mention the header freely.
+   */
+  test('only noStoreByDefault, /content, /refdata and /me/export', async () => {
+    const dir = join(import.meta.dir, '../src')
+    const owners = new Set<string>()
+    for (const file of (await readdir(dir, { recursive: true })).filter((f) => f.endsWith('.ts'))) {
+      let owner = `${file} (top level)`
+      for (const line of (await Bun.file(join(dir, file)).text()).split('\n')) {
+        const route = line.match(/^app\.(get|post|put|patch|delete)\(\s*'([^']+)'/)
+        const named = line.match(/^(?:export )?const (\w+) = /)
+        if (route) owner = `${route[1]!.toUpperCase()} ${route[2]}`
+        else if (named) owner = `${file}:${named[1]}`
+        const code = line.trim()
+        if (code.startsWith('*') || code.startsWith('//') || code.startsWith('/*')) continue
+        if (/cache-control/i.test(code)) owners.add(owner)
+      }
+    }
+    expect([...owners].sort()).toEqual([
+      'GET /content',
+      'GET /me/export',
+      'GET /refdata',
+      'index.ts:noStoreByDefault',
+    ])
+  })
 })
