@@ -1,4 +1,4 @@
-import { FieldValue, Timestamp } from 'firebase-admin/firestore'
+import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { config } from './config'
 import { getContent, getSignalVocabulary, type SignalVocabulary, type Template } from './content'
 import {
@@ -732,6 +732,36 @@ export const getToday = async (
   }
   await ref.set({ ...document, dataChangedAt: changedAt, storedAt: FieldValue.serverTimestamp() })
   return document
+}
+
+/**
+ * Every stored card for one user, a page at a time — the Dashboard half of `GET /me/export`
+ * (#58).
+ *
+ * Each in exactly the shape `GET /me/today` answers with (`toDocument`): the date, when it
+ * was generated, the copy version and the filled card. A filled card is her own logged data
+ * written out as prose, which is the reason `deleteAllUserToday` exists and the same reason
+ * it is exported. `dataChangedAt` and `storedAt` are **left behind**: they are this module's
+ * cache bookkeeping — when to regenerate, when the write landed — and not something she told
+ * Eva or Eva told her.
+ *
+ * Ordered by document id, which here *is* the date, so the pages come out in calendar order
+ * and a document cannot be dropped for lacking the ordered field. Yields nothing for an
+ * account that never opened the Dashboard.
+ */
+export async function* exportTodayCards(
+  uid: string,
+  pageSize: number,
+): AsyncGenerator<TodayDocument[], void, undefined> {
+  const ordered = days(uid).orderBy(FieldPath.documentId()).limit(pageSize)
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | null = null
+  for (;;) {
+    const page = await (cursor === null ? ordered : ordered.startAfter(cursor)).get()
+    if (page.empty) return
+    yield page.docs.map((doc) => toDocument(doc.data()))
+    if (page.size < pageSize) return
+    cursor = page.docs.at(-1) ?? null
+  }
 }
 
 /** Firestore's ceiling on a batched write, as `events.ts` uses it. */

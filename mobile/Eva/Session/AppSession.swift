@@ -314,6 +314,26 @@ final class AppSession {
         logOut()
     }
 
+    /// Everything stored under the account, as the one file `GET /me/export` (#58) serves.
+    ///
+    /// The body is not read here — not decoded, not validated, not logged. The app's job is
+    /// to hand the user their record, and a client-side idea of its shape would be a second
+    /// copy of the server's that goes stale the first time the export grows a field.
+    ///
+    /// Inside `authorized(_:)` like every other call that carries the token.
+    func exportData() async throws -> EvaDataExport {
+        let download = try await authorized {
+            try await client.download("/me/export", authorized: true)
+        }
+        // A 200 is not proof of a whole file. The route streams, and a Firestore failure
+        // mid-stream ends the body early with the status already sent — the only signal is
+        // that the closing `]}`, written last on purpose, never arrived. Parsing is the
+        // check, not a reading of the record: a truncated file offered to the user would
+        // look like their export and silently be missing the rest of it.
+        guard EvaDataExport.isComplete(download.data) else { throw APIError.decoding }
+        return EvaDataExport(data: download.data, serverFilename: download.filename)
+    }
+
     // MARK: - Calendar
 
     /// The user's entries for one visible range (#159).

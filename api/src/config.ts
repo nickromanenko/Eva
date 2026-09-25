@@ -47,6 +47,18 @@ const optionalCountAtLeast = (name: string, fallback: number, min: number): numb
   return value
 }
 
+/** The largest `EXPORT_PAGE_SIZE` accepted — Firestore's own batch ceiling, used the same
+ *  way in `events.ts`. */
+const MAX_EXPORT_PAGE_SIZE = 500
+
+const exportPageSize = (): number => {
+  const value = optionalCountAtLeast('EXPORT_PAGE_SIZE', MAX_EXPORT_PAGE_SIZE, 1)
+  if (value > MAX_EXPORT_PAGE_SIZE) {
+    throw new Error(`Invalid env var EXPORT_PAGE_SIZE: expected at most ${MAX_EXPORT_PAGE_SIZE}`)
+  }
+  return value
+}
+
 /** Unset or empty means "not provisioned yet" — `null`, not a throw. Used by the provider
  *  block below, where a boot that refuses to start because Apple's signing key has not been
  *  issued would take email/password sign-in down with it. */
@@ -577,6 +589,29 @@ export const config = {
      * else's deletion. `0` disables it.
      */
     deletePerAccount: optionalCount('RATE_LIMIT_DELETE_PER_ACCOUNT', 10),
+    /**
+     * `GET /me/export` (#58), over the ordinary window. The one authenticated read with a
+     * throttle, because it is the only one whose cost grows with the account: one export is
+     * every event she has ever logged, up to tens of thousands of Firestore reads.
+     *
+     * Per account first — a person downloading her data a few times in fifteen minutes,
+     * including retries over a bad connection, is normal; a loop is not. Per IP as the
+     * backstop against one caller fanning the same work out over many accounts, loose for
+     * the carrier-NAT reason every per-IP limit here is loose. `0` disables that dimension.
+     */
+    exportPerUser: optionalCount('RATE_LIMIT_EXPORT_PER_USER', 5),
+    exportPerIp: optionalCount('RATE_LIMIT_EXPORT_PER_IP', 30),
+  },
+  /**
+   * `GET /me/export` (#58): how many documents one Firestore read fetches while the export
+   * streams. The route holds one page in memory at a time, so this — not the size of the
+   * account — is what bounds the memory an export costs. A knob so a test can walk several
+   * pages over a handful of fixtures; there is no reason to change it in production.
+   * Bounded at both ends: `0` would read nothing forever, and a very large page is the
+   * unbounded read the paging exists to prevent.
+   */
+  dataExport: {
+    pageSize: exportPageSize(),
   },
   /** Transactional email (issue #6). Read only in `email.ts`. */
   email: {

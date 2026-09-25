@@ -71,6 +71,21 @@ final class DeleteAccountUITests: EvaUITestCase {
             "The modal promises a 30-day window the API does not give: \(body.label)"
         )
 
+        // MARK: Export is offered (#58)
+        //
+        // Present, labelled, and live — the canvas draws it next to the confirmation and
+        // #58 is what makes it real. It is tapped further down, once DELETE has been
+        // typed, because coming back from it with the gate intact is the case that
+        // matters.
+        XCTAssertTrue(
+            app.staticTexts["delete.exportNote"].exists,
+            "The modal does not offer export before deletion"
+        )
+        let export = app.buttons["delete.export"]
+        XCTAssertTrue(export.exists, "There is no \"Export data instead\" button")
+        XCTAssertEqual(export.label, "Export data instead")
+        XCTAssertTrue(export.isEnabled, "The export button is not live")
+
         // MARK: The gate
 
         let confirm = app.buttons["delete.confirm"]
@@ -137,6 +152,56 @@ final class DeleteAccountUITests: EvaUITestCase {
         XCTAssertTrue(
             confirm.isEnabled,
             "Return cleared the field or disabled the confirm button, so the gate now has to be re-passed"
+        )
+
+        // MARK: Export, and back (#58)
+        //
+        // With the gate already passed, so this is the case that matters: someone who has
+        // typed DELETE, has second thoughts, takes a copy first — and must come back to a
+        // modal that is exactly as they left it. The export is fetched from the real
+        // route, so the save sheet appearing is also evidence `GET /me/export` answered
+        // this account with a complete file; an error would put `delete.exportError` up
+        // instead.
+        tap(export, in: app)
+        let saveSheet = app.buttons["Save"]
+        if !saveSheet.waitForExistence(timeout: 20) {
+            let exportError = app.staticTexts["delete.exportError"]
+            XCTFail(
+                exportError.exists
+                    ? "The export failed: \(exportError.label)"
+                    : "Tapping \"Export data instead\" opened no save sheet"
+            )
+        }
+        // The picker's own Cancel where the OS draws one; otherwise the sheet is swiped
+        // away, which is the other way a person dismisses it and takes the same cleanup.
+        let cancel = app.buttons["Cancel"]
+        if cancel.exists && cancel.isHittable {
+            cancel.tap()
+        } else {
+            let top = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+            top.press(forDuration: 0.05, thenDragTo: app.windows.firstMatch.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)
+            ))
+        }
+        XCTAssertTrue(
+            saveSheet.waitForNonExistence(timeout: 10),
+            "The save sheet did not go away when cancelled"
+        )
+        XCTAssertTrue(
+            app.staticTexts["delete.title"].exists,
+            "Cancelling the export took the delete modal down with it"
+        )
+        XCTAssertFalse(
+            app.staticTexts["delete.exportError"].exists,
+            "Cancelling the save sheet was reported as a failed export"
+        )
+        XCTAssertEqual(
+            field.value as? String, Self.confirmationWord,
+            "Exporting cleared the typed confirmation, so the gate has to be passed again"
+        )
+        XCTAssertTrue(
+            confirm.isEnabled,
+            "Exporting disabled the confirm button — offering export made deletion harder to reach"
         )
 
         // MARK: The client half

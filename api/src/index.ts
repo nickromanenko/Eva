@@ -5,6 +5,7 @@ import { routePath } from 'hono/route'
 import { mintToken, requireAuth, tokenVersionOf, type TokenClaims } from './auth'
 import { config } from './config'
 import { getContent } from './content'
+import { exportFilename, openExport } from './data-export'
 import { EmailError, sendActivationEmail, sendPasswordResetEmail } from './email'
 import { TOKEN_LENGTH, consumeToken, deleteTokensForAccount, issueToken } from './email-tokens'
 import {
@@ -12,6 +13,7 @@ import {
   callerFromForwarded,
   consumeAuthAttempt,
   consumeDeleteAttempt,
+  consumeExportAttempt,
   consumeProviderAttempt,
   consumeTokenAttempt,
   forgetEmail,
@@ -42,6 +44,7 @@ import {
   RETENTION_DAYS,
   createEvent,
   deleteAllUserEvents,
+  exportEvents,
   listEvents,
   restoreEvent,
   softDeleteEvent,
@@ -67,6 +70,7 @@ import {
   ageYearsOn,
   cycleAnalysisFor,
   deleteAllUserToday,
+  exportTodayCards,
   getToday,
   type CycleAnalysis,
   type EstimateWithheld,
@@ -1589,6 +1593,65 @@ const revokeApple = async (authorizationCode: string): Promise<void> => {
 }
 
 app.get('/me', requireAuth, requireAccount, (c) => c.json({ user: c.get('account') }))
+
+/**
+ * Her data, as one JSON file the app saves (#58; GDPR Art. 15 and 20, CCPA access —
+ * LAUNCH.md §2.3). Decided on the issue: JSON, delivered as an in-app download — no email,
+ * no link, so the export exists nowhere but in this response and on her device.
+ *
+ * `{ format, version, exportedAt, account, events, today }`: `account` is exactly what
+ * `GET /me` answers, `events` is every stored entry in `GET /me/events`' shape **including
+ * soft-deleted ones** (their `deletedAt` is what marks them), `today` every stored card in
+ * `GET /me/today`'s shape. ARCHITECTURE §4 "Data export" lists what is deliberately left out
+ * — credentials, the session generation, cache bookkeeping — and why.
+ *
+ * **Streamed, because an account is unbounded.** Twenty thousand entries read with one
+ * `.get()` would be the whole history in memory at once; the owning modules hand pages over
+ * instead, and `data-export.ts` writes each one out before the next is read. That moves the
+ * failure mode, and the route is shaped around it: the account was read by the gate and the
+ * first page of each collection is read before the headers go, so a Firestore that is down
+ * at the start is an ordinary `500 INTERNAL`; a failure on a later page cuts the body short,
+ * and a short body is never valid JSON because the closing brackets are written last.
+ *
+ * Throttled per account and per IP (`consumeExportAttempt`) — the one authenticated read
+ * that is, because it is the only one whose cost grows with the account. Not behind
+ * `requireCollectConsent`: reading her own data is not collecting it, and the freeze a
+ * withdrawal starts says stored data leaves by export or by `DELETE /me`.
+ *
+ * Nothing about it is logged except, on a mid-stream failure, the error's class name — not
+ * the uid, not a count, not a date (GUARDRAILS 12).
+ */
+app.get('/me/export', requireAuth, requireAccount, async (c) => {
+  const uid = c.get('claims').sub
+  if (!consumeExportAttempt(clientIp(c), uid)) {
+    return c.json(error('RATE_LIMITED', 'Too many attempts. Try again later.'), 429, {
+      'retry-after': String(config.rateLimit.windowSeconds),
+    })
+  }
+
+  const exportedAt = new Date().toISOString()
+  const pageSize = config.dataExport.pageSize
+  const body = await openExport({
+    exportedAt,
+    account: c.get('account'),
+    events: exportEvents(uid, pageSize),
+    today: exportTodayCards(uid, pageSize),
+    onAbort: (err) => {
+      console.error(
+        JSON.stringify({ event: 'export_aborted', route: '/me/export', errorName: errorName(err) }),
+      )
+    },
+  })
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': `attachment; filename="${exportFilename(exportedAt)}"`,
+      // Her whole history: nothing between here and the device keeps a copy.
+      'cache-control': 'no-store',
+    },
+  })
+})
 
 /**
  * Account deletion is **immediate and complete** (#8): no grace period, no delayed purge,

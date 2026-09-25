@@ -12,17 +12,42 @@ import SwiftUI
 /// which is what #55's Risks section says. `isConfirmed` is the only thing that enables
 /// the confirm button.
 ///
-/// ## Three departures from the artboard, all decided on #55
+/// ## Departures from the artboard, decided on #55 and #58
 ///
 /// **The copy.** The artboard says deletion happens "within 30 days". It does not:
 /// `DELETE /me` (#8) removes the account and its subcollections immediately. DESIGN.md
 /// §8 asks us to describe rather than soften, and softening what an irreversible action
 /// does is the worst place to do it. The body says "straight away".
 ///
-/// **No "Export data instead" button and no "Export your data first" card.** There is no
-/// export feature. A button that does nothing, sitting above an irreversible action,
-/// reads as an offered way out and is not one. Tracked as #58; the card and the button
-/// come back together when export exists.
+/// ## Export, restored on #58
+///
+/// #55 dropped the artboard's "Export your data first" card and its "Export data instead"
+/// button, because there was no export and an inert way out sitting above an irreversible
+/// action is worse than none. `GET /me/export` exists now, so both are back where the
+/// original artboard drew them — the card under the body, the button first in the
+/// action stack. The canvas' `SPEC.danger` note says exactly this: the button "returns to
+/// this modal when #58 ships".
+///
+/// **Offering export changes nothing about reaching deletion.** The button does not
+/// dismiss the modal, does not clear the typed word, and does not disable the confirm
+/// button while it runs: the delete path is the same taps it was before. Only the
+/// reverse holds — export is disabled while a deletion is in flight, because a file that
+/// arrives after the account is gone is a request against an account that no longer
+/// exists.
+///
+/// The file goes to the system's save-to-Files sheet, not a share sheet: the export is
+/// the user's entire health record, and one destination the user picks is the least
+/// surprising thing to do with it. The app writes the one copy itself, protected, and the
+/// sheet *moves* it; the staging directory is removed when the sheet goes, whatever
+/// happened in it. `EvaDataExport` says why this is not `.fileExporter` — which was
+/// measured leaving a copy in `tmp/`.
+///
+/// **The card's inks are §2's Success tokens.** The artboard draws it
+/// `rgba(205,231,157,.26)` / `rgba(142,173,86,.3)` / `#5C7434`; the tint is
+/// `evaSuccessTint` exactly, and the border and ink take `evaSuccessBorder` (.32) and
+/// `evaSuccessInk` (`#4F6630`). Its 16pt radius is `EvaRadius.control` (17), its 12/14
+/// padding `EvaSpacing.sm`/`.md`, and its `500 12.5px/1.5` text the Caption row (12.5/19,
+/// weight 400) — the scale has no medium caption.
 ///
 /// **The card is `EvaRadius.card` (24), not the artboard's 26**, and its padding is
 /// `EvaSpacing.lg` (24), not 22. Neither 26 nor 22 is a named token, and adding one for
@@ -66,6 +91,15 @@ struct DeleteAccountModal: View {
     @State private var errorMessage: String?
     @State private var isDeleting = false
 
+    @State private var exportErrorMessage: String?
+    @State private var isExporting = false
+    /// The staged file while the save sheet is up. The bytes themselves are not held:
+    /// once written, the file is the only copy.
+    @State private var stagedExport: StagedExport?
+    /// What `onDismiss` cleans up: by the time it runs, `stagedExport` is already `nil`.
+    @State private var lastStaged: URL?
+    @State private var exportTask: Task<Void, Never>?
+
     @FocusState private var isFieldFocused: Bool
 
     /// The word the field has to contain. Not localised, deliberately: the API, the
@@ -108,6 +142,20 @@ struct DeleteAccountModal: View {
                 .scrollBounceBehavior(.basedOnSize)
             }
         }
+        // `onDismiss` rather than the picker's callbacks, so the staged copy goes however
+        // the sheet does — saved, cancelled, or swept away with the modal.
+        .sheet(item: $stagedExport, onDismiss: discardStagedExport) { staged in
+            EvaFileExportPicker(file: staged.file) { _ in stagedExport = nil }
+                .ignoresSafeArea()
+        }
+        // Cancel tears the modal down with a request possibly still open. Its answer would
+        // land on a view that is gone; cancelling it is cheaper than letting it arrive.
+        // The staging directory goes too, in case the modal is torn down some way that
+        // skips the sheet's `onDismiss`.
+        .onDisappear {
+            exportTask?.cancel()
+            discardStagedExport()
+        }
     }
 
     // MARK: - The card
@@ -129,6 +177,9 @@ struct DeleteAccountModal: View {
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("delete.body")
 
+            exportCard
+                .padding(.top, EvaSpacing.xxs)
+
             if revokesApple {
                 appleRevocationNote
             }
@@ -136,8 +187,12 @@ struct DeleteAccountModal: View {
             confirmationField
                 .padding(.top, EvaSpacing.xxs)
 
+            if let exportErrorMessage {
+                errorRow(exportErrorMessage, identifier: "delete.exportError")
+            }
+
             if let errorMessage {
-                errorRow(errorMessage)
+                errorRow(errorMessage, identifier: "delete.error")
             }
 
             actions
@@ -159,6 +214,25 @@ struct DeleteAccountModal: View {
             x: 0,
             y: DeleteAccountModalSurface.shadowOffsetY
         )
+    }
+
+    /// The artboard's green note — export is the thing to do *before* this, not instead of
+    /// reading the rest of the modal. Text only: the button that acts on it is in the
+    /// action stack, where the artboard puts it.
+    private var exportCard: some View {
+        Text("Export your data first — one file, readable outside Eva.")
+            .evaTextStyle(.caption)
+            .foregroundStyle(Color.evaSuccessInk)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, EvaSpacing.sm)
+            .padding(.horizontal, EvaSpacing.md)
+            .background(Color.evaSuccessTint, in: DeleteAccountModalSurface.exportCardShape)
+            .overlay {
+                DeleteAccountModalSurface.exportCardShape
+                    .strokeBorder(Color.evaSuccessBorder, lineWidth: 1)
+            }
+            .accessibilityIdentifier("delete.exportNote")
     }
 
     /// Whether confirming will ask Apple for a fresh authorization first.
@@ -221,7 +295,10 @@ struct DeleteAccountModal: View {
     /// modal, and `DELETE /me` can fail. It takes the §2 Error treatment the input field
     /// uses, mark and all, but sits above the buttons rather than under the field: what
     /// failed is the request, not what was typed.
-    private func errorRow(_ message: String) -> some View {
+    ///
+    /// Export failures use the same row under their own identifier, so a test can tell
+    /// "the export failed" from "the deletion failed".
+    private func errorRow(_ message: String, identifier: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: EvaSpacing.xxs) {
             Image(systemName: "exclamationmark.circle.fill")
                 .font(.evaError)
@@ -229,12 +306,12 @@ struct DeleteAccountModal: View {
             Text(message)
                 .evaTextStyle(.error)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("delete.error")
+                .accessibilityIdentifier(identifier)
         }
         .foregroundStyle(Color.evaErrorInk)
     }
 
-    /// Confirm above Cancel, stacked, as the artboard draws them.
+    /// Export, then confirm, then Cancel, stacked, as the artboard draws them.
     ///
     /// The confirm button uses `EvaDestructiveButtonStyle` directly rather than
     /// `DestructiveButton`, for its identifier: the wrapper derives one from the title,
@@ -243,6 +320,23 @@ struct DeleteAccountModal: View {
     /// them behind a scrim, is a trap for the tests that navigate by them.
     private var actions: some View {
         VStack(spacing: EvaSpacing.xs) {
+            // The §5 secondary glass, which is what the artboard's white-on-hairline
+            // button is. Built from the style rather than `SecondaryButton` for the same
+            // reason as confirm below: it needs a loading label.
+            Button(action: startExport) {
+                if isExporting {
+                    ProgressView().tint(Color.evaPrimaryText)
+                } else {
+                    Text("Export data instead")
+                }
+            }
+            .buttonStyle(EvaSecondaryButtonStyle())
+            .disabled(isExporting || isDeleting)
+            .accessibilityLabel(Text("Export data instead"))
+            .accessibilityValue(isExporting ? Text("Preparing your file") : Text(""))
+            .accessibilityHint(Text("Saves everything in your account as one file you choose where to keep."))
+            .accessibilityIdentifier("delete.export")
+
             Button(action: confirm) {
                 if isDeleting {
                     ProgressView().tint(Color.evaTextOnDark)
@@ -263,6 +357,68 @@ struct DeleteAccountModal: View {
     }
 
     // MARK: - Behaviour
+
+    private func startExport() {
+        guard !isExporting, !isDeleting else { return }
+        isFieldFocused = false
+        isExporting = true
+        exportErrorMessage = nil
+        exportTask = Task {
+            defer { isExporting = false }
+            do {
+                let fetched = try await session.exportData()
+                guard !Task.isCancelled else { return }
+                do {
+                    let file = try fetched.stage()
+                    lastStaged = file
+                    stagedExport = StagedExport(file: file)
+                } catch {
+                    exportErrorMessage = "Eva couldn't save your file on this iPhone. Try again."
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                exportErrorMessage = Self.exportFailureMessage(for: error)
+            }
+        }
+    }
+
+    /// Removes the staging directory. After a save the file has already been moved out
+    /// and this takes the empty directory; after a cancel it takes the file too.
+    private func discardStagedExport() {
+        if let lastStaged {
+            EvaDataExport.discard(lastStaged)
+            self.lastStaged = nil
+        }
+    }
+
+    /// What an export failure says, in §8's voice: what happened and what to do next.
+    ///
+    /// A `429` gets words of its own rather than the server's message, which is written for
+    /// the auth screens ("Too many attempts") and would read here as if something had been
+    /// guessed. The window is given as a time of day when the server sent one — a clock
+    /// time survives the user switching apps, where a countdown would not.
+    static func exportFailureMessage(for error: any Error, timeZone: TimeZone = .current) -> String {
+        guard let apiError = error as? APIError else {
+            return "Your export couldn't be prepared. Try again."
+        }
+        switch apiError {
+        case .rateLimited(_, let retryAt):
+            let base = "You've asked for several exports in a short time."
+            guard let retryAt else { return "\(base) Try again later." }
+            var format = Date.FormatStyle(date: .omitted, time: .shortened)
+            format.timeZone = timeZone
+            return "\(base) Try again after \(retryAt.formatted(format))."
+        case .server(_, _, let status) where status == 503:
+            return "Your export can't be prepared right now. Try again in a few minutes."
+        case .network:
+            return apiError.localizedDescription
+        // The only `.decoding` an export produces: a 200 whose body stopped early.
+        case .decoding:
+            return "Eva couldn't finish preparing your file. Try again."
+        default:
+            return "Your export couldn't be prepared. Try again."
+        }
+    }
 
     private func confirm() {
         guard isConfirmed, !isDeleting else { return }
@@ -291,6 +447,12 @@ struct DeleteAccountModal: View {
             }
         }
     }
+}
+
+/// One staged export, as the `.sheet(item:)` that presents the save sheet needs it.
+private struct StagedExport: Identifiable {
+    let file: URL
+    var id: URL { file }
 }
 
 /// The artboard's elevated modal surface, which has no named expression yet.
@@ -322,6 +484,11 @@ private enum DeleteAccountModalSurface {
 
     static var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: EvaRadius.card, style: .continuous)
+    }
+
+    /// The export note's `border-radius:16px`, on the nearest named radius.
+    static var exportCardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: EvaRadius.control, style: .continuous)
     }
 }
 
