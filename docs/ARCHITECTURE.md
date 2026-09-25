@@ -53,7 +53,11 @@ Consequences you must respect:
   Identity Toolkit REST API (`accounts:signUp`, `accounts:signInWithPassword`,
   `accounts:signInWithIdp`, `accounts:signInWithCustomToken`) with the Firebase **web**
   API key. That file is the only user of that key, and the only thing that validates a
-  credential.
+  credential. The key is **public** — every Firebase client ships it, and Hosting serves it
+  at `/__/firebase/init.json` — so it identifies the project and authorises nothing:
+  **anything reachable with the web API key alone is reachable by an attacker**, and no
+  security property may rest on holding it (GUARDRAILS 4a). One reader is about owning the
+  Identity Toolkit transport, not about keeping a secret.
 - **Apple and Google go the same way (#7).** The app obtains a provider credential
   *natively* and sends it here; the API spends it at `accounts:signInWithIdp`. So the app
   still holds one credential type, still never speaks to Firebase, and the provider does
@@ -2119,6 +2123,10 @@ file that someone can forget to regenerate.
 | `FIREBASE_WEB_API_KEY` | `api/.env` | `--set-env-vars` from repo var |
 | `JWT_SECRET` | `api/.env` | Secret Manager `eva-jwt-secret:latest` |
 | Admin credentials | `gcloud auth application-default login`, or a key in `api/.secrets/` | runtime service account (ADC) |
+
+`FIREBASE_WEB_API_KEY` sits in this table as configuration, not as a secret: it is a public
+project identifier (GUARDRAILS 4a), which is why it rides `--set-env-vars` from a repo
+variable while `JWT_SECRET` comes from Secret Manager.
 
 The `RATE_LIMIT_*` knobs (§3) are optional in both environments — unset means the
 defaults in `api/src/config.ts`, and they are configuration, not secrets.

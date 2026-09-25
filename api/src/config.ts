@@ -455,16 +455,16 @@ const nutritionRules = (): NutritionRules | null => {
  *
  * The Auth emulator serves the Identity Toolkit REST API under the real API's path, so
  * only the origin changes. It ignores the API key entirely, which is why CI can pass a
- * placeholder and hold no secret at all.
+ * placeholder rather than the project's real key.
  */
 const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST
 const usingEmulators = Boolean(process.env.FIRESTORE_EMULATOR_HOST)
 
 // Both or neither, in *every* environment. Setting only the auth host is the dangerous
 // asymmetry: `usingEmulators` would stay false, so Firestore keeps reading and writing the
-// real project while every signup and signin password — and the web API key, which rides
-// in the query string (GUARDRAILS 1) — goes over plain http to whatever host that variable
-// names. `identity-toolkit.ts` drops the failing fetch's error rather than logging its URL,
+// real project while every signup and signin password goes over plain http to whatever
+// host that variable names (the web API key rides along in the query string, but that is
+// public — GUARDRAILS 4a; the passwords are the loss). `identity-toolkit.ts` drops the failing fetch's error rather than logging its URL,
 // so a redirect to something that mimics Google's error shape produces no signal at all.
 if (usingEmulators !== Boolean(authEmulatorHost)) {
   throw new Error(

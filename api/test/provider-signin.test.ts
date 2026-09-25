@@ -2679,7 +2679,8 @@ describe('identity-toolkit puts the nonce on the wire', () => {
    * this proves the module sends it.
    *
    * The real client, against a stubbed `fetch`. The request URL is deliberately never
-   * asserted on or printed — it carries the Firebase web API key (GUARDRAILS 1).
+   * asserted on or printed — it carries the Firebase web API key, which is public
+   * (GUARDRAILS 4a) but has no business in a test log.
    */
   test('the Apple credential is sent as id_token + providerId + nonce', async () => {
     let sentBody: unknown = null
