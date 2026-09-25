@@ -58,17 +58,6 @@ struct AuthCryptoTests {
         #expect(nonce.allSatisfy(Self.isUnreserved))
     }
 
-    /// The direction the whole defence rests on: the API is handed the raw nonce, and the
-    /// hash Apple was given must be derivable from it. Stated as a test because the two
-    /// values are both opaque strings at the call site and swapping them compiles.
-    @Test("The hash Apple is sent is the SHA-256 of the raw nonce the API is sent")
-    func hashIsDerivedFromTheRawValue() {
-        let rawNonce = AuthCrypto.rawNonce()
-        let sentToApple = AuthCrypto.sha256Hex(rawNonce)
-        #expect(sentToApple != rawNonce)
-        #expect(AuthCrypto.sha256Hex(rawNonce) == sentToApple)
-    }
-
     // MARK: - PKCE
 
     /// RFC 7636 Appendix B, verbatim. This is the vector the whole S256 method is

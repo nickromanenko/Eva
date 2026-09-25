@@ -395,8 +395,11 @@ watching. `APPLE_SIGNIN_KEY` is in Secret Manager and cannot be checked from tha
   swapped and still compile — and `ProviderSignInUITests` covers the buttons, Profile's
   connected rows and the delete modal's Apple note without tapping through to Apple. For
   the Apple-connected half, the UI-test mailbox's `POST /link-apple` attaches a placeholder
-  `apple.com` identity through the Admin SDK: real to `GET /me`, useless to Apple. The
-  sheet, the token and the server's nonce check remain device-only.
+  `apple.com` identity through the Admin SDK: real to `GET /me`, useless to Apple;
+  `POST /link-google` does the same with `google.com` for the Google row (#330). The
+  nonce pair's two strings are `private` (#330), so a caller cannot build the Apple
+  credential from them itself. The sheet, the token and the server's nonce check remain
+  device-only.
 - **App Store policy.** Offering Google sign-in obliges the app to offer Sign in with
   Apple too. Both ship together in #7, so this is satisfied by construction — but it is
   the reason neither can ship alone.

@@ -12,18 +12,20 @@ import AuthenticationServices
 /// Apple's check and makes the server's a tautology any replayed token also passes. This
 /// type is where the pairing is decided, once, and `AppleSignInController` never touches
 /// either string: it hands the request to `configure(_:)` and the token to
-/// `credential(identityToken:)`. `AppleSignInNonceTests` pins all three against a digest
-/// computed outside the app.
+/// `credential(identityToken:)`. Both strings are `private` so that is enforced, not
+/// merely followed (#330): a caller that built `.apple(rawNonce:)` from one of them
+/// itself would bypass the pairing, and it no longer compiles. `AppleSignInNonceTests`
+/// pins both methods against a digest computed outside the app.
 ///
 /// Neither value is logged, ever (GUARDRAILS 12) — nor is this type made
 /// `CustomStringConvertible`, so a stray interpolation cannot print the raw nonce.
 struct AppleSignInNonce: Sendable {
 
     /// What goes to Apple: lowercase-hex SHA-256 of `apiNonce`.
-    let requestNonce: String
+    private let requestNonce: String
 
     /// What goes to the Eva API: the raw nonce itself.
-    let apiNonce: String
+    private let apiNonce: String
 
     /// A fresh pair for one request. `rawNonce` is injectable so a test can pin the pair
     /// against a known digest; production passes nothing.
