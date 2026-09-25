@@ -178,6 +178,67 @@ const capturingLogs = async (fn: () => Promise<void>): Promise<string[]> => {
   return logged
 }
 
+/** One eligible row for the banner rail: the Dashboard's mode, a real URL, no subject. */
+const RAIL_ITEM: content.Banner = {
+  id: 'race_banner',
+  phase: 'cycle',
+  mode: 'cycle',
+  focus: 'Nutrition',
+  title: 'A banner',
+  meta: 'Nutrition · 4 min read',
+  url: 'https://example.test/article',
+  subjects: [],
+  focusAreas: [],
+  status: 'active',
+  order: 0,
+}
+const RAIL_ITEM_SERVED = {
+  id: RAIL_ITEM.id,
+  title: RAIL_ITEM.title,
+  meta: RAIL_ITEM.meta,
+  url: RAIL_ITEM.url,
+}
+
+/**
+ * Runs `fn` with a Today card buildable in-process, so `GET /me/today` reaches its cache
+ * write: C11's constants and rung 2's rule (both unset in a local `.env`), and signed content
+ * — one active template per id and confidence, one eligible banner — through a stub of
+ * `getSignedContent`, the one content read the card path makes (#102). None of it is what is
+ * under test; the stub is handed to `fn` so each case can assert it was actually used.
+ */
+const withBuildableCard = async (
+  fn: (stub: ReturnType<typeof spyOn>) => Promise<void>,
+): Promise<void> => {
+  const saved = { cycle: config.cycle, pattern: config.dashboard.pattern }
+  ;(config as { cycle: unknown }).cycle = CYCLE_RULES
+  ;(config.dashboard as { pattern: unknown }).pattern = PATTERN
+  const templates: content.Template[] = Object.values(TEMPLATE).flatMap((id) =>
+    (['plain', 'hedged'] as const).map((confidence) => ({
+      id,
+      rung: 'any',
+      mode: 'any',
+      state: 'home_x',
+      confidence,
+      title: 'A card',
+      actions: [],
+      slots: [],
+      status: 'active' as const,
+      order: 0,
+    })),
+  )
+  const stub = spyOn(content, 'getSignedContent').mockResolvedValue({
+    content: { version: 'test', templates, banners: [RAIL_ITEM], nudges: [] },
+    signedBanners: [RAIL_ITEM],
+  })
+  try {
+    await fn(stub)
+  } finally {
+    stub.mockRestore()
+    ;(config as { cycle: unknown }).cycle = saved.cycle
+    ;(config.dashboard as { pattern: unknown }).pattern = saved.pattern
+  }
+}
+
 /** What the account gate answers a deleted account's token — the answer the racing write
  *  has to match exactly (no new code). */
 const DEAD_TOKEN = { error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } }
@@ -232,44 +293,35 @@ describe('a write racing DELETE /me through the route', () => {
 
   test('GET /me/today: the cache write refused answers 401 like the rest — not a 503', async () => {
     const { uid, token } = await account()
-    // The card has to be buildable for the route to reach its write: C11's constants and
-    // rung 2's rule (both unset in a local `.env`), and one active template per id and
-    // confidence so no seeded `content/` is needed. None of it is what is under test.
-    const saved = { cycle: config.cycle, pattern: config.dashboard.pattern }
-    ;(config as { cycle: unknown }).cycle = CYCLE_RULES
-    ;(config.dashboard as { pattern: unknown }).pattern = PATTERN
-    const templates: content.Template[] = Object.values(TEMPLATE).flatMap((id) =>
-      (['plain', 'hedged'] as const).map((confidence) => ({
-        id,
-        rung: 'any',
-        mode: 'any',
-        state: 'home_x',
-        confidence,
-        title: 'A card',
-        actions: [],
-        slots: [],
-        status: 'active' as const,
-        order: 0,
-      })),
-    )
-    const stubContent = spyOn(content, 'getContent').mockResolvedValue({
-      version: 'test',
-      templates,
-      banners: [],
-      nudges: [],
-    })
-    try {
+    await withBuildableCard(async (stub) => {
       const race = deleteBeforeNextTransaction(uid)
       const res = await call(token, 'GET', '/me/today?timeZone=UTC')
-      expect(stubContent).toHaveBeenCalled()
+      // Both seams ran: the card was built from the stub, and the delete landed in the gap
+      // before the cache write's transaction — so the 401 is the write's, not the gate's.
+      expect(stub).toHaveBeenCalled()
       expect(race).toHaveBeenCalledTimes(1)
       expect(res).toEqual({ status: 401, body: DEAD_TOKEN })
-      expect((await todayDocs(uid).get()).size).toBe(0)
-    } finally {
-      stubContent.mockRestore()
-      ;(config as { cycle: unknown }).cycle = saved.cycle
-      ;(config.dashboard as { pattern: unknown }).pattern = saved.pattern
-    }
+    })
+    expect((await todayDocs(uid).get()).size).toBe(0)
+  })
+
+  test('GET /me/today, no race: the card and its banner rail are stored by that transaction', async () => {
+    const { uid, token } = await account()
+    await withBuildableCard(async (stub) => {
+      const real = firestore.runTransaction.bind(firestore)
+      seam = spyOn(firestore, 'runTransaction').mockImplementation(((
+        ...args: Parameters<typeof real>
+      ) => real(...args)) as typeof real)
+      const res = await call(token, 'GET', '/me/today?timeZone=UTC')
+      expect(stub).toHaveBeenCalled()
+      expect(res.status).toBe(200)
+      // The cache write is the only transaction on this path, and it carried the rail (#102).
+      expect(seam).toHaveBeenCalledTimes(1)
+      const stored = (await todayDocs(uid).get()).docs.map((doc) => doc.data())
+      expect(stored).toHaveLength(1)
+      expect(stored[0]!.banners).toEqual([RAIL_ITEM_SERVED])
+      expect(res.body.banners).toEqual([RAIL_ITEM_SERVED])
+    })
   })
 })
 
