@@ -44,23 +44,29 @@ struct EvaTodayResponse: Equatable, Sendable {
     let contentVersion: String?
     /// The card, or `nil` when the server has none for that date.
     let card: EvaTodayCard?
+    /// The day's "Worth reading" rail (D7, #102), in display order. Empty — never `nil` —
+    /// when the server sent none, sent no key at all, or sent nothing openable; see
+    /// `EvaTodayBanner` for what is dropped.
+    let banners: [EvaTodayBanner]
 
     init(
         date: EvaDay?,
         generatedAt: String? = nil,
         contentVersion: String? = nil,
-        card: EvaTodayCard?
+        card: EvaTodayCard?,
+        banners: [EvaTodayBanner] = []
     ) {
         self.date = date
         self.generatedAt = generatedAt
         self.contentVersion = contentVersion
         self.card = card
+        self.banners = banners
     }
 }
 
 extension EvaTodayResponse: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case date, generatedAt, contentVersion, card
+        case date, generatedAt, contentVersion, card, banners
     }
 
     init(from decoder: any Decoder) throws {
@@ -70,7 +76,10 @@ extension EvaTodayResponse: Decodable {
                 .flatMap(EvaDay.init(isoDate:)),
             generatedAt: try container.decodeIfPresent(String.self, forKey: .generatedAt),
             contentVersion: try container.decodeIfPresent(String.self, forKey: .contentVersion),
-            card: try container.decodeIfPresent(EvaTodayCard.self, forKey: .card)
+            card: try container.decodeIfPresent(EvaTodayCard.self, forKey: .card),
+            // Tolerant by construction: a missing key, a `null` or a malformed item never
+            // fails the day's document — the card must still draw (#102).
+            banners: EvaTodayBanner.rail(from: container, forKey: .banners)
         )
     }
 }

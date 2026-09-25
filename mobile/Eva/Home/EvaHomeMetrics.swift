@@ -18,6 +18,8 @@ import SwiftUI
 /// | card `padding:22px` | `EvaSpacing.lg` (24) | nearest step on the §4 scale |
 /// | offline bar `border-radius:14px` | `EvaRadius.chip` (14) | exact |
 /// | header button `border-radius:15px` | `EvaRadius.chip` (14) | nearest; the calendar's steppers took the same |
+/// | rail card `border-radius:22px` | `EvaRadius.card` (24) | the calendar's summary card took the same for the same 22 |
+/// | rail card `padding:12px 14px 14px` | `EvaSpacing.sm` / `.md` / `.md` | nearest steps |
 enum EvaHomeMetrics {
 
     // MARK: Header
@@ -53,6 +55,15 @@ enum EvaHomeMetrics {
     /// than a hairline. It is the only thing separating a red-flag card from an ordinary
     /// one at a glance, so the weight is carried rather than rounded to 1.
     static let flagBorderWidth: CGFloat = 1.5
+
+    // MARK: "Worth reading" rail (#102)
+
+    /// `flex:none;width:214px` — one rail card. At 390pt wide this shows a card and a
+    /// half, which is the rail's affordance that it scrolls sideways; a width derived from
+    /// the screen would lose that on larger phones.
+    static let bannerCardWidth: CGFloat = 214
+    /// `height:96px` — the editorial image slot above the words.
+    static let bannerArtHeight: CGFloat = 96
 }
 
 // MARK: - One-off type

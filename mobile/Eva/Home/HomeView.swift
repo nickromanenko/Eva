@@ -2,9 +2,10 @@ import SwiftUI
 
 /// The Home tab — the first screen a signed-in user sees, and the Dashboard's first slice.
 ///
-/// D4 (#99) draws the header, the offline bar and the Today card. The shortcut row (D5),
-/// the nudge slot (D6), the banner rail (D7) and the glance row (D8) are drawn on the same
-/// artboard and are **not** here; each is its own slice, and each hangs off this one.
+/// D4 (#99) draws the header, the offline bar and the Today card; D7 (#102) adds the
+/// "Worth reading" rail at the foot of the column, where the artboard puts it. The shortcut
+/// row (D5), the nudge slot (D6) and the glance row (D8) are drawn on the same artboard and
+/// are **not** here; each is its own slice, and each hangs off this one.
 ///
 /// ## What is on screen when there is no card
 ///
@@ -33,6 +34,9 @@ struct HomeView: View {
     let country: EvaCountrySetting
 
     @State private var model: HomeModel
+    /// The banner whose article is open, or `nil`. Keyed by the banner rather than a bare
+    /// URL so a second tap on a different card is a different presentation.
+    @State private var article: EvaTodayBanner?
     @Environment(\.scenePhase) private var scenePhase
 
     init(session: AppSession, router: EvaTabRouter, country: EvaCountrySetting) {
@@ -83,6 +87,13 @@ struct HomeView: View {
                             }
                         )
                     }
+
+                    // Absent, not empty, when the day has no banners (#102).
+                    if !model.banners.isEmpty {
+                        HomeBannerRail(banners: model.banners) { article = $0 }
+                            // `margin-top:22px` over the column's 16.
+                            .padding(.top, EvaSpacing.xs)
+                    }
                 }
                 .padding(.horizontal, EvaSpacing.lg)
                 .padding(.top, EvaSpacing.xxs)
@@ -98,6 +109,12 @@ struct HomeView: View {
             // necessarily this one. The identifier is how `EvaUITests` pulls on the right
             // column (GUARDRAILS 22).
             .accessibilityIdentifier("home.scroll")
+        }
+        // Full screen, as Safari presents itself: the article is a different place with its
+        // own chrome, not a sheet over Home. Done hands control back — see `ArticleSafariView`.
+        .fullScreenCover(item: $article) { banner in
+            ArticleSafariView(url: banner.url) { article = nil }
+                .ignoresSafeArea()
         }
         .task { await model.start() }
         // Coming back to the app asks again. D3 answers a byte-identical document when

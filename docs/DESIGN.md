@@ -698,6 +698,20 @@ fill a card out of an empty store. It uses §7's information banner and states t
 without promising when a card will appear. Replace it with the canvas' words the moment it
 draws some.
 
+**The "Worth reading" rail takes §4's card and §2's washes (#102).** The artboard draws each
+rail card at `rgba(255,255,255,.72)` with a `.9` border, a pink shadow and radius 22; it takes
+§4's card surface at `EvaRadius.card` (24), the same trade the nudge slot beside it made for
+the canvas' `.7` fill, with the neutral shadow above. The editorial image slot is 115° stripes
+captioned "editorial image" — the canvas' placeholder for an image the payload does not carry
+— so it is §2's blush→cream and pistachio→cream washes alternating by position (blush,
+pistachio, blush, as drawn), with no caption. The header "Worth reading" (`600 10.5px`,
+`#9A9095`) is Overline in Secondary Text, the settings-row contrast argument above; the title
+(`600 13.5px/1.4`) is Control and the meta (`500 11px`) Caption. The "Learn" link is drawn as
+a §5 text button, **disabled** and announced "Not available yet." until the Learn tab exists —
+which also makes its row 48pt tall, so the gap between the header and the cards is wider
+than the artboard's 10px. A tap on a card opens its article in `SFSafariViewController`,
+full screen; the canvas draws no destination.
+
 **An unavailable picker row is dimmed lightly, and its title is Secondary rather than the
 disabled ink.** Stacking `evaDisabledText` on the row's own opacity made the sentence
 explaining the refusal the least readable thing on the sheet — which defeats the point of

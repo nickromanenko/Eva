@@ -122,6 +122,14 @@ final class HomeModel {
     /// fallback sentence, not a blank escalation.
     private(set) var emergencyGuidance: [EvaRefData.EmergencyEntry]?
 
+    /// The day's "Worth reading" rail (D7, #102). Empty means the section is not drawn.
+    ///
+    /// It belongs to the same stored document as the card, so it follows the card's rules
+    /// exactly: replaced only when it differs, kept when a refresh fails, and kept when a
+    /// same-day response arrives without a card — see `apply(_:)`. Like the card, it lives
+    /// in this object until #78's store makes it outlive the process.
+    private(set) var banners: [EvaTodayBanner] = []
+
     var card: EvaTodayCard? {
         if case .card(let card) = state { return card }
         return nil
@@ -229,10 +237,22 @@ final class HomeModel {
             // opens" cuts both ways: a response that has lost the card is not a reason to
             // take it off the screen. Rolling over to a new local date is, because that
             // day genuinely has no card yet.
-            if card == nil || isNewDay { set(.noCard) }
+            if card == nil || isNewDay {
+                set(.noCard)
+                setBanners(response.banners)
+            }
             return
         }
         set(.card(incoming))
+        setBanners(response.banners)
+    }
+
+    /// The rail's only writer. The same equality guard as `set(_:)`, for the same reason:
+    /// `@Observable` invalidates on every write, and a refresh with nothing new must not
+    /// redraw the rail any more than the card.
+    private func setBanners(_ new: [EvaTodayBanner]) {
+        guard banners != new else { return }
+        banners = new
     }
 
     /// The only writer of `state`, and the only place `cardRevision` moves.

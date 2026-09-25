@@ -47,6 +47,7 @@ enum EvaTodayCardLaunch {
         guard let requestedState, !requestedState.isEmpty else { return nil }
         return SeededTodayCardSource(
             card: requestedState == "none" ? nil : EvaTodayCardFixtures.all[requestedState],
+            banners: EvaTodayCardFixtures.banners(forState: requestedState),
             goesOfflineAfterFirstRead: requestedRefresh == "offline"
         )
     }()
@@ -61,11 +62,17 @@ enum EvaTodayCardLaunch {
 final class SeededTodayCardSource: TodayCardSource {
 
     private let card: EvaTodayCard?
+    private let banners: [EvaTodayBanner]
     private let goesOfflineAfterFirstRead: Bool
     private(set) var reads = 0
 
-    init(card: EvaTodayCard?, goesOfflineAfterFirstRead: Bool = false) {
+    init(
+        card: EvaTodayCard?,
+        banners: [EvaTodayBanner] = [],
+        goesOfflineAfterFirstRead: Bool = false
+    ) {
         self.card = card
+        self.banners = banners
         self.goesOfflineAfterFirstRead = goesOfflineAfterFirstRead
     }
 
@@ -76,7 +83,8 @@ final class SeededTodayCardSource: TodayCardSource {
             date: EvaDay.today(in: timeZone),
             generatedAt: "seeded",
             contentVersion: "seeded",
-            card: card
+            card: card,
+            banners: banners
         )
     }
 }
@@ -89,6 +97,52 @@ final class SeededTodayCardSource: TodayCardSource {
 /// so that a state can be put on a screen before that collection is seeded, and they are
 /// not user-facing in any build that ships.
 enum EvaTodayCardFixtures {
+
+    /// The "Worth reading" rail each state draws (#102) — the canvas' `banners` sets, chosen
+    /// the way its own code chooses them: the pregnancy set under `home_preg` and
+    /// `home_flag`, the postpartum set under `home_post`, the cycle set under every other
+    /// card. `none` — the day with no card — has no rail, which is the only seeded way to
+    /// draw the section's absence.
+    ///
+    /// The titles and meta lines are the canvas' verbatim. **The URLs are not**: the canvas
+    /// draws none, and a real article URL does not exist until the §Blog explore decides
+    /// where articles live. So they point at `example.com` (reserved for exactly this, RFC
+    /// 2606) under a path that says it is a fixture — a page that loads, so the Safari
+    /// presentation can be exercised, and that nobody could mistake for Eva's content.
+    static func banners(forState state: String) -> [EvaTodayBanner] {
+        let set: [(String, String)]
+        switch state {
+        case "none":
+            return []
+        case "home_preg", "home_flag":
+            set = [
+                ("What usually happens at the 20-week scan", "Pregnancy · 6 min read"),
+                ("Movement in the second trimester", "Movement · 5 min read"),
+                ("Questions worth asking at your next appointment", "Pregnancy · 3 min read")
+            ]
+        case "home_post":
+            set = [
+                ("What to prepare for your 6-week check", "Recovery · 4 min read"),
+                ("Sleep in fragments: what actually helps", "Recovery · 5 min read"),
+                ("When your cycle may return", "Recovery · 4 min read")
+            ]
+        default:
+            set = [
+                ("Why appetite can change before your period", "Nutrition · 4 min read"),
+                ("How to adjust training when sleep is low", "Movement · 5 min read"),
+                ("Iron, energy and the days after your period", "Nutrition · 6 min read")
+            ]
+        }
+        return set.enumerated().compactMap { index, item in
+            let id = "fixture_\(state)_\(index + 1)"
+            return EvaTodayBanner(
+                id: id,
+                title: item.0,
+                meta: item.1,
+                url: URL(string: "https://example.com/eva-fixture/\(id)")!
+            )
+        }
+    }
 
     static let all: [String: EvaTodayCard] = [
         "home_d": EvaTodayCard(

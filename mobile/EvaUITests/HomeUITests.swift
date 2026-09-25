@@ -49,6 +49,13 @@ final class HomeUITests: EvaUITestCase {
         ("home_loss", "Pregnancy tracking has ended")
     ]
 
+    /// The canvas' cycle `banners` set, which `EvaTodayCardFixtures` seeds under `home_d`.
+    private static let cycleBanners: [(title: String, meta: String)] = [
+        ("Why appetite can change before your period", "Nutrition · 4 min read"),
+        ("How to adjust training when sleep is low", "Movement · 5 min read"),
+        ("Iron, energy and the days after your period", "Nutrition · 6 min read")
+    ]
+
     func testHomeIsTheLandingTabAndDrawsTheStoredCard() throws {
         let app = launch()
         let email = Self.freshEmail()
@@ -77,6 +84,28 @@ final class HomeUITests: EvaUITestCase {
             "The notifications button is live — it is inert until §Notifications is sliced"
         )
 
+        // MARK: The live API's rail, end to end (#102)
+        //
+        // No fixture on this launch: this is `GET /me/today` itself, and whatever it answers
+        // today, no rail can come of it. On the real project it currently answers **503**
+        // (the cycle rules are unset, #26/#176), and once it answers 200 every seeded banner
+        // still has an empty URL, so the server selects none and sends `banners: []`. So this
+        // asserts only that the live path draws no rail; the decoded-empty case is
+        // `TodayBannerTests` and the seeded `none` state below. Whichever state the day
+        // resolved to, it has to have resolved before absence means anything.
+        XCTAssertTrue(
+            app.otherElements["home.card"].waitForExistence(timeout: 20)
+                || app.otherElements["home.noCard"].exists
+                || app.staticTexts["home.noCard"].exists
+                || app.otherElements["home.loadError"].exists
+                || app.staticTexts["home.loadError"].exists,
+            "Home's first read never resolved"
+        )
+        XCTAssertFalse(
+            app.otherElements["home.banners"].exists,
+            "The live API served no openable banners, and Home still drew the rail"
+        )
+
         // MARK: The cold start a real device meets first
         //
         // `content/` is unseeded (#97 refuses without a reviewer), so `GET /me/today` has
@@ -92,6 +121,15 @@ final class HomeUITests: EvaUITestCase {
         XCTAssertFalse(
             app.activityIndicators.firstMatch.exists,
             "A day with no card resolved to a spinner rather than to a screen"
+        )
+        // #102: no banners → the "Worth reading" section is absent, not an empty header.
+        XCTAssertFalse(
+            app.otherElements["home.banners"].exists,
+            "A day with no banners drew the Worth reading section"
+        )
+        XCTAssertFalse(
+            app.staticTexts["home.banners.title"].exists,
+            "A day with no banners drew the Worth reading header"
         )
 
         // MARK: Every state the canvas draws
@@ -114,6 +152,63 @@ final class HomeUITests: EvaUITestCase {
                 "\(state)'s card is not announced as the canvas' aria string: \(card.label)"
             )
         }
+
+        // MARK: The Worth reading rail (#102)
+        //
+        // `home_d` seeds the canvas' cycle set. The rail's words are the server's, so each
+        // card is asserted by the title and meta the fixture carries, in display order.
+
+        relaunch(app, card: "home_d")
+        let rail = app.otherElements["home.banners"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20), "home_d drew no Worth reading rail")
+        XCTAssertTrue(
+            app.staticTexts["home.banners.title"].exists,
+            "The rail has no Worth reading header"
+        )
+        let learn = app.buttons["text.Learn"]
+        XCTAssertTrue(learn.exists, "The rail's Learn link is not drawn")
+        XCTAssertFalse(learn.isEnabled, "Learn is live — the Learn tab does not exist")
+        XCTAssertTrue(
+            learn.label.contains("Not available yet"),
+            "The disabled Learn link does not say why: \(learn.label)"
+        )
+
+        var lastX = -CGFloat.infinity
+        for (index, item) in Self.cycleBanners.enumerated() {
+            let banner = app.buttons["home.banner.fixture_home_d_\(index + 1)"]
+            // Off-screen cards are still in the tree; `exists`, not `isHittable`.
+            XCTAssertTrue(banner.waitForExistence(timeout: 5), "Banner \(index + 1) is not drawn")
+            // VoiceOver reads the title, then the meta (#102) — one element, one label.
+            XCTAssertEqual(
+                banner.label, "\(item.title), \(item.meta)",
+                "Banner \(index + 1) does not read title then meta"
+            )
+            XCTAssertGreaterThanOrEqual(
+                banner.frame.height, 44, "Banner \(index + 1) is under §1's 44pt target"
+            )
+            XCTAssertGreaterThan(
+                banner.frame.minX, lastX, "Banner \(index + 1) is out of display order"
+            )
+            lastX = banner.frame.minX
+        }
+
+        // Tap opens the article in Safari, in the app; Done comes back to Home.
+        let first = app.buttons["home.banner.fixture_home_d_1"]
+        tap(first, in: app)
+        let done = app.buttons["Done"]
+        XCTAssertTrue(
+            done.waitForExistence(timeout: 15),
+            "Tapping a banner did not open its article in SFSafariViewController"
+        )
+        XCTAssertFalse(
+            rail.exists && rail.isHittable,
+            "The article did not cover Home"
+        )
+        done.tap()
+        XCTAssertTrue(
+            rail.waitForExistence(timeout: 10) && app.otherElements["home.card"].exists,
+            "Done did not return to Home"
+        )
 
         // MARK: The actions — two that work, and the rest drawn and disabled
 
