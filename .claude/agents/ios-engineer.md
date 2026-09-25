@@ -57,7 +57,9 @@ skills when you need current API detail. Prefer them over recalled API knowledge
 
 ## Definition of done
 
-`scripts/verify-mobile.sh` passes. For visible changes, also run the app in the
+The gate GUARDRAILS 15 names passes — unit tests plus the UI classes you touched
+(`ONLY_TESTING=… scripts/verify-mobile.sh`), or the full `scripts/verify-mobile.sh` when the
+change touches navigation, session/auth or networking. For visible changes, also run the app in the
 simulator and look at it side by side with the canvas — a build that compiles is not a
 screen that looks right. State explicitly which canvas file you compared against.
 

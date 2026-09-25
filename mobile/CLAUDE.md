@@ -14,7 +14,8 @@ exact values; DESIGN.md is a transcription and has lost values before.
 
 ```sh
 xcodegen generate && open Eva.xcodeproj
-../scripts/verify-mobile.sh        # generate + build + UI tests
+../scripts/verify-mobile.sh        # generate + build + all UI tests (~30 min)
+ONLY_TESTING=-only-testing:EvaUITests/HomeUITests ../scripts/verify-mobile.sh  # a subset (GUARDRAILS 15)
 ```
 
 `Eva.xcodeproj` is **generated and gitignored — never edit it.** Change

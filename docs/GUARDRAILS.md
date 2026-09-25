@@ -104,9 +104,20 @@ Each rule is stated so a reviewer can check it mechanically.
 
 14. **Every API behavior change ships with a test.** New route, new error code, or
     changed validation → a case in `api/test/`.
-15. `bun run verify` (api) and `scripts/verify-mobile.sh` (mobile) must pass before any
-    PR is opened. A green run is the minimum, not the proof — say what you actually
-    exercised.
+15. The surface's verify gate must pass before any PR is opened. A green run is the
+    minimum, not the proof — say what you actually exercised.
+    - **api:** `scripts/ci-api.sh` (the emulator suite CI runs, ~2.5 min). The real-project
+      `bun run verify` (~20 min) is additionally required only when the change touches
+      behaviour the emulators reimplement rather than run — `identity-toolkit.ts`,
+      `providers.ts`, the auth/sign-in/activation/reset routes, or Firebase settings — and
+      is otherwise run per batch, not per PR.
+    - **mobile:** unit tests plus the UI test classes the change touches
+      (`ONLY_TESTING=… scripts/verify-mobile.sh`). The full `scripts/verify-mobile.sh`
+      (~30 min) is required when a change touches navigation, session/auth or the
+      networking layer, and is otherwise run per batch.
+    Changed 2026-09-25 on Nick's direct instruction ("we need to move faster"): the
+    real-project run and the full UI suite were costing more wall time than every other
+    step combined, and CI already runs the emulator suite on every PR.
 16. `scripts/e2e.sh` hits the **real Firebase project**. Test accounts must use the
     `e2e+*@e2e.evaapp.dev` pattern so the cleanup sweep can find them. Never create
     test users outside that pattern.

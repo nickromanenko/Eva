@@ -41,7 +41,8 @@ Stop and say so rather than crossing it.
 
 ## Definition of done
 
-`cd api && bun run verify` passes, and you state what you actually exercised — which
+The gate GUARDRAILS 15 names passes — `scripts/ci-api.sh`, plus the real-project
+`cd api && bun run verify` when the change touches auth behaviour — and you state what you actually exercised — which
 tests you added, which paths are still untested. A green run is evidence for exactly
 what it covers, nothing more.
 

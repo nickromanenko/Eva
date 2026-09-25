@@ -12,7 +12,8 @@ bun install
 bun run dev        # hot reload on :3003
 bun run typecheck  # tsc --noEmit
 bun test
-bun run verify     # typecheck + test — must pass before a PR
+bun run verify     # typecheck + test vs the REAL project (~20 min) — see GUARDRAILS 15 for when
+../scripts/ci-api.sh  # the same vs the emulators (~2.5 min) — the per-PR gate
 bun run seed:refdata  # create any missing refdata/ catalogue (--relabel resets labels)
 bun run retire:refdata  # apply the declared retirements (never deletes)
 bun run purge:events    # delete events past their 30-day recovery window (--dry-run first)

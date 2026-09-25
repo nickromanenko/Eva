@@ -61,8 +61,9 @@ dependency between them can run in parallel; say which.
 
 Run the verify command for every surface touched:
 
-- `cd api && bun run verify`
-- `scripts/verify-mobile.sh`
+- api: `scripts/ci-api.sh`; plus `cd api && bun run verify` only when GUARDRAILS 15 says so
+- mobile: unit tests + the touched UI classes via `ONLY_TESTING=…`; the full
+  `scripts/verify-mobile.sh` only when GUARDRAILS 15 says so
 - `scripts/verify-website.sh`
 
 Then the checkers, per the maker/checker rule — neither may have written the code:
