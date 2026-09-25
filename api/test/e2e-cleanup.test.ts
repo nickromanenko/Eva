@@ -1,8 +1,12 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { adminAuth, firestore } from '../src/firebase'
+
+// Each case spawns `bun run scripts/e2e-cleanup.ts` against a cold emulator — 0.2 s usually,
+// 3.4 s seen — so Bun's 5 s default flaked (#322 review). api/CLAUDE.md's #31 rule.
+setDefaultTimeout(20_000)
 
 /**
  * `scripts/verify-mobile.sh` sweeps only the accounts **its own** run created (#322).
