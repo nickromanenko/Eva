@@ -36,7 +36,7 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
          ──► firebase.ts · config.ts
          ──► data-export.ts (leaf; `import type` only)
 
-today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · cycle.ts
+today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts · dashboard-rules.ts · cycle.ts
 ```
 
 - `index.ts` — routes, validation, HTTP mapping. **No Firestore, no outbound fetch.**
@@ -150,6 +150,16 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   phase card and falls through to the educational one, because the card that would explain it
   is not drawn (#177). `speakablePhase` gates on `!== 'none'`, so a reason added later
   suppresses by default.
+  **It also chooses the banner rail (`selectBanners`, #102, D7)**, beside the subject the rail
+  must not repeat, and pure on the same terms. Filter, rank, cut, never pad: eligible is
+  `active` + `mode` equal to today's **exactly** (the parser's `'any'` default is not a
+  wildcard for a banner — an untagged row reaches no rail) + not tagged in `subjects` with the
+  card's template id + a title, a meta line and an `https://` URL; ranked by how many of her
+  focus areas a row carries, then `order`, then id; at most three, and fewer is fewer. **A row
+  with no article is not served** — the tap opens the URL — so with every seeded `url` still
+  empty, no environment shows a rail today. **The cycle phase is not an input**: no row carries
+  a within-cycle phase tag, and #102 limits banner tags to topic, mode and focus area; that tag
+  is the content reviewer's to add, and ranks below focus areas when it exists.
 - `today.ts` — the only module that touches `users/{uid}/today/`: the Today card, one
   document per the user's local date (#98, slice D3 of #10). It is the *join* between the
   three modules above it — it gathers the ladder's inputs from `events.ts` and `users.ts`,
@@ -158,6 +168,15 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   so through exported functions only; the reads it needed (`lastEventChangeAt`,
   `lastLoggedDate`, `lastUserChangeAt`) were added to the owning modules rather than
   performed here. ARCHITECTURE §3 says why the join has nowhere better to live.
+  - **The banner rail is chosen once, with the card, and stored in the same document (#102).**
+    `selectBanners` gets D1's `subject.templateId` — never the phraser's card — the mode, and
+    focus areas only from a *finished* Nutrition setup (`complete`, i.e. `completedSetup`; PRD
+    §Nutrition coach, nothing suggested from partial data). The stored items are copies —
+    `{ id, title, meta, url }`, the routing tags left behind — so the rail is stable across
+    opens and renders offline. `lastNutritionProfileChangeAt` is a third "her data moved"
+    instant beside events and the profile, because the rail is built from it. Rows come from
+    `getSignedContent`, which yields no banners at all for an unsigned document. A day stored
+    before D7 is served `banners: []`, never back-filled on a refresh.
   - **The card's subject is not the phraser's to choose.** `Phraser` returns *text*; the
     stored card's `templateId` and `rung` are copied from D1's `Subject`, so neither this
     phraser nor D9's model one can name a different card (PRD §Dashboard: "the message
@@ -265,7 +284,9 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   (PRD line 677). Goal codes are the engine's own `NutritionGoal` (`import type`); focus areas
   are permanent codes with a total `FOCUS_AREA_PRD_ITEM` table back to the PRD numbers the
   engine's fibre rule reads. `hideNumbers` changes only when a request names it. Deleted by
-  `DELETE /me` before the user document. Logs nothing.
+  `DELETE /me` before the user document. Logs nothing. `lastNutritionProfileChangeAt` is
+  `today.ts`'s regeneration signal (#102): the banner rail ranks by a finished setup's focus
+  areas, so saving the profile is new data for the Today document.
 - `nutrition.ts` — the nutrition targets engine (S2 of #25, #222). Her body metrics, goal,
   target weight and focus areas in; the day's calorie target, the macronutrient split, the
   clamp that bound the target and the timeline that follows from it out. **Pure on the

@@ -2,9 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import { tmpdir } from 'node:os'
 import {
   InvalidTimeError,
+  BANNER_LIMIT,
   PatternRuleUnsetError,
   TEMPLATE,
+  selectBanners,
   selectSubject,
+  type BannerInput,
   type CycleEstimate,
   type DashboardInput,
   type DashboardRules,
@@ -16,7 +19,7 @@ import {
   type SubjectSlots,
   type TemplateId,
 } from '../src/dashboard-rules'
-import type { Confidence, Slot } from '../src/content'
+import type { Banner, Confidence, Slot } from '../src/content'
 
 /**
  * The Today card's rules layer (#96) — the priority ladder, the cold-start rules and the
@@ -1164,7 +1167,7 @@ describe('the module reaches nothing', () => {
   test('its only import is a type import, and nothing in it reaches the network', async () => {
     const source = await Bun.file(`${import.meta.dir}/../src/dashboard-rules.ts`).text()
     const imports = source.match(/^import .*$/gm) ?? []
-    expect(imports).toEqual(["import type { Confidence, Slot } from './content'"])
+    expect(imports).toEqual(["import type { Banner, Confidence, Slot } from './content'"])
     // `fetch` and a URL are in this list because the import scan above is **import-time
     // only**: the two cases above spawn the module and watch it load, which a call made
     // inside `selectSubject` never reaches. A `fetch(...)` as the first line of the
@@ -1251,5 +1254,289 @@ describe('every subject names a template the content store actually has', () => 
       selectSubject(base({ mode: 'cycle', redFlag: { code: 'severe_pain', loggedAt: NOW } }), RULES)
         .templateId,
     ).toBe(TEMPLATE.redFlag)
+  })
+})
+
+// ── The banner rail (D7, #102) ─────────────────────────────────────────────────────────
+// `selectBanners` is pure and lives beside the subject it must not repeat, so every
+// acceptance criterion of #102 that is about *which* rows is pinned here, against fixtures
+// and against D2's own seed. What only the join can show — that the rail is stored with the
+// card, stable across opens, excludes the subject the ladder chose, ranks by a *finished*
+// setup's focus areas, and refuses an unsigned document — is in `today.test.ts`, and needs
+// the emulators.
+
+/** A fixture article. `example.org` is reserved for exactly this (RFC 2606). */
+const article = (id: string): string => `https://example.org/articles/${id}`
+
+const row = (over: Partial<Banner> & { id: string }): Banner => ({
+  phase: 'cycle',
+  mode: 'cycle',
+  focus: 'Nutrition',
+  title: `A title for ${over.id}`,
+  meta: 'Nutrition · 4 min read',
+  url: article(over.id),
+  subjects: [],
+  focusAreas: [],
+  status: 'active',
+  order: 0,
+  ...over,
+})
+
+const onDay = (over: Partial<BannerInput> = {}): BannerInput => ({
+  mode: 'cycle',
+  subject: TEMPLATE.educational,
+  focusAreas: [],
+  ...over,
+})
+
+const ids = (rows: readonly Banner[]): string[] => rows.map((r) => r.id)
+
+/**
+ * D2's nine rows with an article behind each — what the seed becomes once the Blog exists.
+ *
+ * The URL is the one thing supplied here, and only because the seed has none yet: every tag
+ * the selection reads (`mode`, `subjects`, `focusAreas`, `status`, `order`) is the seed's
+ * own. A case that also re-tagged the rows would be testing its own fixture.
+ */
+const seedWithArticles = async (): Promise<Banner[]> => {
+  // Imported inside the case, for the reason the cross-check above gives.
+  const { BANNERS } = await import('../scripts/seed-content')
+  return BANNERS.map((b) => ({ ...b, url: article(b.id) }))
+}
+
+describe('the banner rail: never the subject of the card (Banner area 3)', () => {
+  const stock = [
+    row({ id: 'energy_a', subjects: [TEMPLATE.phaseEnergy], order: 0 }),
+    row({ id: 'plain_b', order: 1 }),
+    row({ id: 'energy_c', subjects: [TEMPLATE.phaseEnergy, TEMPLATE.irregular], order: 2 }),
+    row({ id: 'plain_d', order: 3 }),
+  ]
+
+  test('given a card with subject X, no row tagged X is served', () => {
+    const served = selectBanners(stock, onDay({ subject: TEMPLATE.phaseEnergy }))
+    expect(served.length).toBeGreaterThan(0)
+    for (const item of served) expect(item.subjects).not.toContain(TEMPLATE.phaseEnergy)
+    expect(ids(served)).toEqual(['plain_b', 'plain_d'])
+  })
+
+  test('and the same rows are served on a day whose card is about something else', () => {
+    // Without this the case above would pass for a rule that dropped every tagged row.
+    expect(ids(selectBanners(stock, onDay({ subject: TEMPLATE.educational })))).toEqual([
+      'energy_a',
+      'plain_b',
+      'energy_c',
+    ])
+  })
+
+  test("against D2's seed: the scan-tomorrow card takes the scan and the questions off the rail", async () => {
+    const seed = await seedWithArticles()
+    const served = selectBanners(
+      seed,
+      onDay({ mode: 'pregnancy', subject: 'pregnancy_appointment' as never }),
+    )
+    // `pregnancy_appointment` is not a ladder id yet (rung 3 is D10's), which is why the
+    // cast — the tag is the content store's, and it is honoured before D10 can reach it.
+    expect(ids(served)).toEqual(['preg_movement'])
+  })
+
+  test("against D2's seed: home_e's iron line keeps the iron article off that day's rail", async () => {
+    const seed = await seedWithArticles()
+    expect(ids(selectBanners(seed, onDay({ subject: TEMPLATE.signalOverridesPhase })))).toEqual([
+      'cycle_appetite',
+      'cycle_training_sleep',
+    ])
+  })
+})
+
+describe('the banner rail: mode', () => {
+  test("against D2's seed, a Pregnancy day gets only pregnancy rows and a Cycle day none of them", async () => {
+    const seed = await seedWithArticles()
+    const pregnancy = new Set(seed.filter((b) => b.mode === 'pregnancy').map((b) => b.id))
+    expect(pregnancy.size).toBe(3)
+
+    const pregDay = selectBanners(seed, onDay({ mode: 'pregnancy' }))
+    expect(pregDay).toHaveLength(BANNER_LIMIT)
+    for (const item of pregDay) expect(pregnancy.has(item.id)).toBe(true)
+
+    const cycleDay = selectBanners(seed, onDay({ mode: 'cycle' }))
+    expect(cycleDay).toHaveLength(BANNER_LIMIT)
+    for (const item of cycleDay) {
+      expect(pregnancy.has(item.id)).toBe(false)
+      expect(item.mode).toBe('cycle')
+    }
+  })
+
+  test('a mode with no rows of its own gets none — loss and planning borrow nothing', async () => {
+    const seed = await seedWithArticles()
+    // PRD Mode variants: after a loss "all pregnancy-related … banners are cleared". Which
+    // rows a loss or planning rail *should* carry is D10's and the content reviewer's; until
+    // a row is tagged for them the honest rail is empty, never another mode's.
+    expect(selectBanners(seed, onDay({ mode: 'loss' }))).toEqual([])
+    expect(selectBanners(seed, onDay({ mode: 'planning' }))).toEqual([])
+  })
+
+  test("a row with no mode tag — the parser's 'any' — reaches no rail at all", () => {
+    const untagged = row({ id: 'untagged', mode: 'any' })
+    for (const mode of ['cycle', 'planning', 'pregnancy', 'postpartum', 'loss'] as const) {
+      expect(selectBanners([untagged], onDay({ mode }))).toEqual([])
+    }
+  })
+})
+
+describe('the banner rail: declared focus areas rank, they do not filter', () => {
+  test("against D2's seed, a declared focus area puts its row first", async () => {
+    const seed = await seedWithArticles()
+    const plain = ids(selectBanners(seed, onDay()))
+    expect(plain).toEqual(['cycle_appetite', 'cycle_training_sleep', 'cycle_iron'])
+
+    const iron = ids(selectBanners(seed, onDay({ focusAreas: ['ironDeficiencyAnaemia'] })))
+    expect(iron[0]).toBe('cycle_iron')
+    // Ranked, not filtered: the untagged rows are still there, behind it.
+    expect(iron).toEqual(['cycle_iron', 'cycle_appetite', 'cycle_training_sleep'])
+  })
+
+  test('with no focus areas the rail is still three items, in the store’s order', async () => {
+    const seed = await seedWithArticles()
+    const served = selectBanners(seed, onDay({ focusAreas: [] }))
+    expect(served).toHaveLength(BANNER_LIMIT)
+    expect(served.map((b) => b.order)).toEqual(
+      [...served.map((b) => b.order)].sort((a, b) => a - b),
+    )
+  })
+
+  test('a row carrying more of her focus areas outranks one carrying fewer', () => {
+    const stock = [
+      row({ id: 'none', order: 0 }),
+      row({ id: 'one', focusAreas: ['moreWater'], order: 1 }),
+      row({ id: 'two', focusAreas: ['moreWater', 'lessSugar'], order: 2 }),
+    ]
+    expect(ids(selectBanners(stock, onDay({ focusAreas: ['lessSugar', 'moreWater'] })))).toEqual([
+      'two',
+      'one',
+      'none',
+    ])
+  })
+
+  test('a focus area she did not declare ranks nothing', () => {
+    const stock = [
+      row({ id: 'first', order: 0 }),
+      row({ id: 'water', focusAreas: ['moreWater'], order: 1 }),
+    ]
+    expect(ids(selectBanners(stock, onDay({ focusAreas: ['skin'] })))).toEqual(['first', 'water'])
+  })
+})
+
+describe('the banner rail: fewer, never filler (Banner area 2)', () => {
+  test('one eligible row among ineligible ones is a rail of one', () => {
+    const stock = [
+      row({ id: 'eligible', order: 5 }),
+      row({ id: 'other_mode', mode: 'pregnancy', order: 0 }),
+      row({ id: 'retired', status: 'retired', order: 1 }),
+      row({ id: 'repeats_card', subjects: [TEMPLATE.educational], order: 2 }),
+      row({ id: 'no_article', url: '', order: 3 }),
+    ]
+    expect(ids(selectBanners(stock, onDay()))).toEqual(['eligible'])
+  })
+
+  test("against D2's seed, the 6-week-check card leaves a postpartum rail of two", async () => {
+    const seed = await seedWithArticles()
+    const served = selectBanners(
+      seed,
+      onDay({ mode: 'postpartum', subject: 'postpartum_check' as never }),
+    )
+    expect(ids(served)).toEqual(['post_sleep', 'post_cycle_return'])
+  })
+
+  test('more than three eligible rows is a rail of three — the first three by rank', () => {
+    const stock = [0, 1, 2, 3, 4].map((order) => row({ id: `r${order}`, order }))
+    expect(ids(selectBanners(stock, onDay()))).toEqual(['r0', 'r1', 'r2'])
+  })
+
+  test('rows tied on focus and order fall back to the id, never to arrival order', () => {
+    const stock = [row({ id: 'b' }), row({ id: 'a' }), row({ id: 'c' })]
+    expect(ids(selectBanners(stock, onDay()))).toEqual(['a', 'b', 'c'])
+    expect(ids(selectBanners([...stock].reverse(), onDay()))).toEqual(['a', 'b', 'c'])
+  })
+
+  test('nothing eligible is an empty rail, not an error', () => {
+    expect(selectBanners([], onDay())).toEqual([])
+  })
+
+  test('the answer is a function of its inputs: the same rail whatever order the rows arrive in', async () => {
+    const seed = await seedWithArticles()
+    const input = onDay({ focusAreas: ['pmsCravings'] })
+    const once = ids(selectBanners(seed, input))
+    expect(ids(selectBanners([...seed].reverse(), input))).toEqual(once)
+    expect(ids(selectBanners(seed, input))).toEqual(once)
+  })
+})
+
+describe('the banner rail: only active, complete rows with an article', () => {
+  test('a retired row is never selected, even ahead of the rest by order (#146)', () => {
+    const stock = [
+      row({ id: 'retired', status: 'retired', order: 0 }),
+      row({ id: 'active', order: 1 }),
+    ]
+    expect(ids(selectBanners(stock, onDay()))).toEqual(['active'])
+  })
+
+  test('a row whose url is not an https:// article is not served', () => {
+    for (const url of [
+      '',
+      'https://',
+      'http://example.org/a',
+      'javascript:alert(1)',
+      '/learn/a',
+      'example.org',
+    ]) {
+      expect(selectBanners([row({ id: 'x', url })], onDay())).toEqual([])
+    }
+    expect(ids(selectBanners([row({ id: 'x', url: article('x') })], onDay()))).toEqual(['x'])
+  })
+
+  test('a row missing its title or its meta line is not served', () => {
+    expect(selectBanners([row({ id: 'x', title: '  ' })], onDay())).toEqual([])
+    expect(selectBanners([row({ id: 'x', meta: '' })], onDay())).toEqual([])
+  })
+
+  test("D2's seed as it stands reaches no rail in any mode: no row has an article yet", async () => {
+    const { BANNERS } = await import('../scripts/seed-content')
+    for (const mode of ['cycle', 'planning', 'pregnancy', 'postpartum', 'loss'] as const) {
+      expect(selectBanners(BANNERS, onDay({ mode }))).toEqual([])
+    }
+  })
+})
+
+describe("the banner rail's tags are topic, mode and focus area only (tone rule 2)", () => {
+  test("every seeded row's keys are the known set — no field a phase verdict could live in", async () => {
+    const { BANNERS } = await import('../scripts/seed-content')
+    const known = [
+      'focus',
+      'focusAreas',
+      'id',
+      'meta',
+      'mode',
+      'order',
+      'phase',
+      'status',
+      'subjects',
+      'title',
+      'url',
+    ]
+    for (const item of BANNERS) expect(Object.keys(item).sort()).toEqual(known)
+  })
+
+  test('subjects name Today-card templates and focus areas name setup codes — nothing else', async () => {
+    const { BANNERS, TEMPLATES } = await import('../scripts/seed-content')
+    const { FOCUS_AREA_CODES } = await import('../src/nutrition-profile')
+    const templateIds = new Set(TEMPLATES.map((t) => t.id))
+    const focusCodes = new Set<string>(FOCUS_AREA_CODES)
+    for (const item of BANNERS) {
+      for (const subject of item.subjects) expect(templateIds.has(subject)).toBe(true)
+      for (const code of item.focusAreas) expect(focusCodes.has(code)).toBe(true)
+      // `phase` is the canvas set this row was drawn in, which is its mode — not a cycle
+      // phase it is "for". A within-cycle phase here would be the tag the tone rule forbids.
+      expect(item.phase).toBe(item.mode)
+    }
   })
 })

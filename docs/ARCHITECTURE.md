@@ -77,8 +77,8 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all, and the export's paged read of every entry (#58) | The only module that touches `events/` |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against. Also the source of a symptom code's reviewed label for the Today card's `{signal}`/`{symptom}` slots (#200) | The only module that touches `refdata/` |
 | `content.ts` | The `content/` collection: the Dashboard's words — card templates, banners, nudges, and the signal vocabulary that fills `{signal}` (#200) — and the version they are cached against | The only module that touches `content/`; refuses a write carrying no reviewer |
-| `dashboard-rules.ts` | The Today card's priority ladder (#96): a day's inputs in, the card's *subject* out — rung, template id, slot values, confidence wording class | Pure: no Firestore, no clock, no `fetch`; every input is passed in. Holds no text and no clinical threshold. Called by D3's card module, never by `index.ts` |
-| `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, caches the day's card, pages them out for `GET /me/export` without the cache bookkeeping (#58), deletes them all. Also **the seam the cycle maths is read through** — `cycleEstimate` for the card, `cycleAnalysisFor` for the calendar (#205) | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser. Both cycle readers share one event window, one `CycleDay` mapping and one call to `analyzeCycles` |
+| `dashboard-rules.ts` | The Today card's priority ladder (#96): a day's inputs in, the card's *subject* out — rung, template id, slot values, confidence wording class. Also the banner rail's selection (`selectBanners`, #102): the rows, the mode, the subject and a finished setup's focus areas in; up to three rows out, never padded | Pure: no Firestore, no clock, no `fetch`; every input is passed in. Holds no text and no clinical threshold. Called by D3's card module, never by `index.ts` |
+| `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, chooses the day's banner rail with the card (#102), caches both, pages them out for `GET /me/export` without the cache bookkeeping (#58), deletes them all. Also **the seam the cycle maths is read through** — `cycleEstimate` for the card, `cycleAnalysisFor` for the calendar (#205) | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser. Both cycle readers share one event window, one `CycleDay` mapping and one call to `analyzeCycles` |
 
 | `cycle.ts` | The cycle maths (C11, #176): logged flow days in — the periods they group into (#186), counted cycles, the median next-period date, the fertile window, the FIGO irregularity band and the confidence class out | Pure: no Firestore, no clock, no `fetch`, no log line. Holds no constant of its own — every number arrives from `config.ts` and it refuses to answer without them. Every gate fails closed. The one reader of `periodEnd`, for one decision (§4) |
 | `nutrition.ts` | The nutrition targets engine (S2, #222): body metrics, goal, target weight and focus areas in — the day's calorie target, the macronutrient split, the clamp that bound it and the timeline that follows out | Pure: no Firestore, no clock, no `fetch`, no log line, and **no import at all**. Holds no dose of its own — every number arrives from `config.ts` and it refuses to answer without them. Takes no cycle phase and no calendar mode, which is what keeps S12 outside it. Every clamp is a floor on calories, and the timeline is derived from the clamped target |
@@ -99,11 +99,14 @@ never sideways along the middle row.
 construction.** A Today card is a *join* — the ladder's inputs come from `events.ts` and
 `users.ts`, its words from `content.ts` — and the join has to live somewhere. Putting it in
 `index.ts` would mean the route querying Firestore, which rule 10 exists to prevent; putting
-it in `events.ts` would make the calendar's module own the Dashboard. So it reads the three
+it in `events.ts` would make the calendar's module own the Dashboard. So it reads the
 owning modules through their public functions and never their collections: `today.ts`
 touches exactly one collection, its own. The reads it needed that did not exist yet —
-`lastEventChangeAt`, `lastLoggedDate`, `lastUserChangeAt` — were added to the owning modules
-rather than performed here, which is the test of whether the boundary held.
+`lastEventChangeAt`, `lastLoggedDate`, `lastUserChangeAt`, and for the banner rail (#102)
+`lastNutritionProfileChangeAt` beside `getNutritionProfile` — were added to the owning modules
+rather than performed here, which is the test of whether the boundary held. The rail's one
+read-side check on `content/` — an unsigned `banners` document yields no rail — is
+`content.ts`'s `getSignedContent`, not a read of the document here.
 
 `dashboard-rules.ts` is not in that middle row — it is a leaf *below* it. It imports nothing at
 runtime, so it cannot call anything, upward or sideways; D3's card module calls it, fills the
@@ -221,7 +224,7 @@ itself, which the default leaves alone.
 | `POST /me/events/{id}/restore` | Bearer | `{ event }` — undo a soft delete, within 30 days and while the entry has not been superseded (`409 DAY_ALREADY_LOGGED`); behind `requireCollectConsent` (#86) |
 | `PUT /me/body-signals/{date}` | Bearer | `{ event }` — upsert by day; behind `requireCollectConsent` (#86) |
 | `GET /me/cycle/predictions?from=&to=&timeZone=` | Bearer | `{ from, to, predictedPeriod, fertileWindow, peak, confidence, withheld }` — the calendar's overlay for a range (#205). Three lists of `localDate`s, clipped to the range; `confidence` is C11's own `wide`/`narrow` band, `null` when nothing is predicted, and `withheld` then names the gate that closed (`no-flow-logged`, `too-few-counted-cycles`, `irregular-cycles`, `uncountable-cycle`). The last two are deliberately separate (#190): the first says her cycles vary, the second says one interval in the window fell outside the countable range — a fact about a log, not about her — and answering the first for the second told a woman with a single missed period start something false for six cycles. Range validated and capped exactly as `/me/events` is, with the same `VALIDATION` code. `503 SERVICE_UNAVAILABLE` while the cycle maths' constants are unconfigured (#176) |
-| `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card }` — the day's card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26), the cycle maths' constants are unconfigured (#176), or `content/` is unseeded (#97) |
+| `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card, banners }` — the day's card, and its "Worth reading" rail (#102): `banners` is `[{ id, title, meta, url }]`, zero to three items in display order, always present (empty rather than absent), stored with the card and stable across the day; `url` is always an absolute `https://` article. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26), the cycle maths' constants are unconfigured (#176), or `content/` is unseeded (#97) |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 | `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
 
@@ -1380,7 +1383,9 @@ app's decoders and the export cannot drift apart:
   in production yet, §4 "Retention"): the export answers "what does Eva hold", and a stored
   entry is held whatever the promise says should have happened to it.
 - `today` — every stored card under `users/{uid}/today/`, in `GET /me/today`'s shape
-  (`date`, `generatedAt`, `contentVersion`, `card`), in date order. A filled card is her
+  (`date`, `generatedAt`, `contentVersion`, `card`, `banners` — the day's rail, #102, `[]`
+  for a day stored before it), in date order. Added without a `version` bump: adding a key is
+  not one. A filled card is her
   logged data in prose — the reason account deletion takes it, and the reason it is here.
 
 What is left out, deliberately:
@@ -1529,7 +1534,8 @@ content-derived `version` and revalidates with `?version=` or `If-None-Match` (#
 items[]        templates: { id, rung, mode, state, confidence: 'hedged' | 'plain',
                             tone?, kicker?, title, line2?, line3?, meta?, actions[],
                             slots[], status, order }
-               banners:   { id, phase, mode, focus, title, meta, url, status, order }
+               banners:   { id, phase, mode, focus, title, meta, url, subjects[],
+                            focusAreas[], status, order }
                nudges:    { id, withinDays: number | null, trigger, text, sub?,
                             action, status, order }
 reviewedBy     string            // who signed this copy off
@@ -1571,6 +1577,10 @@ Three things differ from `refdata/`, and each is the point of the collection:
   read path would blank the Dashboard on an operator's typo. So the guarantee is "the
   supported way to change this copy makes you sign it", not "everything served is
   signed"; a release check has to look at the collection, not only at the code.
+  **The one exception is the banner rail (#102)**: `getSignedContent` yields no banners for
+  an unsigned `banners` document, so a row the console added without a signature can be
+  served by `GET /content` but never selected onto a rail — refusing there costs a missing
+  rail, not a blank Dashboard.
 - **The signature is stored beside the items, never inside them, and is not hashed.**
   Who reviewed the copy is an operational fact the device has no use for, so it is in
   neither the body nor the `version` — re-reviewing the same words must not push a new
@@ -1589,8 +1599,8 @@ Three things differ from `refdata/`, and each is the point of the collection:
 Ids are permanent and opaque and nothing is deleted, only retired (`retireContent`),
 exactly as for `refdata/`. **Retirement is a selection contract:** a consumer must use
 only `status: 'active'` rows when choosing a new card, banner or nudge. The Today-card
-consumer enforces this in `TemplatePhraser`; D6 and D7 inherit the same requirement for
-nudges and banners. Retired rows remain in `GET /content` only so an already-rendered or
+consumer enforces this in `TemplatePhraser`, the banner rail in `selectBanners` (#102); D6
+inherits the same requirement for nudges. Retired rows remain in `GET /content` only so an already-rendered or
 stored card can still resolve its id; retirement does not blank a card already on screen.
 
 There is no harder `withdrawn` status in v1. Omitting copy from the bundle would orphan
@@ -1617,6 +1627,7 @@ generatedAt     string          // ISO-8601 instant, system time
 contentVersion  string          // the content.ts bundle the text was filled from
 dataChangedAt   string | null   // newest change to her own data this was built from
 card            { templateId, rung, state, tone?, kicker?, title, line2?, line3?, meta?, actions }
+banners         [{ id, title, meta, url }]   // the day's rail, 0–3, display order (#102)
 storedAt        serverTimestamp
 ```
 
@@ -1624,7 +1635,8 @@ storedAt        serverTimestamp
 requirements 3 and Edge case 5: the card "does not change between opens. It updates on new
 data, not on refresh." So a stored document is returned *untouched* — not re-filled, not
 re-stamped — unless something it was built from changed: an event created, edited, deleted
-or restored, body signals upserted, or the profile saved. New copy in `content/` is
+or restored, body signals upserted, the profile saved, or — since the banner rail ranks by
+its focus areas (#102) — the nutrition profile saved. New copy in `content/` is
 deliberately **not** such a thing; an existing day keeps its filled text and its
 `contentVersion`, because new data changes the card and new words do not.
 
@@ -1707,6 +1719,39 @@ overlay and re-asks, because the route recomputes on read and a moved anchor mov
 projection. A `503` from the route draws nothing and says nothing — which is deliberately
 *not* what a withheld prediction does, since only one of the two is an answer about her
 data.
+
+**The banner rail is chosen with the card, and stored with it (#102, D7).** `today.ts` hands
+`selectBanners` (in `dashboard-rules.ts`, beside the ladder, pure on the same terms) the
+banner rows, the mode, the template id the ladder just chose, and the focus areas of a
+*finished* Nutrition setup; the answer is copied into the day's document as `{ id, title,
+meta, url }` — the words, not a reference, so the rail neither changes when `content/` does
+nor needs the bundle to render offline. The rule, each clause a refusal rather than a
+preference:
+
+- **Eligible** only if `status: 'active'` (#146), `mode` equal to today's — exactly: the
+  parser defaults a missing tag to `'any'` and that is never a wildcard for a banner, so an
+  untagged row reaches no rail, the loss-mode one included — not tagged in `subjects` with
+  the card's template id (PRD Banner area 3), and carrying a title, a meta line and an
+  absolute `https://` URL.
+- **Ranked** by how many of her declared focus areas a row carries, then by the store's
+  `order`, then by id. Focus areas rank; they never filter. Only a finished setup's count —
+  PRD §Nutrition coach, nothing suggested from partial data.
+- **Cut** at three and **never padded**: fewer eligible rows is a shorter rail, and none is
+  `[]` (the client then draws no "Worth reading" section at all).
+- **A row with no article is not served.** The whole card is the tap target and the tap
+  opens the URL, so a row without one is a dead link. Every seeded row's `url` is still
+  empty — the Blog is unspecified (PRD §Blog) — so **no environment shows a rail today**, by
+  construction rather than by accident.
+- **An unsigned `banners` document yields no rail.** `GET /content` deliberately serves what
+  the collection holds; the rail is fresh selection every day of links out of the app, so it
+  alone re-checks the signature, through `content.ts`'s `getSignedContent`.
+- **The cycle phase is not an input yet.** No row carries a within-cycle phase tag (D2's
+  `phase` field is the canvas set, which `mode` already covers), and #102's tone criterion
+  limits a banner's tags to topic, mode and focus area. A phase tag is a content decision
+  for the reviewer; when it exists it ranks below focus areas.
+
+A day stored before the rail existed is served with `banners: []` for the rest of that day
+rather than filled in on a later open, which would change the document on a refresh.
 
 `users/{uid}/nutrition/profile` — the Nutrition coach's setup answers (#221, S1 of #25).
 Owned by `api/src/nutrition-profile.ts`. **A subcollection with its own route rather than a

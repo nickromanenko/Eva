@@ -438,7 +438,13 @@ describe('GET /me/export — the download', () => {
     const body = (await (await exportAs(alice)).json()) as ExportBody
     expect(body.today.map((t) => t.date)).toEqual([day(3), day(2), day(1)])
     for (const card of body.today) {
-      expect(Object.keys(card)).toEqual(['date', 'generatedAt', 'contentVersion', 'card'])
+      expect(Object.keys(card)).toEqual([
+        'date',
+        'generatedAt',
+        'contentVersion',
+        'card',
+        'banners',
+      ])
       expect(card.card.title.startsWith(aliceMarker)).toBe(true)
     }
   })

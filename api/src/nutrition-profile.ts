@@ -1,4 +1,4 @@
-import { FieldValue } from 'firebase-admin/firestore'
+import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { firestore } from './firebase'
 import type { NutritionGoal, SteadyGoal, WeightChangeGoal } from './nutrition'
 
@@ -324,6 +324,19 @@ const toProfile = (data: FirebaseFirestore.DocumentData): NutritionProfile => {
 export const getNutritionProfile = async (uid: string): Promise<NutritionProfile | null> => {
   const snapshot = await documents(uid).doc(PROFILE_DOC).get()
   return snapshot.exists ? toProfile(snapshot.data()!) : null
+}
+
+/**
+ * When her nutrition profile last changed — its half of the Today document's "has her data
+ * moved" signal (#102), beside `lastEventChangeAt` and `lastUserChangeAt`.
+ *
+ * The day's banner rail is ranked by the focus areas of a finished setup, so a card built
+ * before she declared one is stale in exactly the way D3's rule regenerates for. Every write
+ * here stamps `updatedAt`; `null` before setup is started.
+ */
+export const lastNutritionProfileChangeAt = async (uid: string): Promise<string | null> => {
+  const updatedAt = (await documents(uid).doc(PROFILE_DOC).get()).get('updatedAt')
+  return updatedAt instanceof Timestamp ? updatedAt.toDate().toISOString() : null
 }
 
 export type SaveNutritionProfileResult =

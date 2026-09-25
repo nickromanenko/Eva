@@ -5,6 +5,7 @@ import {
   applySignalVocabulary,
   contentVersion,
   invalidateContentCache,
+  retireContent,
   type Review,
 } from '../src/content'
 import * as todayModule from '../src/today'
@@ -24,7 +25,9 @@ import type { Template } from '../src/content'
 import type { DashboardRules } from '../src/dashboard-rules'
 import { adminAuth, firestore } from '../src/firebase'
 import { lastUserChangeAt } from '../src/users'
-import { TEMPLATES, VOCABULARY, REVIEW as SEED_REVIEW } from '../scripts/seed-content'
+import { deleteNutritionProfile, saveNutritionProfile } from '../src/nutrition-profile'
+import type { Banner } from '../src/content'
+import { BANNERS, TEMPLATES, VOCABULARY, REVIEW as SEED_REVIEW } from '../scripts/seed-content'
 import { bootApi } from './support/boot-api'
 import { signUpActivated } from './support/session'
 
@@ -198,6 +201,7 @@ interface TodayBody {
   generatedAt: string
   contentVersion: string
   card: Record<string, unknown>
+  banners: Record<string, unknown>[]
 }
 interface ErrorBody {
   error: { code: string; message: string }
@@ -230,6 +234,13 @@ const sportOn = (localDate: string) => ({
 })
 
 const todayDocs = () => firestore.collection('users').doc(uid).collection('today')
+
+/**
+ * D2's banner rows with an article behind each (#102) — every tag the rail reads is the
+ * seed's own; only the URL is supplied, because the seed has none yet and a row without one
+ * is never served. `example.org` is reserved for fixtures (RFC 2606).
+ */
+const RAIL: Banner[] = BANNERS.map((b) => ({ ...b, url: `https://example.org/articles/${b.id}` }))
 
 /**
  * A questionnaire payload for someone exactly this old in UTC today (#81 — the profile
@@ -286,6 +297,10 @@ beforeAll(async () => {
     // so a seeded `content/` without it would leave those titles unfilled and answer 503.
     await applySignalVocabulary(VOCABULARY, REVIEW)
     seeded.push('vocabulary')
+    // Before the spawned server's first `GET /me/today`, so its 60s content cache holds the
+    // rail from the start — the route case in "the banner rail" reads it from there.
+    await applyContent('banners', RAIL, REVIEW, { rewrite: true })
+    seeded.push('banners')
     invalidateContentCache()
   }
 }, 60_000)
@@ -308,6 +323,7 @@ afterAll(async () => {
   // `users/{uid}` is gone is exactly the orphan `account-deletion.test.ts` exists to rule
   // out, and every other suite that signs up deletes it (`events.test.ts:121`,
   // `events-retention.test.ts:144`). Against the real project that orphan is permanent.
+  if (uid) await deleteNutritionProfile(uid).catch(() => {})
   if (uid) await adminAuth.deleteUser(uid).catch(() => {})
   for (const id of seeded)
     await firestore
@@ -696,6 +712,140 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
     expect(serialised).not.toContain('energy":')
     expect(serialised).not.toContain('payload')
     expect(serialised).not.toContain('sex')
+  })
+})
+
+// ── The banner rail (D7, #102) ─────────────────────────────────────────────────────────
+// *Which* rows `selectBanners` picks is pinned against fixtures and the seed in
+// `dashboard-rules.test.ts`, where it runs everywhere. What only the join can show is here:
+// that the rail is chosen with the card and stored with it, that it excludes the subject the
+// ladder actually chose, that it is ranked by a *finished* setup's focus areas (and that
+// saving one is new data), and that an unsigned banner document reaches no rail. All of it
+// needs a seeded `content/`, so all of it is emulator-only.
+
+describe.skipIf(!onEmulators)('the banner rail', () => {
+  const date = () => todayIn('UTC')
+  const request = () => ({ date: date(), timeZone: 'UTC' })
+  const rebuild = async () => {
+    await todayDocs().doc(date()).delete()
+    return getToday(uid, request(), RULES)
+  }
+  const restoreRail = async () => {
+    // `applyContent` refuses to merge into an unsigned document with items in it — the
+    // gate this file is not here to get round — so a case that wrote one deletes it first.
+    await firestore.collection('content').doc('banners').delete()
+    await applyContent('banners', RAIL, REVIEW, { rewrite: true })
+    invalidateContentCache()
+  }
+
+  beforeAll(async () => {
+    await clearEvents()
+    await deleteNutritionProfile(uid)
+    await restoreRail()
+  })
+  afterAll(restoreRail)
+
+  test('the rail is stored with the card: the same items on every call that day', async () => {
+    const first = await rebuild()
+    expect(first.banners.length).toBeGreaterThan(0)
+    expect((await todayDocs().doc(date()).get()).data()!.banners).toEqual(first.banners)
+
+    // Retire the first row served. A rail recomputed per call would drop it; the stored one
+    // keeps it for the day, exactly as new copy does not change the card (D3's rule).
+    const [served] = first.banners
+    expect(await retireContent('banners', served!.id)).toBe(true)
+
+    const second = await getToday(uid, request(), RULES)
+    expect(second.banners).toEqual(first.banners)
+    expect(second.generatedAt).toBe(first.generatedAt)
+
+    // And a day built after the retirement does not select it (#146).
+    const rebuilt = await rebuild()
+    expect(rebuilt.banners.map((b) => b.id)).not.toContain(served!.id)
+    await restoreRail()
+  })
+
+  test('the rail never carries a row tagged with the card the ladder chose that day', async () => {
+    const card = (await rebuild()).card.templateId
+    // Tag the store's first row of today's mode with today's card, and nothing else about
+    // it: if the join handed `selectBanners` any other subject, this row would lead the rail.
+    const tagged = RAIL.map((b) => (b.id === 'cycle_appetite' ? { ...b, subjects: [card] } : b))
+    await firestore.collection('content').doc('banners').delete()
+    await applyContent('banners', tagged, REVIEW, { rewrite: true })
+    invalidateContentCache()
+
+    const today = await rebuild()
+    expect(today.card.templateId).toBe(card)
+    expect(today.banners.length).toBeGreaterThan(0)
+    expect(today.banners.map((b) => b.id)).not.toContain('cycle_appetite')
+    await restoreRail()
+    expect((await rebuild()).banners.map((b) => b.id)).toContain('cycle_appetite')
+  })
+
+  test('only a finished setup’s focus areas rank it — and saving one is new data', async () => {
+    const plain = await rebuild()
+    expect(plain.banners[0]?.id).toBe('cycle_appetite')
+
+    // Declared, but setup is not finished: PRD §Nutrition coach, nothing suggested from
+    // partial data. The save still regenerates — it is her data — and ranks nothing.
+    await saveNutritionProfile(uid, { focusAreas: ['ironDeficiencyAnaemia'], step: 'mealPattern' })
+    const partial = await getToday(uid, request(), RULES)
+    expect(partial.generatedAt).not.toBe(plain.generatedAt)
+    expect(partial.banners[0]?.id).toBe('cycle_appetite')
+
+    // Finished. No `rebuild()`: the stored day must go stale on this write alone.
+    await saveNutritionProfile(uid, {
+      goal: 'maintain',
+      mealPattern: { mealsPerDay: 3, snacks: false, mealTimes: null },
+      hideNumbers: false,
+      step: 'done',
+    })
+    const complete = await getToday(uid, request(), RULES)
+    expect(complete.generatedAt).not.toBe(partial.generatedAt)
+    expect(complete.banners[0]?.id).toBe('cycle_iron')
+    await deleteNutritionProfile(uid)
+  })
+
+  test('a banner document with no signature reaches no rail', async () => {
+    // Written past `applyContent`, as the console can: same rows, no reviewer.
+    await firestore.collection('content').doc('banners').set({ items: RAIL })
+    invalidateContentCache()
+    const today = await rebuild()
+    expect(today.banners).toEqual([])
+    // The card is unaffected: only the rail's own document is judged.
+    expect(today.card.templateId).toBeDefined()
+    await restoreRail()
+    expect((await rebuild()).banners.length).toBeGreaterThan(0)
+  })
+
+  test('a day stored before the rail existed is served with an empty one, not rebuilt', async () => {
+    const built = await rebuild()
+    const ref = todayDocs().doc(date())
+    const { banners: _, ...legacy } = (await ref.get()).data()!
+    await ref.set(legacy)
+    const served = await getToday(uid, request(), RULES)
+    expect(served.banners).toEqual([])
+    expect(served.generatedAt).toBe(built.generatedAt)
+  })
+
+  test('GET /me/today carries the rail, each item exactly { id, title, meta, url }', async () => {
+    await todayDocs().doc(date()).delete()
+    const res = await api('/me/today?timeZone=UTC')
+    expect(res.status).toBe(200)
+    const body = await json<TodayBody>(res)
+    expect(Object.keys(body)).toEqual(['date', 'generatedAt', 'contentVersion', 'card', 'banners'])
+    expect(body.banners.length).toBeGreaterThan(0)
+    expect(body.banners.length).toBeLessThanOrEqual(3)
+    for (const item of body.banners) {
+      expect(Object.keys(item)).toEqual(['id', 'title', 'meta', 'url'])
+      const seeded = RAIL.find((b) => b.id === item.id)!
+      expect(item).toEqual({
+        id: seeded.id,
+        title: seeded.title,
+        meta: seeded.meta,
+        url: seeded.url,
+      })
+    }
   })
 })
 
