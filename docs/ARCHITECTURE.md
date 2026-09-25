@@ -70,7 +70,7 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 |---|---|---|
 | `index.ts` | Routes, request validation, HTTP status/error mapping | No Firestore or `fetch` calls here — delegate |
 | `auth.ts` | Minting and verifying the Eva JWT, `requireAuth` middleware | The only place `JWT_SECRET` is used. Takes the token version as an argument; never reads it, because it may not reach Firestore |
-| `identity-toolkit.ts` | The Firebase Auth account: password and provider credentials verified via Google REST, delete via the Admin SDK | The only place the web API key is used; the only place an Auth user is deleted |
+| `identity-toolkit.ts` | The Firebase Auth account: password and provider credentials verified via Google REST, delete via the Admin SDK, and which federated identities it holds — the Auth half of every served `User.authProviders` (#117, §4) | The only place the web API key is used; the only place an Auth user is deleted |
 | `providers.ts` | The two calls that go to Apple and Google *directly*: Google's PKCE code exchange, Apple's client secret and token revocation | The only place `GOOGLE_IOS_CLIENT_ID` and the Apple keys are used; writes no log line |
 | `rate-limit.ts` | In-memory attempt counters for `/auth/*`, and for `GET /me/export` (#58) | Holds no identity state; never logs its keys (addresses, IPs, uids) |
 | `users.ts` | The `users/{uid}` document: read, create, update, bump the token version, mark deleted, delete, list IDs | The only module that touches `users/`. `bumpTokenVersion` carries the written-down rule for what ends a session (#76) |
@@ -418,7 +418,7 @@ a wrong password per line is a log full of nothing.
 | Route | Body | Answers |
 |---|---|---|
 | `POST /auth/idp` | `{ provider: "apple", identityToken, rawNonce }` or `{ provider: "google", code, codeVerifier, redirectUri }` | `200 { token, user }` — the same shape `/auth/signin` returns |
-| `POST /me/auth/providers` | the same two shapes, with a bearer token | `200 { user }`, with the provider added to `user.authProviders` |
+| `POST /me/auth/providers` | the same two shapes, with a bearer token | `200 { user }`, with the provider in `user.authProviders` — read back from Auth (#117, §4) |
 
 Apple is native: the app already holds an `identityToken`, and it sends the **raw** nonce it
 hashed into its `ASAuthorization` request. That nonce is forwarded to `signInWithIdp`, where
@@ -530,9 +530,10 @@ password, unlinks every *federated* identity except the one that just signed in,
 revokes outstanding refresh tokens. The password is overwritten rather than unlinked, both
 because an account with no password provider has nothing for forgot-password to reset and
 because Firebase will not accept "set this password" and "remove the password provider" in
-one call. It asks `adminAuth.getUser` rather than `users/{uid}` — Eva's
-`authProviders` is a mirror, and sign-up writes the Auth user before the document, so a
-failure between the two leaves an account the mirror cannot see.
+one call. It asks `adminAuth.getUser` rather than `users/{uid}` — Eva's stored
+`authProviders` is not a record of Auth's identities (§4), and sign-up writes the Auth user
+before the document, so a failure between the two leaves an account the document cannot
+see.
 
 **Unlinking closes only one of the two orderings, so the address is checked as well.** The
 paragraph above assumes the *victim* reaches `/auth/idp` first. Nothing makes them: the
@@ -564,12 +565,17 @@ that no longer carries its identity.
 
 **The claim runs before anything is written.** `/auth/idp` reads the account document
 rather than calling `ensureUser` first, because `ensureUser` writes: it unions the provider
-into `authProviders`. Calling it ahead of the gate meant a credential the route was about to
-refuse still left its provider mirrored on the account it collided with, permanently, and
-where the app can see it — Profile reads `authProviders` to decide whether to offer "Connect
-Apple", so a false entry takes away the real owner's only way to link the identity that is
-actually theirs. The write happens once the claim has returned `claimed`, and `ensureUser`'s
+into the stored `authProviders`. Calling it ahead of the gate meant a credential the route
+was about to refuse still left its provider on the account it collided with, permanently,
+and where the app could see it — Profile reads `authProviders` to decide whether to offer
+"Connect Apple". The write happens once the claim has returned `claimed`, and `ensureUser`'s
 own tombstone check closes the window between the read and it.
+
+Since #117 the served list takes Apple and Google from Auth (§4), where a refused
+identity *does* stay linked — Firebase linked it before Eva saw the request. It still never
+reaches the owner: a refusal mints nothing and leaves the account unactivated, and every
+path to a session on an unactivated account — activation (`claimForActivation`), a reset,
+a successful claim — unlinks federated identities first.
 
 **Proving the address retracts what was attached while it was not.** The claim above guards
 `/auth/idp` and is gated on `activatedAt` — but the activation link and a password reset also
@@ -703,7 +709,8 @@ aimed at any address they cared to name.
 *What is not tested, and cannot be here.* `api/test/provider-signin.test.ts` fakes the
 provider boundary — no test process can obtain a real Apple `identityToken` or a real Google
 authorization code — so what is proven is our half: the identity rule against the live
-Firestore, the activation stamp, `authProviders`, the 409, the validation, and that the raw
+Firestore, the activation stamp, `authProviders` (both halves, #117), the 409, the
+validation, and that the raw
 nonce reaches the wire. That Firebase rejects a replayed nonce, that Google accepts our PKCE
 exchange, and that Apple accepts our client secret are unproven until a device and a
 provisioned provider exist.
@@ -1001,7 +1008,7 @@ provider resolving to the same Auth account lands on the same document.
 
 ```
 email                  string          // the Auth account's address at creation; never rewritten (§3, #119)
-authProviders          string[]        // arrayUnion: "password", "apple.com", "google.com"
+authProviders          string[]        // arrayUnion. ONLY "password" is read (#117); see below
 questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
 consent                Consent         // #86 (A21): { collect, share } records. ABSENT = never asked
@@ -1012,6 +1019,35 @@ tokenVersion           number          // #76; the session generation. ABSENT = 
 deletedAt              Timestamp       // absent until a delete starts; see below
 createdAt, updatedAt   serverTimestamp
 ```
+
+`authProviders` **is not what the client is served under the same name** (#117). The
+`User.authProviders` every route answers with is assembled per response from two owners:
+
+- `apple.com` / `google.com` from Firebase Auth's `providerData`, read at request time by
+  `federatedProvidersOf` (`identity-toolkit.ts`). The stored copy of them drifted —
+  `claimUnprovenAccount` and `retractUnprovenIdentities` unlink identities from Auth and
+  nothing pruned this array — so Profile could show a provider Firebase no longer held.
+- `password` from this array containing `"password"` (`passwordChosen` in `users.ts`). That
+  is an Eva fact, not a copy: Firebase also lists `password` for every account a claim has
+  run on, because the claim overwrites the password with random bytes nobody chose, so
+  Auth cannot say whether she has one she knows.
+
+**The federated entries stored here are dormant.** `ensureUser` still unions them in and
+nothing reads them. The write is kept so that a rollback to the build before #117, which
+reads the array whole, does not find Apple accounts created in between without `apple.com`
+— the app skips Apple revocation on delete for such an account. Stop writing them once no
+deployable build reads them. **Nothing removes the ones already stored**: pruning them is a
+deletion of user data and needs a human (AUTONOMY). A later reader must not start trusting
+them again; the list in no case feeds a server-side authorization decision, which reads
+`providerData` directly (#113).
+
+The composition happens at the route edge (`servedUser` in `users.ts`, handed Auth's answer
+by `index.ts`), so neither module reads the other's store. Cost: one Admin SDK `getUser` per
+response that carries a `User`, measured from a laptop against the real project at ~170 ms
+p50 / ~245 ms p90 — about one Firestore read. `GET /me` issues it beside the account gate's
+read (`requireServedAccount`), the write routes beside their write, and the sign-in and link
+routes after the step that changes Auth; no route that does not answer with a `User` pays it.
+Not yet measured from Cloud Run, where it is expected to be smaller.
 
 `tokenVersion` is the session generation (#76, §3). A token carries the generation it was
 minted at and the account gate compares the two, so bumping this number ends every session
@@ -1288,8 +1324,9 @@ device. `Cache-Control: no-store` keeps it out of every cache on the way.
 What is in it, and in which shape — each the shape an existing route already serves, so the
 app's decoders and the export cannot drift apart:
 
-- `account` — exactly `GET /me`'s `user`, from the snapshot `requireAccount` already read.
-  Profile, consent records, providers, activation, settings.
+- `account` — exactly `GET /me`'s `user`, from the same gate (`requireServedAccount`): the
+  account snapshot plus Auth's federated identities, assembled as §4 `authProviders`
+  describes (#117). Profile, consent records, providers, activation, settings.
 - `events` — **every document** in `users/{uid}/events/`, in `GET /me/events`' shape. That
   includes soft-deleted entries, marked by a non-null `deletedAt`, and it includes entries
   past their 30-day window that the purge has not reached yet (the purge job does not exist
@@ -1309,7 +1346,9 @@ What is left out, deliberately:
 - `authTokens/` — link-token hashes are credentials (GUARDRAILS 12a), not her data, and the
   address they were sent to is already `account.email`.
 - The Firebase Auth record — the password hash is a credential; the address and the linked
-  providers are already in `account`. The `/auth/*` throttle's counters are in memory and
+  Apple/Google identities are already in `account` (the latter read from Auth, #117). The
+  dormant federated entries of the stored `authProviders` array are not exported: they are
+  a stale copy of those identities, not a separate fact about her (§4). The `/auth/*` throttle's counters are in memory and
   keyed by address and IP, not by account.
 - `refdata/` and `content/` are global: an entry's symptom *codes* are exported, their labels
   are the catalogue's (§4 above), so the file is complete about her and not about Eva.

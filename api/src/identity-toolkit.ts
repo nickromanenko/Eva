@@ -212,7 +212,8 @@ export const signInWithPassword = (email: string, password: string) =>
 // ── Provider identities (#7) ───────────────────────────────────────────────────
 
 /** Firebase's own provider ids. They are what the Auth account is keyed to, so they are
- *  also what goes into `users/{uid}.authProviders` — the same string on both sides. */
+ *  also what the client receives in `User.authProviders` — the same string on both sides,
+ *  since #117 because that entry is read straight out of `providerData`. */
 export const PROVIDER_IDS = { apple: 'apple.com', google: 'google.com' } as const
 export type ProviderName = keyof typeof PROVIDER_IDS
 
@@ -417,6 +418,34 @@ export const addressOfAuthAccount = async (uid: string): Promise<AuthAddress> =>
     return { address: user.email ?? null, proven: user.emailVerified }
   } catch (err) {
     if ((err as { code?: string }).code === USER_NOT_FOUND) return { address: null, proven: false }
+    throw err
+  }
+}
+
+/**
+ * The Apple and Google identities this Auth account holds **now** — the federated half of
+ * the `authProviders` every served `User` carries (#117). `null` when there is no Auth user.
+ *
+ * Read per response rather than kept in `users/{uid}`, because a copy there drifted:
+ * `claimUnprovenAccount` and `retractUnprovenIdentities` unlink identities from Auth, and
+ * the document went on listing them. This module is the Auth owner, so it answers; the
+ * route composes the answer with the document through `servedUser` in `users.ts`, and
+ * neither module reads the other's store (GUARDRAILS 10).
+ *
+ * Only the ids in `PROVIDER_IDS`: those are the only identities Eva can attach, and the only
+ * ones the client has a row for. `password` is deliberately **not** answered here — every
+ * account a claim has run on lists a random password nobody chose, so Firebase cannot say
+ * whether she has one (`UserRecord.passwordChosen` does). Costs one Admin SDK read; measured
+ * on #117 at ~170 ms p50 from a laptop, which is why callers run it beside their Firestore
+ * read rather than after it wherever the order allows. Logs nothing.
+ */
+export const federatedProvidersOf = async (uid: string): Promise<string[] | null> => {
+  const federated: readonly string[] = Object.values(PROVIDER_IDS)
+  try {
+    const user = await adminAuth.getUser(uid)
+    return user.providerData.map((p) => p.providerId).filter((id) => federated.includes(id))
+  } catch (err) {
+    if ((err as { code?: string }).code === USER_NOT_FOUND) return null
     throw err
   }
 }
@@ -684,8 +713,9 @@ export const claimUnprovenAccount = async (
   uid: string,
   keepProviderId: string,
 ): Promise<ClaimOutcome> => {
-  // Asked of Firebase, never of `users/{uid}`. Eva's `authProviders` is a mirror this
-  // module does not write, and the two diverge in exactly the case that matters: sign-up
+  // Asked of Firebase, never of `users/{uid}`. Eva's stored `authProviders` is not a record
+  // of Auth's identities (since #117 only its `password` entry is read at all), and the two
+  // diverge in exactly the case that matters: sign-up
   // creates the Auth user before the document, so a failure between the two leaves an
   // account with the attacker's password and no document at all. A check against the
   // mirror reads that as a fresh account and does nothing.

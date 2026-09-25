@@ -16,8 +16,16 @@ struct APIUser: Decodable {
     /// build of this app validate a session against an API that predates the field.
     let activated: Bool
     /// The ways this account can be signed in to — `"password"`, `"apple.com"`,
-    /// `"google.com"` (#7). The server's `users/{uid}.authProviders`, verbatim, which means
-    /// **Firebase's** provider ids and not the words the app sends in a request body.
+    /// `"google.com"` (#7) — **Firebase's** provider ids, not the words the app sends in a
+    /// request body.
+    ///
+    /// Assembled by the API for each response, not a stored copy (#117): `apple.com` and
+    /// `google.com` come from Firebase Auth's own record of the account at that moment, and
+    /// `password` means she chose a password through Eva (Firebase alone would also list the
+    /// random one a provider sign-up is given). So a provider unlinked server-side drops out
+    /// on the next response. It is for display and for the client's own decisions — the
+    /// Connect buttons, and whether to ask Apple for a revocation code on delete — and the
+    /// server authorizes nothing from it.
     ///
     /// This comment said `"apple"` and `"google"` until the review of #7. It was wrong, and
     /// it was the source of the defect: `EvaAuthProvider.rawValue` was compared against

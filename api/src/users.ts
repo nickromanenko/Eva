@@ -119,9 +119,30 @@ export interface User {
    * data, so it has to be representable without erasing the grant it withdrew.
    */
   consent: Consent
-  /** Which credentials open this account: `password`, `apple.com`, `google.com` (#7). The
-   *  client shows it in Profile and decides from it whether "Link Apple" is still offered.
-   *  Absent on no document — the field has existed since the first one. */
+  /**
+   * Which ways in this account offers: `password`, `apple.com`, `google.com` (#7) —
+   * Firebase's provider ids, never the request-body words. The client shows it in Profile,
+   * decides from it whether "Connect Apple" is still offered, and asks Apple for a
+   * revocation code on delete when it contains `apple.com`.
+   *
+   * **Assembled per response from two owners, and stored whole by neither (#117).**
+   *
+   * - `apple.com` / `google.com` come from Firebase Auth's `providerData`, read at the
+   *   moment of answering (`federatedProvidersOf` in `identity-toolkit.ts`). They used to be
+   *   a copy in `users/{uid}.authProviders`, and a copy drifted: `claimUnprovenAccount`
+   *   unlinks identities from Auth and nothing pruned the document, so Profile could show a
+   *   provider Firebase no longer held — and refuse to offer linking it. Auth is the record
+   *   of which identities open the account, so it is the one read.
+   * - `password` comes from `users/{uid}.authProviders` containing `"password"` — see
+   *   `UserRecord.passwordChosen`. That is an Eva fact, not a copy of one: Firebase lists
+   *   `password` for every account `claimUnprovenAccount` has run on, because the claim
+   *   overwrites the password with random bytes nobody knows. Deriving it from Auth would
+   *   tell every Apple- and Google-first user she has an "Email and password" sign-in.
+   *
+   * Federated entries still in the stored array are **never read** — see `ensureUser` for
+   * why they are still written. Display and decisions in the *client* only: no server-side
+   * authorization may read this list; ask `adminAuth.getUser().providerData` (#113).
+   */
   authProviders: string[]
   /** Whether the address has been confirmed (#6). Derived from `activatedAt`, which the
    *  client never sees. */
@@ -143,6 +164,41 @@ export interface User {
 }
 
 /**
+ * Everything `users/{uid}` can say about her — every `User` field except `authProviders`,
+ * which is half Firebase Auth's and cannot be answered from this collection (#117).
+ *
+ * What this module reads and writes returns this, never `User`, so that a route cannot
+ * serve a user without first asking Auth which identities she holds: `servedUser` is the
+ * only way from one to the other, and it needs that answer as an argument. Composed at the
+ * route edge because neither owner may read the other's store (GUARDRAILS 10).
+ */
+export interface UserRecord extends Omit<User, 'authProviders'> {
+  /**
+   * Whether she chose a password: `"password"` in the stored `authProviders`, which
+   * `ensureUser` writes on the password sign-in and on activation. Not on the wire — it is
+   * served as `authProviders` containing `"password"`. Firebase's `providerData` cannot
+   * answer this: it also lists the random password `claimUnprovenAccount` sets.
+   */
+  passwordChosen: boolean
+}
+
+/** Reads the stored half of `authProviders` (#117). Only `"password"` is looked for;
+ *  federated entries in the stored array are dormant and deliberately ignored. */
+const storedPasswordChosen = (data: FirebaseFirestore.DocumentData): boolean =>
+  Array.isArray(data.authProviders) && data.authProviders.includes('password')
+
+/**
+ * The `User` the client receives: the record, plus the federated identities Firebase Auth
+ * holds *now* (#117). `federated` is `federatedProvidersOf`'s answer — this module never
+ * asks Auth itself. `password` first, then Auth's order; the order carries no meaning, and the
+ * client only ever tests membership.
+ */
+export const servedUser = (record: UserRecord, federated: readonly string[]): User => {
+  const { passwordChosen, ...user } = record
+  return { ...user, authProviders: [...(passwordChosen ? ['password'] : []), ...federated] }
+}
+
+/**
  * A user **and the session generation her tokens must match** (#76).
  *
  * `tokenVersion` is deliberately *not* a field on `User`, for the reason `lastUserChangeAt`
@@ -154,7 +210,7 @@ export interface User {
  * is what makes #76's check one comparison and not a second Firestore round trip.
  */
 export interface Account {
-  user: User
+  user: UserRecord
   tokenVersion: number
 }
 
@@ -252,10 +308,10 @@ const storedConsent = (raw: unknown): Consent => {
  * state every pre-#86 account and every new account starts in, and it refuses for the
  * same reason — collection may only follow the record.
  */
-export const hasCollectConsent = (user: User): boolean =>
+export const hasCollectConsent = (user: UserRecord): boolean =>
   user.consent.collect !== null && user.consent.collect.withdrawnAt === null
 
-const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => {
+const toUser = (id: string, data: FirebaseFirestore.DocumentData): UserRecord => {
   const profile = storedProfile(data.profile)
   return {
     id,
@@ -269,7 +325,7 @@ const toUser = (id: string, data: FirebaseFirestore.DocumentData): User => {
     questionnaireCompleted: (data.questionnaireCompleted ?? false) && profile !== null,
     profile,
     consent: storedConsent(data.consent),
-    authProviders: data.authProviders ?? [],
+    passwordChosen: storedPasswordChosen(data),
     activated: isActivatedData(data),
     nutritionQualitativeOnly: data.nutritionQualitativeOnly ?? false,
     profileNudgeDismissed: data.profileNudgeDismissed ?? false,
@@ -312,14 +368,21 @@ export const ensureUser = async (
     if (isTombstone(snapshot)) return null
     // `update`, never `set`: it fails rather than creates if the document went away
     // between the read and here, so a delete landing mid-sign-in cannot be undone.
+    //
+    // **Federated ids are still unioned in, and nothing reads them (#117).** Only
+    // `"password"` is read back (`storedPasswordChosen`); `apple.com` and `google.com` are
+    // served from Auth. The write stays because removing it is not free: the build before
+    // #117 reads this array whole, so a rollback to it would find every account created in
+    // between without its Apple entry — and the app skips Apple token revocation on delete
+    // for an account whose list lacks `apple.com`. Stop writing them once no deployable
+    // build reads them; never delete what is already stored (data deletion is a human call).
     await ref.update({
       authProviders: FieldValue.arrayUnion(provider),
       updatedAt: FieldValue.serverTimestamp(),
     })
     // The union is applied to the value that is returned as well as to the document, so a
-    // caller is never handed a list that is already stale by one provider — which is
-    // exactly what `POST /me/auth/providers` answers with (#7). Reading the document back
-    // would cost a second round trip to learn something we just decided.
+    // password sign-in that first records the password is answered with it. Reading the
+    // document back would cost a second round trip to learn something we just decided.
     const data = snapshot.data()!
     const existing: string[] = data.authProviders ?? []
     // The version comes off the snapshot this function already read (#76): a sign-in mints
@@ -354,7 +417,7 @@ export const ensureUser = async (
       questionnaireCompleted: false,
       profile: null,
       consent: { collect: null, share: null },
-      authProviders: [provider],
+      passwordChosen: provider === 'password',
       activated: false,
       nutritionQualitativeOnly: false,
       profileNudgeDismissed: false,
@@ -371,13 +434,17 @@ export const ensureUser = async (
  * to decide whether to refuse: a provider sign-in must not revive a deleted account, and
  * must run the claim on an account that has none yet.
  *
- * It exists because `ensureUser` *writes* — it unions the provider into `authProviders` —
- * and calling it before the claim gate left a refused credential's provider permanently
- * mirrored on a stranger's document. That is not cosmetic: the app reads `authProviders`
- * to decide whether to offer "Connect Apple", so a false entry removes the real owner's
- * only way to link the identity they actually own.
+ * It exists because `ensureUser` *writes*, and nothing may be written for a credential the
+ * claim gate is about to refuse. It was first found as a refused credential's provider left
+ * permanently in the stored `authProviders` on a stranger's document, which the app then
+ * read to decide whether to offer "Connect Apple". Since #117 the served list takes its
+ * federated entries from Auth rather than from that array, so that particular harm cannot
+ * recur through here — but a write before the gate is still a write on the say-so of a
+ * credential that has not earned the account, and the order stays.
  */
-export const readUser = async (uid: string): Promise<{ deleted: boolean; user: User | null }> => {
+export const readUser = async (
+  uid: string,
+): Promise<{ deleted: boolean; user: UserRecord | null }> => {
   const snapshot = await users().doc(uid).get()
   if (!snapshot.exists) return { deleted: false, user: null }
   if (isTombstone(snapshot)) return { deleted: true, user: null }
@@ -405,7 +472,7 @@ export const getAccount = async (uid: string): Promise<Account | null> => {
 
 /** The user alone, for the callers that have no session to check — expressed through
  *  `getAccount` so the tombstone rule has one implementation rather than two. */
-export const getUser = async (uid: string): Promise<User | null> =>
+export const getUser = async (uid: string): Promise<UserRecord | null> =>
   (await getAccount(uid))?.user ?? null
 
 /**
@@ -479,7 +546,7 @@ export const lastUserChangeAt = async (uid: string): Promise<string | null> => {
 
 /** The activation gate's question (#6). A named seam rather than a field read, so the
  *  routes that ask it — sign-in, resend — say what they are asking. */
-export const isActivated = (user: User): boolean => user.activated
+export const isActivated = (user: UserRecord): boolean => user.activated
 
 /**
  * Stamps `activatedAt`, once: a document already activated — by a timestamp, or by
@@ -518,7 +585,10 @@ export const markActivated = async (uid: string): Promise<boolean> => {
  * second caller or reorders the gate. Every other read in this module refuses a tombstone
  * on its own; this was the one that only did so by arrangement.
  */
-export const saveQuestionnaire = async (uid: string, profile: Profile): Promise<User | null> => {
+export const saveQuestionnaire = async (
+  uid: string,
+  profile: Profile,
+): Promise<UserRecord | null> => {
   const ref = users().doc(uid)
   const snapshot = await ref.get()
   if (!snapshot.exists || isTombstone(snapshot)) return null
@@ -544,7 +614,7 @@ export const saveQuestionnaire = async (uid: string, profile: Profile): Promise<
 export const saveNutritionSetting = async (
   uid: string,
   qualitativeOnly: boolean,
-): Promise<User | null> => {
+): Promise<UserRecord | null> => {
   const ref = users().doc(uid)
   const snapshot = await ref.get()
   if (!snapshot.exists || isTombstone(snapshot)) return null
@@ -563,7 +633,7 @@ export const saveNutritionSetting = async (
  * flips this flag, and the Profile route and every other write keep working regardless.
  * `null` for a missing document or a tombstone, the same answer `saveQuestionnaire` gives.
  */
-export const dismissProfileNudge = async (uid: string): Promise<User | null> => {
+export const dismissProfileNudge = async (uid: string): Promise<UserRecord | null> => {
   const ref = users().doc(uid)
   const snapshot = await ref.get()
   if (!snapshot.exists || isTombstone(snapshot)) return null
@@ -603,7 +673,7 @@ export const saveConsent = async (
   kind: ConsentKind,
   granted: boolean,
   version: string,
-): Promise<User | null> => {
+): Promise<UserRecord | null> => {
   const ref = users().doc(uid)
   // A transaction, not a read-then-write, for the same reason `bumpTokenVersion` is: the
   // decision depends on what the document holds *now* — whether there is a grant to
