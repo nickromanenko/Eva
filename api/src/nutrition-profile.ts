@@ -1,7 +1,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { firestore } from './firebase'
 import type { NutritionGoal, SteadyGoal, WeightChangeGoal } from './nutrition'
-import { assertAccountLive } from './users'
+import { assertAccountLive, type WriteSession } from './users'
 
 /**
  * The nutrition profile (S1 of #25, #221): her answers to the Nutrition coach's setup flow,
@@ -363,7 +363,8 @@ export type SaveNutritionProfileResult =
  * **The same transaction also reads the account** (#286, `assertAccountLive`): the first
  * write *creates* this document, so a PATCH that passed the account gate just before
  * `DELETE /me` could otherwise land after `deleteNutritionProfile` and leave a goal and a
- * target weight under a deleted account. It throws `AccountGoneError` instead.
+ * target weight under a deleted account. It throws `AccountGoneError` instead — or
+ * `SessionSupersededError` when a password reset ended `session` after the gate (#294).
  *
  * **Changing the goal to one with no target weight — or clearing it — clears the stored
  * target weight.** Step 5 is skipped for goals 4 and 5, so a target left behind would be an
@@ -372,11 +373,12 @@ export type SaveNutritionProfileResult =
  */
 export const saveNutritionProfile = async (
   uid: string,
+  session: WriteSession,
   patch: NutritionProfilePatch,
 ): Promise<SaveNutritionProfileResult> => {
   const ref = documents(uid).doc(PROFILE_DOC)
   return firestore.runTransaction(async (tx) => {
-    const [snapshot] = await assertAccountLive(tx, uid, ref)
+    const [snapshot] = await assertAccountLive(tx, uid, session, ref)
     const { complete: _, ...before } = snapshot.exists ? toProfile(snapshot.data()!) : toProfile({})
     const after: Omit<NutritionProfile, 'complete'> = { ...before, ...patch }
 

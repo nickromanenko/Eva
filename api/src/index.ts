@@ -95,6 +95,7 @@ import {
   CONDITION_CODES,
   CONSENT_KINDS,
   MEDICATION_CODES,
+  SessionSupersededError,
   bumpTokenVersion,
   deleteUserDocument,
   dismissProfileNudge,
@@ -190,7 +191,11 @@ app.onError((err, c) => {
   // token, one step earlier — so no code is added and the client's sign-out path applies.
   // Not a fault either, so no line: every route that writes a subcollection can raise it,
   // which is why it is answered here once rather than in each handler.
-  if (err instanceof AccountGoneError) {
+  // Its twin (#294) is the same race against a password reset instead of a delete: the
+  // write's own read found the session superseded after the gate let it through, and it is
+  // answered exactly as the gate answers a superseded token — which is byte-for-byte the
+  // dead-token answer above, so the client cannot tell the two apart and need not.
+  if (err instanceof AccountGoneError || err instanceof SessionSupersededError) {
     return c.json(error('UNAUTHORIZED', 'Invalid or expired token'), 401)
   }
   // Short enough to read out over a support call, random enough to be unique among the
@@ -2035,7 +2040,11 @@ app.patch(
   async (c) => {
     const patch = parseNutritionProfilePatch(await readBody(c))
     if (!patch.ok) return c.json(error(patch.code, patch.message), 400)
-    const saved = await saveNutritionProfile(c.get('claims').sub, patch.value)
+    const saved = await saveNutritionProfile(
+      c.get('claims').sub,
+      tokenVersionOf(c.get('claims')),
+      patch.value,
+    )
     if (!saved.ok) {
       const message =
         saved.rule === 'required'
@@ -2834,7 +2843,12 @@ app.post('/me/events', requireAuth, requireAccount, requireCollectConsent, async
   const body = await readBody(c)
   const parsed = parseNewEvent(body, await getSymptomRules())
   if (!parsed.ok) return c.json(error(parsed.code, parsed.message), 400)
-  return c.json({ event: await createEvent(c.get('claims').sub, parsed.value) }, 201)
+  return c.json(
+    {
+      event: await createEvent(c.get('claims').sub, tokenVersionOf(c.get('claims')), parsed.value),
+    },
+    201,
+  )
 })
 
 app.patch('/me/events/:id', requireAuth, requireAccount, requireCollectConsent, async (c) => {
@@ -2869,7 +2883,12 @@ app.patch('/me/events/:id', requireAuth, requireAccount, requireCollectConsent, 
     patch.loggedAt = loggedAt.value
   }
 
-  const result = await updateEvent(c.get('claims').sub, c.req.param('id'), patch)
+  const result = await updateEvent(
+    c.get('claims').sub,
+    tokenVersionOf(c.get('claims')),
+    c.req.param('id'),
+    patch,
+  )
   if (result.ok) return c.json({ event: result.event })
   if (result.reason === 'not-found') return c.json(error('NOT_FOUND', 'No such event'), 404)
   if (result.reason === 'type-mismatch') {
@@ -2882,7 +2901,11 @@ app.patch('/me/events/:id', requireAuth, requireAccount, requireCollectConsent, 
 })
 
 app.delete('/me/events/:id', requireAuth, requireAccount, async (c) => {
-  const deleted = await softDeleteEvent(c.get('claims').sub, c.req.param('id'))
+  const deleted = await softDeleteEvent(
+    c.get('claims').sub,
+    tokenVersionOf(c.get('claims')),
+    c.req.param('id'),
+  )
   if (!deleted) return c.json(error('NOT_FOUND', 'No such event'), 404)
   return c.json({ deleted: true })
 })
@@ -2895,7 +2918,11 @@ app.post(
   requireAccount,
   requireCollectConsent,
   async (c) => {
-    const result = await restoreEvent(c.get('claims').sub, c.req.param('id'))
+    const result = await restoreEvent(
+      c.get('claims').sub,
+      tokenVersionOf(c.get('claims')),
+      c.req.param('id'),
+    )
     if (result.ok) return c.json({ event: result.event })
     if (result.reason === 'day-taken') {
       // 409, not 404: the entry is not missing, the day is occupied. Restoring would
@@ -2940,7 +2967,7 @@ app.put('/me/body-signals/:date', requireAuth, requireAccount, requireCollectCon
   const idempotencyKey = parseIdempotencyKey(body.idempotencyKey)
   if (!idempotencyKey.ok) return c.json(error(idempotencyKey.code, idempotencyKey.message), 400)
 
-  const event = await createEvent(c.get('claims').sub, {
+  const event = await createEvent(c.get('claims').sub, tokenVersionOf(c.get('claims')), {
     type: 'bodySignals',
     localDate,
     loggedAt: loggedAt.value,
@@ -3179,7 +3206,7 @@ app.get('/me/today', requireAuth, requireAccount, async (c) => {
   if (!clock.ok) return c.json(error(clock.code, clock.message), 400)
 
   try {
-    const today = await getToday(c.get('claims').sub, {
+    const today = await getToday(c.get('claims').sub, tokenVersionOf(c.get('claims')), {
       date: clock.value.today,
       timeZone: timeZone ?? 'UTC',
     })
