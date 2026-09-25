@@ -1,5 +1,6 @@
 import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { firestore } from './firebase'
+import { assertAccountLive } from './users'
 
 /** Owner of `users/{uid}/events/` (GUARDRAILS rule 10). Nothing else touches it.
  *
@@ -9,7 +10,13 @@ import { firestore } from './firebase'
  *    so a timezone change cannot move an entry to another day (PRD edge case 5).
  *  - `createdAt` / `updatedAt` / `deletedAt` are system audit instants, server-set.
  *
- *  Never log an event or its payload: this is health data (GUARDRAILS rule 12). */
+ *  Never log an event or its payload: this is health data (GUARDRAILS rule 12).
+ *
+ *  **Every write here runs in a transaction that first reads the account** (#286), through
+ *  `assertAccountLive` in `users.ts`: a request that passed the account gate just before
+ *  `DELETE /me` could otherwise write after the sweep of this collection and leave an entry
+ *  under a deleted account. The refusal is a thrown `AccountGoneError`, which the route layer
+ *  answers exactly as it answers a deleted account's token. */
 
 /** `sex` is reserved so the enum is stable when C10 ships it with its privacy switch.
  *  It has no payload and no validator yet — the route rejects it. */
@@ -213,13 +220,17 @@ const read = async (ref: FirebaseFirestore.DocumentReference): Promise<EvaEvent>
 
 /** Creates an event, or replaces the day's entry for the one-per-day types.
  *  A repeated `idempotencyKey` returns the event that key already created rather
- *  than writing a second one — the offline queue will retry. */
+ *  than writing a second one — the offline queue will retry.
+ *
+ *  All three paths are transactions, the plain one included, because each creates a document
+ *  and so each is a way to leave one under a deleted account (#286). */
 export const createEvent = async (uid: string, input: NewEvent): Promise<EvaEvent> => {
   const collection = events(uid)
 
   if (ONE_PER_DAY.has(input.type)) {
     const ref = collection.doc(dayDocId(input.type, input.localDate))
     await firestore.runTransaction(async (tx) => {
+      await assertAccountLive(tx, uid)
       const existing = await tx.get(ref)
       // Replacing clears a previous soft delete: the day has an entry again.
       tx.set(ref, {
@@ -233,6 +244,7 @@ export const createEvent = async (uid: string, input: NewEvent): Promise<EvaEven
   if (input.idempotencyKey) {
     const key = input.idempotencyKey
     const ref = await firestore.runTransaction(async (tx) => {
+      await assertAccountLive(tx, uid)
       const seen = await tx.get(collection.where('idempotencyKey', '==', key).limit(1))
       if (!seen.empty) return seen.docs[0]!.ref
       const fresh = collection.doc()
@@ -243,7 +255,10 @@ export const createEvent = async (uid: string, input: NewEvent): Promise<EvaEven
   }
 
   const ref = collection.doc()
-  await ref.set({ ...writableFields(input), createdAt: FieldValue.serverTimestamp() })
+  await firestore.runTransaction(async (tx) => {
+    await assertAccountLive(tx, uid)
+    tx.set(ref, { ...writableFields(input), createdAt: FieldValue.serverTimestamp() })
+  })
   return read(ref)
 }
 
@@ -320,39 +335,56 @@ export const updateEvent = async (
   patch: EventPatch,
 ): Promise<UpdateResult> => {
   const ref = events(uid).doc(id)
-  const snapshot = await ref.get()
-  // A soft-deleted event is gone as far as the API is concerned; `restoreEvent` is
-  // the one way back, so editing one must not silently resurrect it as a side effect.
-  if (!snapshot.exists || snapshot.get('deletedAt') !== null)
-    return { ok: false, reason: 'not-found' }
-  if (snapshot.get('type') !== patch.type) return { ok: false, reason: 'type-mismatch' }
-  // The day is part of the document ID for these, so moving one would mean a new event.
-  if (patch.localDate && patch.localDate !== snapshot.get('localDate') && isOnePerDay(patch.type)) {
-    return { ok: false, reason: 'immutable-date' }
-  }
+  // A transaction since #286, so the account read below is in the same read set as the write.
+  // An edit cannot create a document — `update` fails on a missing one — so what it closes is
+  // an edit landing on a tombstoned account's entry and answering as if the account were live.
+  const refusal = await firestore.runTransaction<Exclude<UpdateResult, { ok: true }> | null>(
+    async (tx) => {
+      await assertAccountLive(tx, uid)
+      const snapshot = await tx.get(ref)
+      // A soft-deleted event is gone as far as the API is concerned; `restoreEvent` is
+      // the one way back, so editing one must not silently resurrect it as a side effect.
+      if (!snapshot.exists || snapshot.get('deletedAt') !== null)
+        return { ok: false, reason: 'not-found' }
+      if (snapshot.get('type') !== patch.type) return { ok: false, reason: 'type-mismatch' }
+      // The day is part of the document ID for these, so moving one would mean a new event.
+      if (
+        patch.localDate &&
+        patch.localDate !== snapshot.get('localDate') &&
+        isOnePerDay(patch.type)
+      ) {
+        return { ok: false, reason: 'immutable-date' }
+      }
 
-  await ref.update({
-    ...(patch.localDate !== undefined ? { localDate: patch.localDate } : {}),
-    ...(patch.loggedAt !== undefined ? { loggedAt: patch.loggedAt } : {}),
-    ...(patch.note !== undefined ? { note: patch.note } : {}),
-    ...(patch.payload !== undefined ? { payload: patch.payload } : {}),
-    updatedAt: FieldValue.serverTimestamp(),
-  })
-  return { ok: true, event: await read(ref) }
+      tx.update(ref, {
+        ...(patch.localDate !== undefined ? { localDate: patch.localDate } : {}),
+        ...(patch.loggedAt !== undefined ? { loggedAt: patch.loggedAt } : {}),
+        ...(patch.note !== undefined ? { note: patch.note } : {}),
+        ...(patch.payload !== undefined ? { payload: patch.payload } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      return null
+    },
+  )
+  return refusal ?? { ok: true, event: await read(ref) }
 }
 
 /** Soft delete: the document stays, so the entry is recoverable — by `restoreEvent`
  *  for `RETENTION_DAYS`, after which `purgeUserEvents` removes it for good. */
 export const softDeleteEvent = async (uid: string, id: string): Promise<boolean> => {
   const ref = events(uid).doc(id)
-  const snapshot = await ref.get()
-  if (!snapshot.exists) return false
-  if (snapshot.get('deletedAt') !== null) return true // already deleted: idempotent
-  await ref.update({
-    deletedAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
+  // A transaction since #286, for `updateEvent`'s reason.
+  return firestore.runTransaction(async (tx) => {
+    await assertAccountLive(tx, uid)
+    const snapshot = await tx.get(ref)
+    if (!snapshot.exists) return false
+    if (snapshot.get('deletedAt') !== null) return true // already deleted: idempotent
+    tx.update(ref, {
+      deletedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    return true
   })
-  return true
 }
 
 /** Firestore's own ceiling on a batched write. The sweep below is one batch per pass,
@@ -480,6 +512,7 @@ export const restoreEvent = async (uid: string, id: string): Promise<RestoreResu
   const cutoffMs = retentionCutoff().toMillis()
 
   const outcome = await firestore.runTransaction<RestoreOutcome>(async (tx) => {
+    await assertAccountLive(tx, uid)
     const snapshot = await tx.get(ref)
     if (!snapshot.exists) return 'not-found'
 

@@ -37,6 +37,7 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
          ──► data-export.ts (leaf; `import type` only)
 
 today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts · dashboard-rules.ts · cycle.ts
+events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, #286)
 ```
 
 - `index.ts` — routes, validation, HTTP mapping. **No Firestore, no outbound fetch.**
@@ -78,6 +79,13 @@ today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts �
   tombstone that starts an account delete (#8): while it is set `getUser` answers `null`
   and `ensureUser` refuses to revive the document, which is what stops a deleted account
   coming back through a sign-in or through a pre-delete token.
+  **`assertAccountLive(tx, uid)` is the tombstone's other half (#286)**: every write to a
+  per-user subcollection calls it inside its own transaction and it throws `AccountGoneError`
+  on a tombstone or a missing document, so a write that passed `requireAccount` just before
+  the tombstone cannot land after the sweep. It is the one thing `events.ts` and
+  `nutrition-profile.ts` import from here — a writer never reads `users/` itself. A new
+  subcollection writer calls it too; ARCHITECTURE §4 "A write racing the delete" says why
+  inside the transaction is the whole of it.
   **`tokenVersion` is the account's session generation (#76)**, and `bumpTokenVersion` is
   the written-down rule for what ends a session — a password reset always, activation's
   claim path, a provider unlink when such a route exists; not a link, not a sign-in, not an
@@ -106,6 +114,8 @@ today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts �
   is the Undo behind `POST /me/events/{id}/restore`, `purgeUserEvents` is the job behind
   the promise, driven by `scripts/purge-events.ts` (a script, not a route — ARCHITECTURE
   §4 "Retention" says why, and what a human still has to create for it to run).
+  Every write — create (all three paths), edit, soft delete, restore — is a transaction that
+  starts with `assertAccountLive` (#286).
   `deleteAllUserEvents` is the exception that proves the rule: account deletion takes
   soft-deleted entries too, because a recovery window inside a deleted account is a
   promise to nobody. `exportEvents` (#58) is the same rule on the read side: every stored
@@ -190,6 +200,10 @@ today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts �
     data moved after it was built; new copy in `content/` is deliberately not such a change.
     The comparison is against a stored `dataChangedAt`, not against `generatedAt` — see
     ARCHITECTURE §4 for why that distinction is the whole rule.
+  - **The cache write is a transaction that reads the account first (#286).** A card is her
+    data in prose, so one written after `DELETE /me` swept `today/` is an orphan like any
+    event. `AccountGoneError` from it is deliberately not re-exported with the 503 refusals:
+    `app.onError` answers it, once, for every writer.
   - Never log a card, a slot value or a signal, and never the template id: which card a user
     was about to see is derived from her logs, so `late_period` in a log line is a health
     fact about a named request (GUARDRAILS 12).
@@ -289,9 +303,11 @@ today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts �
   **the hide-numbers preference's only home**: #252's `users/{uid}.nutritionQualitativeOnly`
   and `PUT /me/nutrition-settings` were retired by #283, and a value still stored on a user
   document is dormant — never read, never written, never deleted (a human call). Deleted by
-  `DELETE /me` before the user document. Logs nothing. `lastNutritionProfileChangeAt` is
-  `today.ts`'s regeneration signal (#102): the banner rail ranks by a finished setup's focus
-  areas, so saving the profile is new data for the Today document.
+  `DELETE /me` before the user document, and the PATCH's transaction reads the account first
+  (`assertAccountLive`, #286) so a racing save cannot recreate it after that sweep. Logs
+  nothing. `lastNutritionProfileChangeAt` is `today.ts`'s regeneration signal (#102): the
+  banner rail ranks by a finished setup's focus areas, so saving the profile is new data for
+  the Today document.
 - `nutrition.ts` — the nutrition targets engine (S2 of #25, #222). Her body metrics, goal,
   target weight and focus areas in; the day's calorie target, the macronutrient split, the
   clamp that bound the target and the timeline that follows from it out. **Pure on the
@@ -361,7 +377,9 @@ today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts �
 - **Every body is read through `readBody` (#119).** Never `c.req.json()` in a handler.
   Absent or unparseable is `{}`; valid JSON that is not an object throws
   `BodyNotAnObjectError`, which `app.onError` answers `400 VALIDATION` without a log line —
-  the one throw it recognises by class. `unhandled-errors.test.ts` lists every body-reading
+  one of the two throws it recognises by class. The other is `AccountGoneError` (#286),
+  answered exactly as the gate answers a deleted account's token: `401 UNAUTHORIZED`,
+  `Invalid or expired token`, no log line, no new code. `unhandled-errors.test.ts` lists every body-reading
   route; add a new one there.
 - **`users/{uid}.email` is the Auth account's address, and no route mints a session on a
   document that says otherwise (#119).** `sameAddress` is the comparison; `/auth/idp`,

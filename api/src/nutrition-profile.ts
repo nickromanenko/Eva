@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { firestore } from './firebase'
 import type { NutritionGoal, SteadyGoal, WeightChangeGoal } from './nutrition'
+import { assertAccountLive } from './users'
 
 /**
  * The nutrition profile (S1 of #25, #221): her answers to the Nutrition coach's setup flow,
@@ -359,6 +360,11 @@ export type SaveNutritionProfileResult =
  * stored, in a transaction — so two devices answering different steps cannot each pass a
  * check the other then breaks. Nothing is written when the answer is a refusal.
  *
+ * **The same transaction reads the account first** (#286, `assertAccountLive`): the first
+ * write *creates* this document, so a PATCH that passed the account gate just before
+ * `DELETE /me` could otherwise land after `deleteNutritionProfile` and leave a goal and a
+ * target weight under a deleted account. It throws `AccountGoneError` instead.
+ *
  * **Changing the goal to one with no target weight — or clearing it — clears the stored
  * target weight.** Step 5 is skipped for goals 4 and 5, so a target left behind would be an
  * answer to a question she was not asked; switching back to a weight-change goal asks it
@@ -370,6 +376,7 @@ export const saveNutritionProfile = async (
 ): Promise<SaveNutritionProfileResult> => {
   const ref = documents(uid).doc(PROFILE_DOC)
   return firestore.runTransaction(async (tx) => {
+    await assertAccountLive(tx, uid)
     const snapshot = await tx.get(ref)
     const { complete: _, ...before } = snapshot.exists ? toProfile(snapshot.data()!) : toProfile({})
     const after: Omit<NutritionProfile, 'complete'> = { ...before, ...patch }

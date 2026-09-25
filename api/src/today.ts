@@ -32,7 +32,7 @@ import { firestore } from './firebase'
 import { lastEventChangeAt, lastLoggedDate, listEvents, type EvaEvent } from './events'
 import { getNutritionProfile, lastNutritionProfileChangeAt } from './nutrition-profile'
 import { getSymptomLabels } from './refdata'
-import { lastUserChangeAt, getUser, type Profile } from './users'
+import { assertAccountLive, lastUserChangeAt, getUser, type Profile } from './users'
 
 /**
  * Owner of `users/{uid}/today/{date}` (GUARDRAILS rule 10) — the Today card, slice D3 of
@@ -739,6 +739,10 @@ export interface TodayRequest {
  * environment today (#191). It is reachable now, and `today.test.ts` boots a server with the
  * group emptied to prove the arm rather than the mapping.
  *
+ * It can also throw `users.ts`'s `AccountGoneError` from the cache write (#286). That one is
+ * not a 503 and is deliberately not re-exported here: it is not the Dashboard's refusal but
+ * every subcollection writer's, and `app.onError` answers it once, as a dead token.
+ *
  * D1 also documents `InvalidTimeError`, and this function cannot raise it: `request.date`
  * is `resolveClock`'s output, `now` is `new Date().toISOString()`, and `toSignalEntry`
  * drops a stored wall clock it cannot parse rather than handing it down. The route used to
@@ -792,7 +796,15 @@ export const getToday = async (
     card,
     banners,
   }
-  await ref.set({ ...document, dataChangedAt: changedAt, storedAt: FieldValue.serverTimestamp() })
+  // **In a transaction that reads the account first (#286).** A cache, but not a harmless
+  // one: the card is her logged data written out as prose, built from inputs read while the
+  // account was live. Written after `DELETE /me` swept `today/`, it would be the one readable
+  // summary of a deleted account, stranded where nothing deletes it. Refused, it throws
+  // `AccountGoneError` and the request is answered as a deleted account's token is.
+  await firestore.runTransaction(async (tx) => {
+    await assertAccountLive(tx, uid)
+    tx.set(ref, { ...document, dataChangedAt: changedAt, storedAt: FieldValue.serverTimestamp() })
+  })
   return document
 }
 

@@ -391,6 +391,50 @@ const NOT_FOUND = 5
 const isTombstone = (snapshot: FirebaseFirestore.DocumentSnapshot): boolean =>
   snapshot.get('deletedAt') != null
 
+/**
+ * A write to one of her subcollections found the account tombstoned or gone (#286).
+ *
+ * Thrown by `assertAccountLive`, from inside the writing module's transaction, and answered
+ * by `app.onError` with exactly what the account gate gives a deleted account's token — a
+ * `401 UNAUTHORIZED` — because that is what the caller is: a request that passed the gate a
+ * moment before `DELETE /me` stamped the tombstone. No new code, and no log line: it is an
+ * ordinary outcome of a race, not a fault. Its message names nothing about the account.
+ */
+export class AccountGoneError extends Error {
+  constructor() {
+    super('the account this write belongs to is being deleted or is gone')
+    this.name = 'AccountGoneError'
+  }
+}
+
+/**
+ * Refuses, inside the caller's transaction, a write under `users/{uid}/…` when the account is
+ * tombstoned or its document is gone (#286). Every module that writes a per-user subcollection
+ * calls this as a read of the transaction it writes in — never `users/` itself (GUARDRAILS 10).
+ *
+ * **Why inside the transaction, and why that is sufficient.** `requireAccount` reads the
+ * document before the handler runs, so a request can pass it, lose the CPU, and write after
+ * `DELETE /me` has stamped the tombstone *and swept that subcollection* — leaving health data
+ * under an account that nothing links to and nothing will ever delete. Reading the document
+ * as part of the write's own transaction puts it in the read set: if `markUserDeleted` commits
+ * between this read and the commit, the transaction is retried and this read then sees the
+ * tombstone. So every committed write is serialized either **before** the tombstone — and the
+ * sweep, which runs after it, removes what it wrote — or it is refused. There is no third
+ * ordering, which is what a check before the transaction (or the gate alone) cannot say.
+ *
+ * `!exists` refuses too: a missing document is a finished delete, and a write there would be
+ * the same orphan with the tombstone already gone. The cost is one document read per write,
+ * billed as a read, and the contention of a read lock on `users/{uid}` for the life of a
+ * short transaction — ARCHITECTURE §4 has the measurement.
+ */
+export const assertAccountLive = async (
+  tx: FirebaseFirestore.Transaction,
+  uid: string,
+): Promise<void> => {
+  const snapshot = await tx.get(users().doc(uid))
+  if (!snapshot.exists || isTombstone(snapshot)) throw new AccountGoneError()
+}
+
 /** Creates the user doc if missing; returns the (existing or new) user.
  *  Doc ID = Firebase Auth uid, so a provider resolving to the same Auth account always
  *  lands on the same document. **Never by email** (#7): what puts an Apple or Google
