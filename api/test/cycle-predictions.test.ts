@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { verify } from 'hono/jwt'
+import { type TokenClaims, tokenVersionOf } from '../src/auth'
+import { config } from '../src/config'
 import { analyzeCycles, type CycleDay, type CycleRules } from '../src/cycle'
 import { createEvent } from '../src/events'
 import { adminAuth, firestore } from '../src/firebase'
@@ -100,6 +103,8 @@ const NO_CYCLE_ENV = Object.fromEntries(Object.keys(CYCLE_ENV).map((name) => [na
 
 let token = ''
 let uid = ''
+/** The token version `token` carries, as the route passes it to `createEvent` (#294). */
+let session = 0
 let base = ''
 let child: ReturnType<typeof Bun.spawn> | null = null
 
@@ -301,7 +306,8 @@ const daysFor = (starts: readonly string[]): CycleDay[] =>
 /**
  * `periodsStartingOn`'s days, written through `createEvent` and all at once (#293).
  *
- * `createEvent` is what `POST /me/events` hands its parsed body to, and the entry is the one
+ * `createEvent` is what `POST /me/events` hands its parsed body to, under the session's own
+ * token version (`session`, not `NO_SESSION`), and the entry is the one
  * that route's parser builds from `flowOn`'s body: `loggedAt` at noon because none of these
  * days is today, no note, `source` `user`, no idempotency key. So the stored rows are the same;
  * what is skipped is the HTTP and parse hop, which the other cases here still go through.
@@ -313,7 +319,7 @@ const daysFor = (starts: readonly string[]): CycleDay[] =>
 const seedPeriodsStartingOn = async (starts: readonly string[]): Promise<void> => {
   await Promise.all(
     daysFor(starts).map(({ localDate }) =>
-      createEvent(uid, {
+      createEvent(uid, session, {
         type: 'cycle',
         localDate,
         loggedAt: `${localDate}T12:00:00`,
@@ -377,6 +383,9 @@ beforeAll(async () => {
   const account = await signUpActivated(base, email, PASSWORD)
   token = account.token
   uid = account.uid
+  // Verified and read exactly as `requireAuth` and the route do, so the seeded writes are
+  // checked against the same session the POSTs in this file carry.
+  session = tokenVersionOf((await verify(token, config.jwtSecret, 'HS256')) as TokenClaims)
 })
 
 afterAll(async () => {
