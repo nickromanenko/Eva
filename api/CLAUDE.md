@@ -285,7 +285,10 @@ today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts �
   hands out a goal paired with its target weight, so a partial profile cannot feed the engine
   (PRD line 677). Goal codes are the engine's own `NutritionGoal` (`import type`); focus areas
   are permanent codes with a total `FOCUS_AREA_PRD_ITEM` table back to the PRD numbers the
-  engine's fibre rule reads. `hideNumbers` changes only when a request names it. Deleted by
+  engine's fibre rule reads. `hideNumbers` changes only when a request names it, and it is
+  **the hide-numbers preference's only home**: #252's `users/{uid}.nutritionQualitativeOnly`
+  and `PUT /me/nutrition-settings` were retired by #283, and a value still stored on a user
+  document is dormant — never read, never written, never deleted (a human call). Deleted by
   `DELETE /me` before the user document. Logs nothing. `lastNutritionProfileChangeAt` is
   `today.ts`'s regeneration signal (#102): the banner rail ranks by a finished setup's focus
   areas, so saving the profile is new data for the Today document.

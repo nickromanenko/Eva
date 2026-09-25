@@ -339,7 +339,7 @@ describe('GET /me/export — the download', () => {
       'today',
     ])
     expect(body.format).toBe('eva-export')
-    expect(body.version).toBe(1)
+    expect(body.version).toBe(2)
   })
 
   test('account is exactly what GET /me answers', async () => {

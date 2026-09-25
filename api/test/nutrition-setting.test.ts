@@ -1,103 +1,120 @@
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { Timestamp } from 'firebase-admin/firestore'
+import { mintToken } from '../src/auth'
 import { adminAuth, firestore } from '../src/firebase'
-import { signUpActivated } from './support/session'
+import { default as server } from '../src/index'
 
 /**
- * The self-serve "qualitative mode" setting (A31, #212).
+ * The retired "qualitative mode" setting (#283).
  *
- * It is a plain boolean on `users/{uid}` that hides calories, weight targets and
- * deficit/surplus language. Two properties matter and each is pinned here:
+ * #252 put the hide-numbers preference (A31, #212) on `users/{uid}.nutritionQualitativeOnly`
+ * behind `PUT /me/nutrition-settings`; #221 then gave it its one home,
+ * `users/{uid}/nutrition/profile.hideNumbers`. #283 removed the route and the `User` field,
+ * and left any stored value **dormant**: deleting stored user data is Always-human
+ * (AUTONOMY), and nothing reads it. Three things are pinned here:
  *
- * - **It is off by default and only the explicit route changes it** — a setting, not a
- *   declaration, so turning it on discloses nothing and turning it off restores nothing
- *   silently.
- * - **Eva never infers it.** A31 is "self-declared only": no heuristic on logging patterns,
- *   weight or profile. The one writer is `saveNutritionSetting`; the modules that process
- *   her data must not mention the field, or the source scan below fails the day one does.
+ * - the route is gone — an unmatched path, not a validation error;
+ * - `GET /me` no longer serves the field, whatever the document holds;
+ * - nothing rewrites or deletes a stored value — not `GET /me`, not the retired path, and
+ *   not a write through a route that serves `User`.
+ *
+ * Driven **in-process** through `server.fetch` against the real Firestore, like
+ * `nutrition-profile.test.ts`, so this file binds no port. The account is written directly
+ * with a real Auth user, because every route that serves `User` reads Auth beside the
+ * document (#117).
  */
 setDefaultTimeout(20_000)
 
-const BASE = process.env.EVA_API_URL ?? 'http://localhost:3003'
-const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
-const password = 'correct-horse-8'
-let token = ''
-let uid = ''
+const userDoc = (uid: string) => firestore.collection('users').doc(uid)
+const createdUids: string[] = []
 
-const api = (path: string, init?: RequestInit & { token?: string | null }) =>
-  fetch(`${BASE}${path}`, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(init?.token === null ? {} : { authorization: `Bearer ${init?.token ?? token}` }),
-    },
+/** An activated account whose document still carries the retired field, as one written
+ *  while #252's route existed would. */
+const legacyAccount = async (): Promise<{ uid: string; token: string }> => {
+  const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+  const { uid } = await adminAuth.createUser({
+    email,
+    password: 'correct-horse-8',
+    emailVerified: true,
   })
+  createdUids.push(uid)
+  await userDoc(uid).set({
+    email,
+    authProviders: ['password'],
+    questionnaireCompleted: false,
+    profile: null,
+    activatedAt: Timestamp.now(),
+    consent: {},
+    nutritionQualitativeOnly: true,
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  })
+  return { uid, token: await mintToken(uid, email, 0) }
+}
 
-beforeAll(async () => {
-  const session = await signUpActivated(BASE, email, password)
-  token = session.token
-  uid = session.uid
-}, 60_000)
+const call = async (token: string, method: string, path: string, body?: unknown) => {
+  const res = await server.fetch(
+    new Request(`http://api.test${path}`, {
+      method,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+  )
+  return { status: res.status, body: (await res.json()) as Record<string, any> }
+}
+
+const stored = async (uid: string): Promise<unknown> =>
+  (await userDoc(uid).get()).get('nutritionQualitativeOnly')
 
 afterAll(async () => {
-  if (uid) {
-    await firestore.collection('users').doc(uid).delete().catch(() => {})
+  for (const uid of createdUids) {
+    await userDoc(uid)
+      .delete()
+      .catch(() => {})
     await adminAuth.deleteUser(uid).catch(() => {})
   }
-  const rows = await firestore.collection('authTokens').where('email', '==', email).get()
-  for (const row of rows.docs) await row.ref.delete().catch(() => {})
 })
 
-describe('the qualitative-mode setting (A31, #212)', () => {
-  const qualitativeOnly = async (res: Response): Promise<boolean> =>
-    ((await res.json()) as { user: { nutritionQualitativeOnly: boolean } }).user
-      .nutritionQualitativeOnly
-
-  test('is off by default, and only the explicit route turns it on', async () => {
-    expect(await qualitativeOnly(await api('/me'))).toBe(false)
-
-    const on = await api('/me/nutrition-settings', {
-      method: 'PUT',
-      body: JSON.stringify({ qualitativeOnly: true }),
-    })
-    expect(on.status).toBe(200)
-    expect(await qualitativeOnly(on)).toBe(true)
-
-    // Persisted: a fresh read sees it, so the toggle is not a session-only flag.
-    expect(await qualitativeOnly(await api('/me'))).toBe(true)
+describe('the retired qualitative-mode setting (#283)', () => {
+  test('PUT /me/nutrition-settings is an unmatched route, and writes nothing', async () => {
+    const { uid, token } = await legacyAccount()
+    for (const qualitativeOnly of [false, true]) {
+      const res = await call(token, 'PUT', '/me/nutrition-settings', { qualitativeOnly })
+      expect(res.status).toBe(404)
+      expect(res.body.error.code).toBe('NOT_FOUND')
+    }
+    // `false` was sent first: had anything written it, the stored `true` would be gone.
+    expect(await stored(uid)).toBe(true)
   })
 
-  test('turning it off is reversible, and nothing is silently restored', async () => {
-    const off = await api('/me/nutrition-settings', {
-      method: 'PUT',
-      body: JSON.stringify({ qualitativeOnly: false }),
-    })
-    expect(off.status).toBe(200)
-    expect(await qualitativeOnly(await api('/me'))).toBe(false)
+  test('GET /me no longer serves the field, and leaves the stored value as it was', async () => {
+    const { uid, token } = await legacyAccount()
+    const me = await call(token, 'GET', '/me')
+    expect(me.status).toBe(200)
+    // The premise, so the absence below is the route's doing and not a missing account.
+    expect(me.body.user.id).toBe(uid)
+    expect(Object.keys(me.body.user)).not.toContain('nutritionQualitativeOnly')
+    expect(await stored(uid)).toBe(true)
   })
 
-  test('a non-boolean value is refused at the edge', async () => {
-    const res = await api('/me/nutrition-settings', {
-      method: 'PUT',
-      body: JSON.stringify({ qualitativeOnly: 'yes' }),
-    })
-    expect(res.status).toBe(400)
+  test('a write through a route that serves User leaves the dormant value untouched', async () => {
+    const { uid, token } = await legacyAccount()
+    const nudge = await call(token, 'POST', '/me/profile-nudge/dismiss', {})
+    expect(nudge.status).toBe(200)
+    expect(Object.keys(nudge.body.user)).not.toContain('nutritionQualitativeOnly')
+    expect(await stored(uid)).toBe(true)
   })
 
-  test('never inferred: no module that processes her data mentions the field', async () => {
-    // A31 is "self-declared only". The setting is a boolean the user toggles, never a
-    // conclusion Eva draws from her logs, weight or profile. `saveNutritionSetting` is the
-    // one writer; the modules that read her data must not mention the field at all, so an
-    // inference added later fails here rather than shipping.
-    for (const file of [
-      'events.ts',
-      'cycle.ts',
-      'today.ts',
-      'dashboard-rules.ts',
-      'content.ts',
-      'refdata.ts',
-    ]) {
-      const source = await Bun.file(`${import.meta.dir}/../src/${file}`).text()
-      expect(source).not.toContain('nutritionQualitativeOnly')
+  test('no module under src/ names the field, so nothing can write it again', async () => {
+    // The hide-numbers preference has one home, the nutrition profile's `hideNumbers`
+    // (#221). A second writer of the old field is the duplication #283 removed.
+    const SRC = `${import.meta.dir}/../src`
+    for await (const file of new Bun.Glob('**/*.ts').scan(SRC)) {
+      const source = await Bun.file(`${SRC}/${file}`).text()
+      expect({ file, mentions: source.includes('nutritionQualitativeOnly') }).toEqual({
+        file,
+        mentions: false,
+      })
     }
   })
 })

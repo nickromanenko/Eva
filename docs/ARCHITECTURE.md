@@ -208,11 +208,10 @@ itself, which the default leaves alone.
 | `POST /auth/password/reset` | Token in the link | `200 { token, user }` — sets the password and signs in |
 | `POST /auth/idp` | — | `200 { token, user }` — Apple or Google; signs up and signs in at once, already activated |
 | `GET /me` | Bearer | `{ user }` |
-| `GET /me/export` | Bearer | `200` JSON attachment `eva-export-YYYY-MM-DD.json` (UTC), `Cache-Control: no-store`, streamed: `{ format: "eva-export", version: 1, exportedAt, account, nutritionProfile, events, today }` — `account` is `GET /me`'s `user`, `nutritionProfile` is `GET /me/nutrition/profile`'s `nutritionProfile` or `null` before setup is started (#221), `events` every stored entry in `GET /me/events`' shape **including soft-deleted ones** (`deletedAt` set), `today` every stored card in `GET /me/today`'s shape (#58). `429 RATE_LIMITED` per account and per IP. §4 "Data export" lists what is left out |
+| `GET /me/export` | Bearer | `200` JSON attachment `eva-export-YYYY-MM-DD.json` (UTC), `Cache-Control: no-store`, streamed: `{ format: "eva-export", version: 2, exportedAt, account, nutritionProfile, events, today }` — `account` is `GET /me`'s `user`, `nutritionProfile` is `GET /me/nutrition/profile`'s `nutritionProfile` or `null` before setup is started (#221), `events` every stored entry in `GET /me/events`' shape **including soft-deleted ones** (`deletedAt` set), `today` every stored card in `GET /me/today`'s shape (#58). `429 RATE_LIMITED` per account and per IP. §4 "Data export" lists what is left out |
 | `POST /me/auth/providers` | Bearer | `{ user }` — attaches a provider to *this* account; `409 PROVIDER_ALREADY_LINKED` when its `sub` belongs to another |
 | `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately; an optional `appleAuthorizationCode` also revokes the Apple token. `429 RATE_LIMITED` past `RATE_LIMIT_DELETE_PER_ACCOUNT` calls for one account in a window (#119) |
 | `PUT /me/questionnaire` | Bearer | `{ user }` — behind `requireCollectConsent` (#86): the profile is health data, and nothing about her is written before the collect consent exists |
-| `PUT /me/nutrition-settings` | Bearer | `{ user }` — `{ qualitativeOnly: boolean }`, the self-serve "qualitative mode" toggle (#212, A31) |
 | `GET /me/nutrition/profile` | Bearer | `{ nutritionProfile }` — the Nutrition coach's setup answers and progress (#221), with a derived `complete` flag; `404 NOT_FOUND` until setup is started |
 | `PATCH /me/nutrition/profile` | Bearer | `{ nutritionProfile }` — any subset of `goal`, `focusAreas`, `mealPattern`, `targetWeightKg`, `hideNumbers`, `step`; an absent key is left as it was. Creates the document on the first write. `400 VALIDATION` for an unknown key, a fourth focus area (refused, never truncated), `step: "done"` with a required answer missing, or a target weight for a goal that has none; behind `requireCollectConsent` (#86) |
 | `POST /me/profile-nudge/dismiss` | Bearer | `{ user }` — marks the "complete your profile" nudge dismissed (#19); server-side, survives reinstall |
@@ -233,7 +232,7 @@ guards the routes that create or change health data — events (write, patch, re
 body signals, the questionnaire, and the nutrition profile (#221) — and answers `403 CONSENT_REQUIRED` for both shapes
 of "no": no record (every pre-#86 account, every new account until the screen is
 through) and a withdrawn record (the freeze). Reads, deletes and preference-only writes
-(nutrition-settings, the profile nudge) stay open, because collecting is what needs
+(the profile nudge) stay open, because collecting is what needs
 consent and nothing else does. The client tells the two shapes apart from `GET /me`'s
 `consent` record, not from the error — the remedy is the same screen either way, or
 Settings › Privacy when it is a withdrawal, which the app deliberately does not re-ask
@@ -1038,7 +1037,7 @@ authProviders          string[]        // arrayUnion. ONLY "password" is read (#
 questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
 consent                Consent         // #86 (A21): { collect, share } records. ABSENT = never asked
-nutritionQualitativeOnly boolean       // #212 (A31): self-serve "qualitative mode". ABSENT = false
+nutritionQualitativeOnly boolean       // DORMANT (#283): #252's hide-numbers flag. Never read, never written
 profileNudgeDismissed  boolean         // #19: "complete your profile" nudge dismissed. ABSENT = false
 activatedAt            Timestamp | null  // #6; null = unconfirmed, ABSENT = pre-#6 = confirmed
 tokenVersion           number          // #76; the session generation. ABSENT = 0 = never bumped
@@ -1105,9 +1104,8 @@ collection and keeps the stored data, which leaves only by export or `DELETE /me
 `version` is the consent text's own version string, sent by the client that displayed it
 and stored verbatim — the server keeps no table of known versions, because the record
 exists precisely so a *future* text can be recognised as not the one she agreed to; the
-app makes that comparison against the version it ships. One writer, `saveConsent`, for
-the same reason `saveNutritionSetting` is the only writer of its field: a consent record
-anything else could change cannot testify.
+app makes that comparison against the version it ships. One writer, `saveConsent`: a
+consent record anything else could change cannot testify.
 
 `Profile` is validated at the edge in `parseProfile` (`index.ts`): weight 30–200 kg,
 height 120–220 cm, `medications` one of `MEDICATION_CODES`, `conditions` a list drawn
@@ -1394,6 +1392,9 @@ What is left out, deliberately:
   document — session and audit bookkeeping, not facts about her; `User` already omits them.
 - A stored event's fields outside the event shape, if any were ever written: the export
   serves `toEvent`'s whitelist, never the raw document.
+- A dormant `nutritionQualitativeOnly` on the user document (#283): `account` is `User`, which
+  no longer carries it; the preference's live home, `nutritionProfile.hideNumbers`, is
+  exported. Its removal from `account` is why `version` is `2`.
 - `dataChangedAt` and `storedAt` on a card — the cache's regeneration bookkeeping.
 - `createdAt`/`updatedAt` on the nutrition profile document — audit stamps; the route's
   shape already omits them.
@@ -1794,11 +1795,13 @@ stops one being added by reflex; the test pins the key set. **`hideNumbers` chan
 a request names it** — an absent key leaves it as it was and `null` is refused — so no write
 can silently turn the numbers back on (#212's "worst version").
 
-**Open: `users/{uid}.nutritionQualitativeOnly` (#252) is the same preference, placed before
-#221 decided where it lives.** #221's decision puts it here; #252's field and
-`PUT /me/nutrition-settings` were left untouched, because retiring a field and a route is not
-something #221 asked for. Nothing reads either yet. S3/S4 must not read both: which one
-survives, and what happens to any value stored in the other, is a decision still to take.
+**`hideNumbers` is the preference's one home.** #252 first put it on the user document as
+`users/{uid}.nutritionQualitativeOnly`, behind `PUT /me/nutrition-settings`, before #221
+decided where it lives. #283 removed the route and the `User` field with no deprecation
+window (no client ever called or decoded either). A value already stored on a user document
+is **dormant**: nothing reads it, nothing writes it, and nothing deletes it — deleting
+stored user data is a human call (AUTONOMY) — so it leaves only with `DELETE /me`. Do not
+read it as a fallback for an unanswered `hideNumbers`; `null` means "not yet asked".
 
 **Planned (A3, A9 — §8 and §9 below; not yet in code):**
 

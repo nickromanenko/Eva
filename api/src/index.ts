@@ -106,7 +106,6 @@ import {
   markUserDeleted,
   readUser,
   saveConsent,
-  saveNutritionSetting,
   saveQuestionnaire,
   servedUser,
   type Account,
@@ -1989,29 +1988,6 @@ app.put('/me/questionnaire', requireAuth, requireAccount, requireCollectConsent,
   // Auth's half of `authProviders` (#117), read beside the write rather than after it.
   const [user, federated] = await Promise.all([
     saveQuestionnaire(c.get('claims').sub, profile.value),
-    federatedProvidersOf(c.get('claims').sub),
-  ])
-  if (!user || !federated) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
-  return c.json({ user: servedUser(user, federated) })
-})
-
-/**
- * The self-serve nutrition setting (A31, #212): a plain "qualitative mode" toggle.
- *
- * It is a setting, not a declaration — the user turns it on for any reason, and nothing is
- * asked about why, so there is no sensitive field to disclose and none to log. `saveNutritionSetting`
- * is the only writer of the field, which is what keeps "never inferred from her data" true
- * rather than asserted. The value itself is never logged (GUARDRAILS 12): a dietary
- * safeguard for a named request is health data.
- */
-app.put('/me/nutrition-settings', requireAuth, requireAccount, async (c) => {
-  const body = await readBody(c)
-  if (typeof body.qualitativeOnly !== 'boolean') {
-    return c.json(error('VALIDATION', 'qualitativeOnly must be a boolean'), 400)
-  }
-  // Auth's half of `authProviders` (#117), read beside the write rather than after it.
-  const [user, federated] = await Promise.all([
-    saveNutritionSetting(c.get('claims').sub, body.qualitativeOnly),
     federatedProvidersOf(c.get('claims').sub),
   ])
   if (!user || !federated) return c.json(error('UNAUTHORIZED', 'User not found'), 401)

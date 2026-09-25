@@ -2864,10 +2864,6 @@ describe('authProviders is assembled per response, never trusted from the docume
       expect(questionnaire.status).toBe(200)
       expect(questionnaire.body.user.authProviders).toEqual(expected)
 
-      const nutrition = await put('/me/nutrition-settings', { qualitativeOnly: true })
-      expect(nutrition.status).toBe(200)
-      expect(nutrition.body.user.authProviders).toEqual(expected)
-
       const nudge = await post('/me/profile-nudge/dismiss', {}, bearer(token))
       expect(nudge.status).toBe(200)
       expect(nudge.body.user.authProviders).toEqual(expected)

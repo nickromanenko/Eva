@@ -35,8 +35,9 @@ import type { User } from './users'
 export const EXPORT_FORMAT = 'eva-export'
 
 /** Bumped when a field's meaning changes or a field is removed; adding one is not a bump,
- *  because a reader that ignores unknown keys still reads the old document correctly. */
-export const EXPORT_VERSION = 1
+ *  because a reader that ignores unknown keys still reads the old document correctly.
+ *  2: `account` lost #252's qualitative-mode flag when `User` did (#283). */
+export const EXPORT_VERSION = 2
 
 /** `eva-export-YYYY-MM-DD.json`, the UTC date of the stamp — the same instant the body's
  *  `exportedAt` carries, so the file and its contents can never name different days. */

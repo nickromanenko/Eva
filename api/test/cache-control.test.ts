@@ -70,7 +70,6 @@ const record = () => ({
   consent: { collect: null, marketing: null },
   passwordChosen: true,
   activated: true,
-  nutritionQualitativeOnly: false,
   profileNudgeDismissed: false,
 })
 const account = () => ({ user: record(), tokenVersion: 0 })
