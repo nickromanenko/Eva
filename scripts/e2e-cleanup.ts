@@ -42,6 +42,14 @@
  * construction an artefact of the bug, not a real user — which is what makes deleting it
  * without being able to read an email defensible. Nothing here reads an event's contents;
  * the script counts documents and deletes paths (GUARDRAILS 12).
+ *
+ * ## Counts, never addresses or uids (#334)
+ *
+ * It used to print `removed <address> (<uid>)` for each account. The repo is public, so its
+ * Actions step logs are too (#309), and verify-mobile.sh runs this sweep inside CI. #263 set
+ * the rule that a raw address never leaves the runner; this was the last exception. So it
+ * prints counts only — the same totals it always printed — and nothing that names an account
+ * or a path under `users/`. A local operator who needs the names has the Auth console.
  */
 import { readFileSync } from 'node:fs'
 import { adminAuth, firestore } from '../api/src/firebase'
@@ -74,6 +82,7 @@ const sweepUserPath = async (uid: string): Promise<void> => {
 }
 
 let removed = 0
+let orphanDocs = 0
 let pageToken: string | undefined
 do {
   const page = await adminAuth.listUsers(1000, pageToken)
@@ -82,7 +91,6 @@ do {
       if (!dryRun) await adminAuth.deleteUser(user.uid)
       await sweepUserPath(user.uid)
       removed += 1
-      console.log(`removed ${user.email} (${user.uid})`)
     }
   }
   pageToken = page.pageToken
@@ -97,8 +105,7 @@ const orphans = await firestore
 for (const doc of orphans.docs) {
   if (isTestEmail(doc.data().email)) {
     await sweepUserPath(doc.id)
-    removed += 1
-    console.log(`removed orphan doc ${doc.data().email}`)
+    orphanDocs += 1
   }
 }
 
@@ -116,11 +123,11 @@ for (const ref of only ? [] : await firestore.collection('users').listDocuments(
   for (const sub of subs) count += (await sub.count().get()).data().count
   ghosts += 1
   ghostDocs += count
-  console.log(`${dryRun ? 'would remove' : 'removed'} orphaned subcollection(s) under users/${ref.id} — ${count} document(s)`)
   await sweepUserPath(ref.id)
 }
 
 console.log(
   `cleanup ${dryRun ? 'dry run' : 'done'}, ${removed} account(s), ` +
+    `${orphanDocs} orphaned user doc(s), ` +
     `${ghosts} ghost path(s) holding ${ghostDocs} document(s)`,
 )
