@@ -31,8 +31,9 @@ firebase-debug.log
 .astro/
 mobile/build/
 
-# Local service-account keys
-.secrets/
+# Local service-account keys. No trailing slash: `.secrets/` matches only a directory, and a
+# worktree's `api/.secrets` symlink to the main checkout's keys reached `main` through it (#295).
+.secrets
 
 # Apple signing keys. Never in the repo (GUARDRAILS 1) — and this rule exists because one
 # was: `AuthKey_V6JDCDQQG7.p8` reached `main` in #7, swept in by a blanket `git add -A`
