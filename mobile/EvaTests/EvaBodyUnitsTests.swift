@@ -188,7 +188,7 @@ struct EvaBodyUnitsTests {
         // `parseProfile` has always taken a finite number in a range.
         let payload = ProfilePayload(
             dateOfBirth: "1996-03-14", weightKg: 64, heightCm: 168,
-            goals: [], conditions: [], medications: "", lifestyle: "", sports: [],
+            goals: [], conditions: [], medications: "", lifestyle: nil, sports: [],
             timeZone: "UTC"
         )
         let encoder = JSONEncoder()

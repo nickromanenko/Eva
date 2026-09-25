@@ -121,13 +121,14 @@ struct QuestionnairePayloadTests {
 struct APIProfileDecodingTests {
 
     /// A real `PUT /me/questionnaire` response, captured from the API on `main`, with the id
-    /// and address replaced. Verbatim rather than minimised: what this suite is for is the
+    /// and address replaced — and `lifestyle` moved from the label `"Active"` to the code
+    /// `"active"` the API has served since #221. Otherwise verbatim rather than minimised: what this suite is for is the
     /// difference between the shape the server sends and the shape the app expected, and a
     /// trimmed body would be a second opinion about that difference.
     private static let response = """
     {"user":{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true,\
     "profile":{"dateOfBirth":"1998-09-25","weightKg":64,"heightCm":168,"goals":["Energy"],\
-    "conditions":["noneOfThese"],"medications":"none","lifestyle":"Active","sports":["Yoga"]},\
+    "conditions":["noneOfThese"],"medications":"none","lifestyle":"active","sports":["Yoga"]},\
     "authProviders":["password"],"activated":true}}
     """
 
@@ -146,7 +147,7 @@ struct APIProfileDecodingTests {
     private static let imperialResponse = """
     {"user":{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true,\
     "profile":{"dateOfBirth":"1998-09-25","weightKg":68.04,"heightCm":172.72,"goals":[],\
-    "conditions":[],"medications":"none","lifestyle":"Active","sports":[]},\
+    "conditions":[],"medications":"none","lifestyle":"active","sports":[]},\
     "authProviders":["password"],"activated":true}}
     """
 
@@ -159,7 +160,7 @@ struct APIProfileDecodingTests {
         #expect(profile.goals == ["Energy"])
         #expect(profile.conditions == ["noneOfThese"])
         #expect(profile.medications == "none")
-        #expect(profile.lifestyle == "Active")
+        #expect(profile.lifestyle == "active")
         #expect(profile.sports == ["Yoga"])
     }
 

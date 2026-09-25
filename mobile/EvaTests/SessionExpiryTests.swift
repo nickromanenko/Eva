@@ -319,7 +319,7 @@ struct SessionExpiryTests {
         static let profile = ProfilePayload(
             dateOfBirth: "1996-03-14", weightKg: 60, heightCm: 165,
             goals: ["Energy"], conditions: ["noneOfThese"], medications: "none",
-            lifestyle: "Active", sports: ["Yoga"], timeZone: "UTC"
+            lifestyle: "active", sports: ["Yoga"], timeZone: "UTC"
         )
     }
 }

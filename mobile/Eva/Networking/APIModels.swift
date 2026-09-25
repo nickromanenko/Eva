@@ -166,16 +166,66 @@ struct APIProfile: Decodable {
     let goals: [String]
     let conditions: [String]
     let medications: String
-    let lifestyle: String
+    /// The activity band as a code — `mostlySitting`, `lightlyActive`, `active`,
+    /// `veryActive` — or `nil` when she has not given one the API can read (#221).
+    ///
+    /// **Read tolerantly, see `init(from:)`.** The band is the one profile answer the
+    /// nutrition engine does arithmetic with, so it stopped being the chip's English label
+    /// and became a code. An API from before #221 still serves the label, and a string this
+    /// build does not know — a fifth band, a reworded label — must not fail the whole
+    /// `GET /me` decode, which `bootstrap()` reads as `.unreachable` (#215).
+    let lifestyle: String?
     let sports: [String]
+}
+
+extension APIProfile {
+
+    /// The four labels the app sent before #221 — `users.ts`' `LIFESTYLE_LABELS`, the same
+    /// exact-match table the API reads stored documents with. **Frozen:** this is what was
+    /// on the wire, not what the chips say now, so rewording a chip must not change it.
+    static let legacyLifestyleLabels: [String: String] = [
+        "Mostly sitting": "mostlySitting",
+        "Lightly active": "lightlyActive",
+        "Active": "active",
+        "Very active": "veryActive",
+    ]
+
+    /// A served `lifestyle` read as a code this build offers, or `nil`. A code passes
+    /// through, a legacy label maps, and anything else is unanswered rather than guessed —
+    /// the nearest plausible band is a plausible calorie target, which is the defect.
+    static func lifestyleCode(fromServed raw: String?) -> String? {
+        guard let raw else { return nil }
+        let code = legacyLifestyleLabels[raw] ?? raw
+        return ProfileEditorModel.lifestyleOptions.contains { $0.code == code } ? code : nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case dateOfBirth, weightKg, heightCm, goals, conditions, medications, lifestyle, sports
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        dateOfBirth = try container.decode(String.self, forKey: .dateOfBirth)
+        weightKg = try container.decode(Double.self, forKey: .weightKg)
+        heightCm = try container.decode(Double.self, forKey: .heightCm)
+        goals = try container.decode([String].self, forKey: .goals)
+        conditions = try container.decode([String].self, forKey: .conditions)
+        medications = try container.decode(String.self, forKey: .medications)
+        // `try?` as well as `IfPresent`: a non-string here is as unreadable as an unknown
+        // string, and just as little reason to lose the rest of the account.
+        lifestyle = Self.lifestyleCode(
+            fromServed: (try? container.decodeIfPresent(String.self, forKey: .lifestyle)) ?? nil
+        )
+        sports = try container.decode([String].self, forKey: .sports)
+    }
 }
 
 /// `PUT /me/questionnaire`'s body.
 ///
 /// **A date of birth, not an age** (#81): the API stores the date and derives the age, so a
-/// profile cannot go quietly stale between birthdays. `conditions` and `medications` carry
-/// `ProfileOption` codes, never the labels the chips draw. `timeZone` is not stored — the
-/// API uses it to resolve which day "today" is when it checks the 18+ floor.
+/// profile cannot go quietly stale between birthdays. `conditions`, `medications` and
+/// `lifestyle` carry `ProfileOption` codes, never the labels the chips draw. `timeZone` is
+/// not stored — the API uses it to resolve which day "today" is when it checks the 18+ floor.
 ///
 /// **`Encodable`, not `Codable`.** That last sentence is the whole of #215: a field the API
 /// never sends back cannot be part of a type anything decodes, and a comment saying so did
@@ -192,7 +242,10 @@ struct ProfilePayload: Encodable {
     let goals: [String]
     let conditions: [String]
     let medications: String
-    let lifestyle: String
+    /// An activity-band code, or `nil` — which the synthesized encoder **omits**. Never `""`:
+    /// `parseProfile` refuses anything but one of the four codes (#221), and an absent key
+    /// is at least an honest "unanswered" rather than an empty string posing as an answer.
+    let lifestyle: String?
     let sports: [String]
     let timeZone: String
 }

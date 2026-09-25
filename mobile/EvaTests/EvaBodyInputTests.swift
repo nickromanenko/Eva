@@ -21,7 +21,7 @@ struct EvaBodyInputTests {
         return try encoder.encode(
             ProfilePayload(
                 dateOfBirth: "1996-03-14", weightKg: kilograms, heightCm: centimeters,
-                goals: [], conditions: [], medications: "", lifestyle: "", sports: [],
+                goals: [], conditions: [], medications: "", lifestyle: nil, sports: [],
                 timeZone: "UTC"
             )
         )
