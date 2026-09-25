@@ -26,8 +26,9 @@ Needs `api/.env` (copy `.env.example`) and Application Default Credentials
 `bun run verify` is **not** the strongest run any more. A handful of cases seed and assert
 `content/`, which is safe against an emulator's throwaway Firestore and is not safe against
 the real project — so they skip under `verify` and run under `scripts/ci-api.sh`, which is
-what CI executes. A local green covers less than a CI green; run `scripts/ci-api.sh` too
-before a PR that touches `content.ts`.
+what CI executes — and since 2026-09-25 the per-PR gate (GUARDRAILS 15). Neither run is a
+superset: the real-project run is what proves Google's behaviour (see GUARDRAILS 15 for when
+it is required).
 
 ## Module boundaries — enforced by review
 
