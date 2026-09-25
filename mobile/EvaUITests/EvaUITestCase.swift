@@ -119,11 +119,7 @@ class EvaUITestCase: XCTestCase {
         )
         tap(submit, in: app)
 
-        XCTAssertTrue(
-            app.staticTexts["Check your inbox"].waitForExistence(timeout: 15),
-            "Sign-up did not reach the activation gate",
-            file: file, line: line
-        )
+        reachActivationGate(app, email: email, file: file, line: line)
 
         activate(email: email, file: file, line: line)
 
@@ -140,6 +136,113 @@ class EvaUITestCase: XCTestCase {
         }
         // With `consent: false` the run is deliberately still on the consent screen, and
         // what is on it is the caller's assertion to make.
+    }
+
+    /// Waits for "Check your inbox" after the sign-up tap, retrying **once** if the first
+    /// attempt is still in flight when the wait runs out (#264).
+    ///
+    /// **Why a retry exists.** A run's first sign-up is slow and the rest are not. Across 43
+    /// CI suite runs (2026-09-17 → 25) the first one reached the gate in 2.4–15.7s; the 555
+    /// after it took a median of 1.2s and never more than 3.4s. Five runs spent the whole 15s
+    /// on the first and failed there, and three more passed at 13.5–14.9s.
+    ///
+    /// Part of that cost is measured: the API's first Firebase call waits on Google's
+    /// metadata-server probe, which gives up after 3s off GCP (3057ms in the one CI log with
+    /// request timings, 679ms for the sign-up after it). The rest is on the client side and
+    /// not yet attributed. The one failure with a UI snapshot was an app still waiting on
+    /// `POST /auth/signup` — spinner up, no error — not an answer it got wrong.
+    ///
+    /// **Why it cannot hide an outage.** It fires only on that signature: the CTA still
+    /// disabled and spinning, with neither `signup.error` nor `signup.rateLimited` on screen.
+    /// An API that refuses or errors produces one of those, and fails here at once. An API that
+    /// never answers stalls twice and fails after the retry. And every retry prints
+    /// `SIGN-UP STALLED (#264)`, so a run that needed it says so in its log.
+    ///
+    /// The retry relaunches rather than re-taps: the stalled request is still holding the
+    /// button, and the launch keeps whatever environment and arguments the caller launched
+    /// with. The address is reused — sign-up creates no account (#120), so a second request
+    /// for it is only a second link, and the mailbox issues its own either way.
+    private func reachActivationGate(
+        _ app: XCUIApplication,
+        email: String,
+        file: StaticString,
+        line: UInt
+    ) {
+        let gate = app.staticTexts["Check your inbox"]
+        if gate.waitForExistence(timeout: 15) { return }
+
+        let first = signUpState(app)
+        guard first.isStalledInFlight else {
+            XCTFail(
+                "Sign-up did not reach the activation gate — \(first)",
+                file: file, line: line
+            )
+            return
+        }
+        // Answered between the wait expiring and the state being read: late, not lost.
+        if gate.exists { return }
+
+        print(
+            "SIGN-UP STALLED (#264): no answer to POST /auth/signup in 15s — \(first). "
+                + "Relaunching and signing up once more."
+        )
+        XCTContext.runActivity(named: "Retry the sign-up that stalled in flight (#264)") { _ in
+            app.terminate()
+            app.launch()
+            fillSignUpForm(app, email: email)
+            let submit = app.buttons["primary.Create account"]
+            XCTAssertTrue(submit.waitForExistence(timeout: 5), file: file, line: line)
+            tap(submit, in: app, file: file, line: line)
+        }
+
+        if gate.waitForExistence(timeout: 15) {
+            print("SIGN-UP STALLED (#264): recovered — the retry reached the activation gate.")
+            return
+        }
+        XCTFail(
+            """
+            Sign-up did not reach the activation gate, twice (#264). The first attempt stalled \
+            in flight (\(first)); the retry ended \(signUpState(app)).
+            """,
+            file: file, line: line
+        )
+    }
+
+    /// What the sign-up screen shows once its wait has run out — enough to tell a request
+    /// still in flight from one the app has already answered.
+    private struct SignUpState: CustomStringConvertible {
+        var ctaExists: Bool
+        var ctaEnabled: Bool
+        var spinner: Bool
+        var error: String?
+        var rateLimited: Bool
+
+        var isStalledInFlight: Bool {
+            ctaExists && !ctaEnabled && spinner && error == nil && !rateLimited
+        }
+
+        var description: String {
+            guard ctaExists else { return "the sign-up button is gone" }
+            var parts = [
+                ctaEnabled ? "button enabled" : "button disabled",
+                spinner ? "spinner showing" : "no spinner",
+            ]
+            parts.append(error.map { "signup.error \($0.debugDescription)" } ?? "no signup.error")
+            if rateLimited { parts.append("signup.rateLimited showing") }
+            return parts.joined(separator: ", ")
+        }
+    }
+
+    private func signUpState(_ app: XCUIApplication) -> SignUpState {
+        let submit = app.buttons["primary.Create account"]
+        let error = app.descendants(matching: .any)["signup.error"]
+        return SignUpState(
+            ctaExists: submit.exists,
+            ctaEnabled: submit.exists && submit.isEnabled,
+            spinner: app.activityIndicators.firstMatch.exists,
+            error: error.exists ? error.label : nil,
+            rateLimited: app.descendants(matching: .any)["signup.rateLimited"].exists
+        )
     }
 
     /// Passes the consent screen (#86), which every new account owes between sign-in and
