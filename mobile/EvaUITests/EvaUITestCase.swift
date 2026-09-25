@@ -193,6 +193,16 @@ class EvaUITestCase: XCTestCase {
         askMailbox("reset", email: email, file: file, line: line)
     }
 
+    /// Attaches a placeholder Apple identity to the account at `email`, out of band (#118).
+    ///
+    /// Sign in with Apple cannot run in a simulator, so this is the only way a UI test gets
+    /// an account whose `authProviders` lists `apple.com`. The identity is real on the Auth
+    /// user — the next `GET /me` serves it — but no Apple token will ever match it, so a
+    /// test that has used this must not tap anything that asks Apple for one.
+    func linkAppleOutOfBand(email: String, file: StaticString = #filePath, line: UInt = #line) {
+        askMailbox("link-apple", email: email, file: file, line: line)
+    }
+
     /// One synchronous request to the mailbox, asserted to have worked.
     private func askMailbox(_ action: String, email: String, file: StaticString, line: UInt) {
         var request = URLRequest(url: URL(string: "\(Self.mailboxURL)/\(action)")!)
