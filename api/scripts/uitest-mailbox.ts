@@ -15,7 +15,8 @@
  * And a third since #118 — "attach an Apple identity to this address" — which is not a
  * delivery short-circuit but the same kind of seam: Apple's sheet cannot run in a simulator
  * (`docs/PROVIDER-SIGNIN.md`), so this links a placeholder `apple.com` identity through the
- * Admin SDK instead; see `linkApple` below.
+ * Admin SDK instead; see `linkProvider` below. `/link-google` does the same for
+ * `google.com` since #330, whose sign-in goes to the network a UI test cannot drive.
  *
  * It is not part of the API and never ships: nothing in `src/` imports it, it is started
  * by one verify script, and it binds to loopback only. Two more guards, because a service
@@ -101,40 +102,46 @@ const reset = async (request: Request): Promise<Response> => {
 }
 
 /**
- * Links a placeholder `apple.com` identity to the account at `email` (#118), so the UI tests
- * can look at what an Apple-connected account is shown — Profile's connected row and the
- * delete modal's revocation note — without Apple's sheet, which a simulator cannot run.
+ * Links a placeholder federated identity to the account at `email` — `apple.com` (#118) or
+ * `google.com` (#330) — so the UI tests can look at what a provider-connected account is
+ * shown (Profile's connected row, and for Apple the delete modal's revocation note) without
+ * the provider's own sign-in, which a simulator cannot run.
  *
  * Linked on the Auth user, not written to `users/{uid}`, because Auth is where the API reads
- * federated providers from (`federatedProvidersOf`, #117): the next `GET /me` serves
- * `apple.com` in `authProviders` exactly as it would for a real link. What is *not* real is
- * the identity itself — its `sub` is a random `e2e-uitest-…` value no Apple token will ever
- * carry — so nothing can sign in with it, and the test must not tap anything that would ask
- * Apple for one. The account is swept by `scripts/e2e-cleanup.ts` like every other.
+ * federated providers from (`federatedProvidersOf`, #117): the next `GET /me` serves the
+ * provider in `authProviders` exactly as it would for a real link. What is *not* real is
+ * the identity itself — its `sub` is a random `e2e-uitest-…` value no provider token will
+ * ever carry — so nothing can sign in with it, and the test must not tap anything that would
+ * ask the provider for one. The account is swept by `scripts/e2e-cleanup.ts` like every other.
  */
-const linkApple = async (request: Request): Promise<Response> => {
-  const body = (await request.json().catch(() => ({}))) as { email?: unknown }
-  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
-  if (!E2E_ADDRESS.test(email)) {
-    return json({ error: 'only e2e+*@e2e.evaapp.dev addresses may be linked' }, 400)
-  }
-  const uid = await adminAuth
-    .getUserByEmail(email)
-    .then((user) => user.uid)
-    .catch(() => null)
-  if (!uid) return json({ error: 'no account holds that address' }, 404)
+const linkProvider =
+  (providerId: 'apple.com' | 'google.com', action: string) =>
+  async (request: Request): Promise<Response> => {
+    const body = (await request.json().catch(() => ({}))) as { email?: unknown }
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+    if (!E2E_ADDRESS.test(email)) {
+      return json({ error: 'only e2e+*@e2e.evaapp.dev addresses may be linked' }, 400)
+    }
+    const uid = await adminAuth
+      .getUserByEmail(email)
+      .then((user) => user.uid)
+      .catch(() => null)
+    if (!uid) return json({ error: 'no account holds that address' }, 404)
 
-  try {
-    await adminAuth.updateUser(uid, {
-      providerToLink: { providerId: 'apple.com', uid: `e2e-uitest-${crypto.randomUUID()}` },
-    })
-  } catch (err) {
-    console.error(`[uitest-mailbox] link-apple failed for ${email}: ${(err as Error).message}`)
-    return json({ error: 'link-apple failed' }, 502)
+    try {
+      await adminAuth.updateUser(uid, {
+        providerToLink: { providerId, uid: `e2e-uitest-${crypto.randomUUID()}` },
+      })
+    } catch (err) {
+      console.error(`[uitest-mailbox] ${action} failed for ${email}: ${(err as Error).message}`)
+      return json({ error: `${action} failed` }, 502)
+    }
+    console.log(`[uitest-mailbox] linked a placeholder ${providerId} identity to ${email}`)
+    return json({ linked: true })
   }
-  console.log(`[uitest-mailbox] linked a placeholder Apple identity to ${email}`)
-  return json({ linked: true })
-}
+
+const linkApple = linkProvider('apple.com', 'link-apple')
+const linkGoogle = linkProvider('google.com', 'link-google')
 
 const server = Bun.serve({
   hostname: '127.0.0.1',
@@ -144,6 +151,7 @@ const server = Bun.serve({
     if (url.pathname === '/health') return new Response('Eva UI-test mailbox')
     if (url.pathname === '/reset' && request.method === 'POST') return reset(request)
     if (url.pathname === '/link-apple' && request.method === 'POST') return linkApple(request)
+    if (url.pathname === '/link-google' && request.method === 'POST') return linkGoogle(request)
     if (url.pathname !== '/activate' || request.method !== 'POST') {
       return json({ error: 'not found' }, 404)
     }

@@ -26,26 +26,27 @@ struct AppleSignInNonceTests {
     private static let raw = "abc"
     private static let digestOfRaw = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 
-    @Test("The API is sent the raw nonce; Apple is sent its SHA-256")
-    func pairDirection() {
-        let nonce = AppleSignInNonce(rawNonce: Self.raw)
-        #expect(nonce.apiNonce == Self.raw)
-        #expect(nonce.requestNonce == Self.digestOfRaw)
-    }
-
     /// The invariant the issue states, over a real random nonce rather than a fixture: the
     /// request value is the hash of the API value, and they are not the same string. The
     /// second line is what fails for "hash to both" and "raw to both".
+    ///
+    /// Read through `configure` and `credential` — the pair's strings are private (#330),
+    /// so this sees exactly what Apple and the API are handed.
     @Test("A fresh pair hashes the API value into the request value, and never repeats it")
-    func freshPairInvariant() {
+    func freshPairInvariant() throws {
         let nonce = AppleSignInNonce()
-        #expect(nonce.requestNonce == AuthCrypto.sha256Hex(nonce.apiNonce))
-        #expect(nonce.requestNonce != nonce.apiNonce)
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        nonce.configure(request)
+        let sentToApple = try #require(request.nonce)
+        let sentToAPI = try #require(try Self.body(of: nonce.credential(identityToken: "TOKEN"))["rawNonce"])
+
+        #expect(sentToApple == AuthCrypto.sha256Hex(sentToAPI))
+        #expect(sentToApple != sentToAPI)
         // The raw nonce's own shape — `AuthCrypto.rawNonce()`'s 43 base64url characters —
         // so a pair that put a 64-hex digest in the API slot cannot satisfy the line above
         // by coincidence of both being hashes.
-        #expect(nonce.apiNonce.count == 43)
-        #expect(nonce.requestNonce.count == 64)
+        #expect(sentToAPI.count == 43)
+        #expect(sentToApple.count == 64)
     }
 
     /// What `AppleSignInController` actually does with the pair: the request Apple sees.
@@ -61,12 +62,16 @@ struct AppleSignInNonceTests {
     /// field `POST /auth/idp` validates, not on a Swift enum payload.
     @Test("credential sends the raw value to the API, not the hash")
     func credentialCarriesTheRawValue() throws {
-        let credential = AppleSignInNonce(rawNonce: Self.raw).credential(identityToken: "TOKEN")
-        let data = try JSONEncoder().encode(credential)
-        let body = try #require(try JSONSerialization.jsonObject(with: data) as? [String: String])
+        let body = try Self.body(of: AppleSignInNonce(rawNonce: Self.raw).credential(identityToken: "TOKEN"))
         #expect(body["rawNonce"] == Self.raw)
         #expect(body["rawNonce"] != Self.digestOfRaw)
         #expect(body["identityToken"] == "TOKEN")
         #expect(body["provider"] == "apple")
+    }
+
+    /// A credential as the JSON body `POST /auth/idp` receives.
+    private static func body(of credential: ProviderCredential) throws -> [String: String] {
+        let data = try JSONEncoder().encode(credential)
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: String])
     }
 }

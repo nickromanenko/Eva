@@ -12,7 +12,7 @@ import XCTest
 /// Apple identity to revoke.
 ///
 /// An Apple-connected account is made by `linkAppleOutOfBand`, which attaches a placeholder
-/// `apple.com` identity on the server. It is real to `GET /me` and useless to Apple, which
+/// `apple.com` identity on the server; a Google-connected one by `linkGoogleOutOfBand` (#330). It is real to `GET /me` and useless to Apple, which
 /// is why the second test cancels the delete modal rather than confirming it: confirming an
 /// Apple-connected deletion asks Apple for a fresh authorization first.
 ///
@@ -112,6 +112,46 @@ final class ProviderSignInUITests: EvaUITestCase {
             "The note no longer says dismissing Apple's sheet does not stop the deletion: \(text)"
         )
         // Not confirmed: the placeholder identity cannot answer Apple's sheet.
+        closeDeleteModal(app)
+    }
+
+    /// Issue #330: the Google row, positively. A second account rather than a third half of
+    /// the test above, so Google is attached alone — a row that only appeared beside Apple's
+    /// would pass there — and so the Apple note can be shown to follow `apple.com`
+    /// specifically, not any federated provider: Google has nothing to revoke on delete.
+    func testGoogleConnectedRowFollowsAuthProviders() throws {
+        let app = launch()
+        let email = Self.freshEmail()
+        signUpAndActivate(app, email: email)
+
+        linkGoogleOutOfBand(email: email)
+        // As above: relaunch with the Keychain kept so `GET /me` is read afresh.
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "EVA_UITEST_RESET")
+        app.launch()
+        XCTAssertTrue(
+            app.buttons["tab.home"].waitForExistence(timeout: 20),
+            "Relaunching with the session kept did not reach the app"
+        )
+
+        openProfile(app)
+        assertConnectedRow("Email and password", in: app)
+        assertConnectedRow("Google", in: app)
+        XCTAssertFalse(
+            element("profile.connected.Apple", in: app).exists,
+            "Attaching Google also showed Apple as connected"
+        )
+        XCTAssertFalse(
+            app.buttons["profile.connect.google"].exists,
+            "Profile still offers to attach Google to an account that has it"
+        )
+        XCTAssertTrue(app.buttons["profile.connect.apple"].exists, "Profile stopped offering Apple")
+
+        openDeleteModal(app)
+        XCTAssertFalse(
+            element("delete.appleNote", in: app).exists,
+            "The delete modal tells a Google-connected account that Apple will ask to confirm"
+        )
         closeDeleteModal(app)
     }
 

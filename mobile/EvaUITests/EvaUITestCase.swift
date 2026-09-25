@@ -203,6 +203,15 @@ class EvaUITestCase: XCTestCase {
         askMailbox("link-apple", email: email, file: file, line: line)
     }
 
+    /// Attaches a placeholder Google identity to the account at `email`, out of band (#330).
+    ///
+    /// Google's sign-in goes to the network, which a UI test cannot drive, so this is how a
+    /// test gets an account whose `authProviders` lists `google.com`. As with Apple, the
+    /// identity is real to `GET /me` and useless to Google.
+    func linkGoogleOutOfBand(email: String, file: StaticString = #filePath, line: UInt = #line) {
+        askMailbox("link-google", email: email, file: file, line: line)
+    }
+
     /// One synchronous request to the mailbox, asserted to have worked.
     private func askMailbox(_ action: String, email: String, file: StaticString, line: UInt) {
         var request = URLRequest(url: URL(string: "\(Self.mailboxURL)/\(action)")!)
