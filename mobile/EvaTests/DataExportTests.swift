@@ -24,7 +24,7 @@ extension SessionExpiryTests {
     struct DataExportDownload {
 
         static func client(token: String? = "a-live-looking-token") -> APIClient {
-            APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { token })
+            APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { token }, session: EvaStubURLProtocol.session)
         }
 
         @Test("the bytes come back untouched, with the server's file name")
@@ -99,7 +99,8 @@ extension SessionExpiryTests {
             let session = AppSession(
                 client: APIClient(
                     baseURL: EvaStubURLProtocol.baseURL,
-                    token: { KeychainTokenStore.shared.token }
+                    token: { KeychainTokenStore.shared.token },
+                    session: EvaStubURLProtocol.session
                 ),
                 tokenStore: store
             )
