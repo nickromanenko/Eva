@@ -400,6 +400,16 @@ final class CalendarModel {
         await loadVisibleRange()
     }
 
+    /// Pages to today's month and selects today — what the Dashboard's `Log` shortcut asks
+    /// for (#100). The selection moves first, so a picker opened on today in the same turn
+    /// already has the grid's outline on the day it is logging to.
+    func showToday() async {
+        selectedDay = today
+        guard today.evaMonth != visibleMonth else { return }
+        visibleMonth = today.evaMonth
+        await loadVisibleRange()
+    }
+
     func showNextMonth() async { await show(visibleMonth.next) }
     func showPreviousMonth() async { await show(visibleMonth.previous) }
 

@@ -25,6 +25,10 @@ final class EvaTabRouter {
     /// boolean that was already `true` would silently do nothing the second time.
     private(set) var calendarLogRequests = 0
 
+    /// Which day the latest log request asked for. Read by the calendar when
+    /// `calendarLogRequests` moves.
+    private(set) var calendarLogDay: EvaCalendarLogDay = .selected
+
     init(selection: EvaTab = .home) {
         self.selection = selection
     }
@@ -33,13 +37,24 @@ final class EvaTabRouter {
         selection = tab
     }
 
-    /// Go to the calendar and open the log picker on whatever day it has selected.
+    /// Go to the calendar and open the log picker.
     ///
-    /// The day is the calendar's to decide, not this type's: the picker opens on the
-    /// **selected** day (#160), the calendar's selection follows its own page, and a
-    /// router that named a day would be overruling it from another screen.
-    func openCalendarLogPicker() {
+    /// The day is still the calendar's to resolve, not this type's: a request says *which
+    /// of the calendar's days* — the one it has selected, or its today — and never names a
+    /// date. The Today card's actions ask for the selected day (#160, the FAB's day); the
+    /// Dashboard's `Log` shortcut asks for today (#100: "Log → calendar type picker on
+    /// today"), because a shortcut on the day's briefing is about the day.
+    func openCalendarLogPicker(on day: EvaCalendarLogDay = .selected) {
         selection = .calendar
+        calendarLogDay = day
         calendarLogRequests += 1
     }
+}
+
+/// Which of the calendar's days a log request opens the picker on.
+enum EvaCalendarLogDay: Sendable, Equatable {
+    /// The day the calendar has selected — the FAB's day.
+    case selected
+    /// The calendar's today, paged to and selected first.
+    case today
 }

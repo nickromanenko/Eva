@@ -20,6 +20,10 @@ import SwiftUI
 /// | header button `border-radius:15px` | `EvaRadius.chip` (14) | nearest; the calendar's steppers took the same |
 /// | rail card `border-radius:22px` | `EvaRadius.card` (24) | the calendar's summary card took the same for the same 22 |
 /// | rail card `padding:12px 14px 14px` | `EvaSpacing.sm` / `.md` / `.md` | nearest steps |
+/// | shortcut `border-radius:20px`, setup card `20px` | `EvaRadius.banner` (20) | exact |
+/// | shortcut row `gap:8px` | `EvaSpacing.xs` (8) | exact |
+/// | setup card `margin-top:10px` | `EvaSpacing.xs` (8) | nearest step; the row and its prompt read as one block |
+/// | setup card `padding:14px 16px`, `gap:12px` | `EvaSpacing.md` / `.md`, `.sm` | nearest steps |
 enum EvaHomeMetrics {
 
     // MARK: Header
@@ -64,6 +68,26 @@ enum EvaHomeMetrics {
     static let bannerCardWidth: CGFloat = 214
     /// `height:96px` — the editorial image slot above the words.
     static let bannerArtHeight: CGFloat = 96
+
+    // MARK: Shortcuts row (#100)
+
+    /// `min-height:82px` — one shortcut. Well over §1's 44pt floor in both directions: the
+    /// four columns are ~80pt wide at 390.
+    static let shortcutHeight: CGFloat = 82
+    /// `padding:10px 4px` inside a shortcut. The 4pt sides are what let "Set up meals" sit on
+    /// two lines rather than three at the default text size.
+    static let shortcutPadding = EdgeInsets(top: 10, leading: 4, bottom: 10, trailing: 4)
+    /// `width:34px;height:34px;border-radius:12px` — the shortcut's mark slot.
+    static let shortcutMarkSize: CGFloat = 34
+    /// `width:36px;height:36px;border-radius:12px` — the setup card's mark slot.
+    static let setupMarkSize: CGFloat = 36
+    /// 12 on both slots — off the 14/17/24 scale, like the kicker's 10: a chip's 14 on a
+    /// 34pt square reads as a circle-ish blob rather than the artboard's rounded tile.
+    static let markRadius: CGFloat = 12
+    /// The setup card's dashed border. **Not a canvas value** — CSS `dashed` leaves the
+    /// segment length to the renderer. 4 on, 4 off, the calendar's empty-day row's pattern,
+    /// because both are §7's empty-state border and should read as the same thing.
+    static let setupCardDash: [CGFloat] = [4, 4]
 }
 
 // MARK: - One-off type
