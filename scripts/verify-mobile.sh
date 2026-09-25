@@ -130,7 +130,10 @@ else
   # A full template, not `mktemp -t eva-mailbox`: BSD reads `-t`'s argument as a prefix,
   # GNU coreutils requires the X's and errors — the same bug #67 fixed in api-server.sh.
   MAILBOX_LOG=$(mktemp "${TMPDIR:-/tmp}/eva-mailbox.XXXXXX") || { echo "✗ could not create a mailbox log"; exit 1; }
-  (cd "$ROOT/api" && PORT="$MAILBOX_PORT" EVA_API_URL="$API_URL" \
+  # Every address this run's mailbox activates, which is every account this run creates —
+  # the list the sweep at the end is scoped to (#322). See that step for why.
+  MAILBOX_LEDGER=$(mktemp "${TMPDIR:-/tmp}/eva-mailbox-ledger.XXXXXX") || { echo "✗ could not create a mailbox ledger"; exit 1; }
+  (cd "$ROOT/api" && PORT="$MAILBOX_PORT" EVA_API_URL="$API_URL" EVA_MAILBOX_LEDGER="$MAILBOX_LEDGER" \
     exec bun run scripts/uitest-mailbox.ts) >"$MAILBOX_LOG" 2>&1 &
   MAILBOX_PID=$!
   mailbox_stop() { kill "$MAILBOX_PID" 2>/dev/null || true; api_stop; release_lock; }
@@ -182,8 +185,13 @@ print(sum(ui(n) for n in json.load(sys.stdin).get("testNodes", [])))' 2>/dev/nul
     fi
   fi
 
-  echo "▶ cleanup sweep (e2e accounts created by the UI test)"
-  (cd "$ROOT/api" && bun run "$ROOT/scripts/e2e-cleanup.ts") || FAILED=1
+  # **This run's accounts only** (#322). Unscoped, the sweep deletes every e2e account in the
+  # project — including the one a second run on another simulator (#162) is signed in to,
+  # whose next request then answers 401 and ends its session mid-test. That is how
+  # `DeleteAccountUITests` failed at "Export data instead" on the welcome screen. Accounts
+  # left behind by a run that died before this line are for `scripts/e2e.sh`'s full sweep.
+  echo "▶ cleanup sweep (e2e accounts this run created)"
+  (cd "$ROOT/api" && bun run "$ROOT/scripts/e2e-cleanup.ts" --only "$MAILBOX_LEDGER") || FAILED=1
 fi
 
 [ "$FAILED" -ne 0 ] && { echo "✗ mobile verify FAILED"; exit 1; }
