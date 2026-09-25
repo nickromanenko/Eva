@@ -2274,7 +2274,8 @@ a UI test waited on. `verify-mobile.sh` copies the API's and the UI-test mailbox
 `mobile/build/suite-logs/` on exit, and `test-mobile.yml` uploads that directory when the
 job fails — never on a green run. The copy is **redacted** (`redact_suite_log` in
 `scripts/lib/api-server.sh`): under `EMAIL_TRANSPORT=log` the API prints every activation
-link and its address, and an artifact outlives the runner. Links, `#token=` fragments,
+link and its address, an artifact outlives the runner, and in a public repository anyone
+can download it. Links, `#token=` fragments,
 addresses (plain and percent-encoded), JWT-shaped strings (an emulator's unsigned one
 included) and token-length strings are replaced; the `request` and `request_timeout` lines
 carry none of those and survive whole. The startup-failure prints go through the same scrub,
@@ -2285,16 +2286,41 @@ the first two dispatch runs of #263 both did, and uploaded nothing under `failur
 On a cancel the logs exist only if `verify-mobile.sh`'s exit trap ran before the runner
 killed it.
 
-**A red suite does not block the merge**, only the deploy. That half of #67 is not
-implementable from this repository: required status checks are branch protection or a
-ruleset, and GitHub serves both with `403 Upgrade to GitHub Pro or make this repository
-public` for a private repo on a free personal account. So the merge button stays green on
-a red suite, and the deploy that follows it does not run — the failure is caught one step
-later than intended, and `main` can hold a commit that does not pass.
+**The repository is public (#309).** `gh repo view --json visibility` answers `PUBLIC`
+(checked 2026-09-25). Earlier text here called it a private repo on a free personal
+account, where GitHub answers branch protection with `403 Upgrade to GitHub Pro`; that no
+longer holds, and three things follow:
 
-Closing it costs a GitHub Pro subscription, and is a decision rather than a task. Making
-the repository public is not the alternative it looks like: this is a health app whose
-issues and PRs discuss real user data handling.
+- **Required checks are available, and not yet set.** Branch protection and rulesets are
+  on the free plan for a public repository. `GET …/branches/main/protection` now answers
+  `404 Branch not protected` — the feature is there and `main` has none — and there are no
+  rulesets. So making `Check Secrets`, `Test API` and the others required on `main` is a
+  **repository setting for a human**, not a subscription decision. Nothing in this
+  repository changes it. One constraint for whoever sets it: every test workflow except `Check Secrets` is
+  path-filtered, and a required check whose workflow never starts leaves the pull request
+  waiting on it forever — so either require only the unfiltered check, or make the filtered
+  ones report on every PR first. `Test Mobile` / `Full suite` does not run on a pull request
+  at all and cannot be required.
+- **Actions logs and artifacts are world-readable.** Anyone can read a step log and
+  download an artifact for its retention period. That is why #263 uploads the suite logs
+  redacted (above), and why #334 exists: `scripts/e2e-cleanup.ts` still prints test
+  addresses into the step log. The **xcresult bundles** (`Upload xcresult`, on every run)
+  are public too and are deliberately *not* redacted: they carry screenshots and view
+  hierarchies of throwaway emulator accounts whose tokens are dead by the time anyone can
+  download them — synthetic data only, which is the rule a UI test must keep.
+- **Anyone can open a pull request from a fork**, and the `pull_request` workflows run on
+  it. That is safe only because no `pull_request` job holds a secret or an `id-token`, and
+  none uses `pull_request_target`. Keep it that way: a secret or `pull_request_target` on a
+  PR job would hand it to anyone who opens one.
+- **History is public.** The `api/.secrets` symlink #292 committed (#295) held a local
+  filesystem path, not a key, so there is nothing to rotate — but it is in public history
+  and stays there. Every issue, PR, commit message and doc in this repository is readable by
+  anyone; none of them may carry a credential or real user data (GUARDRAILS 1, 12).
+
+**A red suite does not block the merge**, only the deploy — until a human makes the checks
+required, as above. So the merge button stays green on a red suite, and the deploy that
+follows it does not run — the failure is caught one step later than intended, and `main`
+can hold a commit that does not pass.
 
 **`Check Secrets` is the one check with nothing downstream to gate (#297).** It runs
 `scripts/verify-secrets.sh` — GUARDRAILS 1 as a script — on every pull request and on
@@ -2303,8 +2329,9 @@ and nothing else. It has no path filter because a credential can land at any pat
 credential accidents so far (#7's `.p8`, #295's `api/.secrets` symlink) reached `main`
 through a `git add -A` no CI step looked at. But the other suites stop a deploy when they
 go red; this one has no deploy to stop, so until it is a **required check on `main`** it
-only tells you. Making it required is a repository setting for a human, and it runs into
-the same `403` as the paragraph above: it is part of that decision, not a separate one.
+only tells you. Making it required is a repository setting for a human, available on the
+free plan because the repository is public (above); it is the one check that can be made
+required as it stands, with no path filter to leave a PR waiting.
 It checks the tree, not history — a key added and removed inside one PR passes, and is
 still in history to rotate.
 

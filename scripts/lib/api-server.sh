@@ -98,7 +98,8 @@ api_ensure_up() {
 # log taken out: `redact_suite_log SRC DEST`. A missing or empty SRC writes nothing.
 #
 # The kept copy is uploaded as a CI artifact, and an artifact outlives the runner — five
-# days, readable by anyone who can read the repository's Actions. The *live* log cannot be
+# days, readable by anyone who can read the repository's Actions, which for this public
+# repository is anyone (ARCHITECTURE.md §6a, #309). The *live* log cannot be
 # made clean at the source, because under `EMAIL_TRANSPORT=log` the API's whole job is to
 # print each activation and reset link with the address it went to (GUARDRAILS 12's one
 # exception, refused in production). Against the emulators those tokens are dead once the
