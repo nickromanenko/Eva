@@ -8,6 +8,7 @@ import {
   analyzeCycles,
   bandForAge,
   cycleRulesProblem,
+  periodOngoing,
   toCycleEstimate,
   type CycleDay,
   type CycleRules,
@@ -1428,6 +1429,69 @@ describe('a day she has not logged yet is still her period (#197)', () => {
       slots: {},
       confidence: 'hedged',
     })
+  })
+})
+
+// ── Her period is still running: the shortcut's flag (#100) ───────────────────────────
+
+/**
+ * `periodOngoing` labels D5's first shortcut `Log period`. It is the menstrual phase's own
+ * boundary (#197) **without** the prediction gate, and both halves of that are pinned: the
+ * boundary is the same one — every day a phase exists, the two agree — and the gate is
+ * absent, so a woman with no prediction yet is still offered her period while she logs it.
+ */
+describe("her period is still running: the shortcut's flag (#100)", () => {
+  const ongoingAt = (days: readonly CycleDay[], rules: CycleRules = RULES) =>
+    periodOngoing(analyzeCycles({ days, today: TODAY, profile: profileAged(30) }, rules))
+
+  test('her first period ever, logged this morning: ongoing, with no phase to say so', () => {
+    const days = [flow(shift(TODAY, -1)), flow(TODAY)]
+    const result = analyze(days)
+    expect(result.prediction).toBe(null)
+    expect(toCycleEstimate(result).phase).toBe(null)
+    expect(periodOngoing(result)).toBe(true)
+  })
+
+  test('one dry day is still her period; at the gap it has ended — the constant, not a day', () => {
+    // Two flow days ending `dry` days before today.
+    const endingDaysAgo = (dry: number) => [flow(shift(TODAY, -dry - 1)), flow(shift(TODAY, -dry))]
+    expect(ongoingAt(endingDaysAgo(0))).toBe(true)
+    expect(ongoingAt(endingDaysAgo(1))).toBe(true)
+    expect(ongoingAt(endingDaysAgo(2))).toBe(false)
+    expect(ongoingAt(endingDaysAgo(10))).toBe(false)
+    // The same days against a gap of 3 and of 1.
+    expect(ongoingAt(endingDaysAgo(2), { ...RULES, minPeriodGapDays: 3 })).toBe(true)
+    expect(ongoingAt(endingDaysAgo(3), { ...RULES, minPeriodGapDays: 3 })).toBe(false)
+    expect(ongoingAt(endingDaysAgo(1), { ...RULES, minPeriodGapDays: 1 })).toBe(false)
+  })
+
+  test('the same boundary as the menstrual phase, on every day of a predicted cycle', () => {
+    for (let daysAgo = 0; daysAgo < 28; daysAgo++) {
+      const result = analyze(periods([28, 28, 28], daysAgo))
+      const phase = toCycleEstimate(result).phase
+      expect(phase).not.toBe(null)
+      expect(periodOngoing(result)).toBe(phase!.code === 'menstrual')
+    }
+  })
+
+  test('where the gate withholds her phase, her own logged flow still counts', () => {
+    // #181's alternating fixture, one dry morning after her last logged day: no prediction
+    // and no phase — the card must not speak — while the shortcut still offers her period.
+    const result = analyze(periods([28, 60, 28, 60, 28, 60], 5, 5))
+    expect(result.withheld).toBe('irregular-cycles')
+    expect(toCycleEstimate(result).phase).toBe(null)
+    expect(periodOngoing(result)).toBe(true)
+  })
+
+  test('nothing logged, spotting alone, or a period opening tomorrow is not ongoing today', () => {
+    expect(ongoingAt([])).toBe(false)
+    expect(ongoingAt([spotting(shift(TODAY, -1)), spotting(TODAY)])).toBe(false)
+    // An entry on tomorrow's date is within the readers' one-day lookahead.
+    expect(ongoingAt([flow(shift(TODAY, 1))])).toBe(false)
+  })
+
+  test('a period-end mark does not end it early: the mark is never an end date', () => {
+    expect(ongoingAt([flow(shift(TODAY, -2)), flowEnded(shift(TODAY, -1))])).toBe(true)
   })
 })
 

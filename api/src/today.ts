@@ -9,6 +9,7 @@ import {
 } from './content'
 import {
   analyzeCycles,
+  periodOngoing,
   toCycleEstimate,
   type CycleAnalysis,
   type CycleDay,
@@ -22,6 +23,7 @@ import {
   TEMPLATE,
   type DashboardInput,
   type DashboardRules,
+  type Mode,
   type Rung,
   type SignalEntry,
   type Subject,
@@ -123,6 +125,26 @@ export interface TodayDocument {
   /** The day's rail, in display order: zero to three items, never padded (#102). Empty —
    *  never absent — when nothing is eligible, and for a day stored before D7. */
   banners: TodayBanner[]
+  /**
+   * The mode the card was built in — the one D1 was handed, so the shortcuts row (#100, D5)
+   * and the card cannot be in two different modes. `cycle` for every account today: nothing
+   * stores a mode until D10 (#107). A day stored before D5 reads `cycle`, which is what it
+   * was built in.
+   */
+  mode: Mode
+  /**
+   * Whether her logged period is still running today — C11's `periodOngoing`, the menstrual
+   * boundary without the prediction gate (see there). What labels the first shortcut
+   * `Log period` (#100). Not a phase and not a prediction: it never reaches the card.
+   * `null` only on a day stored before D5, which is not rebuilt to fill it in.
+   */
+  periodOngoing: boolean | null
+  /**
+   * Whether the Nutrition coach setup is finished — `completedSetup`'s answer, the one
+   * definition (#221). `Scan meal` when true, `Set up meals` and the setup card when not
+   * (#100). `null` only on a day stored before D5.
+   */
+  nutritionSetUp: boolean | null
 }
 
 /**
@@ -533,7 +555,8 @@ const cycleWindowDays = (rules: CycleRules | null): number =>
   rules === null ? 0 : (rules.historyCycles + 2) * rules.maxCycleLengthDays
 
 /**
- * C11's answers, for this user, today (#179).
+ * C11's answers, for this user, today (#179) — D1's estimate, and since #100 whether her
+ * logged period is still running, for the shortcuts row.
  *
  * The whole of the cycle maths is `cycle.ts`'s and none of it is re-derived here — this
  * gathers the days, hands them over with the constants, and projects the result into the
@@ -545,12 +568,17 @@ const cycleWindowDays = (rules: CycleRules | null): number =>
  * answers `503` to, exactly as it does rung 2's. That is the direction #176 chose: no
  * default, because a default here is a clinical constant nobody recorded choosing.
  */
-const cycleEstimate = (
+const cycleToday = (
   days: readonly CycleDay[],
   today: string,
   profile: Profile | null,
   rules: CycleRules | null,
-): DashboardInput['cycle'] => toCycleEstimate(analyzeCycles({ days, today, profile }, rules))
+): { estimate: DashboardInput['cycle']; periodOngoing: boolean } => {
+  // One analysis, two projections: the card's estimate and the shortcut's period flag (#100)
+  // are read off the same answer, so they cannot be measured against two different histories.
+  const analysis = analyzeCycles({ days, today, profile }, rules)
+  return { estimate: toCycleEstimate(analysis), periodOngoing: periodOngoing(analysis) }
+}
 
 /**
  * How far *ahead* `cycle` entries are read.
@@ -566,7 +594,7 @@ const CYCLE_LOOKAHEAD_DAYS = 1
 /**
  * C11's whole answer for one user on one local date (#205).
  *
- * **`CycleAnalysis`, not `CycleEstimate`.** `cycleEstimate` above projects the same analysis
+ * **`CycleAnalysis`, not `CycleEstimate`.** `cycleToday` above projects the same analysis
  * into the narrower shape D1 consumes, which carries no `cycles` list — so "unusual length"
  * cannot surface through it, and neither can the fertile window's own dates. The Dashboard
  * needs the projection; the calendar needs the analysis. Both come from one call to
@@ -603,13 +631,19 @@ export const cycleAnalysisFor = async (uid: string, today: string): Promise<Cycl
   return analyzeCycles({ days, today, profile: user?.profile ?? null }, rules)
 }
 
+/** D1's inputs, and the one C11 answer the day's document carries beside the card (#100). */
+interface Gathered {
+  input: DashboardInput
+  periodOngoing: boolean
+}
+
 const gatherInput = async (
   uid: string,
   today: string,
   now: string,
   timeZone: string,
   rules: DashboardRules,
-): Promise<DashboardInput> => {
+): Promise<Gathered> => {
   // One read: the window the query spans and the constants the maths is handed are the same
   // set by construction rather than by two lookups happening to agree.
   const cycleRules = config.cycle
@@ -643,7 +677,8 @@ const gatherInput = async (
     if (appointment !== null && appointment.inDays >= 0) upcomingAppointments.push(appointment)
   }
 
-  return {
+  const cycle = cycleToday(cycleDays, today, user?.profile ?? null, cycleRules)
+  const input: DashboardInput = {
     // Cycle mode is the only one the app can be in today: `users/{uid}` carries no mode and
     // the other four are D10's (#107), together with the rungs that read them.
     mode: 'cycle',
@@ -651,7 +686,7 @@ const gatherInput = async (
     now,
     // The profile goes through untouched: `bandForAge` is the only thing that reads it, and
     // it reads one field (#176, and #81 when age becomes a date of birth).
-    cycle: cycleEstimate(cycleDays, today, user?.profile ?? null, cycleRules),
+    cycle: cycle.estimate,
     signals,
     // D10 owns the mapping from a logged code to a flag. Until it exists there is nothing
     // to resolve, which is why D1 documents `null` as the value in every mode.
@@ -664,6 +699,7 @@ const gatherInput = async (
     todayTotals: null,
     daysSinceLastLog: lastLogged === null ? null : wholeDaysBetween(lastLogged, today),
   }
+  return { input, periodOngoing: cycle.periodOngoing }
 }
 
 // ── The day's document ─────────────────────────────────────────────────────────────────
@@ -700,6 +736,13 @@ const toDocument = (data: FirebaseFirestore.DocumentData): TodayDocument => ({
   // A day stored before D7 has no rail, and gets none: filling one in on a later open would
   // change the document on a refresh, which is the thing D3's rule forbids.
   banners: Array.isArray(data.banners) ? data.banners : [],
+  // A day stored before D5 (#100) is read, never rebuilt, for the same reason. Its mode is
+  // known — every card before D10 was built in `cycle` — and the other two are not: `null`
+  // says so, where `false` would put an invented fact about her period in her export.
+  // The stored value is only ever `input.mode`, written below.
+  mode: typeof data.mode === 'string' ? (data.mode as Mode) : 'cycle',
+  periodOngoing: typeof data.periodOngoing === 'boolean' ? data.periodOngoing : null,
+  nutritionSetUp: typeof data.nutritionSetUp === 'boolean' ? data.nutritionSetUp : null,
 })
 
 /** The newest instant at which anything this document is built from changed — an event
@@ -779,7 +822,13 @@ export const getToday = async (
   }
 
   const now = new Date().toISOString()
-  const input = await gatherInput(uid, request.date, now, request.timeZone, rules)
+  const { input, periodOngoing } = await gatherInput(
+    uid,
+    request.date,
+    now,
+    request.timeZone,
+    rules,
+  )
   const subject = selectSubject(input, rules)
   const [{ content, signedBanners }, vocabulary, labels, nutrition] = await Promise.all([
     getSignedContent(),
@@ -806,6 +855,15 @@ export const getToday = async (
     contentVersion: content.version,
     card,
     banners,
+    // The shortcuts row's three facts (#100, D5), stored with the card so they follow its
+    // regeneration rule exactly: every input is already one `dataChangedAt` watches — the
+    // events the cycle maths read, and the nutrition profile (#102).
+    mode: input.mode,
+    periodOngoing,
+    // `complete` is `completedSetup`'s answer, the same one the rail's focus areas are gated
+    // on above. Deliberately not D1's `input.nutritionSetUp`, which is still the hardcoded
+    // `false` of a ladder with no nutrition totals to read (rung 5).
+    nutritionSetUp: nutrition?.complete === true,
   }
   // **In a transaction that also reads the account (#286).** A cache, but not a harmless
   // one: the card is her logged data written out as prose, built from inputs read while the

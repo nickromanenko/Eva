@@ -457,8 +457,16 @@ describe('GET /me/export — the download', () => {
         'contentVersion',
         'card',
         'banners',
+        'mode',
+        'periodOngoing',
+        'nutritionSetUp',
       ])
       expect(card.card.title.startsWith(aliceMarker)).toBe(true)
+      // Stored without D5's fields (#100): the mode it was built in, and the two facts it
+      // never recorded as `null` — an export does not invent a period she did not log.
+      expect(card.mode).toBe('cycle')
+      expect(card.periodOngoing).toBe(null)
+      expect(card.nutritionSetUp).toBe(null)
     }
   })
 

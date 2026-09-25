@@ -201,6 +201,14 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
     instant beside events and the profile, because the rail is built from it. Rows come from
     `getSignedContent`, which yields no banners at all for an unsigned document. A day stored
     before D7 is served `banners: []`, never back-filled on a refresh.
+  - **The shortcuts row's facts are stored with the card too (#100, D5)**: `mode` (the one D1
+    was handed), `periodOngoing` (C11's, see `cycle.ts`) and `nutritionSetUp` (`complete`,
+    the same "finished" the rail reads — deliberately not D1's still-hardcoded
+    `input.nutritionSetUp`). Every input is already one `dataChangedAt` watches, so no new
+    regeneration signal. A day stored before D5 reads `mode: 'cycle'` (true of every card
+    before D10) and `null` for the other two — never an invented `false`, which would reach
+    her export as a fact about her period. The device picks the label from these; it never
+    computes a period from events (#100 Risks).
   - **The card's subject is not the phraser's to choose.** `Phraser` returns *text*; the
     stored card's `templateId` and `rung` are copied from D1's `Subject`, so neither this
     phraser nor D9's model one can name a different card (PRD §Dashboard: "the message
@@ -229,10 +237,10 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
     exported refusal has one — so the next refusal added fails the suite until it is mapped,
     before anything can throw it.
   - **It is the seam the cycle maths is read through (#179), for both readers.**
-    `cycleEstimate` hands
+    `cycleToday` hands
     `analyzeCycles` the logged `cycle` entries, the caller's local date and the profile, and
-    projects the answer with `toCycleEstimate`; no gate, band or threshold is re-decided
-    here. `cycleAnalysisFor` (#205) is the calendar's half: the same window, the same
+    projects the answer twice — `toCycleEstimate` for the card, `periodOngoing` for the
+    shortcuts row (#100); no gate, band or threshold is re-decided here. `cycleAnalysisFor` (#205) is the calendar's half: the same window, the same
     `toCycleDay` mapping and the same `analyzeCycles` call, returning the **`CycleAnalysis`**
     rather than D1's projection — `CycleEstimate` carries no `cycles` list, so "unusual
     length" and the fertile window's own dates cannot surface through it, which is why
@@ -302,6 +310,13 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   other export: `parseProfile` reads it through `today.ts` so the floor and the band measure
   an age the same way, which they do not if each spells the arithmetic itself (29 February).
   `toCycleEstimate` projects the result into the `CycleEstimate` D1 already consumes.
+  **`periodOngoing` (#100) is the menstrual phase's boundary without the prediction gate**:
+  whether today is inside her current logged run, carried `minPeriodGapDays - 1` dry days
+  past it. `phaseOn` and it share one predicate (`periodRunOpenOn`), so they agree on every
+  day a phase exists. It is ungated because it states nothing to her — it only labels the
+  first Dashboard shortcut `Log period`, from flow she logged — and gating it would never
+  offer a woman in her first three cycles the period she is logging. It feeds no card: a
+  phase from it would be the fail-open #181 closed.
 - `nutrition-profile.ts` — the only module that touches `users/{uid}/nutrition/` (#221, S1 of
   #25): the Nutrition coach's setup answers — goal, focus areas (max 3), meal pattern, target
   weight, the hide-numbers preference (#212) — and the setup-progress marker `step`. **The
