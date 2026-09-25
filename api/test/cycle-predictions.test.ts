@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { analyzeCycles, type CycleDay, type CycleRules } from '../src/cycle'
+import { createEvent } from '../src/events'
 import { adminAuth, firestore } from '../src/firebase'
 import { signUpActivated } from './support/session'
 
@@ -16,7 +17,9 @@ import { signUpActivated } from './support/session'
  * So the load-bearing cases are end to end, against entries created through
  * `POST /me/events`, and the strongest of them compare the route's answer against
  * `analyzeCycles` run in this process over the same days: if the route ever grew arithmetic
- * of its own, the two would disagree.
+ * of its own, the two would disagree. One case seeds through `createEvent` instead — the
+ * confidence class, whose two histories are too many sequential POSTs for the timeout (#293);
+ * it says so where it does.
  *
  * **This file boots its own API**, with the `CYCLE_*` group set explicitly. `config.ts` reads
  * the environment once at import, so a server started by `verify-api.sh` runs whatever
@@ -110,8 +113,23 @@ const apiAt = (at: string, path: string, init?: RequestInit & { token?: string |
     },
   })
 
-const api = (path: string, init?: RequestInit & { token?: string | null }) =>
-  apiAt(base, path, init)
+/**
+ * The file's own server, refusing to be called once it is gone (#293).
+ *
+ * A case that times out takes the `beforeAll` server down with it, and every later case then
+ * failed with a bare `ConnectionRefused`, which is ten failures that read as a crash of the
+ * route rather than one slow case. This says which it is. `signalCode` rather than `killed`
+ * alone, because the process is not killed through this handle.
+ */
+const api = (path: string, init?: RequestInit & { token?: string | null }) => {
+  if (child && (child.exitCode !== null || child.signalCode !== null)) {
+    throw new Error(
+      `the API this file spawned in beforeAll has exited (exit ${child.exitCode}, signal ${child.signalCode}); ` +
+        'this case never reached the route. Look for the earlier case that timed out or failed first.',
+    )
+  }
+  return apiAt(base, path, init)
+}
 
 const json = <T>(res: Response): Promise<T> => res.json() as Promise<T>
 
@@ -269,6 +287,34 @@ const daysFor = (starts: readonly string[]): CycleDay[] =>
     { localDate: start, kind: 'flow' } as const,
     { localDate: shiftDays(start, 1), kind: 'flow' } as const,
   ])
+
+/**
+ * `periodsStartingOn`'s days, written through `createEvent` and all at once (#293).
+ *
+ * `createEvent` is what `POST /me/events` hands its parsed body to, and the entry is the one
+ * that route's parser builds from `flowOn`'s body: `loggedAt` at noon because none of these
+ * days is today, no note, `source` `user`, no idempotency key. So the stored rows are the same;
+ * what is skipped is the HTTP and parse hop, which the other cases here still go through.
+ *
+ * Only for a case whose claim is about the *read*, and which needs more flow days than one
+ * sequential fixture: 22 POSTs one after another, at the ~0.6s each #293 measured against the
+ * real project, used nearly all of the 20s timeout, and one slow run of it took the whole file down.
+ */
+const seedPeriodsStartingOn = async (starts: readonly string[]): Promise<void> => {
+  await Promise.all(
+    daysFor(starts).map(({ localDate }) =>
+      createEvent(uid, {
+        type: 'cycle',
+        localDate,
+        loggedAt: `${localDate}T12:00:00`,
+        note: null,
+        source: 'user',
+        idempotencyKey: null,
+        payload: { flow: 'medium' },
+      }),
+    ),
+  )
+}
 
 const predictions = async (from: string, to: string): Promise<PredictionsBody> => {
   const res = await api(`/me/cycle/predictions?from=${from}&to=${to}&timeZone=UTC`)
@@ -435,15 +481,19 @@ describe('GET /me/cycle/predictions: what the calendar draws', () => {
    * A27, which is the distinction the client draws its band from: six counted cycles is
    * `narrow`, three is `wide`. The same woman, three periods fewer — so nothing but the
    * count changes, and the predicted date is identical.
+   *
+   * Seeded through the events module rather than the route (#293): the claim is the class the
+   * route reads off two stored histories, and the write path is not what it is about — the
+   * case above logs the same seven periods through `POST /me/events`.
    */
   test("the confidence class is C11's own: narrow at six counted cycles, wide at three", async () => {
     await clearEvents()
-    await periodsStartingOn(REGULAR_STARTS)
+    await seedPeriodsStartingOn(REGULAR_STARTS)
     const narrow = await predictions(WHOLE().from, WHOLE().to)
     expect(narrow.confidence).toBe('narrow')
 
     await clearEvents()
-    await periodsStartingOn(WIDE_STARTS)
+    await seedPeriodsStartingOn(WIDE_STARTS)
     const wide = await predictions(WHOLE().from, WHOLE().to)
     expect(wide.confidence).toBe('wide')
 
