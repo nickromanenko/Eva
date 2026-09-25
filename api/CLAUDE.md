@@ -68,7 +68,8 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   limit is per Cloud Run instance — the guarantee, and what would have to change to make
   it real, are written out at the top of the file and in ARCHITECTURE §3. It never sees
   whether an account exists, and it never logs a key (they are addresses and IPs).
-  It also holds the one authenticated throttle, `consumeExportAttempt` for `GET /me/export`
+  It also holds the two authenticated throttles: `consumeDeleteAttempt` for `DELETE /me` (#119),
+  and `consumeExportAttempt` for `GET /me/export`
   (#58): per IP, then per **uid** — the account is the identity an export spends, and a uid
   joins the keys that are never logged.
 - `users.ts` — the only module that touches `users/`. `markUserDeleted` stamps the

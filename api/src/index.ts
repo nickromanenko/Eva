@@ -1613,7 +1613,7 @@ app.get('/me', requireAuth, requireAccount, (c) => c.json({ user: c.get('account
  * at the start is an ordinary `500 INTERNAL`; a failure on a later page cuts the body short,
  * and a short body is never valid JSON because the closing brackets are written last.
  *
- * Throttled per account and per IP (`consumeExportAttempt`) — the only authenticated route
+ * Throttled per account and per IP (`consumeExportAttempt`) — the one authenticated read
  * that is, because it is the only one whose cost grows with the account. Not behind
  * `requireCollectConsent`: reading her own data is not collecting it, and the freeze a
  * withdrawal starts says stored data leaves by export or by `DELETE /me`.
