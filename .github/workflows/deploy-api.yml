@@ -97,6 +97,14 @@ jobs:
               exit 1
             fi
           done
+          # `--allow-unauthenticated` with no `--ingress` keeps the run.app URL publicly
+          # reachable, which is what RATE_LIMIT_TRUSTED_PROXY_HOPS's default of 1 assumes: a
+          # direct Cloud Run service, one trusted X-Forwarded-For entry (#37). Raising it to
+          # 2 for an external load balancer is only half the change — add
+          # `--ingress=internal-and-cloud-load-balancing` here in the same change, or a request
+          # sent straight to run.app carries a one-entry header, resolves to no caller, and
+          # skips per-IP throttling on every auth, token and provider route (#149).
+          # config.ts and ARCHITECTURE §3 carry the full reasoning.
           gcloud run deploy eva-api \
             --source api \
             --project ${{ vars.GCP_PROJECT_ID }} \
