@@ -20,8 +20,9 @@ direct instruction — the last cells outside the Always-human list that still s
 What it changes in practice: an agent may now resolve questions, plan, implement, review and
 merge `rules / auth / infra` work (CI, Docker, scripts, deploy config, Firebase indexes, the
 `users/{uid}` schema, and non-secret auth/rules changes) without stopping for Nick. What it
-does not change: the Always-human list below — rules *loosening*, `JWT_SECRET`/the Firebase
-web API key/Secret Manager, adding a dependency, deleting user data, and changing an error
+does not change: the Always-human list below — rules *loosening*, `JWT_SECRET`/Secret Manager,
+how the Firebase web API key (the Identity Toolkit transport, not a secret) is used, adding a
+dependency, deleting user data, and changing an error
 `code` — still stops any plan or merge that lands on it, on any surface. This move did not
 earn itself under the ratchet rule; it is a decision, revocable the same way it was made.
 
@@ -148,7 +149,10 @@ merged.
 ## Always human, regardless of surface
 
 - Loosening `firestore.rules` or `storage.rules`
-- Anything touching `JWT_SECRET`, the Firebase web API key, or Secret Manager
+- Anything touching `JWT_SECRET` or Secret Manager
+- Changing how the Firebase web API key is used — not because it is secret (it is public,
+  GUARDRAILS 4a), but because it is the Identity Toolkit transport: a change to its use is a
+  change to how accounts are created and verified (#115)
 - Adding a dependency
 - Deleting user data
 - Changing an existing API error `code` (breaks the iOS client)

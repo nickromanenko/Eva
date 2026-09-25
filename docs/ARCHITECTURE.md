@@ -439,7 +439,9 @@ value in a header is a channel.
 
 The reason string never leaves `IdentityToolkitError`: not into a body, a header, or a log
 line (GUARDRAILS 12), and the failing `fetch`'s own error is dropped rather than attached,
-because its message contains the request URL and that URL carries the web API key.
+because its message contains the request URL — which carries the web API key (public,
+GUARDRAILS 4a, but still not log material) and the full request, which is ours to keep out
+of a log line.
 
 *How an operator tells an outage from a bug:* `unavailable` is the one branch that logs —
 one line, `{"event":"identity_toolkit_unavailable","route","upstreamStatus"}`, carrying no
@@ -755,8 +757,8 @@ provisioned provider exist.
 every route: any throw no handler answered for is `500 { error: { code: "INTERNAL",
 message } }`, where `message` is one constant sentence plus an eight-character `ref`. It is
 never the thrown error's own text. That is the whole point of the handler rather than a
-detail of it — a failing `fetch` puts the request URL in its message and that URL carries
-the web API key (#32), a Firestore error puts the document path in its message and that
+detail of it — a failing `fetch` puts the request URL in its message (with the public web
+API key in it — hygiene, not secrecy, GUARDRAILS 4a; #32), a Firestore error puts the document path in its message and that
 path is a uid, and neither string was written by anyone who was thinking about who reads
 it. `err.stack` is out for the same reason (its first line *is* the message), and so is
 `err.cause`. The Firestore outage inside `ensureUser` that both auth routes could not

@@ -24,7 +24,7 @@ present the plan and wait.** Don't proceed and mention it afterwards.
 
 **Then walk the Always-human list out loud, before writing anything.** Name each item and
 say whether this issue's plan could plausibly touch it — rules loosening, `JWT_SECRET` /
-web API key / Secret Manager, a new dependency, deleting data or a `users/{uid}` schema
+Secret Manager, how the (public) web API key is used, a new dependency, deleting data or a `users/{uid}` schema
 change, an existing error `code`, anything the issue didn't ask for. **If any is
 non-empty, stop and ask**, the same as if plan approval were human.
 

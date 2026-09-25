@@ -27,6 +27,7 @@ Each rule is stated so a reviewer can check it mechanically.
    API key to ask Identity Toolkit directly, and `apple-client-secret.test.ts` sets
    `config.providers.apple` to a key it generates. Neither is a real credential; rule 1
    still binds.
+
 4a. **The Firebase web API key is a public identifier, not a secret — so no security
    property may rest on holding it.** Every Firebase client ships it, and Firebase Hosting
    serves ours to anyone at `https://evatracker.com/__/firebase/init.json`. It tells

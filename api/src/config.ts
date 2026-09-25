@@ -464,8 +464,9 @@ const usingEmulators = Boolean(process.env.FIRESTORE_EMULATOR_HOST)
 // asymmetry: `usingEmulators` would stay false, so Firestore keeps reading and writing the
 // real project while every signup and signin password goes over plain http to whatever
 // host that variable names (the web API key rides along in the query string, but that is
-// public — GUARDRAILS 4a; the passwords are the loss). `identity-toolkit.ts` drops the failing fetch's error rather than logging its URL,
-// so a redirect to something that mimics Google's error shape produces no signal at all.
+// public — GUARDRAILS 4a; the passwords are the loss). `identity-toolkit.ts` drops the
+// failing fetch's error rather than logging its URL, so a redirect to something that
+// mimics Google's error shape produces no signal at all.
 if (usingEmulators !== Boolean(authEmulatorHost)) {
   throw new Error(
     'FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST must be set together or not at all',
