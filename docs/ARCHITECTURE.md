@@ -2181,7 +2181,12 @@ Two seams make it work, and both are in the emulators' own vocabulary rather tha
 `firebase.ts` skips `applicationDefault()` when `FIRESTORE_EMULATOR_HOST` is set (it
 throws when there is no credential to find), and `identity-toolkit.ts` takes its origin
 from `config.identityToolkitBaseUrl`, which points at `FIREBASE_AUTH_EMULATOR_HOST` when
-that is set. `firebase emulators:exec` sets both, so nothing has to remember to.
+that is set. `firebase emulators:exec` sets both, so nothing has to remember to. Under
+the same switch `firebase.ts` also sets `METADATA_SERVER_DETECTION=none` (#333). Without a
+credential, google-auth-library otherwise asks the GCE metadata server for one on the first
+Firestore call and waits ~3s for that probe to time out off Google Cloud. It stays
+emulator-only because on Cloud Run the metadata server *is* the credential
+(`api/test/metadata-probe.test.ts` pins both halves).
 
 All tests pass under the emulators, in ~28s against ~210s for the real project, and with
 **one** second code path in the whole suite (#56). It is worth knowing where, because the
