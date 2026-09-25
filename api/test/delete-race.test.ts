@@ -16,7 +16,16 @@ import { firestore } from '../src/firebase'
 import { default as server } from '../src/index'
 import { deleteNutritionProfile, saveNutritionProfile } from '../src/nutrition-profile'
 import { deleteAllUserToday, getToday, type Phraser } from '../src/today'
-import { AccountGoneError, deleteUserDocument, markUserDeleted } from '../src/users'
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import {
+  AccountGoneError,
+  NO_SESSION,
+  SessionSupersededError,
+  bumpTokenVersion,
+  deleteUserDocument,
+  markUserDeleted,
+} from '../src/users'
 
 /**
  * A write racing `DELETE /me` (#286).
@@ -39,6 +48,11 @@ import { AccountGoneError, deleteUserDocument, markUserDeleted } from '../src/us
  * transaction from a plain `get` just before it — both see the tombstone. The case under
  * "inside the transaction" closes that: it lets the account read happen, *then* starts the
  * delete while the transaction is still open, which only the read set can refuse.
+ *
+ * **The same read refuses a superseded session (#294).** A request that passed the gate at
+ * one token version, and whose write then reads the account after a password reset bumped it,
+ * is refused exactly as the gate would refuse it one request later. The last section forces
+ * that interleaving inside the write's own transaction.
  *
  * In-process through `server.fetch`, against the real Firestore — the seam
  * `nutrition-profile.test.ts` uses — so this file binds no port. Accounts are written
@@ -68,8 +82,13 @@ const account = async (): Promise<{ uid: string; token: string }> => {
     createdAt: Timestamp.now(),
     updatedAt: Timestamp.now(),
   })
-  return { uid, token: await mintToken(uid, email, 0) }
+  return { uid, token: await mintToken(uid, email, SESSION) }
 }
+
+/** The generation every session `account()` mints is at — its document carries no
+ *  `tokenVersion`, which reads as `0` (#76) — and so what a direct writer call passes as the
+ *  request's session. */
+const SESSION = 0
 
 afterAll(async () => {
   for (const uid of createdUids) {
@@ -385,7 +404,7 @@ describe('the account read is part of the write transaction, not a check before 
       try {
         // Refused on a retry, or committed before the tombstone and then swept — both are
         // fine. What is not fine is an entry left once the delete has finished.
-        await createEvent(uid, entry()).catch((err: unknown) => {
+        await createEvent(uid, SESSION, entry()).catch((err: unknown) => {
           expect(err).toBeInstanceOf(AccountGoneError)
         })
       } finally {
@@ -404,30 +423,34 @@ describe('every per-user subcollection writer refuses a tombstoned account in it
   test('createEvent — the one-per-day path', async () => {
     const { uid } = await account()
     deleteBeforeNextTransaction(uid)
-    await expect(createEvent(uid, cycle(todayUtc()))).rejects.toBeInstanceOf(AccountGoneError)
+    await expect(createEvent(uid, SESSION, cycle(todayUtc()))).rejects.toBeInstanceOf(
+      AccountGoneError,
+    )
     expect((await eventDocs(uid).get()).size).toBe(0)
   })
 
   test('createEvent — the idempotency-key path', async () => {
     const { uid } = await account()
     deleteBeforeNextTransaction(uid)
-    await expect(createEvent(uid, sport(todayUtc(), crypto.randomUUID()))).rejects.toBeInstanceOf(
-      AccountGoneError,
-    )
+    await expect(
+      createEvent(uid, SESSION, sport(todayUtc(), crypto.randomUUID())),
+    ).rejects.toBeInstanceOf(AccountGoneError)
     expect((await eventDocs(uid).get()).size).toBe(0)
   })
 
   test('createEvent — the plain path, which was not a transaction before #286', async () => {
     const { uid } = await account()
     deleteBeforeNextTransaction(uid)
-    await expect(createEvent(uid, sport(todayUtc()))).rejects.toBeInstanceOf(AccountGoneError)
+    await expect(createEvent(uid, SESSION, sport(todayUtc()))).rejects.toBeInstanceOf(
+      AccountGoneError,
+    )
     expect((await eventDocs(uid).get()).size).toBe(0)
   })
 
   test('saveNutritionProfile', async () => {
     const { uid } = await account()
     deleteBeforeNextTransaction(uid)
-    await expect(saveNutritionProfile(uid, { goal: 'maintain' })).rejects.toBeInstanceOf(
+    await expect(saveNutritionProfile(uid, SESSION, { goal: 'maintain' })).rejects.toBeInstanceOf(
       AccountGoneError,
     )
     expect((await nutritionDocs(uid).get()).size).toBe(0)
@@ -450,6 +473,7 @@ describe('every per-user subcollection writer refuses a tombstoned account in it
       await expect(
         getToday(
           uid,
+          SESSION,
           { date: todayUtc(), timeZone: 'UTC' },
           { pattern: { lowSignalDays: 3, lowAtOrBelow: 2, severeSymptomDays: 2 } },
           phraser,
@@ -471,8 +495,8 @@ describe('the edits cannot create a document, and still refuse rather than act o
     deleted = false,
   ): Promise<{ uid: string; id: string; before: FirebaseFirestore.DocumentData }> => {
     const { uid } = await account()
-    const event = await createEvent(uid, sport(todayUtc()))
-    if (deleted) expect(await softDeleteEvent(uid, event.id)).toBe(true)
+    const event = await createEvent(uid, SESSION, sport(todayUtc()))
+    if (deleted) expect(await softDeleteEvent(uid, SESSION, event.id)).toBe(true)
     const before = (await eventDocs(uid).doc(event.id).get()).data()!
     expect(await markUserDeleted(uid)).toBe(true)
     return { uid, id: event.id, before }
@@ -483,20 +507,20 @@ describe('the edits cannot create a document, and still refuse rather than act o
   test('updateEvent', async () => {
     const { uid, id, before } = await liveEntryThenTombstone()
     await expect(
-      updateEvent(uid, id, { type: 'sport', localDate: todayUtc(), note: 'edited' }),
+      updateEvent(uid, SESSION, id, { type: 'sport', localDate: todayUtc(), note: 'edited' }),
     ).rejects.toBeInstanceOf(AccountGoneError)
     expect(await stored(uid, id)).toEqual(before)
   })
 
   test('softDeleteEvent', async () => {
     const { uid, id, before } = await liveEntryThenTombstone()
-    await expect(softDeleteEvent(uid, id)).rejects.toBeInstanceOf(AccountGoneError)
+    await expect(softDeleteEvent(uid, SESSION, id)).rejects.toBeInstanceOf(AccountGoneError)
     expect(await stored(uid, id)).toEqual(before)
   })
 
   test('restoreEvent', async () => {
     const { uid, id, before } = await liveEntryThenTombstone(true)
-    await expect(restoreEvent(uid, id)).rejects.toBeInstanceOf(AccountGoneError)
+    await expect(restoreEvent(uid, SESSION, id)).rejects.toBeInstanceOf(AccountGoneError)
     expect(await stored(uid, id)).toEqual(before)
   })
 })
@@ -504,6 +528,205 @@ describe('the edits cannot create a document, and still refuse rather than act o
 test('a finished delete — no document at all — refuses the same way', async () => {
   const { uid } = await account()
   await deleteUserDocument(uid)
-  await expect(createEvent(uid, sport(todayUtc()))).rejects.toBeInstanceOf(AccountGoneError)
+  await expect(createEvent(uid, SESSION, sport(todayUtc()))).rejects.toBeInstanceOf(
+    AccountGoneError,
+  )
   expect((await eventDocs(uid).get()).size).toBe(0)
+})
+
+// ── A write racing a password reset (#294) ─────────────────────────────────────────────
+
+describe('a write whose session a password reset ends between the gate and the commit', () => {
+  /**
+   * The reset's first step — `bumpTokenVersion` — run **inside** the write's transaction, the
+   * moment it is about to read the account: the request has passed `requireAccount` at the old
+   * generation, and the write's own read then sees the new one. Hooks the transaction's reads,
+   * not `runTransaction`, so the bump lands after the transaction has begun rather than before
+   * it; and before the read rather than after it, because once the account is in the read set
+   * the bump waits on this transaction and the write commits first — a legitimate ordering,
+   * and not the one under test. `firing` keeps the bump's own `tx.get` of the account from
+   * re-entering the hook.
+   */
+  const resetBeforeAccountRead = (uid: string) => {
+    const accountPath = userDoc(uid).path
+    const state = { firing: false, bumpedTo: null as number | null }
+    const readsAccount = (value: unknown): boolean =>
+      (value as { path?: unknown } | null)?.path === accountPath
+    const hook = (method: 'get' | 'getAll') => {
+      const real = Transaction.prototype[method] as (...a: unknown[]) => Promise<unknown>
+      return spyOn(Transaction.prototype, method as never).mockImplementation(async function (
+        this: unknown,
+        ...args: unknown[]
+      ) {
+        if (!state.firing && args.some(readsAccount)) {
+          state.firing = true
+          state.bumpedTo = await bumpTokenVersion(uid)
+        }
+        return real.apply(this, args)
+      } as never)
+    }
+    const spies = [hook('get'), hook('getAll')]
+    return { state, restore: () => spies.forEach((spy) => spy.mockRestore()) }
+  }
+
+  /** Runs one route call with the reset forced into its write, and asserts the whole of the
+   *  contract: the seam fired (so the gate had passed), the answer is the dead token's, and no
+   *  error line was written — `app.onError`'s `unhandled_error` is a `console.error`, and the
+   *  read path's own warnings (an unseeded `refdata/` on an emulator) are not this change's. The
+   *  caller asserts what was not written. */
+  const refusedMidWrite = async (
+    uid: string,
+    token: string,
+    send: () => Promise<{ status: number; body: Record<string, unknown> }>,
+  ): Promise<void> => {
+    const race = resetBeforeAccountRead(uid)
+    const logged: string[] = []
+    const errors = spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(args.map(String).join(' '))
+    })
+    try {
+      const res = await send()
+      expect(race.state.bumpedTo).toBe(SESSION + 1)
+      expect(res).toEqual({ status: 401, body: DEAD_TOKEN })
+    } finally {
+      race.restore()
+      errors.mockRestore()
+    }
+    expect(logged).toEqual([])
+    // What the gate says to the same token one request later — the refusal above has to be
+    // byte-for-byte this, or the client would meet a superseded session two different ways.
+    expect(await call(token, 'GET', '/me')).toEqual({ status: 401, body: DEAD_TOKEN })
+  }
+
+  for (const [path, body] of [
+    [
+      'the plain path',
+      () => ({
+        type: 'sport',
+        localDate: todayUtc(),
+        payload: { activity: 'Yoga', durationMin: 30, intensity: 'light' },
+      }),
+    ],
+    [
+      'the one-per-day path',
+      () => ({ type: 'cycle', localDate: todayUtc(), payload: { flow: 'medium' } }),
+    ],
+    [
+      'the idempotency-key path',
+      () => ({
+        type: 'sport',
+        localDate: todayUtc(),
+        idempotencyKey: crypto.randomUUID(),
+        payload: { activity: 'Yoga', durationMin: 30, intensity: 'light' },
+      }),
+    ],
+  ] as const) {
+    test(`POST /me/events, ${path}: refused, answered as a superseded token, nothing written`, async () => {
+      const { uid, token } = await account()
+      await refusedMidWrite(uid, token, () =>
+        call(token, 'POST', '/me/events', { ...body(), timeZone: 'UTC' }),
+      )
+      expect((await eventDocs(uid).get()).size).toBe(0)
+    })
+  }
+
+  test('PATCH /me/nutrition/profile: refused, nothing written', async () => {
+    const { uid, token } = await account()
+    await refusedMidWrite(uid, token, () =>
+      call(token, 'PATCH', '/me/nutrition/profile', {
+        goal: 'lose',
+        targetWeightKg: 58,
+        step: 'focusAreas',
+      }),
+    )
+    expect((await nutritionDocs(uid).get()).size).toBe(0)
+  })
+
+  test('GET /me/today: the cache write refused answers 401 like the rest — no card stored', async () => {
+    const { uid, token } = await account()
+    await withBuildableCard(async (stub) => {
+      await refusedMidWrite(uid, token, () => call(token, 'GET', '/me/today?timeZone=UTC'))
+      // The card was built — the refusal is the write's, after the whole of the read path.
+      expect(stub).toHaveBeenCalled()
+    })
+    expect((await todayDocs(uid).get()).size).toBe(0)
+  })
+
+  for (const [route, send] of [
+    [
+      'PATCH /me/events/:id',
+      (token: string, id: string) =>
+        call(token, 'PATCH', `/me/events/${id}`, {
+          type: 'sport',
+          localDate: todayUtc(),
+          note: 'edited',
+          timeZone: 'UTC',
+        }),
+    ],
+    [
+      'DELETE /me/events/:id',
+      (token: string, id: string) => call(token, 'DELETE', `/me/events/${id}`),
+    ],
+  ] as const) {
+    test(`${route} carries the session too: refused, the entry left as it was`, async () => {
+      const { uid, token } = await account()
+      const entry = await createEvent(uid, SESSION, sport(todayUtc()))
+      const doc = eventDocs(uid).doc(entry.id)
+      const before = (await doc.get()).data()
+      await refusedMidWrite(uid, token, () => send(token, entry.id))
+      expect((await doc.get()).data()).toEqual(before)
+    })
+  }
+
+  test('a writer called directly throws SessionSupersededError, not AccountGoneError', async () => {
+    const { uid } = await account()
+    expect(await bumpTokenVersion(uid)).toBe(SESSION + 1)
+    await expect(createEvent(uid, SESSION, sport(todayUtc()))).rejects.toBeInstanceOf(
+      SessionSupersededError,
+    )
+    // Equality, not `<`: a generation the account has never reached is not a session either.
+    await expect(createEvent(uid, SESSION + 2, sport(todayUtc()))).rejects.toBeInstanceOf(
+      SessionSupersededError,
+    )
+    expect((await eventDocs(uid).get()).size).toBe(0)
+    // The current generation still writes — the check refuses a stale session, not a bumped
+    // account.
+    await createEvent(uid, SESSION + 1, sport(todayUtc()))
+    expect((await eventDocs(uid).get()).size).toBe(1)
+  })
+})
+
+describe('NO_SESSION: a write with no request token behind it', () => {
+  test('skips the generation check and nothing else — a tombstone still refuses it', async () => {
+    const { uid } = await account()
+    expect(await bumpTokenVersion(uid)).toBe(SESSION + 1)
+    await createEvent(uid, NO_SESSION, sport(todayUtc()))
+    expect((await eventDocs(uid).get()).size).toBe(1)
+
+    expect(await markUserDeleted(uid)).toBe(true)
+    await expect(createEvent(uid, NO_SESSION, sport(todayUtc()))).rejects.toBeInstanceOf(
+      AccountGoneError,
+    )
+    expect((await eventDocs(uid).get()).size).toBe(1)
+  })
+
+  /**
+   * No route may write on nobody's session: every one holds a token, and passing `NO_SESSION`
+   * from one would quietly restore #294's window for it. Nothing in `src/` needs the mode today,
+   * so the scan is strict — a first production caller (a job, a backfill) fails it and has to be
+   * added here on purpose, with the reason in review. Comments are stripped, so documenting the
+   * mode does not trip it.
+   */
+  test('no module under src/ but users.ts names it', async () => {
+    const dir = join(import.meta.dir, '..', 'src')
+    const named: string[] = []
+    for (const file of await readdir(dir)) {
+      if (!file.endsWith('.ts') || file === 'users.ts') continue
+      const source = (await Bun.file(join(dir, file)).text())
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, '')
+      if (/\bNO_SESSION\b/.test(source)) named.push(file)
+    }
+    expect(named).toEqual([])
+  })
 })

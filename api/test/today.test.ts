@@ -24,7 +24,7 @@ import type { Subject } from '../src/dashboard-rules'
 import type { Template } from '../src/content'
 import type { DashboardRules } from '../src/dashboard-rules'
 import { adminAuth, firestore } from '../src/firebase'
-import { lastUserChangeAt } from '../src/users'
+import { lastUserChangeAt, NO_SESSION } from '../src/users'
 import { deleteNutritionProfile, saveNutritionProfile } from '../src/nutrition-profile'
 import type { Banner } from '../src/content'
 import { BANNERS, TEMPLATES, VOCABULARY, REVIEW as SEED_REVIEW } from '../scripts/seed-content'
@@ -513,7 +513,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
   const request = () => ({ date: date(), timeZone: 'UTC' })
 
   test('an empty account gets the cold-start card, with no slot values', async () => {
-    const today = await getToday(uid, request(), RULES)
+    const today = await getToday(uid, NO_SESSION, request(), RULES)
     expect(today.card.templateId).toBe('cold_start')
     expect(today.card.state).toBe('home_a')
     expect(today.card.rung).toBe('setup')
@@ -530,7 +530,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
    * bundle and this case would pass even if regeneration were unconditional.
    */
   test('a change to content/ alone does not regenerate an existing day', async () => {
-    const first = await getToday(uid, request(), RULES)
+    const first = await getToday(uid, NO_SESSION, request(), RULES)
 
     const rewritten = TEMPLATES.map((t) =>
       t.id === 'cold_start' ? { ...t, title: 'Rewritten by today.test.ts' } : t,
@@ -543,7 +543,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
         first.contentVersion,
       )
 
-      const second = await getToday(uid, request(), RULES)
+      const second = await getToday(uid, NO_SESSION, request(), RULES)
       expect(second.generatedAt).toBe(first.generatedAt)
       expect(second.contentVersion).toBe(first.contentVersion)
       expect(second.card.title).toBe(first.card.title)
@@ -579,7 +579,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
         return named as unknown as PhrasedText
       },
     }
-    const today = await getToday(uid, request(), RULES, rogue)
+    const today = await getToday(uid, NO_SESSION, request(), RULES, rogue)
     // The words are the phraser's; the subject is not its to name.
     expect(today.card.title).toBe('a subject the ladder never chose')
     expect(today.card.templateId).toBe('cold_start')
@@ -593,7 +593,9 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
   })
 
   test('an unconfigured pattern rung is a refusal, not an answer', async () => {
-    await expect(getToday(uid, request(), { pattern: null })).rejects.toThrow(PatternRuleUnsetError)
+    await expect(getToday(uid, NO_SESSION, request(), { pattern: null })).rejects.toThrow(
+      PatternRuleUnsetError,
+    )
   })
 
   /**
@@ -618,7 +620,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
     }
     await todayDocs().doc(day).delete()
 
-    const today = await getToday(uid, request(), RULES)
+    const today = await getToday(uid, NO_SESSION, request(), RULES)
     expect(today.card.rung).toBe('pattern')
     expect(today.card.templateId).toBe('mood_pattern')
     expect(today.card.title).toBe(TEMPLATES.find((t) => t.id === 'mood_pattern')!.title)
@@ -650,7 +652,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
     const dataAt = Math.max(userAt + 1, Date.now() - 1_000)
     await entry.update({ updatedAt: Timestamp.fromMillis(dataAt) })
 
-    const first = await getToday(uid, request(), RULES)
+    const first = await getToday(uid, NO_SESSION, request(), RULES)
     const stored = (await todayDocs().doc(day).get()).data()!
     expect(stored.dataChangedAt).toBe(new Date(dataAt).toISOString())
     // There really is a gap, so what follows is about the stamp and not about rounding.
@@ -660,7 +662,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
     // well below `generatedAt`. Stamped with the data's instant it is newer and the
     // card regenerates; stamped with the clock it is older and she never sees it.
     await entry.update({ updatedAt: Timestamp.fromMillis(dataAt + 1) })
-    const second = await getToday(uid, request(), RULES)
+    const second = await getToday(uid, NO_SESSION, request(), RULES)
     expect(second.generatedAt).not.toBe(first.generatedAt)
   })
 
@@ -679,7 +681,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
     expect((await api(`/me/events/${created.event.id}`, { method: 'DELETE' })).status).toBe(200)
 
     await todayDocs().doc(day).delete()
-    const today = await getToday(uid, request(), RULES)
+    const today = await getToday(uid, NO_SESSION, request(), RULES)
     expect(today.card.templateId).toBe('cold_start')
     expect(today.card.rung).toBe('setup')
   })
@@ -690,7 +692,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
       method: 'PUT',
       body: JSON.stringify({ energy: 1, mood: 1, sleep: 1, timeZone: 'UTC' }),
     })
-    await getToday(uid, request(), RULES)
+    await getToday(uid, NO_SESSION, request(), RULES)
 
     const stored = (await todayDocs().doc(date()).get()).data()!
     const card = stored.card as Record<string, unknown>
@@ -730,7 +732,7 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
   const request = () => ({ date: date(), timeZone: 'UTC' })
   const rebuild = async () => {
     await todayDocs().doc(date()).delete()
-    return getToday(uid, request(), RULES)
+    return getToday(uid, NO_SESSION, request(), RULES)
   }
   const restoreRail = async () => {
     // `applyContent` refuses to merge into an unsigned document with items in it — the
@@ -764,7 +766,7 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
     const [served] = first.banners
     expect(await retireContent('banners', served!.id)).toBe(true)
 
-    const second = await getToday(uid, request(), RULES)
+    const second = await getToday(uid, NO_SESSION, request(), RULES)
     expect(second.banners).toEqual(first.banners)
     expect(second.generatedAt).toBe(first.generatedAt)
 
@@ -796,19 +798,22 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
 
     // Declared, but setup is not finished: PRD §Nutrition coach, nothing suggested from
     // partial data. The save still regenerates — it is her data — and ranks nothing.
-    await saveNutritionProfile(uid, { focusAreas: ['ironDeficiencyAnaemia'], step: 'mealPattern' })
-    const partial = await getToday(uid, request(), RULES)
+    await saveNutritionProfile(uid, NO_SESSION, {
+      focusAreas: ['ironDeficiencyAnaemia'],
+      step: 'mealPattern',
+    })
+    const partial = await getToday(uid, NO_SESSION, request(), RULES)
     expect(partial.generatedAt).not.toBe(plain.generatedAt)
     expect(partial.banners[0]?.id).toBe('cycle_appetite')
 
     // Finished. No `rebuild()`: the stored day must go stale on this write alone.
-    await saveNutritionProfile(uid, {
+    await saveNutritionProfile(uid, NO_SESSION, {
       goal: 'maintain',
       mealPattern: { mealsPerDay: 3, snacks: false, mealTimes: null },
       hideNumbers: false,
       step: 'done',
     })
-    const complete = await getToday(uid, request(), RULES)
+    const complete = await getToday(uid, NO_SESSION, request(), RULES)
     expect(complete.generatedAt).not.toBe(partial.generatedAt)
     expect(complete.banners[0]?.id).toBe('cycle_iron')
   })
@@ -844,7 +849,7 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
     const ref = todayDocs().doc(date())
     const { banners: _, ...legacy } = (await ref.get()).data()!
     await ref.set(legacy)
-    const served = await getToday(uid, request(), RULES)
+    const served = await getToday(uid, NO_SESSION, request(), RULES)
     expect(served.banners).toEqual([])
     expect(served.generatedAt).toBe(built.generatedAt)
   })

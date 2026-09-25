@@ -88,6 +88,13 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   same `getAll`: a separate read is a round trip per write, which is what pushed
   `cycle-predictions.test.ts` past its ceiling. A new subcollection writer calls it too; ARCHITECTURE §4 "A write racing the delete" says why
   inside the transaction is the whole of it.
+  **It also refuses a superseded session (#294)** — the same race against a password reset:
+  every writer takes the request's `session` (`tokenVersionOf(claims)`, passed by the route,
+  never looked up) and `assertAccountLive` compares it with the stored `tokenVersion` out of
+  the snapshot it already reads, throwing `SessionSupersededError` on a mismatch. `NO_SESSION`
+  is the explicit mode for a writer with no request token (a job; none exists today): it skips
+  the comparison and keeps the tombstone check. No route may pass it, and
+  `delete-race.test.ts` fails if any module but this one names it.
   **`tokenVersion` is the account's session generation (#76)**, and `bumpTokenVersion` is
   the written-down rule for what ends a session — a password reset always, activation's
   claim path, a provider unlink when such a route exists; not a link, not a sign-in, not an
@@ -117,7 +124,7 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   the promise, driven by `scripts/purge-events.ts` (a script, not a route — ARCHITECTURE
   §4 "Retention" says why, and what a human still has to create for it to run).
   Every write — create (all three paths), edit, soft delete, restore — is a transaction that
-  starts with `assertAccountLive` (#286).
+  starts with `assertAccountLive` (#286), and takes the request's `session` for it (#294).
   `deleteAllUserEvents` is the exception that proves the rule: account deletion takes
   soft-deleted entries too, because a recovery window inside a deleted account is a
   promise to nobody. `exportEvents` (#58) is the same rule on the read side: every stored
@@ -205,7 +212,8 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   - **The cache write is a transaction that also reads the account (#286).** A card is her
     data in prose, so one written after `DELETE /me` swept `today/` is an orphan like any
     event. `AccountGoneError` from it is deliberately not re-exported with the 503 refusals:
-    `app.onError` answers it, once, for every writer.
+    `app.onError` answers it, once, for every writer — as it does `SessionSupersededError`,
+    which the same read throws for a session a reset ended after the gate (#294).
   - Never log a card, a slot value or a signal, and never the template id: which card a user
     was about to see is derived from her logs, so `late_period` in a log line is a health
     fact about a named request (GUARDRAILS 12).
@@ -379,9 +387,10 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
 - **Every body is read through `readBody` (#119).** Never `c.req.json()` in a handler.
   Absent or unparseable is `{}`; valid JSON that is not an object throws
   `BodyNotAnObjectError`, which `app.onError` answers `400 VALIDATION` without a log line —
-  one of the two throws it recognises by class. The other is `AccountGoneError` (#286),
-  answered exactly as the gate answers a deleted account's token: `401 UNAUTHORIZED`,
-  `Invalid or expired token`, no log line, no new code. `unhandled-errors.test.ts` lists every body-reading
+  one of the throws it recognises by class. The others are `AccountGoneError` (#286) and
+  `SessionSupersededError` (#294), answered exactly as the gate answers a deleted account's
+  or a superseded session's token: `401 UNAUTHORIZED`, `Invalid or expired token`, no log
+  line, no new code. `unhandled-errors.test.ts` lists every body-reading
   route; add a new one there.
 - **`users/{uid}.email` is the Auth account's address, and no route mints a session on a
   document that says otherwise (#119).** `sameAddress` is the comparison; `/auth/idp`,
@@ -398,7 +407,9 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   the new generation, which is the whole of how the device that performed the reset is kept
   signed in — it is identified by being the one the token is handed to, not by a device id
   this API does not have. A stale token answers exactly what an expired one answers; adding a
-  code for it would be a client change for a state the client already handles.
+  code for it would be a client change for a state the client already handles. A write that
+  passed the gate just before the bump is refused inside its own transaction with that same
+  answer (#294, `assertAccountLive`).
 - `app.onError` is the floor: any throw no route answered for is `500 INTERNAL` with a
   fixed message and a `ref`. Never the thrown error's text, in the body or the log —
   ARCHITECTURE §3 says why that is the point of it.

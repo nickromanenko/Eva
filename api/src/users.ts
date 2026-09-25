@@ -408,6 +408,44 @@ export class AccountGoneError extends Error {
 }
 
 /**
+ * A write to one of her subcollections was made under a session the account no longer
+ * honours (#294): its token was minted at a `tokenVersion` the account has since moved past.
+ *
+ * `AccountGoneError`'s twin, for #76 rather than #8. The race is the same shape — a request
+ * passes `requireAccount`, and before its write commits a password reset bumps the version —
+ * and the answer is the same for the same reason: `app.onError` gives exactly what the gate
+ * gives a superseded token, `401 UNAUTHORIZED`, `Invalid or expired token`, with no new code
+ * and no log line. A separate class so a test (or a later reader) can tell which of the two
+ * facts refused the write; the wire cannot, deliberately.
+ */
+export class SessionSupersededError extends Error {
+  constructor() {
+    super('the session this write was made under has been ended')
+    this.name = 'SessionSupersededError'
+  }
+}
+
+/**
+ * The one way to say a write is made on nobody's session (#294). A caller with a request
+ * token passes `tokenVersionOf(claims)` instead — every route does, and that is the only
+ * shape of caller today.
+ *
+ * It exists for a writer with no token to compare: a job or script acting for the system
+ * rather than for a signed-in device (an Eva-sourced entry, a backfill). Such a write is
+ * still refused on a tombstone — a job must not strand data under a deleted account any more
+ * than a request may — and only the generation check is skipped, because there is no
+ * generation to hold it to. Explicit rather than an optional argument, so omitting the
+ * session is a compile error and not a quiet opt-out; `delete-race.test.ts` scans `src/` so
+ * that no module but this one names it, which makes a first production use a decision
+ * somebody has to make in review.
+ */
+export const NO_SESSION = 'no-session'
+
+/** Whose write this is: the token version the request's session was minted at, or
+ *  `NO_SESSION` (#294). */
+export type WriteSession = number | typeof NO_SESSION
+
+/**
  * Refuses, inside the caller's transaction, a write under `users/{uid}/…` when the account is
  * tombstoned or its document is gone (#286). Every module that writes a per-user subcollection
  * calls this as a read of the transaction it writes in — never `users/` itself (GUARDRAILS 10).
@@ -433,15 +471,27 @@ export class AccountGoneError extends Error {
  * past its 20s ceiling. A writer with nothing to read passes nothing and pays that round trip,
  * because there is no read to fold it into. The lock on `users/{uid}` lasts the life of a
  * short transaction either way — ARCHITECTURE §4 has the measurement.
+ *
+ * **It also refuses a superseded session (#294).** `session` is the generation the request's
+ * token was minted at; when the account has moved past it — a password reset between the
+ * gate and this read — the write throws `SessionSupersededError`. The same read-set argument
+ * holds: a bump that commits after this read forces a retry, and the retry sees it. It costs
+ * one comparison against the snapshot already in hand, and it is `isCurrentSession`'s
+ * comparison — **equality, not `<`**, for the reason written there. `NO_SESSION` skips only
+ * this half; the tombstone is refused either way.
  */
 export const assertAccountLive = async <Refs extends FirebaseFirestore.DocumentReference[]>(
   tx: FirebaseFirestore.Transaction,
   uid: string,
+  session: WriteSession,
   ...refs: Refs
 ): Promise<{ [K in keyof Refs]: FirebaseFirestore.DocumentSnapshot }> => {
   const [account, ...snapshots] = await tx.getAll(users().doc(uid), ...refs)
   if (account === undefined || !account.exists || isTombstone(account)) {
     throw new AccountGoneError()
+  }
+  if (session !== NO_SESSION && storedTokenVersion(account.data()!) !== session) {
+    throw new SessionSupersededError()
   }
   // `getAll` answers in the order it was asked, one snapshot per reference.
   return snapshots as { [K in keyof Refs]: FirebaseFirestore.DocumentSnapshot }

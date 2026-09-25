@@ -73,7 +73,7 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `identity-toolkit.ts` | The Firebase Auth account: password and provider credentials verified via Google REST, delete via the Admin SDK, and which federated identities it holds — the Auth half of every served `User.authProviders` (#117, §4) | The only place the web API key is used; the only place an Auth user is deleted |
 | `providers.ts` | The two calls that go to Apple and Google *directly*: Google's PKCE code exchange, Apple's client secret and token revocation | The only place `GOOGLE_IOS_CLIENT_ID` and the Apple keys are used; writes no log line |
 | `rate-limit.ts` | In-memory attempt counters for `/auth/*`, and for `GET /me/export` (#58) | Holds no identity state; never logs its keys (addresses, IPs, uids) |
-| `users.ts` | The `users/{uid}` document: read, create, update, bump the token version, mark deleted, delete, list IDs. Also `assertAccountLive`, the account read every subcollection writer makes inside its own transaction (#286) | The only module that touches `users/`. `bumpTokenVersion` carries the written-down rule for what ends a session (#76) |
+| `users.ts` | The `users/{uid}` document: read, create, update, bump the token version, mark deleted, delete, list IDs. Also `assertAccountLive`, the account read every subcollection writer makes inside its own transaction (#286), which also refuses a session a reset ended after the gate (#294) | The only module that touches `users/`. `bumpTokenVersion` carries the written-down rule for what ends a session (#76) |
 | `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all, and the export's paged read of every entry (#58) | The only module that touches `events/`. Every write is a transaction that also reads the account (#286, §4) |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against. Also the source of a symptom code's reviewed label for the Today card's `{signal}`/`{symptom}` slots (#200) | The only module that touches `refdata/` |
 | `content.ts` | The `content/` collection: the Dashboard's words — card templates, banners, nudges, and the signal vocabulary that fills `{signal}` (#200) — and the version they are cached against | The only module that touches `content/`; refuses a write carrying no reviewer |
@@ -111,7 +111,7 @@ read-side check on `content/` — an unsigned `banners` document yields no rail 
 **`events.ts` and `nutrition-profile.ts` call `users.ts` too, for one function (#286).** Each
 writes under `users/{uid}/…` and must not write under an account `DELETE /me` has tombstoned,
 and that question can only be asked of `users/{uid}` inside the writer's own transaction —
-so the writer calls `assertAccountLive(tx, uid)` rather than reading `users/` itself
+so the writer calls `assertAccountLive(tx, uid, session)` rather than reading `users/` itself
 (GUARDRAILS 10). It is a downward edge onto the document every subcollection hangs from, not
 a join: neither module reads anything else of `users.ts`, and `users.ts` imports neither.
 
@@ -776,7 +776,8 @@ JSON, is `{}` as it always was, so each route's own validation answers — and `
 whose body is optional, still deletes. Valid JSON that is not an object (`null`, an array, a
 number, a string) throws `BodyNotAnObjectError`, and `onError` answers it `400 VALIDATION`
 **before** it writes its line. That was the one throw `onError` recognised by class until
-#286 added `AccountGoneError` (§4, "A write racing the delete"): `null`
+#286 added `AccountGoneError` (§4, "A write racing the delete") — and #294 its twin
+`SessionSupersededError`, answered identically: `null`
 used to reach `body.provider` as a `TypeError`, which was a 500 and an `unhandled_error` line
 on the unauthenticated `/auth/idp` — a free way to fill the signal that is meant to mean "we
 shipped a bug". Hono calls `onError` at the handler's own level of its `compose`, so
@@ -1025,6 +1026,10 @@ document rather than in a revocation list of its own.
   so `APIClient`'s existing `sessionExpired` handling (§5) applies to it unchanged.
 - **The deploy signs nobody out.** A token minted before #76 carries no `tv` and a document
   written before it carries no `tokenVersion`; both absences read as `0` and compare equal.
+- **A write already past the gate is held to it too (#294).** The gate reads the version
+  before the handler runs, so a write could pass it and commit after the reset. Every
+  per-user subcollection writer compares the token's version again inside its own write
+  transaction — §4, "A write racing a password reset".
 
 `DELETE /me` is the single exception to the gate, deliberately: it would reject the very token
 a client needs to retry an interrupted delete with. All that token can do there is delete an
@@ -1382,6 +1387,28 @@ forces the interleaving two ways, and each fails with any one check removed: the
 and the sweeps run after the gate and before the write's transaction starts (every writer, and
 the three routes), and — the case that pins "inside" — they start *after* the transaction's
 account read and before its commit, which an account read outside the transaction lets through.
+
+**A write racing a password reset (#294).** The same gap, against #76 instead of #8: a request
+passes `requireAccount` at one token version, the reset bumps it, and the write commits under
+a session the reset exists to end — a stolen token's in-flight write outliving the victim's
+reset by milliseconds. The account snapshot the write already reads settles it: every writer
+takes the request's `session` — `tokenVersionOf(claims)`, passed in by the route — and
+`assertAccountLive` compares it with the stored `tokenVersion` (equality, as the gate does)
+and throws `SessionSupersededError` on a mismatch. One comparison, no extra read or round
+trip, and the read-set argument above carries over unchanged: a bump committing after that
+read forces a retry that sees it. `app.onError` answers it byte-for-byte as the gate answers a
+superseded token, which is the dead-token answer — no code added, no log line.
+`DELETE /me` is not a subcollection writer and keeps its own by-hand check (§3).
+
+A writer with no request behind it — none exists today; a job writing Eva-sourced entries
+would be the first — passes `NO_SESSION`, which skips the comparison and nothing else: a
+tombstone still refuses it. It is an explicit value, not an optional argument, so leaving
+the session out is a compile error; and `delete-race.test.ts` fails if any module but
+`users.ts` names it, so the first production use is a decision made in review rather than a
+quiet opt-out. That file forces the reset *inside* the write's transaction, just before its
+account read — the read set would otherwise order the bump after the commit — for each
+`POST /me/events` path, `PATCH`/`DELETE /me/events/:id`, the nutrition PATCH and the Today
+cache write, and each case fails with the comparison removed.
 
 The cost, from throwaway timing runs made while implementing #286 — a laptop against the
 production Firestore, not a benchmark kept in the repo. **Every write pays one extra billed

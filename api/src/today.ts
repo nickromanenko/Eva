@@ -32,7 +32,13 @@ import { firestore } from './firebase'
 import { lastEventChangeAt, lastLoggedDate, listEvents, type EvaEvent } from './events'
 import { getNutritionProfile, lastNutritionProfileChangeAt } from './nutrition-profile'
 import { getSymptomLabels } from './refdata'
-import { assertAccountLive, lastUserChangeAt, getUser, type Profile } from './users'
+import {
+  assertAccountLive,
+  lastUserChangeAt,
+  getUser,
+  type Profile,
+  type WriteSession,
+} from './users'
 
 /**
  * Owner of `users/{uid}/today/{date}` (GUARDRAILS rule 10) — the Today card, slice D3 of
@@ -739,9 +745,13 @@ export interface TodayRequest {
  * environment today (#191). It is reachable now, and `today.test.ts` boots a server with the
  * group emptied to prove the arm rather than the mapping.
  *
- * It can also throw `users.ts`'s `AccountGoneError` from the cache write (#286). That one is
- * not a 503 and is deliberately not re-exported here: it is not the Dashboard's refusal but
- * every subcollection writer's, and `app.onError` answers it once, as a dead token.
+ * It can also throw `users.ts`'s `AccountGoneError` from the cache write (#286), and its
+ * `SessionSupersededError` when a password reset ended `session` after the gate (#294). Those
+ * are not 503s and are deliberately not re-exported here: they are not the Dashboard's
+ * refusals but every subcollection writer's, and `app.onError` answers them once, as a dead
+ * token. `session` is only for that write — a card is read and built the same for any
+ * session, and a stale one is refused before anything is stored, never served a different
+ * card.
  *
  * D1 also documents `InvalidTimeError`, and this function cannot raise it: `request.date`
  * is `resolveClock`'s output, `now` is `new Date().toISOString()`, and `toSignalEntry`
@@ -751,6 +761,7 @@ export interface TodayRequest {
  */
 export const getToday = async (
   uid: string,
+  session: WriteSession,
   request: TodayRequest,
   rules: DashboardRules = dashboardRules(),
   phraser: Phraser = new TemplatePhraser(),
@@ -800,9 +811,10 @@ export const getToday = async (
   // one: the card is her logged data written out as prose, built from inputs read while the
   // account was live. Written after `DELETE /me` swept `today/`, it would be the one readable
   // summary of a deleted account, stranded where nothing deletes it. Refused, it throws
-  // `AccountGoneError` and the request is answered as a deleted account's token is.
+  // `AccountGoneError` and the request is answered as a deleted account's token is. A
+  // session a reset has ended since the gate is refused by the same read (#294).
   await firestore.runTransaction(async (tx) => {
-    await assertAccountLive(tx, uid)
+    await assertAccountLive(tx, uid, session)
     tx.set(ref, { ...document, dataChangedAt: changedAt, storedAt: FieldValue.serverTimestamp() })
   })
   return document
