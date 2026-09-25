@@ -2,10 +2,11 @@
 # Run the API suite the way CI runs it: against the Firebase emulators, holding no
 # credentials and touching no real project (#67).
 #
-# `scripts/verify-api.sh` points at the REAL project and is still what you run locally —
-# it is the higher-fidelity check and the one whose result the PR reports. This script is
-# the same suite with the two Firebase endpoints redirected, so that a pull request from
-# anyone, at any time, can be gated on it without a service account existing.
+# `scripts/verify-api.sh` points at the REAL project — the higher-fidelity check, required
+# on auth-boundary changes and at least weekly (GUARDRAILS 15). This script is the same
+# suite with the two Firebase endpoints redirected, and since 2026-09-25 it is the per-PR
+# gate: a pull request from anyone, at any time, can be gated on it without a service
+# account existing.
 #
 # What that costs is written down in docs/ARCHITECTURE.md §7 rather than implied here:
 # the emulators are a reimplementation, so a green run proves our code against Firebase's

@@ -12,7 +12,8 @@ bun install
 bun run dev        # hot reload on :3003
 bun run typecheck  # tsc --noEmit
 bun test
-bun run verify     # typecheck + test — must pass before a PR
+bun run verify     # typecheck + test vs the REAL project (~20 min) — see GUARDRAILS 15 for when
+../scripts/ci-api.sh  # the same vs the emulators (~2.5 min) — the per-PR gate
 bun run seed:refdata  # create any missing refdata/ catalogue (--relabel resets labels)
 bun run retire:refdata  # apply the declared retirements (never deletes)
 bun run purge:events    # delete events past their 30-day recovery window (--dry-run first)
@@ -25,8 +26,9 @@ Needs `api/.env` (copy `.env.example`) and Application Default Credentials
 `bun run verify` is **not** the strongest run any more. A handful of cases seed and assert
 `content/`, which is safe against an emulator's throwaway Firestore and is not safe against
 the real project — so they skip under `verify` and run under `scripts/ci-api.sh`, which is
-what CI executes. A local green covers less than a CI green; run `scripts/ci-api.sh` too
-before a PR that touches `content.ts`.
+what CI executes — and since 2026-09-25 the per-PR gate (GUARDRAILS 15). Neither run is a
+superset: the real-project run is what proves Google's behaviour (see GUARDRAILS 15 for when
+it is required).
 
 ## Module boundaries — enforced by review
 

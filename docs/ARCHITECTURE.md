@@ -2185,9 +2185,11 @@ A green CI run proves our code against Firebase's model of Firebase, not against
 Anything whose behaviour is Google's rather than ours — the real Identity Toolkit reason
 strings behind §3's mapping table, Firestore TTL policies, production transaction
 contention — is unproven by CI whatever the count says. `scripts/verify-api.sh` still
-points at the real project and is what runs locally before a PR. CI is the floor, not the
-ceiling, and a green tick is not a substitute for the real run on anything that touches
-the auth boundary.
+points at the real project. Since 2026-09-25 it is no longer the per-PR gate
+(`scripts/ci-api.sh` is — GUARDRAILS 15): it is required on changes that touch the auth
+boundary or a race-guarding transaction, and otherwise runs at least weekly and before a
+production deploy. CI is the floor, not the ceiling, and a green tick is not a substitute
+for the real run on anything that touches the auth boundary.
 
 **iOS compiles in CI on a PR; it is not *run* there.** `scripts/verify-mobile.sh` needs a
 macOS runner and a simulator, takes ~350s, and macOS runners bill at a premium multiplier;

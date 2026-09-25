@@ -6,6 +6,9 @@
 #                                       tests, no API, no emulators
 #
 # Simulator: override with EVA_SIMULATOR_ID (default matches scripts/e2e.sh).
+# Subset: ONLY_TESTING='-only-testing:EvaUITests/HomeUITests' runs those UI classes plus
+# every unit test (EvaTests is always added)
+# (GUARDRAILS 15 — the full suite is ~30 min and is not the per-PR gate for every change).
 #
 # One run per machine by default: the simulator, API port and mailbox port are shared, so a
 # second concurrent run would destroy the first. Set EVA_SIMULATOR_ID, EVA_MAILBOX_PORT and
@@ -160,7 +163,24 @@ else
     TEST_RUNNER_EVA_MAILBOX_URL="$MAILBOX_URL" xcodebuild \
     -project Eva.xcodeproj -scheme Eva \
     -destination "platform=iOS Simulator,id=$SIMULATOR,arch=arm64" \
-    -derivedDataPath build -resultBundlePath "$RESULT_BUNDLE" test) || FAILED=1
+    -derivedDataPath build -resultBundlePath "$RESULT_BUNDLE" test \
+    ${ONLY_TESTING:+-only-testing:EvaTests $ONLY_TESTING}) || FAILED=1
+
+  # A mistyped class in ONLY_TESTING selects nothing and xcodebuild still reports success.
+  # Refuse a subset run that executed no UI test case at all.
+  if [ -n "${ONLY_TESTING:-}" ] && [ "$FAILED" -eq 0 ]; then
+    UI_CASES=$(xcrun xcresulttool get test-results tests --path "$RESULT_BUNDLE" 2>/dev/null \
+      | python3 -c 'import json, sys
+def cases(n): return (n.get("nodeType") == "Test Case") + sum(cases(c) for c in n.get("children", []))
+def ui(n):
+    if n.get("nodeType") == "UI test bundle": return cases(n)
+    return sum(ui(c) for c in n.get("children", []))
+print(sum(ui(n) for n in json.load(sys.stdin).get("testNodes", [])))' 2>/dev/null)
+    if [ "${UI_CASES:-0}" -eq 0 ]; then
+      echo "✗ ONLY_TESTING ran no UI test case (check the class names): $ONLY_TESTING"
+      FAILED=1
+    fi
+  fi
 
   echo "▶ cleanup sweep (e2e accounts created by the UI test)"
   (cd "$ROOT/api" && bun run "$ROOT/scripts/e2e-cleanup.ts") || FAILED=1

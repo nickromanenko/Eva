@@ -32,15 +32,18 @@ cd website && bun install && bun run dev    # site, http://localhost:4321
 cd mobile && xcodegen generate && open Eva.xcodeproj
 ```
 
-Verification — run the one for the surface you touched, before opening a PR:
+Verification — run the gate for the surface you touched, before opening a PR
+(GUARDRAILS 15 says which gate and when the slower real-project / full-UI runs are required):
 
 ```sh
-cd api && bun run verify        # typecheck + tests (= scripts/verify-api.sh)
+scripts/ci-api.sh               # api gate: typecheck + tests vs the emulators (~2.5 min)
+cd api && bun run verify        # the same vs the REAL project (~20 min) — auth-behaviour changes
 scripts/verify-rules.sh         # firestore/storage rules deny-all, vs. the emulator
-scripts/verify-mobile.sh        # xcodegen + build + UI tests (needs a simulator)
+scripts/verify-mobile.sh        # xcodegen + build + all UI tests (~30 min, needs a simulator)
+ONLY_TESTING=-only-testing:EvaUITests/HomeUITests scripts/verify-mobile.sh   # a subset
 scripts/verify-website.sh       # astro build
 scripts/e2e.sh                  # full stack against real Firebase (slow, creates accounts)
-scripts/verify.sh               # everything above except e2e
+scripts/verify.sh               # verify-api (REAL project) + rules + full mobile + website — not ci-api, not a subset
 ```
 
 ## Workflow

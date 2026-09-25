@@ -104,9 +104,31 @@ Each rule is stated so a reviewer can check it mechanically.
 
 14. **Every API behavior change ships with a test.** New route, new error code, or
     changed validation → a case in `api/test/`.
-15. `bun run verify` (api) and `scripts/verify-mobile.sh` (mobile) must pass before any
-    PR is opened. A green run is the minimum, not the proof — say what you actually
-    exercised.
+15. The surface's verify gate must pass before any PR is opened. A green run is the
+    minimum, not the proof — say what you actually exercised.
+    - **api:** `scripts/ci-api.sh` (the emulator suite CI runs, ~2.5 min). The real-project
+      `bun run verify` (~20 min) is additionally required when the change touches
+      behaviour the emulators reimplement rather than run: `identity-toolkit.ts`,
+      `providers.ts`, `firebase.ts`, the emulator/real-project branches of `config.ts`, the
+      auth routes (`/auth/*`, `DELETE /me`, `POST /me/auth/providers`), the session gates
+      (`requireAuth` / `requireAccount` / `requireServedAccount`) and `email-tokens.ts`, a
+      `runTransaction` body that guards a session or deletion race, a new or changed
+      multi-field Firestore query or `firestore.indexes.json` (the emulator does not require
+      composite indexes; production rejects the query), any test branch on `usingEmulators` /
+      `FIREBASE_AUTH_EMULATOR_HOST`, or a Firebase console setting. Otherwise it runs per
+      batch — and never less than **weekly and before any production deploy of `api/`**,
+      because the checks it alone runs (enumeration protection, MFA off) exist to catch a
+      console setting changing, which no PR does.
+    - **mobile:** unit tests plus the UI test classes the change touches
+      (`ONLY_TESTING=… scripts/verify-mobile.sh`, which always adds the unit tests). The full `scripts/verify-mobile.sh`
+      (~30 min) is required when a change touches navigation, session/auth or the
+      networking layer, and is otherwise run per batch.
+    Changed 2026-09-25 on Nick's direct instruction ("we need to move faster"): the
+    real-project run and the full UI suite were costing more wall time than every other
+    step combined. CI runs the api emulator suite on every PR; for mobile it only *builds*
+    on a PR and runs the UI suite after merge (push to `main`, nightly) — so a mobile PR's
+    local subset is the only test run before merge. Nothing mechanical enforces the weekly
+    real-project floor; it is a rule, not a workflow.
 16. `scripts/e2e.sh` hits the **real Firebase project**. Test accounts must use the
     `e2e+*@e2e.evaapp.dev` pattern so the cleanup sweep can find them. Never create
     test users outside that pattern.
