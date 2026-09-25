@@ -91,6 +91,7 @@ import {
 } from './today'
 import {
   ACTIVITY_BAND_CODES,
+  AccountGoneError,
   CONDITION_CODES,
   CONSENT_KINDS,
   MEDICATION_CODES,
@@ -182,6 +183,15 @@ app.onError((err, c) => {
   // per `null` body is the signal poisoning #119 is about.
   if (err instanceof BodyNotAnObjectError) {
     return c.json(error('VALIDATION', 'The request body must be a JSON object'), 400)
+  }
+  // The second (#286): a write that passed `requireAccount` and then found, inside its own
+  // transaction, that `DELETE /me` had tombstoned the account. It is answered byte-for-byte
+  // as the gate answers that account's token on its next request — the caller *is* such a
+  // token, one step earlier — so no code is added and the client's sign-out path applies.
+  // Not a fault either, so no line: every route that writes a subcollection can raise it,
+  // which is why it is answered here once rather than in each handler.
+  if (err instanceof AccountGoneError) {
+    return c.json(error('UNAUTHORIZED', 'Invalid or expired token'), 401)
   }
   // Short enough to read out over a support call, random enough to be unique among the
   // 500s anyone is looking through. It identifies a log line, never a user.

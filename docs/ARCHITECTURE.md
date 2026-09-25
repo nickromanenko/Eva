@@ -73,16 +73,16 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `identity-toolkit.ts` | The Firebase Auth account: password and provider credentials verified via Google REST, delete via the Admin SDK, and which federated identities it holds — the Auth half of every served `User.authProviders` (#117, §4) | The only place the web API key is used; the only place an Auth user is deleted |
 | `providers.ts` | The two calls that go to Apple and Google *directly*: Google's PKCE code exchange, Apple's client secret and token revocation | The only place `GOOGLE_IOS_CLIENT_ID` and the Apple keys are used; writes no log line |
 | `rate-limit.ts` | In-memory attempt counters for `/auth/*`, and for `GET /me/export` (#58) | Holds no identity state; never logs its keys (addresses, IPs, uids) |
-| `users.ts` | The `users/{uid}` document: read, create, update, bump the token version, mark deleted, delete, list IDs | The only module that touches `users/`. `bumpTokenVersion` carries the written-down rule for what ends a session (#76) |
-| `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all, and the export's paged read of every entry (#58) | The only module that touches `events/` |
+| `users.ts` | The `users/{uid}` document: read, create, update, bump the token version, mark deleted, delete, list IDs. Also `assertAccountLive`, the account read every subcollection writer makes inside its own transaction (#286) | The only module that touches `users/`. `bumpTokenVersion` carries the written-down rule for what ends a session (#76) |
+| `events.ts` | The `users/{uid}/events/` subcollection: create, range read, edit, soft delete, restore, purge, delete-all, and the export's paged read of every entry (#58) | The only module that touches `events/`. Every write is a transaction that also reads the account (#286, §4) |
 | `refdata.ts` | The `refdata/` collection: the option lists the client draws, and the version they are cached against. Also the source of a symptom code's reviewed label for the Today card's `{signal}`/`{symptom}` slots (#200) | The only module that touches `refdata/` |
 | `content.ts` | The `content/` collection: the Dashboard's words — card templates, banners, nudges, and the signal vocabulary that fills `{signal}` (#200) — and the version they are cached against | The only module that touches `content/`; refuses a write carrying no reviewer |
 | `dashboard-rules.ts` | The Today card's priority ladder (#96): a day's inputs in, the card's *subject* out — rung, template id, slot values, confidence wording class. Also the banner rail's selection (`selectBanners`, #102): the rows, the mode, the subject and a finished setup's focus areas in; up to three rows out, never padded | Pure: no Firestore, no clock, no `fetch`; every input is passed in. Holds no text and no clinical threshold. Called by D3's card module, never by `index.ts` |
-| `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, chooses the day's banner rail with the card (#102), caches both, pages them out for `GET /me/export` without the cache bookkeeping (#58), deletes them all. Also **the seam the cycle maths is read through** — `cycleEstimate` for the card, `cycleAnalysisFor` for the calendar (#205) | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser. Both cycle readers share one event window, one `CycleDay` mapping and one call to `analyzeCycles` |
+| `today.ts` | The `users/{uid}/today/{date}` subcollection (#98): gathers the ladder's inputs, calls it, fills the template from `content.ts`, chooses the day's banner rail with the card (#102), caches both, pages them out for `GET /me/export` without the cache bookkeeping (#58), deletes them all. Also **the seam the cycle maths is read through** — `cycleEstimate` for the card, `cycleAnalysisFor` for the calendar (#205) | The only module that touches `today/`. The card's rung and template id come from the subject, never from a phraser. The cache write reads the account in its transaction (#286). Both cycle readers share one event window, one `CycleDay` mapping and one call to `analyzeCycles` |
 
 | `cycle.ts` | The cycle maths (C11, #176): logged flow days in — the periods they group into (#186), counted cycles, the median next-period date, the fertile window, the FIGO irregularity band and the confidence class out | Pure: no Firestore, no clock, no `fetch`, no log line. Holds no constant of its own — every number arrives from `config.ts` and it refuses to answer without them. Every gate fails closed. The one reader of `periodEnd`, for one decision (§4) |
 | `nutrition.ts` | The nutrition targets engine (S2, #222): body metrics, goal, target weight and focus areas in — the day's calorie target, the macronutrient split, the clamp that bound it and the timeline that follows out | Pure: no Firestore, no clock, no `fetch`, no log line, and **no import at all**. Holds no dose of its own — every number arrives from `config.ts` and it refuses to answer without them. Takes no cycle phase and no calendar mode, which is what keeps S12 outside it. Every clamp is a floor on calories, and the timeline is derived from the clamped target |
-| `nutrition-profile.ts` | The `users/{uid}/nutrition/` subcollection (#221, S1 of #25): the Nutrition coach's setup answers — goal, focus areas, meal pattern, target weight, the hide-numbers preference — and the setup-progress marker; read, patch, delete-all. Also **the one definition of a finished setup**, `completedSetup` | The only module that touches `nutrition/`. The field list is exactly the setup answers — no disordered-eating field (#212), no score (S8). `complete` is derived on every read, never stored. Logs nothing |
+| `nutrition-profile.ts` | The `users/{uid}/nutrition/` subcollection (#221, S1 of #25): the Nutrition coach's setup answers — goal, focus areas, meal pattern, target weight, the hide-numbers preference — and the setup-progress marker; read, patch, delete-all. Also **the one definition of a finished setup**, `completedSetup` | The only module that touches `nutrition/`. The field list is exactly the setup answers — no disordered-eating field (#212), no score (S8). `complete` is derived on every read, never stored. The PATCH's transaction also reads the account (#286). Logs nothing |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
@@ -107,6 +107,13 @@ touches exactly one collection, its own. The reads it needed that did not exist 
 rather than performed here, which is the test of whether the boundary held. The rail's one
 read-side check on `content/` — an unsigned `banners` document yields no rail — is
 `content.ts`'s `getSignedContent`, not a read of the document here.
+
+**`events.ts` and `nutrition-profile.ts` call `users.ts` too, for one function (#286).** Each
+writes under `users/{uid}/…` and must not write under an account `DELETE /me` has tombstoned,
+and that question can only be asked of `users/{uid}` inside the writer's own transaction —
+so the writer calls `assertAccountLive(tx, uid)` rather than reading `users/` itself
+(GUARDRAILS 10). It is a downward edge onto the document every subcollection hangs from, not
+a join: neither module reads anything else of `users.ts`, and `users.ts` imports neither.
 
 `dashboard-rules.ts` is not in that middle row — it is a leaf *below* it. It imports nothing at
 runtime, so it cannot call anything, upward or sideways; D3's card module calls it, fills the
@@ -768,7 +775,8 @@ that reads a body reads it through `readBody` in `index.ts`: no body, or a body 
 JSON, is `{}` as it always was, so each route's own validation answers — and `DELETE /me`,
 whose body is optional, still deletes. Valid JSON that is not an object (`null`, an array, a
 number, a string) throws `BodyNotAnObjectError`, and `onError` answers it `400 VALIDATION`
-**before** it writes its line. That is the one throw `onError` recognises by class: `null`
+**before** it writes its line. That was the one throw `onError` recognised by class until
+#286 added `AccountGoneError` (§4, "A write racing the delete"): `null`
 used to reach `body.provider` as a `TypeError`, which was a 500 and an `unhandled_error` line
 on the unauthenticated `/auth/idp` — a free way to fill the signal that is meant to mean "we
 shipped a bug". Hono calls `onError` at the handler's own level of its `compose`, so
@@ -1351,6 +1359,51 @@ document has already gone — which is the state in which `ensureUser` would cre
 one. The failure mode that remains is the mild one: an interrupted delete can leave an Auth
 user with nothing behind it, and the account is already unusable when it does. Every step
 is idempotent, so a retry resumes rather than errors, and deleting twice is a `200`.
+
+**A write racing the delete (#286).** `requireAccount` reads `users/{uid}` before the handler
+runs, so a write can pass it, and then land after step 2 *and* after step 4 has swept the
+collection it writes to — a document under an account nothing links to and nothing will ever
+delete. So every write to a per-user subcollection reads the account **inside its own write
+transaction**, through `users.ts`'s `assertAccountLive`, and throws `AccountGoneError` when
+the document is tombstoned or gone: `events.ts` (create — all three paths, the plain one now
+a transaction too — edit, soft delete, restore), `nutrition-profile.ts`'s PATCH, and
+`today.ts`'s card cache. Putting the account in the write's read set is what makes it
+sufficient rather than likelier: if step 2 commits between that read and the commit, the
+transaction retries and sees the tombstone, so a committed write is ordered either before
+step 2 — and step 4 removes it — or it is refused. The cache is included because a card is
+her data in prose (above), so a cache written after the sweep is the same orphan as an event.
+The edits cannot create a document (`update` fails on a missing one) and are included for one
+consistent answer rather than for survival: a racing edit gets what a racing create gets.
+
+`app.onError` answers `AccountGoneError` exactly as the gate answers a deleted account's
+token — `401 UNAUTHORIZED`, `Invalid or expired token`, no log line — because that is what
+the caller is, one step earlier. No error code was added. `api/test/delete-race.test.ts`
+forces the interleaving two ways, and each fails with any one check removed: the tombstone
+and the sweeps run after the gate and before the write's transaction starts (every writer, and
+the three routes), and — the case that pins "inside" — they start *after* the transaction's
+account read and before its commit, which an account read outside the transaction lets through.
+
+The cost, from throwaway timing runs made while implementing #286 — a laptop against the
+production Firestore, not a benchmark kept in the repo. **Every write pays one extra billed
+document read.** Round trips depend on whether the writer reads anything of its own:
+
+- A writer that already reads its document — one-per-day create, edit, soft delete, restore,
+  the nutrition PATCH — passes that reference to `assertAccountLive`, which reads it and the
+  account in one `tx.getAll`. No extra round trip. The first version used a separate `tx.get`,
+  one round trip more per write, and that alone took `cycle-predictions.test.ts`'s first case
+  (22 sequential posts) from the edge of its 20s ceiling to past it: a warm `POST /me/events`
+  measured ~711ms against `main`'s ~656ms, and ~615ms once folded.
+- A writer with nothing of its own to read — a plain create, the idempotency-key create
+  (its read is a query, which `getAll` cannot carry), the Today cache write — pays one
+  round trip. A plain create went from ~135ms (a bare `set`) to ~262ms (a transaction). The
+  round trip is the laptop's ~130ms; from Cloud Run in the same region it is a few ms.
+
+Contention: the read holds a lock on `users/{uid}` for the length of a short transaction, so
+a profile save or `markUserDeleted` on the *same* account may wait that long; subcollection
+writers only share the lock and do not contend with each other. The same lock runs the other
+way: a burst of writes landing while `DELETE /me` stamps the tombstone can make that write
+wait and, under enough contention, fail — the route then answers `500`, and a retry resumes
+it, because every step is idempotent (within the per-account delete throttle's budget).
 
 One residual race is worth knowing rather than discovering: a sign-in that passed Identity
 Toolkit microseconds before step 2 can land its `ensureUser` after step 5 and recreate the
