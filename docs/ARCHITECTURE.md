@@ -2295,8 +2295,8 @@ longer holds, and three things follow:
   on the free plan for a public repository. `GET …/branches/main/protection` now answers
   `404 Branch not protected` — the feature is there and `main` has none — and there are no
   rulesets. So making `Check Secrets`, `Test API` and the others required on `main` is a
-  **repository setting for a human**, not a subscription decision. Nothing in this repository changes it. One
-  constraint for whoever sets it: every test workflow except `Check Secrets` is
+  **repository setting for a human**, not a subscription decision. Nothing in this
+  repository changes it. One constraint for whoever sets it: every test workflow except `Check Secrets` is
   path-filtered, and a required check whose workflow never starts leaves the pull request
   waiting on it forever — so either require only the unfiltered check, or make the filtered
   ones report on every PR first. `Test Mobile` / `Full suite` does not run on a pull request
@@ -2304,7 +2304,14 @@ longer holds, and three things follow:
 - **Actions logs and artifacts are world-readable.** Anyone can read a step log and
   download an artifact for its retention period. That is why #263 uploads the suite logs
   redacted (above), and why #334 exists: `scripts/e2e-cleanup.ts` still prints test
-  addresses into the step log.
+  addresses into the step log. The **xcresult bundles** (`Upload xcresult`, on every run)
+  are public too and are deliberately *not* redacted: they carry screenshots and view
+  hierarchies of throwaway emulator accounts whose tokens are dead by the time anyone can
+  download them — synthetic data only, which is the rule a UI test must keep.
+- **Anyone can open a pull request from a fork**, and the `pull_request` workflows run on
+  it. That is safe only because no `pull_request` job holds a secret or an `id-token`, and
+  none uses `pull_request_target`. Keep it that way: a secret or `pull_request_target` on a
+  PR job would hand it to anyone who opens one.
 - **History is public.** The `api/.secrets` symlink #292 committed (#295) held a local
   filesystem path, not a key, so there is nothing to rotate — but it is in public history
   and stays there. Every issue, PR, commit message and doc in this repository is readable by
