@@ -3,7 +3,7 @@ import { config } from './config'
 /**
  * Transactional email (issue #6): the activation link and the password-reset link, and
  * nothing else. The only reader of the Postmark server token (GUARDRAILS 4, by analogy
- * with `JWT_SECRET` and the web API key).
+ * with `JWT_SECRET`).
  *
  * Postmark is called over its REST API with `fetch` rather than through its SDK: one POST
  * with three headers is not worth a dependency (GUARDRAILS 25), and a client library is

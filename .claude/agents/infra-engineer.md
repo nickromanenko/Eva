@@ -21,7 +21,8 @@ approves and usually executes. Specifically, stop and ask before:
   always (GUARDRAILS 6). *"Fully supervised"* used to be the defined term here and
   included human deploy; that clause was struck on 2026-09-16, so the words are spelled
   out rather than pointing at a definition that no longer exists.
-- Touching `JWT_SECRET`, the Firebase web API key, or Secret Manager
+- Touching `JWT_SECRET` or Secret Manager, or changing how the Firebase web API key (public,
+  but the Identity Toolkit transport — GUARDRAILS 4a) is used
 - Changing IAM, Workload Identity Federation, or service accounts
 
 Read-only inspection (`gcloud ... list/describe`, `firebase projects:list`, reading

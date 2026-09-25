@@ -7,10 +7,13 @@ import { config } from './config'
  *
  * Two transports, for one reason: the Admin SDK cannot verify a password, so creating
  * and checking credentials goes through the Identity Toolkit REST API with the web API
- * key (GUARDRAILS 4, and the only place that key is read), while deleting an account has
- * no REST equivalent we hold a credential for and goes through the Admin SDK. Splitting
- * that across two modules would leave the Auth user with two owners, which is exactly
- * what GUARDRAILS 10 is about for Firestore collections.
+ * key (this is the only place that key is read — GUARDRAILS 4), while deleting an account
+ * has no REST equivalent we hold a credential for and goes through the Admin SDK. The web
+ * API key is a public project identifier, not a secret (GUARDRAILS 4a): it is read here
+ * alone because this file owns the Identity Toolkit transport, and nothing in it may assume
+ * a caller could not make the same REST call directly. Splitting that across two modules
+ * would leave the Auth user with two owners, which is exactly what GUARDRAILS 10 is about
+ * for Firestore collections.
  */
 
 /**
@@ -168,7 +171,8 @@ const post = async (endpoint: string, body: Record<string, unknown>): Promise<Ac
     )
   } catch {
     // The underlying error is dropped rather than attached as a `cause`: fetch puts the
-    // request URL in its message, and that URL carries the web API key (GUARDRAILS 1).
+    // request URL in its message, and that URL carries the web API key — public
+    // (GUARDRAILS 4a), but a message nobody reviewed is still no place to log it.
     // A DNS failure, a refused connection, or a timeout are all the same fact here.
     throw new IdentityToolkitError('NETWORK_FAILURE', null, 'unavailable')
   }

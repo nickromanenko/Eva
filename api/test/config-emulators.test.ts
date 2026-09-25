@@ -4,9 +4,9 @@ import { describe, expect, test } from 'bun:test'
  * The emulator switch (#67), and the one thing about it that is a security control rather
  * than a convenience.
  *
- * `FIREBASE_AUTH_EMULATOR_HOST` decides where every credential call goes, and that URL
- * carries the Firebase web API key in its query string. A deploy variable set by mistake —
- * or by anyone who can set one — would send both to a host of someone else's choosing,
+ * `FIREBASE_AUTH_EMULATOR_HOST` decides where every credential call goes, and those calls
+ * carry every signup and signin password in their bodies. A deploy variable set by mistake —
+ * or by anyone who can set one — would send them to a host of someone else's choosing,
  * and nothing about the running service would look wrong from the outside. `config.ts`
  * refuses to boot instead.
  *
@@ -61,8 +61,8 @@ describe('the two hosts must be set together', () => {
     // The asymmetric case is the dangerous one and it is NOT about production:
     // with only the auth host set, `usingEmulators` stays false, so Firestore
     // keeps reading and writing the real project while every signup and signin
-    // password — and the web API key, which rides in the query string — goes over
-    // plain http to whatever host that variable names. `identity-toolkit.ts` drops
+    // password goes over plain http to whatever host that variable names (the web API
+    // key rides along in the query string, but it is public — GUARDRAILS 4a). `identity-toolkit.ts` drops
     // the failing fetch's error rather than logging its URL, so a redirect to
     // something that mimics Google's error shape produces no signal at all.
     for (const [name, value] of Object.entries(BOTH)) {

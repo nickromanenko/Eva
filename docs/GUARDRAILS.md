@@ -14,10 +14,12 @@ Each rule is stated so a reviewer can check it mechanically.
    (with a placeholder, never a real value). `config.ts` must fail fast at boot.
 3. **CI never uses key files.** Authentication is Workload Identity Federation.
    Production secrets come from Secret Manager (`eva-jwt-secret:latest`).
-4. `JWT_SECRET` is read only in `api/src/auth.ts`; the Firebase web API key only in
-   `api/src/identity-toolkit.ts`; `POSTMARK_API_KEY` only in `api/src/email.ts`;
-   `APPLE_SIGNIN_KEY` (and the rest of `config.providers`) only in `api/src/providers.ts`.
-   Don't spread them. `APPLE_SIGNIN_KEY` signs for Apple and `JWT_SECRET` signs for us —
+4. `JWT_SECRET` is read only in `api/src/auth.ts`; `POSTMARK_API_KEY` only in
+   `api/src/email.ts`; `APPLE_SIGNIN_KEY` (and the rest of `config.providers`) only in
+   `api/src/providers.ts`; and the Firebase web API key only in
+   `api/src/identity-toolkit.ts` — which is **not** a secret (4a), and has one reader for a
+   different reason: one owner of the Identity Toolkit transport. Don't spread them.
+   `APPLE_SIGNIN_KEY` signs for Apple and `JWT_SECRET` signs for us —
    neither file ever touches the other's key. This rule is about `api/src/`; `api/test/` is
    outside it, and has to be. A test that asked the owning module whether a credential still
    works would be asking a module `mock.module` has replaced — process-globally,
@@ -25,6 +27,23 @@ Each rule is stated so a reviewer can check it mechanically.
    API key to ask Identity Toolkit directly, and `apple-client-secret.test.ts` sets
    `config.providers.apple` to a key it generates. Neither is a real credential; rule 1
    still binds.
+
+4a. **The Firebase web API key is a public identifier, not a secret — so no security
+   property may rest on holding it.** Every Firebase client ships it, and Firebase Hosting
+   serves ours to anyone at `https://evatracker.com/__/firebase/init.json`. It tells
+   Identity Toolkit which project a call is for; it authorises nothing. The standing
+   consequence: **anything reachable with the web API key alone is reachable by an
+   attacker.** Review every auth change as if the caller can hit Identity Toolkit directly
+   (`accounts:signUp`, `accounts:signInWithPassword`, `accounts:update`, …), because they
+   can. #7's first fix for the `/auth/idp` takeover reasoned the other way and closed
+   nothing (#115). What limits the key is its API restrictions in Google Cloud and the
+   project's Identity Toolkit / Authentication settings, not who has seen it. It is in this
+   section for the hygiene it keeps, not because it is a credential: still an env var
+   declared in `config.ts` with a placeholder in `.env.example` (rule 2), still not
+   committed (rule 1 — a real value in a file is the habit that leaks the real secrets),
+   still one reader (rule 4), which is also why `identityToolkitBaseUrl` is a single seam
+   the emulator can redirect. None of that relaxes anything for `JWT_SECRET`,
+   `POSTMARK_API_KEY` or the Apple key.
 
 ## Security rules (Firestore / Storage)
 
