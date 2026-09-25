@@ -11,6 +11,7 @@ emotional state, habits and goals. iOS app + API + landing site.
 - [docs/AUTONOMY.md](docs/AUTONOMY.md) — which decisions need a human
 - [Eva app _ PRD v1.md](<Eva app _ PRD v1.md>) — product requirements
 - [docs/LAUNCH.md](docs/LAUNCH.md) — what a US + worldwide launch requires; the decisions it still needs
+- [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md) — breach runbook: the 60-day (FTC) and 72-hour (GDPR) clocks, containment, notification
 
 ## Layout
 

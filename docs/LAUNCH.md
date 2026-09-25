@@ -29,7 +29,7 @@ consequence of one of these.
 | L5 | App Store readiness: guideline conformance, age rating, privacy labels, subscription terms, storefront list, export compliance (§3) | mobile + Nick | partly (account deletion #8/#55 done; Sign in with Apple #7 open) |
 | L6 | Product changes the markets force: English variant, locale units, country-aware emergency guidance and appointment types, food-database coverage, vendor processor locations (§4) | product + api + mobile | decisions listed in §6 |
 | L7 | Claims register for everything the website and the app assert (§5) — including the nutrition constants and the four product choices inside a range (§5.1). **Updated:** Bypassing clinical sign-off (A33); relying on strong medical disclaimers and citations to published research. | #26 | decision A33 made: disclaimers and citations replace clinical reviewer |
-| L8 | Operational: backups, incident response that can meet a 60-day (FTC) and 72-hour (GDPR) clock, support that works across time zones (§7) | infra | no backups, no runbook |
+| L8 | Operational: backups, incident response that can meet a 60-day (FTC) and 72-hour (GDPR) clock, support that works across time zones (§7) | infra | no backups; runbook drafted with placeholders (#90, `docs/INCIDENT-RESPONSE.md`), no one on call |
 
 ---
 
@@ -181,7 +181,7 @@ it is what Eva can and cannot hand over:
 | Terms of service incl. subscription terms, medical disclaimer, 18+ | website `/terms` | *counsel* |
 | **Consent screen** in onboarding: two separate opt-ins (collect / share), withdrawable in Settings — **built (#86)**: screen, consent record, API refusal gate, Settings › Privacy withdrawal | canvas + mobile + `users/{uid}` (schema change) | copy awaits counsel (L3) |
 | Rights mechanism: access + export (#58), deletion (#8 ✓), withdraw consent, 45-day SLA | api + Settings | #58 |
-| Breach-response runbook with the 60-day / 72-hour clocks and contact lists | `docs/` | L8 |
+| Breach-response runbook with the 60-day / 72-hour clocks and contact lists — **drafted (#90)**: `docs/INCIDENT-RESPONSE.md`, placeholders for people and counsel | `docs/` | L8; names wait on L1, L3 |
 | Data map and DPIA | `docs/` | — |
 | DPAs: Google Cloud, Postmark (#6), the LLM vendor (A5), the food-database vendor (#25 Q10), the photo-recognition vendor (#25 Q11), Apple | legal | vendor choices |
 | EU and UK Article 27 representatives | legal | L1 |
@@ -435,6 +435,10 @@ is shown.
 - **Incident response.** The breach clocks in §2 (60 days FTC, 72 hours GDPR to the
   authority) need a runbook, a contact list, and someone on call. Logs already carry no
   health data (GUARDRAILS 12), which makes the *scope* of a breach determinable.
+  **Runbook drafted (#90): [`docs/INCIDENT-RESPONSE.md`](INCIDENT-RESPONSE.md)**. It covers
+  roles, clocks, scope, containment, evidence, notice skeletons and review. Its contacts
+  and on-call are placeholders until L1 and L3, and its *counsel* markers are unconfirmed
+  (A24). Its §10.1 lists what must close before launch.
 - **Single region.** `us-central1` is fine for a v1 worldwide launch; latency to APAC is
   tolerable for a logging app. Firestore location is immutable — moving later is a
   migration, so say so in ARCHITECTURE.md §7.
