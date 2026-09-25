@@ -166,7 +166,7 @@ struct ActivitySettingsView: View {
                         label: option.label,
                         isSelected: editor.lifestyle == option.code
                     ) {
-                        editor.lifestyle = option.code
+                        editor.selectLifestyle(option)
                     }
                 }
             }

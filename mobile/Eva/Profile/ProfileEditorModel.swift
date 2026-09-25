@@ -134,10 +134,19 @@ final class ProfileEditorModel {
     /// which `parseProfile` accepts as unanswered (#221).
     var hasLifestyleAnswer: Bool { lifestyle != nil }
 
-    /// The chip label for the stored code, or `nil` while unanswered — what the Profile
-    /// row shows. Never the code itself.
+    /// The chip label for the stored code, or `nil` while unanswered. Never the code itself.
     var lifestyleLabel: String? {
         Self.lifestyleOptions.first { $0.code == lifestyle }?.label
+    }
+
+    /// The Profile ▸ Activity row's trailing value: the label, or nothing while unanswered —
+    /// the same empty-until-answered rule the goals and sports rows follow.
+    var activityRowValue: String { lifestyleLabel ?? "" }
+
+    /// What an Activity chip does. Here rather than inline in the view so that "the chip
+    /// stores the code, not the label it draws" is something a unit test can hold (#221).
+    func selectLifestyle(_ option: ProfileOption) {
+        lifestyle = option.code
     }
 
     // MARK: - The payload

@@ -34,11 +34,31 @@ struct LifestyleCodeTests {
     @Test("picking a chip sends its code, not its label")
     func aChipSendsItsCode() throws {
         let model = ProfileEditorModel(profile: nil)
-        model.lifestyle = try #require(
+        #expect(!model.hasLifestyleAnswer, "the Activity editor's Save is open before a band is picked")
+        model.selectLifestyle(try #require(
             ProfileEditorModel.lifestyleOptions.first { $0.label == "Lightly active" }
-        ).code
-        #expect(model.hasLifestyleAnswer)
+        ))
+        #expect(model.hasLifestyleAnswer, "picking a band left the Activity editor's Save held")
         #expect(try Self.encoded(model)["lifestyle"] as? String == "lightlyActive")
+    }
+
+    @Test("every chip stores a code the API accepts, and the row shows that chip's label")
+    func everyChipRoundTrips() throws {
+        let accepted = Set(try Self.apiActivityBands())
+        for option in ProfileEditorModel.lifestyleOptions {
+            let model = ProfileEditorModel(profile: nil)
+            model.selectLifestyle(option)
+            let sent = try Self.encoded(model)["lifestyle"] as? String
+            #expect(sent.map(accepted.contains) == true, "the \(option.label) chip sent \(String(describing: sent))")
+            #expect(model.activityRowValue == option.label)
+        }
+    }
+
+    @Test("the Activity row is empty while unanswered, and never shows a code")
+    func theRowShowsLabels() throws {
+        #expect(ProfileEditorModel(profile: nil).activityRowValue == "")
+        let model = ProfileEditorModel(profile: try Self.profile(lifestyle: #""mostlySitting""#))
+        #expect(model.activityRowValue == "Mostly sitting")
     }
 
     @Test("an unanswered band is left out of the body, never sent as an empty string")
