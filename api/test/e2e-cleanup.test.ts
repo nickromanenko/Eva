@@ -76,6 +76,38 @@ describe.skipIf(!onEmulators)('the sweep a UI run ends with (#322)', () => {
     expect(await exists(theirsUid)).toEqual({ auth: true, doc: true })
   })
 
+  // #334: the repo is public and so are its Actions step logs, and verify-mobile.sh runs this
+  // sweep in CI. It prints counts; an address or a uid in its output is the regression. Both
+  // passes that used to print one are exercised — an account, and an orphaned `users/{uid}`
+  // document whose Auth user is already gone.
+  test('prints counts, never an address or a uid', async () => {
+    const withAuth = freshEmail()
+    const withAuthUid = await account(withAuth)
+    const orphan = freshEmail()
+    const orphanUid = crypto.randomUUID()
+    created.push(orphanUid)
+    await firestore.collection('users').doc(orphanUid).set({ email: orphan })
+
+    const ledger = join(scratch, 'quiet-ledger')
+    writeFileSync(ledger, `${withAuth}\n${orphan}\n`)
+    const sweep = Bun.spawnSync(['bun', 'run', '../scripts/e2e-cleanup.ts', '--only', ledger], {
+      cwd: apiDir,
+      env: process.env,
+    })
+    expect(sweep.exitCode, sweep.stderr.toString()).toBe(0)
+    expect(await exists(withAuthUid)).toEqual({ auth: false, doc: false })
+    expect((await firestore.collection('users').doc(orphanUid).get()).exists).toBe(false)
+
+    const output = sweep.stdout.toString() + sweep.stderr.toString()
+    for (const secret of [withAuth, orphan, withAuthUid, orphanUid]) {
+      expect(output).not.toContain(secret)
+    }
+    // Any address at all, not only these two — the same shape redact_log_lines scrubs.
+    expect(output).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)
+    // And it still says what it did.
+    expect(output).toContain('1 account(s), 1 orphaned user doc(s)')
+  })
+
   test('refuses a list it cannot read rather than sweeping everything', async () => {
     const bystander = await account(freshEmail())
 
