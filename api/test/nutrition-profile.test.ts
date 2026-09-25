@@ -35,6 +35,18 @@ setDefaultTimeout(20_000)
 
 const SRC = `${import.meta.dir}/../src`
 
+/** Every `.ts` file under `src/`, at any depth, as `[relative path, source]`. */
+const sources = async (): Promise<[string, string][]> => {
+  const out: [string, string][] = []
+  for await (const file of new Bun.Glob('**/*.ts').scan(SRC)) {
+    out.push([file, await Bun.file(`${SRC}/${file}`).text()])
+  }
+  return out
+}
+
+const stripComments = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+
 const createdUids: string[] = []
 
 const userDoc = (uid: string) => firestore.collection('users').doc(uid)
@@ -214,19 +226,34 @@ describe('lifestyle is one of four codes (#221)', () => {
     void partial
 
     // The runtime half is a scan: `FACTORS[band] ?? 1.2` compiles against a total table too,
-    // and reads as a correct answer for the most-chosen band. Nothing in `src/` indexes a
-    // factor table and then falls back. Comments are stripped first — `nutrition.ts` quotes
-    // the wrong fix in its own header, which is where it belongs.
-    const glob = new Bun.Glob('*.ts')
-    for await (const file of glob.scan(SRC)) {
-      const source = (await Bun.file(`${SRC}/${file}`).text())
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '')
-      expect({ file, fallback: /factors?\??\.?\[[^\]]*\]\s*(\?\?|\|\|)/i.test(source) }).toEqual({
-        file,
-        fallback: false,
-      })
+    // and reads as a correct answer for the most-chosen band. Every file under `src/`, at any
+    // depth, comments stripped first (`nutrition.ts` quotes the wrong fix in its own header):
+    // no mention of a factor table is followed, inside the same expression, by `??`, `||`, or
+    // an `as any` / `as unknown` cast — the three ways a lookup gets a default or gets out of
+    // the `Record`'s totality. What it does not catch: a fallback more than 160 characters
+    // from the table's name, or a table not named `…factor(s)`; review owns those.
+    for (const [file, source] of await sources()) {
+      const fallback = /factors?\b[^;{}]{0,160}?(\?\?|\|\||\bas\s+(any|unknown)\b)/i.exec(
+        stripComments(source),
+      )
+      expect({ file, fallback: fallback?.[0] ?? null }).toEqual({ file, fallback: null })
     }
+  })
+
+  test('the factor scan would see each shape it names', () => {
+    // A scan that matches nothing proves nothing; these are the shapes it exists to refuse.
+    const scan = /factors?\b[^;{}]{0,160}?(\?\?|\|\||\bas\s+(any|unknown)\b)/i
+    for (const wrong of [
+      'const f = FACTORS[profile.lifestyle] ?? 1.2',
+      'const f = rules.activityFactors[band] || 1.2',
+      'const f = rules.activityFactors?.[band] ?? 1.2',
+      'const f = (rules.activityFactors as any)[label]',
+      'const f = (settings.activityFactors as unknown as Record<string, number>)[x]',
+      'const f = activityFactors[\n  input.activityBand\n] ?? 1.2',
+    ]) {
+      expect({ wrong, caught: scan.test(wrong) }).toEqual({ wrong, caught: true })
+    }
+    expect(scan.test('const tdee = bmr * settings.activityFactors[input.activityBand]')).toBe(false)
   })
 })
 
@@ -510,6 +537,74 @@ describe('the nutrition profile (#221)', () => {
     expect(logged).toEqual([])
   })
 
+  test('targetWeightKg is 30–200 kg, both ends inclusive', async () => {
+    const { token } = await account()
+    await patch(token, { goal: 'lose' })
+    for (const [target, status] of [
+      [29.9, 400],
+      [30, 200],
+      [200, 200],
+      [200.1, 400],
+    ] as const) {
+      const res = await patch(token, { targetWeightKg: target })
+      expect({ target, status: res.status }).toEqual({ target, status })
+      if (status === 200) expect(res.body.nutritionProfile.targetWeightKg).toBe(target)
+      else expect(res.body.error.code).toBe('VALIDATION')
+    }
+    // The refusals wrote nothing: the last accepted value stands.
+    expect((await read(token)).body.nutritionProfile.targetWeightKg).toBe(200)
+  })
+
+  test('mealsPerDay is 2–5, and mealTimes carries one time per meal', async () => {
+    const { token } = await account()
+    for (const [mealsPerDay, status] of [
+      [1, 400],
+      [2, 200],
+      [5, 200],
+      [6, 400],
+      [3.5, 400],
+    ] as const) {
+      const res = await patch(token, { mealPattern: { mealsPerDay, snacks: false } })
+      expect({ mealsPerDay, status: res.status }).toEqual({ mealsPerDay, status })
+    }
+    for (const mealTimes of [['08:00', '13:00'], ['08:00', '13:00', '18:00', '21:00'], []]) {
+      const res = await patch(token, { mealPattern: { mealsPerDay: 3, snacks: true, mealTimes } })
+      expect({ mealTimes, status: res.status }).toEqual({ mealTimes, status: 400 })
+      expect(res.body.error.message).toStartWith('mealPattern.mealTimes ')
+    }
+    const exact = await patch(token, {
+      mealPattern: { mealsPerDay: 3, snacks: true, mealTimes: ['08:00', '13:00', '19:30'] },
+    })
+    expect(exact.status).toBe(200)
+    expect(exact.body.nutritionProfile.mealPattern.mealTimes).toEqual(['08:00', '13:00', '19:30'])
+  })
+
+  test('both routes need a session: no token, or a bad one, is 401', async () => {
+    for (const authorization of [null, 'Bearer not-a-jwt']) {
+      for (const [method, body] of [
+        ['GET', undefined],
+        ['PATCH', { goal: 'lose' }],
+      ] as const) {
+        const res = await server.fetch(
+          new Request('http://api.test/me/nutrition/profile', {
+            method,
+            headers: {
+              'content-type': 'application/json',
+              ...(authorization ? { authorization } : {}),
+            },
+            body: body === undefined ? undefined : JSON.stringify(body),
+          }),
+        )
+        expect({ method, authorization, status: res.status }).toEqual({
+          method,
+          authorization,
+          status: 401,
+        })
+        expect(((await res.json()) as { error: { code: string } }).error.code).toBe('UNAUTHORIZED')
+      }
+    }
+  })
+
   test('writing it needs the collect consent (#86); reading it does not', async () => {
     const { token } = await account({ consent: false })
     const res = await patch(token, { goal: 'lose' })
@@ -587,14 +682,36 @@ describe('focus-area codes and the engine’s item numbers', () => {
 })
 
 describe('one owning module (GUARDRAILS 10)', () => {
-  test('only nutrition-profile.ts names the collection, and it logs nothing', async () => {
-    const glob = new Bun.Glob('*.ts')
-    for await (const file of glob.scan(SRC)) {
-      const source = await Bun.file(`${SRC}/${file}`).text()
-      const names = /collection\(\s*['"]nutrition['"]\s*\)/.test(source)
+  /** A Firestore reference to the collection: `collection('nutrition')` or
+   *  `collectionGroup('nutrition')`, a `.doc(…)`/`.collection(…)` string starting with a
+   *  `nutrition` segment, or any path string with one (`'users/…/nutrition/profile'`, template
+   *  literals included — a string starting `/` or `.` is a route or an import, not a path).
+   *  What it does not catch: a path assembled by concatenation (`'users/' + uid +
+   *  '/nutrition'`) or from pieces at runtime; review owns those. */
+  const REFERENCE =
+    /collection(Group)?\(\s*['"`]nutrition['"`]\s*\)|\.(doc|collection|collectionGroup)\(\s*['"`]nutrition\b|['"`](?![./])[^'"`\n]*\/nutrition\b[^'"`\n]*['"`]/
+
+  test('only nutrition-profile.ts references the collection, at any depth, and it logs nothing', async () => {
+    for (const [file, source] of await sources()) {
+      const names = REFERENCE.test(stripComments(source))
       expect({ file, names }).toEqual({ file, names: file === 'nutrition-profile.ts' })
     }
     const module = await Bun.file(`${SRC}/nutrition-profile.ts`).text()
     expect(module).not.toContain('console.')
+  })
+
+  test('the reference scan would see each shape it names', () => {
+    for (const reference of [
+      "firestore.collection('users').doc(uid).collection('nutrition')",
+      'firestore.collectionGroup("nutrition")',
+      'firestore.doc(`users/${uid}/nutrition/profile`)',
+      'firestore.collection(`users/${uid}/nutrition`)',
+      "firestore.doc('nutrition/profile')",
+    ]) {
+      expect({ reference, caught: REFERENCE.test(reference) }).toEqual({ reference, caught: true })
+    }
+    // A route path and a module import are not Firestore references.
+    expect(REFERENCE.test("app.get('/me/nutrition/profile', h)")).toBe(false)
+    expect(REFERENCE.test("import { planDailyTargets } from './nutrition'")).toBe(false)
   })
 })
