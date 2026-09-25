@@ -1,5 +1,6 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { firestore } from './firebase'
+import { ACTIVITY_BANDS, type ActivityBand } from './nutrition'
 
 /**
  * Hormonal medication, as one opaque code (PRD §Sign Up, Profile fields 4; review §8 A8).
@@ -41,6 +42,54 @@ export const CONDITION_CODES = [
 
 export type ConditionCode = (typeof CONDITION_CODES)[number]
 
+/**
+ * The activity band (PRD §Sign Up; A8, #25 Q4, #221): four codes, the rule above.
+ *
+ * **One union, declared once, in `nutrition.ts`** — this is that array, not a copy of it.
+ * The band is the one profile answer arithmetic reads (S2's activity factor), and the engine
+ * keeps its factor table a `Record<ActivityBand, number>` so that a band without a factor is
+ * a compile error. A second declaration here would be a second list that could gain a member
+ * the table never heard of, which is exactly the `FACTORS[lifestyle] ?? 1.2` defect #221
+ * exists to remove. It lives in the engine rather than here because the engine imports
+ * nothing at all, and this is a downward import of a value from a leaf with no imports —
+ * free at runtime, the shape `config.ts` already uses for `nutritionRulesProblem`.
+ */
+export const ACTIVITY_BAND_CODES: readonly ActivityBand[] = ACTIVITY_BANDS
+
+export type { ActivityBand }
+
+/**
+ * The four labels the questionnaire stored before #221, and the one code each means.
+ *
+ * **A read, not a backfill** — #81's `storedProfile` shape, decided on #221: every document
+ * written before the band became a code carries the English label the chip drew, and these
+ * four strings are the only ones the app ever offered. They are matched **exactly**; a
+ * reworded, localised or otherwise unrecognised string is not guessed at, because the guess
+ * is precisely the defect — the nearest plausible band is a plausible daily calorie target.
+ * Nothing is written back: the stored label stays until she next saves her profile, which
+ * replaces the map with a code.
+ */
+const LIFESTYLE_LABELS: ReadonlyMap<string, ActivityBand> = new Map([
+  ['Mostly sitting', 'mostlySitting'],
+  ['Lightly active', 'lightlyActive'],
+  ['Active', 'active'],
+  ['Very active', 'veryActive'],
+])
+
+/**
+ * A stored `lifestyle` read as a code, or `null`.
+ *
+ * A code passes through; one of the four known labels maps by the table above; **anything
+ * else is absent**, and absent means nutrition setup asks rather than a band being assumed.
+ * `null` rather than a default band on purpose: `null` does not fit the engine's
+ * `activityBand`, so nothing downstream can compute from it without asking first.
+ */
+export const storedLifestyle = (raw: unknown): ActivityBand | null => {
+  if (typeof raw !== 'string') return null
+  if ((ACTIVITY_BAND_CODES as readonly string[]).includes(raw)) return raw as ActivityBand
+  return LIFESTYLE_LABELS.get(raw) ?? null
+}
+
 export interface Profile {
   /**
    * The user's date of birth, `YYYY-MM-DD` — a calendar label, never an instant, exactly as
@@ -61,7 +110,12 @@ export interface Profile {
   goals: string[]
   conditions: ConditionCode[]
   medications: MedicationCode
-  lifestyle: string
+  /**
+   * The activity band, as a code (#221). `null` only on a document written before the band
+   * was a code whose label is not one of the four the app offered — see `storedLifestyle`.
+   * `parseProfile` never writes `null`: a questionnaire answer is always one of the four.
+   */
+  lifestyle: ActivityBand | null
   sports: string[]
 }
 
@@ -258,7 +312,11 @@ const storedProfile = (raw: unknown): Profile | null => {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
   const fields: Record<string, unknown> = { ...(raw as Record<string, unknown>) }
   delete fields.age
-  return typeof fields.dateOfBirth === 'string' ? (fields as unknown as Profile) : null
+  if (typeof fields.dateOfBirth !== 'string') return null
+  // #221's migration, on the same terms as #81's: the stored label is read as a code, and
+  // an unrecognised one as absent — never rewritten, never guessed.
+  fields.lifestyle = storedLifestyle(fields.lifestyle)
+  return fields as unknown as Profile
 }
 
 /**

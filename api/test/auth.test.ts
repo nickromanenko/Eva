@@ -85,7 +85,7 @@ const profileBornOn = (dateOfBirth: string) => ({
   goals: ['Energy', 'Sleep'],
   conditions: ['noneOfThese'],
   medications: 'none',
-  lifestyle: 'Active',
+  lifestyle: 'active',
   sports: ['Yoga'],
 })
 

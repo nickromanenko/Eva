@@ -39,6 +39,19 @@ import {
   signUpWithPassword,
   type IdpCredential,
 } from './identity-toolkit'
+import {
+  FOCUS_AREA_CODES,
+  MAX_FOCUS_AREAS,
+  MEALS_PER_DAY,
+  NUTRITION_GOAL_CODES,
+  SETUP_STEP_CODES,
+  deleteNutritionProfile,
+  getNutritionProfile,
+  saveNutritionProfile,
+  type FocusAreaCode,
+  type MealPattern,
+  type NutritionProfilePatch,
+} from './nutrition-profile'
 import { ProviderError, exchangeGoogleAuthCode, revokeAppleToken } from './providers'
 import { REQUEST_TIMEOUT_MS, withRequestTimeout } from './request-timeout'
 import {
@@ -77,6 +90,7 @@ import {
   type EstimateWithheld,
 } from './today'
 import {
+  ACTIVITY_BAND_CODES,
   CONDITION_CODES,
   CONSENT_KINDS,
   MEDICATION_CODES,
@@ -1739,7 +1753,8 @@ app.get('/me/export', requireAuth, requireServedAccount, async (c) => {
  *      inert: every gated route 401s and sign-in refuses to revive it;
  *   3. delete the Firebase Auth user — the credentials stop opening anything and the
  *      address is free to sign up again;
- *   4. delete every event, soft-deleted ones included, and every stored Today card;
+ *   4. delete every event, soft-deleted ones included, every stored Today card, and the
+ *      nutrition profile;
  *   5. delete the user document, which is the tombstone step 2 wrote.
  *
  * Address-keyed link cleanup goes before the tombstone so a new holder cannot race into
@@ -1843,6 +1858,9 @@ app.delete('/me', requireAuth, async (c) => {
   // that no longer exists. Before `deleteUserDocument` for the same reason the events are —
   // a subcollection outlives its parent document in Firestore.
   await deleteAllUserToday(sub)
+  // Her nutrition setup answers (#221) — a goal and a target weight are health facts, and the
+  // subcollection outlives the document if it is left for later.
+  await deleteNutritionProfile(sub)
   await deleteUserDocument(sub)
   // The address's own throttle counters go with it (#56). In-memory and per-instance, so
   // this is a small courtesy rather than a guarantee — but being refused a fresh sign-up
@@ -1966,6 +1984,176 @@ app.put('/me/nutrition-settings', requireAuth, requireAccount, async (c) => {
 })
 
 /**
+ * The Nutrition coach's setup answers (S1 of #25, #221), read back so setup can resume where
+ * she left it (PRD Edge case 1). `404 NOT_FOUND` until she has started — "not started" is
+ * the absence of the thing named, which is what that code already means on the event routes.
+ * Served with `complete`, which is `false` for anything short of a finished setup; nothing
+ * may be calculated or shown from a profile that says so (PRD line 677).
+ */
+app.get('/me/nutrition/profile', requireAuth, requireAccount, async (c) => {
+  const nutritionProfile = await getNutritionProfile(c.get('claims').sub)
+  if (!nutritionProfile) return c.json(error('NOT_FOUND', 'No nutrition profile yet'), 404)
+  return c.json({ nutritionProfile })
+})
+
+/**
+ * Saves one step's worth of setup answers (#221). A key that is absent is left as it was, so
+ * each screen sends only its own answers — and a client that does not mention `hideNumbers`
+ * can never turn the numbers back on (#212). Behind the collect consent (#86): a goal and a
+ * target weight are health data, exactly as the questionnaire is.
+ *
+ * Shape is refused here; the two rules that depend on what is already stored — `done` with
+ * an answer missing, a target weight for a goal that has none — are the module's, and both
+ * answer `400 VALIDATION` naming the field. No message repeats a value (GUARDRAILS 12).
+ */
+app.patch(
+  '/me/nutrition/profile',
+  requireAuth,
+  requireAccount,
+  requireCollectConsent,
+  async (c) => {
+    const patch = parseNutritionProfilePatch(await readBody(c))
+    if (!patch.ok) return c.json(error(patch.code, patch.message), 400)
+    const saved = await saveNutritionProfile(c.get('claims').sub, patch.value)
+    if (!saved.ok) {
+      const message =
+        saved.rule === 'required'
+          ? `${saved.field} is required before setup is done`
+          : `${saved.field} is only asked for a weight-change goal`
+      return c.json(error('VALIDATION', message), 400)
+    }
+    return c.json({ nutritionProfile: saved.profile })
+  },
+)
+
+/** The keys a nutrition-profile PATCH may carry — the setup answers and nothing else. */
+const NUTRITION_PROFILE_KEYS: readonly string[] = [
+  'goal',
+  'focusAreas',
+  'mealPattern',
+  'targetWeightKg',
+  'hideNumbers',
+  'step',
+]
+
+const MEAL_PATTERN_KEYS: readonly string[] = ['mealsPerDay', 'snacks', 'mealTimes']
+
+/** `HH:mm`, a wall clock: the time she usually eats, never an instant. */
+const WALL_CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/**
+ * A nutrition-profile PATCH body, validated (#221).
+ *
+ * **An unknown key is refused, not dropped.** The field list is exactly the setup answers
+ * (#221), and a key that is stored because nobody refused it is how a field nobody decided
+ * gets added — a disordered-eating flag being the one #212 names. The message does not name
+ * the key: it is caller-controlled text.
+ *
+ * **A fourth focus area is refused, never truncated** (PRD line 726, canvas `s2`), and the
+ * refusal writes nothing, so the stored list is what it was.
+ */
+const parseNutritionProfilePatch = (
+  body: Record<string, unknown>,
+): Parsed<NutritionProfilePatch> => {
+  for (const key of Object.keys(body)) {
+    if (!NUTRITION_PROFILE_KEYS.includes(key)) {
+      return bad('nutrition profile has no such field')
+    }
+  }
+  const patch: NutritionProfilePatch = {}
+
+  if ('goal' in body) {
+    if (body.goal !== null && !isOneOf(body.goal, NUTRITION_GOAL_CODES)) {
+      return bad(`goal must be one of: ${NUTRITION_GOAL_CODES.join(', ')}`)
+    }
+    patch.goal = body.goal
+  }
+
+  if ('focusAreas' in body) {
+    const areas = body.focusAreas
+    if (!Array.isArray(areas)) return bad('focusAreas must be a list')
+    if (areas.length > MAX_FOCUS_AREAS) {
+      return bad(`focusAreas allows at most ${MAX_FOCUS_AREAS}`)
+    }
+    const codes: FocusAreaCode[] = []
+    for (const area of areas) {
+      if (!isOneOf(area, FOCUS_AREA_CODES)) {
+        return bad(`focusAreas must be a list of: ${FOCUS_AREA_CODES.join(', ')}`)
+      }
+      if (codes.includes(area)) return bad('focusAreas must not repeat an area')
+      codes.push(area)
+    }
+    patch.focusAreas = codes
+  }
+
+  if ('mealPattern' in body) {
+    const pattern = body.mealPattern
+    if (pattern === null) {
+      patch.mealPattern = null
+    } else {
+      if (typeof pattern !== 'object' || Array.isArray(pattern)) {
+        return bad('mealPattern must be an object')
+      }
+      const fields = pattern as Record<string, unknown>
+      if (Object.keys(fields).some((key) => !MEAL_PATTERN_KEYS.includes(key))) {
+        return bad('mealPattern has no such field')
+      }
+      const { mealsPerDay, snacks, mealTimes = null } = fields
+      if (
+        typeof mealsPerDay !== 'number' ||
+        !(MEALS_PER_DAY as readonly number[]).includes(mealsPerDay)
+      ) {
+        return bad(`mealPattern.mealsPerDay must be one of: ${MEALS_PER_DAY.join(', ')}`)
+      }
+      if (typeof snacks !== 'boolean') return bad('mealPattern.snacks must be a boolean')
+      if (
+        mealTimes !== null &&
+        (!Array.isArray(mealTimes) ||
+          mealTimes.length !== mealsPerDay ||
+          !mealTimes.every((t) => typeof t === 'string' && WALL_CLOCK.test(t)))
+      ) {
+        return bad('mealPattern.mealTimes must be one HH:mm time per meal')
+      }
+      patch.mealPattern = {
+        mealsPerDay: mealsPerDay as MealPattern['mealsPerDay'],
+        snacks,
+        mealTimes: mealTimes as string[] | null,
+      }
+    }
+  }
+
+  if ('targetWeightKg' in body) {
+    const target = body.targetWeightKg
+    // The Sign Up profile's own accepted range, which is also the engine's (`nutrition.ts`).
+    // Whether a target is *safe* — A29's BMI floor and 15% cap — is the engine's answer and
+    // S3's to show; a refusal here would be a second, different rule.
+    if (
+      target !== null &&
+      !(typeof target === 'number' && Number.isFinite(target) && target >= 30 && target <= 200)
+    ) {
+      return bad('targetWeightKg must be 30–200')
+    }
+    patch.targetWeightKg = target
+  }
+
+  if ('hideNumbers' in body) {
+    // No `null`: an answered preference cannot be un-answered back into "show the numbers by
+    // default". Turning it off is `false`, which is her own act.
+    if (typeof body.hideNumbers !== 'boolean') return bad('hideNumbers must be a boolean')
+    patch.hideNumbers = body.hideNumbers
+  }
+
+  if ('step' in body) {
+    if (!isOneOf(body.step, SETUP_STEP_CODES)) {
+      return bad(`step must be one of: ${SETUP_STEP_CODES.join(', ')}`)
+    }
+    patch.step = body.step
+  }
+
+  return good(patch)
+}
+
+/**
  * Dismisses the "complete your profile" nudge (#19).
  *
  * Idempotent and side-effect-free beyond the flag: dismissing takes "no" for an answer and
@@ -2046,14 +2234,18 @@ const parseProfile = (body: Record<string, unknown>, clock: Clock): Parsed<Profi
   if (!inRange(weightKg, 30, 200)) return bad('weightKg must be 30–200')
   if (!inRange(heightCm, 120, 220)) return bad('heightCm must be 120–220')
   if (!isStringArray(goals)) return bad('goals must be a list of strings')
-  if (typeof lifestyle !== 'string') return bad('lifestyle must be a string')
   if (!isStringArray(sports)) return bad('sports must be a list of strings')
 
-  // The two enumerated fields (A8). Codes, not labels — `users.ts` says why — so an
+  // The enumerated fields (A8). Codes, not labels — `users.ts` says why — so an
   // unrecognised value is a client sending a vocabulary this version does not have, which
   // is a 400 and not something to store and puzzle over later.
   if (!isOneOf(medications, MEDICATION_CODES)) {
     return bad(`medications must be one of: ${MEDICATION_CODES.join(', ')}`)
+  }
+  // The activity band (#221): the one answer here that arithmetic reads, so a label that
+  // matched no band would become a plausible calorie target rather than an error.
+  if (!isOneOf(lifestyle, ACTIVITY_BAND_CODES)) {
+    return bad(`lifestyle must be one of: ${ACTIVITY_BAND_CODES.join(', ')}`)
   }
   if (!isStringArray(conditions)) return bad('conditions must be a list of strings')
   const conditionCodes: ConditionCode[] = []

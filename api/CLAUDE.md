@@ -32,7 +32,7 @@ before a PR that touches `content.ts`.
 
 ```
 index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.ts · users.ts
-         ──► events.ts · today.ts · refdata.ts · email.ts · email-tokens.ts
+         ──► events.ts · today.ts · nutrition-profile.ts · refdata.ts · email.ts · email-tokens.ts
          ──► firebase.ts · config.ts
          ──► data-export.ts (leaf; `import type` only)
 
@@ -254,6 +254,18 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   other export: `parseProfile` reads it through `today.ts` so the floor and the band measure
   an age the same way, which they do not if each spells the arithmetic itself (29 February).
   `toCycleEstimate` projects the result into the `CycleEstimate` D1 already consumes.
+- `nutrition-profile.ts` — the only module that touches `users/{uid}/nutrition/` (#221, S1 of
+  #25): the Nutrition coach's setup answers — goal, focus areas (max 3), meal pattern, target
+  weight, the hide-numbers preference (#212) — and the setup-progress marker `step`. **The
+  field list is exactly those answers**: no disordered-eating field (#212), no "Meal fit"
+  score (S8); the route refuses an unknown key rather than dropping it, and the test pins the
+  key set. **`complete` is derived on every read, never stored** — `completedSetup` is the one
+  definition (step `done` *and* every required answer present) and the only function that
+  hands out a goal paired with its target weight, so a partial profile cannot feed the engine
+  (PRD line 677). Goal codes are the engine's own `NutritionGoal` (`import type`); focus areas
+  are permanent codes with a total `FOCUS_AREA_PRD_ITEM` table back to the PRD numbers the
+  engine's fibre rule reads. `hideNumbers` changes only when a request names it. Deleted by
+  `DELETE /me` before the user document. Logs nothing.
 - `nutrition.ts` — the nutrition targets engine (S2 of #25, #222). Her body metrics, goal,
   target weight and focus areas in; the day's calorie target, the macronutrient split, the
   clamp that bound the target and the timeline that follows from it out. **Pure on the
@@ -265,10 +277,12 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   **It takes no cycle phase and no calendar mode**, which is what makes "cycle-agnostic" a
   property of the type rather than a claim in a comment: S12's luteal and mode adjustments
   wrap this module and cannot arrive as a `phase?:` parameter with a default. It does not take
-  `Profile` either, and that is the same kind of decision — `Profile.lifestyle` is a bare
-  string until #221 lands, and accepting it would force the `FACTORS[…] ?? 1.2` lookup #221
-  exists to remove; `ActivityBand` is declared here as a closed four-member union and the
-  factor table is a `Record` over it, so a band with no factor is a compile error.
+  `Profile` either. `ActivityBand` is declared here as a closed four-member union and the
+  factor table is a `Record` over it, so a band with no factor is a compile error; since #221
+  `users.ts` re-exports this same array as `ACTIVITY_BAND_CODES`, `parseProfile` refuses
+  anything outside it, and `Profile.lifestyle` is `ActivityBand | null` (null = a pre-#221
+  label that matched none of the four, read — never rewritten — by `storedLifestyle`).
+  `nutrition-profile.test.ts` scans `src/` for a factor lookup with a `??`/`||` fallback.
   **Every clamp is a floor on calories, never a cut**: PRD line 754's rate cap is expressed as
   the calories the cap leaves, so hitting it raises the target and lengthens the timeline
   (canvas `sRate`), and the timeline is derived from the *clamped* target so a target and a

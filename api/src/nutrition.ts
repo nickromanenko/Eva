@@ -61,7 +61,9 @@
 /**
  * The four activity bands the Sign Up questionnaire already asks (A8, #25 Q4), as codes.
  *
- * **Declared once, here, and read by both this lookup and S1's validator (#221).** The
+ * **Declared once, here, and read by both this lookup and S1's validator (#221)** —
+ * `users.ts` re-exports this very array as `ACTIVITY_BAND_CODES`, and `parseProfile` refuses
+ * anything outside it. The
  * factor table below is a `Record<ActivityBand, number>`, so adding a band without giving it
  * a factor is a compile error and a band that validates but has no factor cannot exist. That
  * is the whole defence against the one-liner #221 names as the tempting wrong fix —
@@ -129,10 +131,12 @@ interface BodyMetrics {
 /**
  * Everything the day's targets are computed from.
  *
- * **It does not take `Profile`.** `Profile.lifestyle` is a bare `string` until #221 lands,
- * and accepting it here would force exactly the lookup with a fallback that #221 exists to
- * remove. S3 assembles this shape from the profile and the nutrition profile, the way
- * `today.ts` assembles `DashboardInput` from three modules.
+ * **It does not take `Profile`.** `Profile.lifestyle` is `ActivityBand | null` since #221 —
+ * `null` for a pre-#221 label that matched none of the four — and this module imports
+ * nothing, so the caller narrows the `null` away (nutrition setup asks) rather than this
+ * module choosing a band for it. S3 assembles this shape from the profile and the nutrition
+ * profile (`completedSetup` in `nutrition-profile.ts`), the way `today.ts` assembles
+ * `DashboardInput` from three modules.
  *
  * **And it takes no cycle phase and no calendar mode.** Not a phase it ignores — an argument
  * that does not exist. See the header.
