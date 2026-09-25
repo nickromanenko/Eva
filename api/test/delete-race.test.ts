@@ -26,6 +26,7 @@ import {
   deleteUserDocument,
   markUserDeleted,
 } from '../src/users'
+import { isRequestLine } from './support/request-line'
 
 /**
  * A write racing `DELETE /me` (#286).
@@ -181,12 +182,15 @@ const CYCLE_RULES = {
 
 const PATTERN = { lowSignalDays: 3, lowAtOrBelow: 2, severeSymptomDays: 2 }
 
-/** Every console line written while `fn` runs — the "not a fault, so no line" half. */
+/** Every console line written while `fn` runs — the "not a fault, so no line" half. The
+ *  server edge's per-request line (#263) is not a fault line and is written for every
+ *  request, so it is left out — in its exact shape only (`isRequestLine`). */
 const capturingLogs = async (fn: () => Promise<void>): Promise<string[]> => {
   const logged: string[] = []
   const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
     spyOn(console, method).mockImplementation((...args: unknown[]) => {
-      logged.push(args.map(String).join(' '))
+      const line = args.map(String).join(' ')
+      if (!isRequestLine(line)) logged.push(line)
     }),
   )
   try {

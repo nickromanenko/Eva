@@ -366,9 +366,17 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   name only. What the export leaves out (session generation, cache bookkeeping, link-token
   hashes) is listed in ARCHITECTURE §4 "Data export".
 - `request-timeout.ts` — the per-request timeout that names a hung request in the log before
-  Bun's `idleTimeout` kills the connection (#225). Pure leaf: wraps the handler in a timer,
-  reads no clock and no Firestore, and logs only the route path — no payload, address or
-  token (GUARDRAILS 12).
+  Bun's `idleTimeout` kills the connection (#225). Wraps the handler in a timer, reads no
+  clock and no Firestore, and logs `{ event: 'request_timeout', method, route }` to stderr —
+  no payload, address, token or id (GUARDRAILS 12).
+- `request-log.ts` — one `{ event: 'request', method, route, status, ms }` line to stdout
+  per finished request (#263), written at the server edge by `withRequestLog` around
+  `app.fetch`. `recordRoute`, the first middleware in `index.ts`, records the **matched
+  pattern** (`/me/events/:id`), and `routeOf` hands it to both lines — never the path the
+  caller sent, which carries event ids, logged days, and for a miss whatever was typed
+  (`route: null`). Those are the API's two request-level event names; add a field to either
+  only with a GUARDRAILS 12 read. In-process suites that assert "nothing logged" admit this
+  line through `test/support/request-line.ts`, in its exact five-field shape only.
 
 ## Rules
 

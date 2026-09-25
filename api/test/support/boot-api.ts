@@ -101,7 +101,10 @@ export const bootApi = async (options: BootOptions): Promise<BootedApi> => {
   const child = Bun.spawn(['bun', 'run', 'src/index.ts'], {
     cwd: new URL('../..', import.meta.url).pathname,
     env: { ...process.env, PORT: String(port), ...env },
-    stdout: 'pipe',
+    // Discarded, not piped: nothing reads a booted child's stdout, and since #263 the server
+    // writes one line per request there. An undrained pipe fills at the OS buffer and can
+    // stall the child's writes — a hang that would read as the API's, not the harness's.
+    stdout: 'ignore',
     stderr: 'pipe',
   })
   const base = `http://localhost:${port}`

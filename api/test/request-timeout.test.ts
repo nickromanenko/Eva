@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { Hono } from 'hono'
+import { recordRoute } from '../src/request-log'
 import { REQUEST_TIMEOUT_MS, withRequestTimeout } from '../src/request-timeout'
 
 /**
@@ -21,7 +23,12 @@ describe('withRequestTimeout', () => {
   test('a hung request names its route in the log before the kill', async () => {
     const { logged, restore } = captureErrors()
     try {
-      const hung = withRequestTimeout(() => new Promise<Response>(() => {}), 5)
+      // Through a router with `recordRoute`, as `index.ts` wires it: the route logged is
+      // the matched pattern (#263), which only exists once Hono has matched.
+      const app = new Hono()
+      app.use('*', recordRoute)
+      app.post('/auth/signup', () => new Promise<Response>(() => {}))
+      const hung = withRequestTimeout(app.fetch, 5)
       void hung(new Request('http://localhost/auth/signup', { method: 'POST' }))
       await Bun.sleep(30)
     } finally {

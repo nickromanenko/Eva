@@ -53,6 +53,7 @@ import {
   type NutritionProfilePatch,
 } from './nutrition-profile'
 import { ProviderError, exchangeGoogleAuthCode, revokeAppleToken } from './providers'
+import { recordRoute, withRequestLog } from './request-log'
 import { REQUEST_TIMEOUT_MS, withRequestTimeout } from './request-timeout'
 import {
   RETENTION_DAYS,
@@ -255,7 +256,8 @@ const nonErrorName = (value: unknown): string => {
  *   before it threw — `c.error` is how that is known. A 500 is never worth keeping, and
  *   without this a throw after `/content` set its headers would answer a cacheable 500.
  *
- * **Registered first — before `wrapNonErrors`, so outside it.** Set after `await next()`, a
+ * **Registered before `wrapNonErrors`, so outside it** — only `recordRoute` (#263), which
+ * does nothing after `next()`, sits above it. Set after `await next()`, a
  * throw passing through this block would skip the line; that is exactly how `noStore` let a
  * non-`Error` inside a link route answer without the header. Outside `wrapNonErrors` nothing
  * passes through as a throw: an `Error` is answered by `onError` at the level it was thrown,
@@ -272,6 +274,10 @@ const noStoreByDefault = createMiddleware(async (c, next) => {
     c.res.headers.set('cache-control', 'no-store')
   }
 })
+// First of all: records the matched route *pattern* for the request-level log lines
+// (`request-log.ts`, #263). It runs before anything can await, so `request_timeout` can
+// always read it, and it writes nothing itself — the line is written at the server edge.
+app.use('*', recordRoute)
 app.use('*', noStoreByDefault)
 
 /**
@@ -285,11 +291,12 @@ app.use('*', noStoreByDefault)
  * dependency rather than a live bug; it is three lines, and the alternative is a response
  * shape that is true of every route except the one that surprises us.
  *
- * **Registered before every route and every other `app.use` but `noStoreByDefault`**, which
- * is what makes it wrap them: Hono runs handlers for a path in registration order, so
- * middleware added after a route does not run for it. That is also why `webCors` sits above
- * the two link routes rather than at the end of the file. `noStoreByDefault` is the one
- * thing registered before this, deliberately — see above for why it has to be outside.
+ * **Registered before every route and every other `app.use` but `recordRoute` and
+ * `noStoreByDefault`**, which is what makes it wrap them: Hono runs handlers for a path in
+ * registration order, so middleware added after a route does not run for it. That is also
+ * why `webCors` sits above the two link routes rather than at the end of the file.
+ * `noStoreByDefault` is registered before this deliberately — see above for why it has to
+ * be outside — and `recordRoute` only records a pattern before calling `next()`.
  *
  * **It does not disturb #5's throttle**, and the reason is worth writing down because the
  * issue assumed otherwise: the throttle is not middleware. `throttleAuth`, `throttleToken`
@@ -3234,7 +3241,9 @@ app.get('/me/today', requireAuth, requireAccount, async (c) => {
 export default {
   // Cloud Run injects PORT (8080); default to 3003 for local dev
   port: Number(process.env.PORT ?? 3003),
-  fetch: withRequestTimeout(app.fetch),
+  // Outermost, so `ms` covers the timeout wrapper too and every request that answers writes
+  // one `request` line; a hung one writes `request_timeout` first (#263, #225).
+  fetch: withRequestLog(withRequestTimeout(app.fetch)),
   // Bun's `idleTimeout` is in *seconds* (max 255); `REQUEST_TIMEOUT_MS` is in milliseconds
   // for the timer above. Both are the same 10s, deliberately not raised (#225).
   idleTimeout: REQUEST_TIMEOUT_MS / 1000,

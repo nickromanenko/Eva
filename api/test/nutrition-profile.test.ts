@@ -22,6 +22,7 @@ import {
   type NutritionProfile,
 } from '../src/nutrition-profile'
 import { ACTIVITY_BAND_CODES, type ActivityBand, storedLifestyle } from '../src/users'
+import { isRequestLine } from './support/request-line'
 
 /**
  * Nutrition S1 (#221): the activity band as a code, and the nutrition profile document.
@@ -109,7 +110,9 @@ afterAll(async () => {
 /** Every console line written while a case runs. GUARDRAILS 12: a goal, a focus area or a
  *  target weight in a log line is a health fact about a named request — and nothing on
  *  these routes has any reason to log at all, so the assertion is "nothing", not "nothing
- *  that looks sensitive". */
+ *  that looks sensitive". The one exception is the server edge's own per-request line
+ *  (#263), which every route writes and none of these controls; `isRequestLine` admits it
+ *  only in its exact five-field shape. */
 let logged: string[] = []
 const spies: ReturnType<typeof spyOn>[] = []
 beforeEach(() => {
@@ -117,7 +120,8 @@ beforeEach(() => {
   for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
     spies.push(
       spyOn(console, method).mockImplementation((...args: unknown[]) => {
-        logged.push(args.map(String).join(' '))
+        const line = args.map(String).join(' ')
+        if (!isRequestLine(line)) logged.push(line)
       }),
     )
   }
