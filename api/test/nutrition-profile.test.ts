@@ -151,7 +151,7 @@ describe('lifestyle is one of four codes (#221)', () => {
 
   test('a label, or anything else, is 400 VALIDATION naming the field and not the value', async () => {
     const { uid, token } = await account()
-    for (const value of ['Active', 'Mostly sitting', 'Sofa-bound-7731', '', 3, null]) {
+    for (const value of ['Active', 'Mostly sitting', 'Sofa-bound-7731', '', ' ', 3, false, []]) {
       const res = await call(token, 'PUT', '/me/questionnaire', questionnaire(value))
       expect(res.status).toBe(400)
       expect(res.body.error.code).toBe('VALIDATION')
@@ -163,6 +163,46 @@ describe('lifestyle is one of four codes (#221)', () => {
     expect(sentinel.body.error.message).not.toContain('Sofa-bound-7731')
     // Nothing was written by any of the refusals.
     expect((await userDoc(uid).get()).data()!.profile).toBe(null)
+    expect(logged).toEqual([])
+  })
+
+  test('unanswered — null or absent — is accepted and stored as null', async () => {
+    // Every profile editor re-sends the whole profile, so an account with no band (new, or a
+    // legacy label read as absent) must still be able to save its goals and sports.
+    const { uid, token } = await account()
+    for (const body of [
+      questionnaire(null),
+      (({ lifestyle: _, ...rest }) => rest)(questionnaire(null)),
+    ]) {
+      const res = await call(token, 'PUT', '/me/questionnaire', body)
+      expect(res.status).toBe(200)
+      expect(res.body.user.profile.lifestyle).toBe(null)
+      // Stored as null — the key present, so a later read cannot mistake it for a pre-#221
+      // document with a label on it.
+      const stored = (await userDoc(uid).get()).data()!.profile
+      expect('lifestyle' in stored).toBe(true)
+      expect(stored.lifestyle).toBe(null)
+    }
+  })
+
+  test('a profile with no band round-trips, and answering it later is a code', async () => {
+    const { token } = await account()
+    const saved = await call(token, 'PUT', '/me/questionnaire', questionnaire(null))
+    expect(saved.status).toBe(200)
+    // What an editor does: read the profile back and re-send it whole, band still unanswered.
+    const served = (await call(token, 'GET', '/me')).body.user.profile
+    expect(served.lifestyle).toBe(null)
+    const resent = await call(token, 'PUT', '/me/questionnaire', {
+      ...served,
+      sports: ['Running'],
+      timeZone: 'UTC',
+    })
+    expect(resent.status).toBe(200)
+    expect(resent.body.user.profile).toEqual({ ...served, sports: ['Running'] })
+    expect(resent.body.user.questionnaireCompleted).toBe(true)
+
+    const answered = await call(token, 'PUT', '/me/questionnaire', questionnaire('veryActive'))
+    expect(answered.body.user.profile.lifestyle).toBe('veryActive')
     expect(logged).toEqual([])
   })
 

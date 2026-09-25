@@ -111,9 +111,10 @@ export interface Profile {
   conditions: ConditionCode[]
   medications: MedicationCode
   /**
-   * The activity band, as a code (#221). `null` only on a document written before the band
-   * was a code whose label is not one of the four the app offered — see `storedLifestyle`.
-   * `parseProfile` never writes `null`: a questionnaire answer is always one of the four.
+   * The activity band, as a code (#221), or `null` when unanswered: she has not chosen one
+   * yet (`parseProfile` accepts `null` or absent and stores `null`), or the document predates
+   * codes and holds a label that is not one of the four the app offered — see
+   * `storedLifestyle`. Either way nutrition setup asks; nothing assumes a band.
    */
   lifestyle: ActivityBand | null
   sports: string[]

@@ -1095,7 +1095,9 @@ anything else could change cannot testify.
 `Profile` is validated at the edge in `parseProfile` (`index.ts`): weight 30–200 kg,
 height 120–220 cm, `medications` one of `MEDICATION_CODES`, `conditions` a list drawn
 from `CONDITION_CODES`, and `lifestyle` one of `ACTIVITY_BAND_CODES` (#221) — `mostlySitting`,
-`lightlyActive`, `active`, `veryActive` (all in `users.ts` — opaque, permanent codes, the rule
+`lightlyActive`, `active`, `veryActive` — or `null`/absent, stored as `null` for "not answered
+yet", because every profile editor re-sends the whole profile and an account with no band
+must still be able to save the rest (all in `users.ts` — opaque, permanent codes, the rule
 `refdata.ts` follows and for the same reason; the band's array is the nutrition engine's own,
 re-exported, so the codes the route accepts and the factors the engine holds are one list). Widening a range or adding a code is a product decision,
 not a bug fix; changing an existing code is a data migration.

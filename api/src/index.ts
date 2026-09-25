@@ -2244,8 +2244,14 @@ const parseProfile = (body: Record<string, unknown>, clock: Clock): Parsed<Profi
   }
   // The activity band (#221): the one answer here that arithmetic reads, so a label that
   // matched no band would become a plausible calorie target rather than an error.
-  if (!isOneOf(lifestyle, ACTIVITY_BAND_CODES)) {
-    return bad(`lifestyle must be one of: ${ACTIVITY_BAND_CODES.join(', ')}`)
+  // **Unanswered is an answer the profile can hold** — `null` or absent, stored as `null` —
+  // because the read side already serves an unrecognised legacy label that way ("absent
+  // means setup asks"), and every profile editor re-sends the whole profile: refusing it here
+  // would lock such an account out of saving her goals until she picked a band. `""` is not
+  // unanswered, it is a client sending a vocabulary this version does not have.
+  const band = lifestyle ?? null
+  if (band !== null && !isOneOf(band, ACTIVITY_BAND_CODES)) {
+    return bad(`lifestyle must be one of: ${ACTIVITY_BAND_CODES.join(', ')}, or null`)
   }
   if (!isStringArray(conditions)) return bad('conditions must be a list of strings')
   const conditionCodes: ConditionCode[] = []
@@ -2263,7 +2269,7 @@ const parseProfile = (body: Record<string, unknown>, clock: Clock): Parsed<Profi
     goals,
     conditions: conditionCodes,
     medications,
-    lifestyle,
+    lifestyle: band,
     sports,
   })
 }
