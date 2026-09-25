@@ -1378,17 +1378,22 @@ consistent answer rather than for survival: a racing edit gets what a racing cre
 `app.onError` answers `AccountGoneError` exactly as the gate answers a deleted account's
 token — `401 UNAUTHORIZED`, `Invalid or expired token`, no log line — because that is what
 the caller is, one step earlier. No error code was added. `api/test/delete-race.test.ts`
-forces the interleaving (the tombstone and the sweeps run inside the write's first
-`runTransaction` call, after the gate) and fails with any one check removed.
+forces the interleaving two ways, and each fails with any one check removed: the tombstone
+and the sweeps run after the gate and before the write's transaction starts (every writer, and
+the three routes), and — the case that pins "inside" — they start *after* the transaction's
+account read and before its commit, which a plain `get` in place of `tx.get` lets through.
 
-The cost, measured on the issue from a laptop against the production Firestore (warm, median
-of 25): one extra billed document read per write, and one extra round trip — a plain event
+The cost, from a throwaway timing script run while implementing #286 — a laptop against the
+production Firestore, warm, median of 25, not a benchmark kept in the repo: one extra billed document read per write, and one extra round trip — a plain event
 create went from ~135ms (a bare `set`) to ~262ms (a transaction), a one-per-day create from
 ~254ms to ~383ms. The round trip is the laptop's ~130ms here and a few milliseconds from
 Cloud Run in the same region. Contention: the read holds a lock on `users/{uid}` for the
 length of a short transaction, so a profile save or `markUserDeleted` on the *same* account
 may wait that long; subcollection writers only share the lock and do not contend with each
-other. `tx.getAll` could fold the account read into the writer's own first read and save the
+other. The same lock runs the other way: a burst of writes landing while `DELETE /me` stamps
+the tombstone can make that write wait and, under enough contention, fail — the route then
+answers `500`, and a retry resumes it, because every step is idempotent (within the
+per-account delete throttle's budget). `tx.getAll` could fold the account read into the writer's own first read and save the
 round trip; not done, because it would widen the helper's contract for milliseconds in
 production.
 

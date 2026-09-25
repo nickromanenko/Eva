@@ -1,7 +1,9 @@
 import { afterAll, afterEach, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
-import { Timestamp } from 'firebase-admin/firestore'
+import { Timestamp, Transaction } from 'firebase-admin/firestore'
 import { mintToken } from '../src/auth'
 import { config } from '../src/config'
+import * as content from '../src/content'
+import { TEMPLATE } from '../src/dashboard-rules'
 import {
   createEvent,
   deleteAllUserEvents,
@@ -32,6 +34,11 @@ import { AccountGoneError, deleteUserDocument, markUserDeleted } from '../src/us
  * the seam fires — and each case asserts the seam fired, which is what separates "refused by
  * the write" from "refused by the gate". Without the check, every case here writes a document
  * after the sweep and fails on it.
+ *
+ * That seam fires *before* the transaction starts, so it cannot tell a read inside the
+ * transaction from a plain `get` just before it — both see the tombstone. The case under
+ * "inside the transaction" closes that: it lets the account read happen, *then* starts the
+ * delete while the transaction is still open, which only the read set can refuse.
  *
  * In-process through `server.fetch`, against the real Firestore — the seam
  * `nutrition-profile.test.ts` uses — so this file binds no port. Accounts are written
@@ -131,6 +138,46 @@ const cycle = (localDate: string): NewEvent => ({
   payload: { flow: 'medium' },
 })
 
+/** A25–A27's values, as `today.test.ts` carries them. Only so a card can be built in-process
+ *  (a local `.env` leaves the group unset); nothing here asserts on the maths. */
+const CYCLE_RULES = {
+  minCycleLengthDays: 21,
+  maxCycleLengthDays: 45,
+  minPeriodGapDays: 2,
+  historyCycles: 6,
+  minCyclesForEstimate: 3,
+  narrowBandMinCycles: 6,
+  lutealPhaseDays: 14,
+  fertileDaysBeforeOvulation: 5,
+  fertileDaysAfterOvulation: 1,
+  peakDaysBeforeOvulation: 2,
+  irregularity: {
+    youngMaxAge: 25,
+    midMaxAge: 41,
+    youngVariationDays: 9,
+    midVariationDays: 7,
+    olderVariationDays: 9,
+  },
+}
+
+const PATTERN = { lowSignalDays: 3, lowAtOrBelow: 2, severeSymptomDays: 2 }
+
+/** Every console line written while `fn` runs — the "not a fault, so no line" half. */
+const capturingLogs = async (fn: () => Promise<void>): Promise<string[]> => {
+  const logged: string[] = []
+  const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
+    spyOn(console, method).mockImplementation((...args: unknown[]) => {
+      logged.push(args.map(String).join(' '))
+    }),
+  )
+  try {
+    await fn()
+  } finally {
+    for (const spy of spies) spy.mockRestore()
+  }
+  return logged
+}
+
 /** What the account gate answers a deleted account's token — the answer the racing write
  *  has to match exactly (no new code). */
 const DEAD_TOKEN = { error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } }
@@ -169,15 +216,112 @@ describe('a write racing DELETE /me through the route', () => {
 
   test('PATCH /me/nutrition/profile: refused inside the write, nothing survives', async () => {
     const { uid, token } = await account()
-    const race = deleteBeforeNextTransaction(uid)
-    const res = await call(token, 'PATCH', '/me/nutrition/profile', {
-      goal: 'lose',
-      targetWeightKg: 58,
-      step: 'focusAreas',
+    const logged = await capturingLogs(async () => {
+      const race = deleteBeforeNextTransaction(uid)
+      const res = await call(token, 'PATCH', '/me/nutrition/profile', {
+        goal: 'lose',
+        targetWeightKg: 58,
+        step: 'focusAreas',
+      })
+      expect(race).toHaveBeenCalledTimes(1)
+      expect(res).toEqual({ status: 401, body: DEAD_TOKEN })
     })
-    expect(race).toHaveBeenCalledTimes(1)
-    expect(res).toEqual({ status: 401, body: DEAD_TOKEN })
     expect((await nutritionDocs(uid).get()).size).toBe(0)
+    expect(logged).toEqual([])
+  })
+
+  test('GET /me/today: the cache write refused answers 401 like the rest — not a 503', async () => {
+    const { uid, token } = await account()
+    // The card has to be buildable for the route to reach its write: C11's constants and
+    // rung 2's rule (both unset in a local `.env`), and one active template per id and
+    // confidence so no seeded `content/` is needed. None of it is what is under test.
+    const saved = { cycle: config.cycle, pattern: config.dashboard.pattern }
+    ;(config as { cycle: unknown }).cycle = CYCLE_RULES
+    ;(config.dashboard as { pattern: unknown }).pattern = PATTERN
+    const templates: content.Template[] = Object.values(TEMPLATE).flatMap((id) =>
+      (['plain', 'hedged'] as const).map((confidence) => ({
+        id,
+        rung: 'any',
+        mode: 'any',
+        state: 'home_x',
+        confidence,
+        title: 'A card',
+        actions: [],
+        slots: [],
+        status: 'active' as const,
+        order: 0,
+      })),
+    )
+    const stubContent = spyOn(content, 'getContent').mockResolvedValue({
+      version: 'test',
+      templates,
+      banners: [],
+      nudges: [],
+    })
+    try {
+      const race = deleteBeforeNextTransaction(uid)
+      const res = await call(token, 'GET', '/me/today?timeZone=UTC')
+      expect(stubContent).toHaveBeenCalled()
+      expect(race).toHaveBeenCalledTimes(1)
+      expect(res).toEqual({ status: 401, body: DEAD_TOKEN })
+      expect((await todayDocs(uid).get()).size).toBe(0)
+    } finally {
+      stubContent.mockRestore()
+      ;(config as { cycle: unknown }).cycle = saved.cycle
+      ;(config.dashboard as { pattern: unknown }).pattern = saved.pattern
+    }
+  })
+})
+
+// ── Inside the transaction: the read has to be in the read set ─────────────────────────
+
+describe('the account read is part of the write transaction, not a check before it', () => {
+  test('a delete that starts after the account read and before the commit leaves nothing', async () => {
+    const { uid } = await account()
+    const accountPath = userDoc(uid).path
+    let deleting: Promise<void> | null = null
+    const real = Transaction.prototype.get
+    const spy = spyOn(Transaction.prototype, 'get').mockImplementation(async function (
+      this: Transaction,
+      ...args: unknown[]
+    ) {
+      const result = await (real as (...a: unknown[]) => Promise<unknown>).apply(this, args)
+      const target = args[0] as { path?: string }
+      if (deleting === null && target.path === accountPath) {
+        // The account read has returned "live". Now DELETE /me starts — tombstone, then the
+        // sweep — and is *not* awaited: the transaction is still open. With the read in the
+        // read set, the tombstone has to wait for (or abort) this transaction, so the write
+        // is either swept or refused. With a plain `get` nothing holds it, the sweep finishes
+        // inside the pause below, and the write lands after it.
+        deleting = (async () => {
+          for (let attempt = 0; ; attempt++) {
+            try {
+              await markUserDeleted(uid)
+              break
+            } catch (err) {
+              if (attempt >= 5) throw err
+            }
+          }
+          await deleteAllUserEvents(uid)
+        })()
+        // Long enough for the unlocked version's tombstone and sweep to finish; bounded,
+        // because in the locked version the tombstone is waiting on this very transaction.
+        await Promise.race([deleting, Bun.sleep(4_000)])
+      }
+      return result
+    } as typeof real)
+    try {
+      // Refused on a retry, or committed before the tombstone and then swept — both are fine.
+      // What is not fine is an entry left once the delete has finished.
+      await createEvent(uid, sport(todayUtc())).catch((err: unknown) => {
+        expect(err).toBeInstanceOf(AccountGoneError)
+      })
+    } finally {
+      spy.mockRestore()
+    }
+    expect(deleting).not.toBeNull()
+    await deleting
+    expect((await eventDocs(uid).get()).size).toBe(0)
   })
 })
 
@@ -222,25 +366,7 @@ describe('every per-user subcollection writer refuses a tombstoned account in it
     // for this case alone: C11's constants (unset in a local `.env`) and a phraser that needs
     // no seeded `content/`. Neither is what is under test.
     const saved = config.cycle
-    ;(config as { cycle: unknown }).cycle = {
-      minCycleLengthDays: 21,
-      maxCycleLengthDays: 45,
-      minPeriodGapDays: 2,
-      historyCycles: 6,
-      minCyclesForEstimate: 3,
-      narrowBandMinCycles: 6,
-      lutealPhaseDays: 14,
-      fertileDaysBeforeOvulation: 5,
-      fertileDaysAfterOvulation: 1,
-      peakDaysBeforeOvulation: 2,
-      irregularity: {
-        youngMaxAge: 25,
-        midMaxAge: 41,
-        youngVariationDays: 9,
-        midVariationDays: 7,
-        olderVariationDays: 9,
-      },
-    }
+    ;(config as { cycle: unknown }).cycle = CYCLE_RULES
     const phraser: Phraser = {
       id: 'fixed',
       phrase: () => ({ state: 'home_edu', title: 'A card', actions: [] }),
