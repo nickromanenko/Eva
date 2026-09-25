@@ -168,7 +168,7 @@ else
     fi
     sleep 0.5
   done
-  [ "$MAILBOX_UP" = "1" ] || { echo "✗ UI-test mailbox failed to start"; cat "$MAILBOX_LOG"; exit 1; }
+  [ "$MAILBOX_UP" = "1" ] || { echo "✗ UI-test mailbox failed to start"; redact_log_lines "$MAILBOX_LOG"; exit 1; }
   echo "▶ UI-test mailbox at $MAILBOX_URL"
 
   echo "▶ build + UI tests (simulator $SIMULATOR, API $API_URL)"

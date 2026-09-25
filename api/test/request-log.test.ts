@@ -128,6 +128,29 @@ describe('withRequestLog', () => {
   })
 })
 
+describe('isRequestLine', () => {
+  // The filter the "nothing logged" suites use. It must admit the exact line and nothing
+  // wider — a sixth field or an address in `route` is a line those suites should fail on.
+  const base = { event: 'request', method: 'GET', route: '/me', status: 200, ms: 3 }
+  test('admits the exact five-field line', () => {
+    expect(isRequestLine(JSON.stringify(base))).toBe(true)
+    expect(isRequestLine(JSON.stringify({ ...base, route: null }))).toBe(true)
+  })
+  test('rejects a sixth field', () => {
+    expect(isRequestLine(JSON.stringify({ ...base, uid: 'u-1' }))).toBe(false)
+  })
+  test('rejects an address in route', () => {
+    expect(isRequestLine(JSON.stringify({ ...base, route: `/x/${ADDRESS}` }))).toBe(false)
+  })
+  test('rejects a missing field, a wrong type, another event and non-JSON', () => {
+    const { ms: _ms, ...four } = base
+    expect(isRequestLine(JSON.stringify(four))).toBe(false)
+    expect(isRequestLine(JSON.stringify({ ...base, status: '200' }))).toBe(false)
+    expect(isRequestLine(JSON.stringify({ ...base, event: 'request_timeout' }))).toBe(false)
+    expect(isRequestLine('[email:log] activation to=x link=y')).toBe(false)
+  })
+})
+
 describe('routeOf', () => {
   test('is null for a request Hono never matched', () => {
     expect(routeOf(new Request(`http://localhost/me/body-signals/${DAY}`))).toBeNull()

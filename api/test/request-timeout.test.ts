@@ -27,9 +27,11 @@ describe('withRequestTimeout', () => {
       // the matched pattern (#263), which only exists once Hono has matched.
       const app = new Hono()
       app.use('*', recordRoute)
-      app.post('/auth/signup', () => new Promise<Response>(() => {}))
+      // A parameterised route, so the pattern and the path differ and a regression to the
+      // raw pathname fails here rather than passing by coincidence.
+      app.patch('/me/events/:id', () => new Promise<Response>(() => {}))
       const hung = withRequestTimeout(app.fetch, 5)
-      void hung(new Request('http://localhost/auth/signup', { method: 'POST' }))
+      void hung(new Request('http://localhost/me/events/evt-hung-1', { method: 'PATCH' }))
       await Bun.sleep(30)
     } finally {
       restore()
@@ -37,9 +39,10 @@ describe('withRequestTimeout', () => {
     expect(logged).toHaveLength(1)
     expect(JSON.parse(logged[0]!)).toEqual({
       event: 'request_timeout',
-      method: 'POST',
-      route: '/auth/signup',
+      method: 'PATCH',
+      route: '/me/events/:id',
     })
+    expect(logged[0]).not.toContain('evt-hung-1')
   })
 
   test('a request that answers in time logs nothing', async () => {

@@ -2274,9 +2274,11 @@ a UI test waited on. `verify-mobile.sh` copies the API's and the UI-test mailbox
 `mobile/build/suite-logs/` on exit, and `test-mobile.yml` uploads that directory when the
 job fails — never on a green run. The copy is **redacted** (`redact_suite_log` in
 `scripts/lib/api-server.sh`): under `EMAIL_TRANSPORT=log` the API prints every activation
-link and its address, and an artifact outlives the runner. Links, addresses, JWT-shaped and
-token-length strings are replaced; the `request` and `request_timeout` lines carry none of
-those and survive whole. A job killed by `timeout-minutes` is cancelled rather than failed,
+link and its address, and an artifact outlives the runner. Links, `#token=` fragments,
+addresses (plain and percent-encoded), JWT-shaped strings (an emulator's unsigned one
+included) and token-length strings are replaced; the `request` and `request_timeout` lines
+carry none of those and survive whole. The startup-failure prints go through the same scrub,
+and `api/test/suite-log-redaction.test.ts` pins every rule against the real line formats. A job killed by `timeout-minutes` is cancelled rather than failed,
 and uploads nothing.
 
 **A red suite does not block the merge**, only the deploy. That half of #67 is not
