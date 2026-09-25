@@ -820,6 +820,15 @@ Real platform limits, not decisions:
   element with both an identifier and a label resolves by either, so adding one never
   breaks a lookup that used the label.
 - Portrait iPhone only, iOS 18+. No dark palette is designed yet; don't invent one.
+- **The website** takes the same tokens from one block, `website/src/styles/tokens.css`
+  (custom properties plus the §3 roles as `t-display` … `t-overline` classes); no page or
+  layout inlines a hex. Montserrat is self-hosted from the app's own OFL files
+  (`website/public/fonts/`, with `OFL.txt`) — 400/500/600 only, no third-party font
+  request (#85). There is no website canvas, so the site applies the tokens rather than
+  a drawn page. It takes the §9a action ramp for pink text and for anything with a white
+  label, Secondary Text for captions (the settings-row argument), and a light footer,
+  since no dark palette exists. The email-link pages (`AuthLayout.astro`) share the block
+  and still draw §5's canvas primary.
 - Selection is never colour alone — **fill, label colour and elevation move together**.
   A border is not part of it: the artboard's selected chip has fill, white label and
   shadow and no border, while the severe chip does carry one. (This sentence previously

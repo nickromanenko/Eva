@@ -1,0 +1,156 @@
+/*
+ * The site's one token block: docs/DESIGN.md §2–§5 and §9a, transcribed as custom
+ * properties so no page or layout inlines a colour, a size or a radius (GUARDRAILS 20).
+ * The iOS twin is mobile/Eva/Theme/; where the two disagree, DESIGN.md wins.
+ *
+ * Montserrat is self-hosted: the same OFL static files the app bundles
+ * (mobile/Eva/Resources/Fonts), copied byte-for-byte with their licence
+ * (public/fonts/OFL.txt). No page makes a font request to a third party.
+ * Only the three cuts the type scale uses ship — 400, 500, 600 (§3).
+ */
+
+@font-face {
+  font-family: Montserrat;
+  src: url('/fonts/Montserrat-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Montserrat;
+  src: url('/fonts/Montserrat-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Montserrat;
+  src: url('/fonts/Montserrat-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* §2 Brand */
+  --eva-pink: #E982A5;
+  --eva-deep-pink: #C95F86;
+  --eva-blush: #F9DCE6;
+  --eva-pistachio: #CDE79D;
+  --eva-deep-pistachio: #8EAD56;
+  --eva-light-pistachio: #EDF6DA;
+
+  /* §2 Neutrals */
+  --eva-bg: #FFF9F6;
+  --eva-bg-secondary: #F8F3F0;
+  --eva-glass: rgba(255, 255, 255, .66);
+  --eva-glass-elevated: rgba(255, 252, 250, .92);
+  --eva-text: #282126;
+  --eva-text-secondary: #6F656B;
+  --eva-text-muted: #9A9095;
+  --eva-text-on-dark: #FFFFFF;
+  --eva-opaque: #FFFFFF;          /* §6 focused input: "fill goes opaque #fff" */
+  --eva-disabled-text: #B3A9AE;   /* §6 disabled input text */
+  --eva-control-border: rgba(40, 33, 38, .1);
+  --eva-bar: rgba(255, 249, 246, .8); /* §7 tab bar */
+
+  /* §2 Semantic — base · tint · border · ink */
+  --eva-success: #7A9B45;
+  --eva-success-tint: rgba(205, 231, 157, .26);
+  --eva-success-border: rgba(142, 173, 86, .32);
+  --eva-success-ink: #4F6630;
+  --eva-warning: #C9913F;
+  --eva-warning-tint: rgba(201, 145, 63, .10);
+  --eva-warning-border: rgba(201, 145, 63, .3);
+  --eva-warning-ink: #8A6425;
+  --eva-error: #C4645A;
+  --eva-error-tint: rgba(196, 100, 90, .08);
+  --eva-error-border: rgba(196, 100, 90, .26);
+  --eva-error-ink: #A9524A;
+  --eva-info: #5A7BA0;
+  --eva-info-tint: rgba(90, 123, 160, .09);
+  --eva-info-border: rgba(90, 123, 160, .26);
+  --eva-info-ink: #3F5A76;
+
+  /* §5 Primary as drawn on the canvas (the email-link pages use it). */
+  --eva-primary-top: #EE93B1;
+  --eva-primary-pressed-top: #D9799C;
+  --eva-primary-pressed-bottom: #B45276;
+
+  /* §9a Action ramp — anything that carries a label or is pink text on the light
+     ground. White on the canvas pink fails AA; these pass. */
+  --eva-action-top: #B45276;      /* evaActionPinkTop — also the text-button / link ink */
+  --eva-action-bottom: #96486A;
+  --eva-action-pressed-top: #994664;
+  --eva-action-pressed-bottom: #803D5A;
+  --eva-action-solid: #A94A6C;
+
+  /* §5 Auth · Apple — the App Store badge is the same solid. */
+  --eva-apple: #1C1A1B;
+
+  /* §2 Gradients ("cream" is Warm Background) */
+  --eva-grad-blush: linear-gradient(135deg, var(--eva-blush), var(--eva-bg));
+  --eva-grad-pistachio: linear-gradient(135deg, var(--eva-light-pistachio), var(--eva-bg));
+  --eva-grad-pink-pistachio: linear-gradient(120deg, #F3AEC4, var(--eva-light-pistachio));
+  --eva-grad-action: linear-gradient(180deg, var(--eva-action-top), var(--eva-action-bottom));
+  --eva-grad-action-pressed: linear-gradient(180deg, var(--eva-action-pressed-top), var(--eva-action-pressed-bottom));
+  --eva-shadow-action: 0 12px 26px -12px var(--eva-action-bottom);
+
+  /* §4 Standard card, with §9a's neutral shadow */
+  --eva-shadow-ink: rgba(40, 33, 38, .35);
+  --eva-card-fill: linear-gradient(150deg, rgba(255, 255, 255, .66), rgba(255, 255, 255, .36));
+  --eva-card-blur: blur(26px) saturate(1.7);
+  --eva-card-border: rgba(255, 255, 255, .72);
+  --eva-card-shadow:
+    0 12px 30px -18px var(--eva-shadow-ink),
+    inset 0 1px 0 rgba(255, 255, 255, .9),
+    inset 0 -1px 0 rgba(255, 255, 255, .4);
+  /* §4 Glass levels: L1 40% · L2 68% · L3 92% */
+  --eva-glass-l1: rgba(255, 255, 255, .4);
+  --eva-glass-l2: rgba(255, 255, 255, .68);
+  --eva-glass-l3: var(--eva-glass-elevated);
+  /* §6 Radio row selected */
+  --eva-selected-fill: rgba(233, 130, 165, .14);
+  --eva-selected-border: rgba(201, 95, 134, .45);
+  /* §5 focus ring */
+  --eva-focus: rgba(40, 33, 38, .6);
+  --eva-focus-ring: 3px;
+
+  /* §4 Spacing: 4, 8, 12, 16, 24, 32, 40 */
+  --eva-space-1: 4px;
+  --eva-space-2: 8px;
+  --eva-space-3: 12px;
+  --eva-space-4: 16px;
+  --eva-space-6: 24px;
+  --eva-space-8: 32px;
+  --eva-space-10: 40px;
+
+  /* §4 Radii; §5 text button 14 */
+  --eva-radius-chip: 14px;
+  --eva-radius-text: 14px;
+  --eva-radius-control: 17px;
+  --eva-radius-card: 24px;
+  --eva-radius-sheet: 30px;
+  --eva-radius-pill: 999px;
+
+  /* §1, §5 */
+  --eva-touch: 44px;
+  --eva-control-height: 52px;
+
+  /* §3 Montserrat throughout */
+  --eva-font: Montserrat, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* §3 type roles. Colour is the role's own where §3 names one. */
+.t-display { font-size: 46px; line-height: 56px; font-weight: 400; }
+.t-h1 { font-size: 28px; line-height: 34px; font-weight: 600; }
+.t-h2 { font-size: 21px; line-height: 26px; font-weight: 600; }
+.t-h3 { font-size: 17px; line-height: 22px; font-weight: 600; }
+.t-body { font-size: 15px; line-height: 24px; font-weight: 400; }
+.t-body-medium { font-size: 15px; line-height: 24px; font-weight: 500; }
+.t-control { font-size: 13px; font-weight: 600; }
+.t-label { font-size: 12px; font-weight: 600; }
+/* Caption is "muted" on the canvas; muted measures 2.96:1 on the ground, so informative
+   captions take Secondary Text — the §9a settings-row deviation, same reason. */
+.t-caption { font-size: 12.5px; line-height: 19px; font-weight: 400; }
+.t-overline { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }

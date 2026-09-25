@@ -1,7 +1,9 @@
 ---
-// Landing page implemented from the Claude Design mockup "Eva Landing Page".
-// Markup keeps the design's inline styles for fidelity; the <style> block below
-// adds base styles and responsive overrides the mockup didn't define.
+// Landing page. The structure and copy come from the Claude Design mockup "Eva Landing
+// Page"; the look is docs/DESIGN.md's (#85) — there is no website canvas, so the tokens
+// are the spec. Every value is a custom property from styles/tokens.css; type is set by
+// the §3 role classes (t-display, t-h1 …) rather than by size.
+import '../styles/tokens.css';
 ---
 
 <html lang="en">
@@ -12,140 +14,136 @@
   <meta name="generator" content={Astro.generator} />
   <title>Eva — the first AI made for women</title>
   <meta name="description" content="Eva is the first AI assistant built around a woman's physiology — your cycle, energy, and goals. Enter your Prime Era on your own terms." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
 
-<div style="max-width:100%; overflow-x:hidden;">
+<div class="page">
 
   <!-- NAV -->
-  <header style="position:sticky; top:0; z-index:50; background:rgba(251,248,251,.82); backdrop-filter:blur(14px); border-bottom:1px solid #EFE6ED;">
-    <nav style="max-width:1200px; margin:0 auto; padding:16px 32px; display:flex; align-items:center; justify-content:space-between; gap:24px;">
-      <a href="/"><img src="/assets/eva-logo.png" alt="Eva" style="height:34px; width:auto; display:block;" /></a>
-      <div class="nav-links" style="display:flex; align-items:center; gap:34px; font-size:15px; font-weight:500; color:#5A4B55;">
-        <a href="#how" style="color:#5A4B55;">How it works</a>
-        <a href="#features" style="color:#5A4B55;">Features</a>
-        <a href="#science" style="color:#5A4B55;">Science</a>
-        <a href="#mission" style="color:#5A4B55;">Mission</a>
-        <a href="#faq" style="color:#5A4B55;">FAQ</a>
+  <header class="site-header">
+    <nav class="nav wrap">
+      <a href="/" class="logo"><img src="/assets/eva-logo.png" alt="Eva" /></a>
+      <div class="nav-links">
+        <a href="#how">How it works</a>
+        <a href="#features">Features</a>
+        <a href="#science">Science</a>
+        <a href="#mission">Mission</a>
+        <a href="#faq">FAQ</a>
       </div>
-      <a href="#download" style="background:linear-gradient(135deg,#8E2C57,#C96A93); color:#fff; padding:11px 22px; border-radius:999px; font-size:15px; font-weight:600; box-shadow:0 8px 20px -8px rgba(142,44,87,.6); white-space:nowrap;">Get the app</a>
+      <a href="#download" class="btn-primary btn-primary--bar">Get the app</a>
     </nav>
   </header>
 
   <!-- HERO -->
-  <section style="position:relative; overflow:hidden;">
-    <div style="position:absolute; top:-160px; right:-120px; width:520px; height:520px; border-radius:50%; background:radial-gradient(circle,#EFEAF6,transparent 68%); z-index:0;"></div>
-    <div style="position:absolute; bottom:-180px; left:-140px; width:460px; height:460px; border-radius:50%; background:radial-gradient(circle,#E6F0E9,transparent 70%); z-index:0;"></div>
-    <div class="hero-grid" style="position:relative; z-index:1; max-width:1200px; margin:0 auto; padding:72px 32px 88px; display:grid; grid-template-columns:1.05fr .95fr; gap:56px; align-items:center;">
+  <section class="hero">
+    <div class="blob blob--blush" aria-hidden="true"></div>
+    <div class="blob blob--pistachio" aria-hidden="true"></div>
+    <div class="hero-grid wrap">
       <div>
-        <span style="display:inline-flex; align-items:center; gap:8px; background:#FBEDF3; color:#8E2C57; padding:7px 15px; border-radius:999px; font-size:13.5px; font-weight:600; letter-spacing:.01em;">
-          <span style="width:7px; height:7px; border-radius:50%; background:#C96A93;"></span>Meet Eva — your AI health companion
+        <span class="tag t-control">
+          <span class="tag-dot"></span>Meet Eva — your AI health companion
         </span>
-        <h1 style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:66px; line-height:1.03; color:#3A2233; margin:22px 0 0; letter-spacing:-.01em; text-wrap:balance;">Enter your <span style="font-style:italic; color:#8E2C57;">Prime Era</span>, on your own terms.</h1>
-        <p style="font-size:19px; line-height:1.6; margin:24px 0 0; max-width:520px; color:#6E5E69;">Eva is the first AI assistant built around a woman's physiology — your cycle, energy, and goals. Stop fighting your body. Start working <em>with</em> it.</p>
+        <h1 class="t-display hero-title">Enter your <span class="accent">Prime Era</span>, on your own terms.</h1>
+        <p class="t-body lead">Eva is the first AI assistant built around a woman's physiology — your cycle, energy, and goals. Stop fighting your body. Start working <em>with</em> it.</p>
 
-        <div style="margin:34px 0 0; display:flex; gap:14px; flex-wrap:wrap;">
-          <a href="#download" style="display:inline-flex; align-items:center; gap:11px; background:#3A2233; color:#fff; padding:14px 20px; border-radius:14px;">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M16.5 12.6c0-2 1.6-3 1.7-3.1-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7s-1.6-.7-2.6-.7c-1.3 0-2.6.8-3.3 2-1.4 2.4-.4 6 1 8 .7 1 1.4 2 2.5 2s1.4-.6 2.6-.6 1.5.6 2.6.6 1.8-1 2.4-2c.8-1.1 1.1-2.2 1.1-2.3-.1 0-2.1-.8-2.1-3.1zM14.6 6.2c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.6 1 .1 2-.5 2.5-1.2z"/></svg>
-            <span style="text-align:left; line-height:1.1;"><span style="display:block; font-size:11px; opacity:.8;">Download on the</span><span style="display:block; font-size:17px; font-weight:600;">App Store</span></span>
+        <div class="store-row">
+          <a href="#download" class="store-badge">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.5 12.6c0-2 1.6-3 1.7-3.1-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7s-1.6-.7-2.6-.7c-1.3 0-2.6.8-3.3 2-1.4 2.4-.4 6 1 8 .7 1 1.4 2 2.5 2s1.4-.6 2.6-.6 1.5.6 2.6.6 1.8-1 2.4-2c.8-1.1 1.1-2.2 1.1-2.3-.1 0-2.1-.8-2.1-3.1zM14.6 6.2c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.6 1 .1 2-.5 2.5-1.2z"/></svg>
+            <span class="store-text"><span class="t-caption">Download on the</span><span class="t-h3">App Store</span></span>
           </a>
         </div>
 
-        <div style="margin:32px 0 0; display:flex; align-items:center; gap:14px;">
-          <div style="display:flex;">
-            <span style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#C96A93,#E9C4D6); border:2px solid #FBF8FB; display:grid; place-items:center; color:#fff; font-weight:700; font-size:14px;">M</span>
-            <span style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#8FB09A,#CADFCE); border:2px solid #FBF8FB; margin-left:-12px; display:grid; place-items:center; color:#fff; font-weight:700; font-size:14px;">S</span>
-            <span style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#7E9BBE,#C4D4E6); border:2px solid #FBF8FB; margin-left:-12px; display:grid; place-items:center; color:#fff; font-weight:700; font-size:14px;">A</span>
-            <span style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#8E2C57,#C96A93); border:2px solid #FBF8FB; margin-left:-12px; display:grid; place-items:center; color:#fff; font-weight:700; font-size:12px;">+9k</span>
+        <div class="social">
+          <div class="avatars">
+            <span class="avatar avatar--pink t-control">M</span>
+            <span class="avatar avatar--pistachio t-control">S</span>
+            <span class="avatar avatar--blush t-control">A</span>
+            <span class="avatar avatar--pink t-label">+9k</span>
           </div>
-          <p style="font-size:14.5px; color:#7A6A75;"><strong style="color:#3A2233;">Joined by 12,000+ women</strong><br />building their Glow Up with Eva.</p>
+          <p class="t-body"><strong>Joined by 12,000+ women</strong><br />building their Glow Up with Eva.</p>
         </div>
       </div>
 
       <!-- PHONE MOCKUP -->
-      <div style="position:relative; display:flex; justify-content:center;">
-        <div style="position:absolute; inset:6% 14%; background:radial-gradient(circle at 50% 40%,#EFEAF6,transparent 70%); filter:blur(10px);"></div>
-        <div style="position:relative; width:310px; height:635px; background:#2B1A26; border-radius:46px; padding:11px; box-shadow:0 40px 80px -30px rgba(58,34,51,.5); animation:floaty 6s ease-in-out infinite;">
-          <div style="position:relative; width:100%; height:100%; background:#FBF7FA; border-radius:36px; overflow:hidden;">
+      <div class="phone-stage">
+        <div class="phone">
+          <div class="screen">
             <!-- status bar -->
-            <div style="position:absolute; top:0; left:0; right:0; z-index:3; display:flex; justify-content:space-between; align-items:center; padding:14px 22px 6px; font-size:12.5px; font-weight:600; color:#3A2233;">
+            <div class="status t-label">
               <span>9:41</span>
-              <span style="width:78px; height:22px; background:#2B1A26; border-radius:0 0 14px 14px; position:absolute; left:50%; top:0; transform:translateX(-50%);"></span>
-              <span style="display:flex; gap:5px; align-items:center;">
-                <svg width="17" height="11" viewBox="0 0 17 11" fill="#3A2233"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4" y="5" width="3" height="6" rx="1"/><rect x="8" y="3" width="3" height="8" rx="1"/><rect x="12" y="1" width="3" height="10" rx="1"/></svg>
-                <svg width="18" height="11" viewBox="0 0 18 11" fill="none"><rect x="1" y="1" width="14" height="9" rx="2.5" stroke="#3A2233" stroke-width="1.2"/><rect x="2.6" y="2.6" width="9" height="5.8" rx="1.2" fill="#3A2233"/><rect x="16" y="4" width="1.6" height="3.5" rx=".8" fill="#3A2233"/></svg>
+              <span class="notch"></span>
+              <span class="status-icons">
+                <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4" y="5" width="3" height="6" rx="1"/><rect x="8" y="3" width="3" height="8" rx="1"/><rect x="12" y="1" width="3" height="10" rx="1"/></svg>
+                <svg width="18" height="11" viewBox="0 0 18 11" fill="none"><rect x="1" y="1" width="14" height="9" rx="2.5" stroke="currentColor" stroke-width="1.2"/><rect x="2.6" y="2.6" width="9" height="5.8" rx="1.2" fill="currentColor"/><rect x="16" y="4" width="1.6" height="3.5" rx=".8" fill="currentColor"/></svg>
               </span>
             </div>
 
             <!-- app content -->
-            <div style="position:absolute; inset:0; padding:52px 18px 74px; overflow:hidden;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="app">
+              <div class="app-head">
                 <div>
-                  <p style="font-size:13px; color:#98868F;">Good morning,</p>
-                  <p style="font-family:'Cormorant Garamond',serif; font-size:26px; font-weight:600; color:#3A2233; line-height:1;">Maya</p>
+                  <p class="t-caption">Good morning,</p>
+                  <p class="t-h2 ink">Maya</p>
                 </div>
-                <span style="width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg,#C96A93,#E9C4D6); display:grid; place-items:center; color:#fff; font-weight:700;">M</span>
+                <span class="avatar avatar--pink avatar--lg t-control">M</span>
               </div>
 
               <!-- cycle card -->
-              <div style="margin-top:16px; background:linear-gradient(140deg,#8E2C57,#C96A93); border-radius:22px; padding:18px; color:#fff; display:flex; align-items:center; gap:16px; box-shadow:0 16px 30px -14px rgba(142,44,87,.7);">
-                <div style="position:relative; width:78px; height:78px; flex-shrink:0;">
-                  <svg width="78" height="78" viewBox="0 0 78 78" style="position:absolute; inset:0; transform:rotate(-90deg);">
-                    <circle cx="39" cy="39" r="32" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="7"/>
-                    <circle cx="39" cy="39" r="32" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="90"/>
+              <div class="cycle-card">
+                <div class="ring">
+                  <svg width="78" height="78" viewBox="0 0 78 78">
+                    <circle cx="39" cy="39" r="32" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="7"/>
+                    <circle cx="39" cy="39" r="32" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="90"/>
                   </svg>
-                  <div style="position:absolute; inset:0; display:grid; place-items:center; text-align:center; line-height:1;">
-                    <div><div style="font-size:22px; font-weight:700;">14</div><div style="font-size:9px; opacity:.85;">DAY</div></div>
+                  <div class="ring-label">
+                    <div><div class="t-h2">14</div><div class="t-overline">DAY</div></div>
                   </div>
                 </div>
                 <div>
-                  <p style="font-size:15px; font-weight:700;">Ovulation phase</p>
-                  <p style="font-size:12.5px; opacity:.9; margin-top:3px; line-height:1.4;">Peak energy — a great day for a strength session.</p>
+                  <p class="t-h3">Ovulation phase</p>
+                  <p class="t-caption">Peak energy — a great day for a strength session.</p>
                 </div>
               </div>
 
               <!-- shortcuts -->
-              <div style="margin-top:16px; display:grid; grid-template-columns:repeat(4,1fr); gap:9px;">
-                <div style="background:#EFEAF6; border-radius:16px; padding:11px 6px; text-align:center;">
-                  <div style="width:30px; height:30px; margin:0 auto 5px; border-radius:9px; background:#fff; display:grid; place-items:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E2C57" stroke-width="2"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div>
-                  <span style="font-size:9.5px; color:#5A4B55; font-weight:600;">Cycle</span>
+              <div class="shortcuts">
+                <div class="shortcut shortcut--blush">
+                  <span class="shortcut-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></span>
+                  <span class="t-label">Cycle</span>
                 </div>
-                <div style="background:#E6F0E9; border-radius:16px; padding:11px 6px; text-align:center;">
-                  <div style="width:30px; height:30px; margin:0 auto 5px; border-radius:9px; background:#fff; display:grid; place-items:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6E9C7E" stroke-width="2"><path d="M12 21c5-3 8-7 8-11a5 5 0 0 0-8-4 5 5 0 0 0-8 4c0 4 3 8 8 11z"/></svg></div>
-                  <span style="font-size:9.5px; color:#5A4B55; font-weight:600;">Nutrition</span>
+                <div class="shortcut shortcut--pistachio">
+                  <span class="shortcut-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21c5-3 8-7 8-11a5 5 0 0 0-8-4 5 5 0 0 0-8 4c0 4 3 8 8 11z"/></svg></span>
+                  <span class="t-label">Nutrition</span>
                 </div>
-                <div style="background:#FBEDF3; border-radius:16px; padding:11px 6px; text-align:center;">
-                  <div style="width:30px; height:30px; margin:0 auto 5px; border-radius:9px; background:#fff; display:grid; place-items:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C96A93" stroke-width="2"><path d="M6.5 6.5 4 9m2.5-2.5L9 4M17.5 17.5 20 15m-2.5 2.5L15 20m-8-3 10-10"/></svg></div>
-                  <span style="font-size:9.5px; color:#5A4B55; font-weight:600;">Trainer</span>
+                <div class="shortcut shortcut--blush">
+                  <span class="shortcut-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 6.5 4 9m2.5-2.5L9 4M17.5 17.5 20 15m-2.5 2.5L15 20m-8-3 10-10"/></svg></span>
+                  <span class="t-label">Trainer</span>
                 </div>
-                <div style="background:#E7EDF5; border-radius:16px; padding:11px 6px; text-align:center;">
-                  <div style="width:30px; height:30px; margin:0 auto 5px; border-radius:9px; background:#fff; display:grid; place-items:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6E8CB0" stroke-width="2"><path d="M12 3a6 6 0 0 0-6 6c0 2 1 3 1 5h10c0-2 1-3 1-5a6 6 0 0 0-6-6zM9 20h6M10 22h4"/></svg></div>
-                  <span style="font-size:9.5px; color:#5A4B55; font-weight:600;">Mind</span>
+                <div class="shortcut shortcut--pistachio">
+                  <span class="shortcut-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0-6 6c0 2 1 3 1 5h10c0-2 1-3 1-5a6 6 0 0 0-6-6zM9 20h6M10 22h4"/></svg></span>
+                  <span class="t-label">Mind</span>
                 </div>
               </div>
 
               <!-- chat -->
-              <div style="margin-top:15px; background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:13px;">
-                <div style="display:flex; gap:8px; align-items:flex-start;">
-                  <span style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg,#8E2C57,#C96A93); flex-shrink:0; display:grid; place-items:center; color:#fff; font-size:12px; font-weight:700;">E</span>
-                  <p style="font-size:12px; line-height:1.5; color:#5A4B55; background:#F7F1F5; padding:9px 11px; border-radius:12px 12px 12px 3px;">Your iron looks a little low this week. Want a menu that helps?</p>
+              <div class="chat">
+                <div class="chat-row">
+                  <span class="avatar avatar--pink avatar--sm t-label">E</span>
+                  <p class="t-caption bubble">Your iron looks a little low this week. Want a menu that helps?</p>
                 </div>
-                <div style="margin-top:11px; display:flex; align-items:center; gap:8px; background:#F7F1F5; border-radius:12px; padding:8px 12px;">
-                  <span style="font-size:12px; color:#A695A0; flex:1;">Ask Eva anything…</span>
-                  <span style="width:26px; height:26px; border-radius:50%; background:linear-gradient(135deg,#8E2C57,#C96A93); display:grid; place-items:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="#fff"><path d="M3 20.5 21 12 3 3.5 6 12l-3 8.5z"/></svg></span>
+                <div class="chat-input">
+                  <span class="t-caption">Ask Eva anything…</span>
+                  <span class="send"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20.5 21 12 3 3.5 6 12l-3 8.5z"/></svg></span>
                 </div>
               </div>
             </div>
 
             <!-- tab bar -->
-            <div style="position:absolute; bottom:0; left:0; right:0; height:60px; background:#fff; border-top:1px solid #EFE6ED; display:flex; justify-content:space-around; align-items:center; padding:0 14px;">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="#8E2C57"><path d="M12 3 3 10v10h6v-6h6v6h6V10z"/></svg>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C3B4BE" stroke-width="2"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18"/></svg>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C3B4BE" stroke-width="2"><path d="M4 19V9l8-5 8 5v10M9 19v-6h6v6"/></svg>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C3B4BE" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+            <div class="tabbar">
+              <svg class="tab tab--active" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 3 10v10h6v-6h6v6h6V10z"/></svg>
+              <svg class="tab" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18"/></svg>
+              <svg class="tab" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9l8-5 8 5v10M9 19v-6h6v6"/></svg>
+              <svg class="tab" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
             </div>
           </div>
         </div>
@@ -154,295 +152,295 @@
   </section>
 
   <!-- LOGO STRIP / VALUES -->
-  <section style="border-top:1px solid #EFE6ED; border-bottom:1px solid #EFE6ED; background:#fff;">
-    <div style="max-width:1200px; margin:0 auto; padding:26px 32px; display:flex; flex-wrap:wrap; justify-content:space-between; gap:20px; align-items:center;">
-      <span style="font-size:13.5px; letter-spacing:.14em; text-transform:uppercase; color:#A695A0; font-weight:600;">Designed around her, not the default</span>
-      <div style="display:flex; flex-wrap:wrap; gap:28px 36px; font-size:14.5px; font-weight:600; color:#5A4B55;">
-        <span style="display:flex; align-items:center; gap:8px;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Hormone-aware</span>
-        <span style="display:flex; align-items:center; gap:8px;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Science-backed</span>
-        <span style="display:flex; align-items:center; gap:8px;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Private by design</span>
-        <span style="display:flex; align-items:center; gap:8px;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Made with women</span>
+  <section class="strip">
+    <div class="strip-inner wrap">
+      <span class="t-overline">Designed around her, not the default</span>
+      <div class="strip-items t-body-medium">
+        <span class="check-item"><svg class="check" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Hormone-aware</span>
+        <span class="check-item"><svg class="check" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Science-backed</span>
+        <span class="check-item"><svg class="check" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Private by design</span>
+        <span class="check-item"><svg class="check" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Made with women</span>
       </div>
     </div>
   </section>
 
   <!-- PROBLEM / INVISIBLE WOMEN -->
-  <section id="science" class="section-pad" style="max-width:1200px; margin:0 auto; padding:92px 32px;">
-    <div style="text-align:center; max-width:720px; margin:0 auto;">
-      <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">The invisible gap</span>
-      <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:46px; line-height:1.1; color:#3A2233; margin:14px 0 0; text-wrap:balance;">For decades, the world was built for the male body.</h2>
-      <p style="font-size:18px; line-height:1.6; margin:18px 0 0; color:#6E5E69;">In <em>Invisible Women</em>, Caroline Criado Perez documents how a data gap left women's needs an afterthought — in medicine, safety, and technology.</p>
+  <section id="science" class="section wrap">
+    <div class="section-head">
+      <span class="t-overline">The invisible gap</span>
+      <h2 class="t-h1">For decades, the world was built for the male body.</h2>
+      <p class="t-body">In <em>Invisible Women</em>, Caroline Criado Perez documents how a data gap left women's needs an afterthought — in medicine, safety, and technology.</p>
     </div>
 
-    <div class="stats-grid" style="margin-top:52px; display:grid; grid-template-columns:repeat(4,1fr); gap:20px;">
-      <div style="background:#fff; border:1px solid #EFE6ED; border-radius:20px; padding:26px 22px;">
-        <p style="font-family:'Cormorant Garamond',serif; font-size:48px; font-weight:700; color:#8E2C57; line-height:1;">5°C</p>
-        <p style="font-size:14.5px; line-height:1.55; margin-top:12px; color:#6E5E69;">Standard office temperatures can run ~5°C colder than what's comfortable for women.</p>
+    <div class="grid grid--4">
+      <div class="card stat">
+        <p class="t-display stat-figure">5°C</p>
+        <p class="t-body">Standard office temperatures can run ~5°C colder than what's comfortable for women.</p>
       </div>
-      <div style="background:#fff; border:1px solid #EFE6ED; border-radius:20px; padding:26px 22px;">
-        <p style="font-family:'Cormorant Garamond',serif; font-size:48px; font-weight:700; color:#8E2C57; line-height:1;">47%</p>
-        <p style="font-size:14.5px; line-height:1.55; margin-top:12px; color:#6E5E69;">More likely to be seriously injured in comparable crashes — female dummies arrived only in 2011.</p>
+      <div class="card stat">
+        <p class="t-display stat-figure">47%</p>
+        <p class="t-body">More likely to be seriously injured in comparable crashes — female dummies arrived only in 2011.</p>
       </div>
-      <div style="background:#fff; border:1px solid #EFE6ED; border-radius:20px; padding:26px 22px;">
-        <p style="font-family:'Cormorant Garamond',serif; font-size:48px; font-weight:700; color:#8E2C57; line-height:1;">70%</p>
-        <p style="font-size:14.5px; line-height:1.55; margin-top:12px; color:#6E5E69;">Speech recognition was up to 70% more accurate at understanding male voices.</p>
+      <div class="card stat">
+        <p class="t-display stat-figure">70%</p>
+        <p class="t-body">Speech recognition was up to 70% more accurate at understanding male voices.</p>
       </div>
-      <div style="background:linear-gradient(150deg,#8E2C57,#C96A93); border-radius:20px; padding:26px 22px; color:#fff;">
-        <p style="font-family:'Cormorant Garamond',serif; font-size:48px; font-weight:700; line-height:1;">Eva</p>
-        <p style="font-size:14.5px; line-height:1.55; margin-top:12px; opacity:.95;">Closes the gap on a personal level — an assistant that finally accounts for <em>you</em>.</p>
+      <div class="card stat stat--brand">
+        <p class="t-display stat-figure">Eva</p>
+        <p class="t-body">Closes the gap on a personal level — an assistant that finally accounts for <em>you</em>.</p>
       </div>
     </div>
   </section>
 
   <!-- HOW / FEATURES GRID -->
-  <section id="features" style="background:#F4EFF5;">
-    <div class="section-pad" style="max-width:1200px; margin:0 auto; padding:92px 32px;">
-      <div style="text-align:center; max-width:680px; margin:0 auto;">
-        <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">One companion, every day</span>
-        <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:46px; line-height:1.1; color:#3A2233; margin:14px 0 0;">Everything Eva does for you</h2>
-        <p style="font-size:18px; line-height:1.6; margin:16px 0 0; color:#6E5E69;">Eva reads your physiology, hormonal cycle, emotional state, habits and goals — then guides your day with them, not against them.</p>
+  <section id="features" class="band">
+    <div class="section wrap">
+      <div class="section-head">
+        <span class="t-overline">One companion, every day</span>
+        <h2 class="t-h1">Everything Eva does for you</h2>
+        <p class="t-body">Eva reads your physiology, hormonal cycle, emotional state, habits and goals — then guides your day with them, not against them.</p>
       </div>
 
-      <div id="how" class="features-grid" style="margin-top:54px; display:grid; grid-template-columns:repeat(3,1fr); gap:22px;">
-        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
-          <div style="width:52px; height:52px; border-radius:15px; background:#EFEAF6; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8E2C57" stroke-width="2"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div>
-          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Cycle-aware calendar</h3>
-          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Track your cycle, sex life and training in one view — and see how each phase shapes your energy.</p>
+      <div id="how" class="grid grid--3">
+        <div class="card feature">
+          <div class="icon-tile icon-tile--blush"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div>
+          <h3 class="t-h3">Cycle-aware calendar</h3>
+          <p class="t-body">Track your cycle, sex life and training in one view — and see how each phase shapes your energy.</p>
         </div>
-        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
-          <div style="width:52px; height:52px; border-radius:15px; background:#E6F0E9; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6E9C7E" stroke-width="2"><path d="M12 21c5-3 8-7 8-11a5 5 0 0 0-8-4 5 5 0 0 0-8 4c0 4 3 8 8 11z"/></svg></div>
-          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Nutrition adviser</h3>
-          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Calorie and nutrient guidance tuned to your goals, preferences, deficiencies and cycle phase.</p>
+        <div class="card feature">
+          <div class="icon-tile icon-tile--pistachio"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21c5-3 8-7 8-11a5 5 0 0 0-8-4 5 5 0 0 0-8 4c0 4 3 8 8 11z"/></svg></div>
+          <h3 class="t-h3">Nutrition adviser</h3>
+          <p class="t-body">Calorie and nutrient guidance tuned to your goals, preferences, deficiencies and cycle phase.</p>
         </div>
-        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
-          <div style="width:52px; height:52px; border-radius:15px; background:#FBEDF3; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#C96A93" stroke-width="2"><path d="M6.5 6.5 4 9m2.5-2.5L9 4M17.5 17.5 20 15m-2.5 2.5L15 20m-8-3 10-10"/></svg></div>
-          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Personal trainer</h3>
-          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">A training program built for your frequency and goals — with the principles of training for women.</p>
+        <div class="card feature">
+          <div class="icon-tile icon-tile--blush"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 6.5 4 9m2.5-2.5L9 4M17.5 17.5 20 15m-2.5 2.5L15 20m-8-3 10-10"/></svg></div>
+          <h3 class="t-h3">Personal trainer</h3>
+          <p class="t-body">A training program built for your frequency and goals — with the principles of training for women.</p>
         </div>
-        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
-          <div style="width:52px; height:52px; border-radius:15px; background:#E7EDF5; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6E8CB0" stroke-width="2"><path d="M12 3a6 6 0 0 0-6 6c0 2 1 3 1 5h10c0-2 1-3 1-5a6 6 0 0 0-6-6zM9 20h6M10 22h4"/></svg></div>
-          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Mental well-being coach</h3>
-          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Coaching to handle stress, sharpen concentration, and get genuinely restful sleep.</p>
+        <div class="card feature">
+          <div class="icon-tile icon-tile--pistachio"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0-6 6c0 2 1 3 1 5h10c0-2 1-3 1-5a6 6 0 0 0-6-6zM9 20h6M10 22h4"/></svg></div>
+          <h3 class="t-h3">Mental well-being coach</h3>
+          <p class="t-body">Coaching to handle stress, sharpen concentration, and get genuinely restful sleep.</p>
         </div>
-        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
-          <div style="width:52px; height:52px; border-radius:15px; background:#EFEAF6; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8E2C57" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
-          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Smart dashboard & chat</h3>
-          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Shortcuts, daily tips and a chat that knows your context — ask Eva anything, anytime.</p>
+        <div class="card feature">
+          <div class="icon-tile icon-tile--blush"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+          <h3 class="t-h3">Smart dashboard & chat</h3>
+          <p class="t-body">Shortcuts, daily tips and a chat that knows your context — ask Eva anything, anytime.</p>
         </div>
-        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
-          <div style="width:52px; height:52px; border-radius:15px; background:#E6F0E9; display:grid; place-items:center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6E9C7E" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 9h6M8 13h8M8 17h5"/></svg></div>
-          <h3 style="font-size:20px; font-weight:700; color:#3A2233; margin:20px 0 0;">Science-backed blog</h3>
-          <p style="font-size:15px; line-height:1.6; margin:9px 0 0;">Every recommendation links back to the research behind it. The science stays transparent.</p>
+        <div class="card feature">
+          <div class="icon-tile icon-tile--pistachio"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 9h6M8 13h8M8 17h5"/></svg></div>
+          <h3 class="t-h3">Science-backed blog</h3>
+          <p class="t-body">Every recommendation links back to the research behind it. The science stays transparent.</p>
         </div>
       </div>
     </div>
   </section>
 
   <!-- FEATURE DEEP DIVE 1: Calendar -->
-  <section class="split" style="max-width:1100px; margin:0 auto; padding:92px 32px 40px; display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center;">
-    <div>
-      <span style="font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#8E2C57; font-weight:700;">Calendar</span>
-      <h3 class="h3" style="font-family:'Cormorant Garamond',serif; font-size:38px; font-weight:600; color:#3A2233; margin:12px 0 0; line-height:1.12;">Your whole rhythm, in one place</h3>
-      <p style="font-size:17px; line-height:1.65; margin:16px 0 0;">Log your cycle, intimacy and workouts together. Eva overlays them so you can finally see the patterns — and plan around the days you feel your best.</p>
-      <ul style="list-style:none; margin:22px 0 0; padding:0; display:flex; flex-direction:column; gap:12px;">
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Cycle, sex-life & training tracking</li>
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Phase-based energy forecasts</li>
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Gentle, private reminders</li>
+  <section class="split split--first">
+    <div class="split-copy">
+      <span class="t-overline">Calendar</span>
+      <h3 class="t-h2">Your whole rhythm, in one place</h3>
+      <p class="t-body">Log your cycle, intimacy and workouts together. Eva overlays them so you can finally see the patterns — and plan around the days you feel your best.</p>
+      <ul class="checklist t-body">
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Cycle, sex-life & training tracking</li>
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Phase-based energy forecasts</li>
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Gentle, private reminders</li>
       </ul>
     </div>
-    <div style="background:linear-gradient(160deg,#EFEAF6,#FBEDF3); border-radius:26px; padding:30px; border:1px solid #EADFEB;">
-      <p style="font-size:13px; font-weight:700; color:#8E2C57; text-transform:uppercase; letter-spacing:.1em;">October</p>
-      <div style="margin-top:16px; display:grid; grid-template-columns:repeat(7,1fr); gap:8px; text-align:center;">
-        <span style="font-size:11px; color:#A695A0; font-weight:600;">M</span><span style="font-size:11px; color:#A695A0; font-weight:600;">T</span><span style="font-size:11px; color:#A695A0; font-weight:600;">W</span><span style="font-size:11px; color:#A695A0; font-weight:600;">T</span><span style="font-size:11px; color:#A695A0; font-weight:600;">F</span><span style="font-size:11px; color:#A695A0; font-weight:600;">S</span><span style="font-size:11px; color:#A695A0; font-weight:600;">S</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">7</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#fff; background:#E08FB0; border-radius:9px;">8</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#fff; background:#E08FB0; border-radius:9px;">9</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">10</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">11</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#5A7A64; background:#CADFCE; border-radius:9px;">12</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">13</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#fff; background:#8E2C57; border-radius:9px; font-weight:700; box-shadow:0 6px 12px -4px rgba(142,44,87,.6);">14</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">15</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#5A7A64; background:#CADFCE; border-radius:9px;">16</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">17</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">18</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">19</span>
-        <span style="aspect-ratio:1; display:grid; place-items:center; font-size:13px; color:#7A6A75; background:#fff; border-radius:9px;">20</span>
+    <div class="mock mock--blush">
+      <p class="t-overline ink">October</p>
+      <div class="cal">
+        <span class="cal-dow t-label">M</span><span class="cal-dow t-label">T</span><span class="cal-dow t-label">W</span><span class="cal-dow t-label">T</span><span class="cal-dow t-label">F</span><span class="cal-dow t-label">S</span><span class="cal-dow t-label">S</span>
+        <span class="day t-control">7</span>
+        <span class="day day--period t-control">8</span>
+        <span class="day day--period t-control">9</span>
+        <span class="day t-control">10</span>
+        <span class="day t-control">11</span>
+        <span class="day day--training t-control">12</span>
+        <span class="day t-control">13</span>
+        <span class="day day--ovulation t-control">14</span>
+        <span class="day t-control">15</span>
+        <span class="day day--training t-control">16</span>
+        <span class="day t-control">17</span>
+        <span class="day t-control">18</span>
+        <span class="day t-control">19</span>
+        <span class="day t-control">20</span>
       </div>
-      <div style="margin-top:18px; display:flex; gap:16px; font-size:12px; color:#7A6A75;">
-        <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px; height:10px; border-radius:3px; background:#E08FB0;"></span>Period</span>
-        <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px; height:10px; border-radius:3px; background:#8E2C57;"></span>Ovulation</span>
-        <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px; height:10px; border-radius:3px; background:#CADFCE;"></span>Training</span>
+      <div class="legend t-label">
+        <span><span class="swatch day--period"></span>Period</span>
+        <span><span class="swatch day--ovulation"></span>Ovulation</span>
+        <span><span class="swatch day--training"></span>Training</span>
       </div>
     </div>
   </section>
 
   <!-- FEATURE DEEP DIVE 2: Nutrition (reversed) -->
-  <section class="split" style="max-width:1100px; margin:0 auto; padding:40px 32px; display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center;">
-    <div class="order-2" style="order:2;">
-      <span style="font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#6E9C7E; font-weight:700;">Nutrition adviser</span>
-      <h3 class="h3" style="font-family:'Cormorant Garamond',serif; font-size:38px; font-weight:600; color:#3A2233; margin:12px 0 0; line-height:1.12;">Fuel that fits your phase</h3>
-      <p style="font-size:17px; line-height:1.65; margin:16px 0 0;">Tell Eva your goals, preferences and deficiencies. She calculates what your body needs for the activity ahead and the phase you're in — no more generic meal plans.</p>
-      <ul style="list-style:none; margin:22px 0 0; padding:0; display:flex; flex-direction:column; gap:12px;">
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Cycle- & activity-aware calories</li>
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Deficiency-aware suggestions</li>
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Respects your food preferences</li>
+  <section class="split split--reverse">
+    <div class="split-copy">
+      <span class="t-overline">Nutrition adviser</span>
+      <h3 class="t-h2">Fuel that fits your phase</h3>
+      <p class="t-body">Tell Eva your goals, preferences and deficiencies. She calculates what your body needs for the activity ahead and the phase you're in — no more generic meal plans.</p>
+      <ul class="checklist t-body">
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Cycle- & activity-aware calories</li>
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Deficiency-aware suggestions</li>
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Respects your food preferences</li>
       </ul>
     </div>
-    <div class="order-1" style="order:1; background:linear-gradient(160deg,#E6F0E9,#F1F7F2); border-radius:26px; padding:28px; border:1px solid #DBEADF;">
-      <div style="background:#fff; border-radius:18px; padding:18px;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <p style="font-size:14px; font-weight:700; color:#3A2233;">Today's target</p>
-          <span style="font-size:12px; color:#6E9C7E; font-weight:600; background:#E6F0E9; padding:4px 10px; border-radius:999px;">Ovulation</span>
+    <div class="mock mock--pistachio">
+      <div class="inner">
+        <div class="inner-head">
+          <p class="t-h3 ink">Today's target</p>
+          <span class="pill pill--pistachio t-label">Ovulation</span>
         </div>
-        <p style="font-family:'Cormorant Garamond',serif; font-size:40px; font-weight:700; color:#3A2233; margin-top:6px; line-height:1;">2,080 <span style="font-size:16px; color:#98868F; font-family:'Hanken Grotesk';">kcal</span></p>
-        <div style="margin-top:18px; display:flex; flex-direction:column; gap:13px;">
-          <div><div style="display:flex; justify-content:space-between; font-size:12.5px; color:#5A4B55; margin-bottom:5px;"><span>Protein</span><span>128 g</span></div><div style="height:7px; background:#EFEAF6; border-radius:999px;"><div style="width:78%; height:100%; background:#8E2C57; border-radius:999px;"></div></div></div>
-          <div><div style="display:flex; justify-content:space-between; font-size:12.5px; color:#5A4B55; margin-bottom:5px;"><span>Iron</span><span>Focus today</span></div><div style="height:7px; background:#EFEAF6; border-radius:999px;"><div style="width:46%; height:100%; background:#C96A93; border-radius:999px;"></div></div></div>
-          <div><div style="display:flex; justify-content:space-between; font-size:12.5px; color:#5A4B55; margin-bottom:5px;"><span>Hydration</span><span>2.1 L</span></div><div style="height:7px; background:#EFEAF6; border-radius:999px;"><div style="width:64%; height:100%; background:#6E8CB0; border-radius:999px;"></div></div></div>
+        <p class="t-display ink kcal">2,080 <span class="t-body kcal-unit">kcal</span></p>
+        <div class="bars">
+          <div><div class="bar-label t-caption"><span>Protein</span><span>128 g</span></div><div class="bar"><div class="bar-fill bar-fill--action" style="width:78%;"></div></div></div>
+          <div><div class="bar-label t-caption"><span>Iron</span><span>Focus today</span></div><div class="bar"><div class="bar-fill bar-fill--pink" style="width:46%;"></div></div></div>
+          <div><div class="bar-label t-caption"><span>Hydration</span><span>2.1 L</span></div><div class="bar"><div class="bar-fill bar-fill--pistachio" style="width:64%;"></div></div></div>
         </div>
       </div>
     </div>
   </section>
 
   <!-- FEATURE DEEP DIVE 3: Trainer -->
-  <section class="split" style="max-width:1100px; margin:0 auto; padding:40px 32px; display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center;">
-    <div>
-      <span style="font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#C96A93; font-weight:700;">Personal trainer</span>
-      <h3 class="h3" style="font-family:'Cormorant Garamond',serif; font-size:38px; font-weight:600; color:#3A2233; margin:12px 0 0; line-height:1.12;">Train with your body's clock</h3>
-      <p style="font-size:17px; line-height:1.65; margin:16px 0 0;">Eva builds a program around your goals and how often you want to move — then explains the principles behind training designed for women, so every session has a reason.</p>
-      <ul style="list-style:none; margin:22px 0 0; padding:0; display:flex; flex-direction:column; gap:12px;">
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Adaptive weekly programming</li>
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Recovery matched to your phase</li>
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>The 'why' behind every workout</li>
+  <section class="split">
+    <div class="split-copy">
+      <span class="t-overline">Personal trainer</span>
+      <h3 class="t-h2">Train with your body's clock</h3>
+      <p class="t-body">Eva builds a program around your goals and how often you want to move — then explains the principles behind training designed for women, so every session has a reason.</p>
+      <ul class="checklist t-body">
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Adaptive weekly programming</li>
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Recovery matched to your phase</li>
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>The 'why' behind every workout</li>
       </ul>
     </div>
-    <div style="background:linear-gradient(160deg,#FBEDF3,#FDF6F9); border-radius:26px; padding:28px; border:1px solid #F1DEE8; display:flex; flex-direction:column; gap:12px;">
-      <div style="background:#fff; border-radius:16px; padding:16px; display:flex; align-items:center; gap:14px;">
-        <span style="width:44px; height:44px; border-radius:13px; background:#8E2C57; display:grid; place-items:center; color:#fff; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700;">M</span>
-        <div style="flex:1;"><p style="font-size:14.5px; font-weight:700; color:#3A2233;">Mon · Strength</p><p style="font-size:12.5px; color:#98868F;">Lower body · 45 min</p></div>
-        <span style="font-size:12px; color:#6E9C7E; font-weight:600; background:#E6F0E9; padding:4px 9px; border-radius:999px;">Done</span>
+    <div class="mock mock--blush mock--stack">
+      <div class="session">
+        <span class="session-tile session-tile--solid t-h3">M</span>
+        <div class="session-text"><p class="t-body-medium ink">Mon · Strength</p><p class="t-caption">Lower body · 45 min</p></div>
+        <span class="pill pill--success t-label">Done</span>
       </div>
-      <div style="background:#fff; border-radius:16px; padding:16px; display:flex; align-items:center; gap:14px; border:1.5px solid #C96A93;">
-        <span style="width:44px; height:44px; border-radius:13px; background:linear-gradient(135deg,#8E2C57,#C96A93); display:grid; place-items:center; color:#fff; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700;">W</span>
-        <div style="flex:1;"><p style="font-size:14.5px; font-weight:700; color:#3A2233;">Wed · Power</p><p style="font-size:12.5px; color:#98868F;">Peak energy — go heavy</p></div>
-        <span style="font-size:12px; color:#8E2C57; font-weight:600; background:#FBEDF3; padding:4px 9px; border-radius:999px;">Today</span>
+      <div class="session session--selected">
+        <span class="session-tile session-tile--action t-h3">W</span>
+        <div class="session-text"><p class="t-body-medium ink">Wed · Power</p><p class="t-caption">Peak energy — go heavy</p></div>
+        <span class="pill pill--action t-label">Today</span>
       </div>
-      <div style="background:#fff; border-radius:16px; padding:16px; display:flex; align-items:center; gap:14px;">
-        <span style="width:44px; height:44px; border-radius:13px; background:#C4D4E6; display:grid; place-items:center; color:#3A2233; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700;">F</span>
-        <div style="flex:1;"><p style="font-size:14.5px; font-weight:700; color:#3A2233;">Fri · Mobility</p><p style="font-size:12.5px; color:#98868F;">Gentle flow · 25 min</p></div>
-        <span style="font-size:12px; color:#98868F; font-weight:600; background:#F4EFF5; padding:4px 9px; border-radius:999px;">Planned</span>
+      <div class="session">
+        <span class="session-tile session-tile--pistachio t-h3">F</span>
+        <div class="session-text"><p class="t-body-medium ink">Fri · Mobility</p><p class="t-caption">Gentle flow · 25 min</p></div>
+        <span class="pill pill--quiet t-label">Planned</span>
       </div>
     </div>
   </section>
 
   <!-- FEATURE DEEP DIVE 4: Mental (reversed) -->
-  <section class="split" style="max-width:1100px; margin:0 auto; padding:40px 32px 92px; display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center;">
-    <div class="order-2" style="order:2;">
-      <span style="font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#6E8CB0; font-weight:700;">Mental well-being coach</span>
-      <h3 class="h3" style="font-family:'Cormorant Garamond',serif; font-size:38px; font-weight:600; color:#3A2233; margin:12px 0 0; line-height:1.12;">A calmer, clearer mind</h3>
-      <p style="font-size:17px; line-height:1.65; margin:16px 0 0;">A personal coaching program to help you handle stress, improve focus and rest well — with check-ins that adapt to how you're actually feeling.</p>
-      <ul style="list-style:none; margin:22px 0 0; padding:0; display:flex; flex-direction:column; gap:12px;">
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Guided stress & focus sessions</li>
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Sleep & recovery support</li>
-        <li style="display:flex; gap:11px; align-items:center; font-size:15.5px; color:#5A4B55;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8FB09A" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Mood check-ins that learn</li>
+  <section class="split split--reverse split--last">
+    <div class="split-copy">
+      <span class="t-overline">Mental well-being coach</span>
+      <h3 class="t-h2">A calmer, clearer mind</h3>
+      <p class="t-body">A personal coaching program to help you handle stress, improve focus and rest well — with check-ins that adapt to how you're actually feeling.</p>
+      <ul class="checklist t-body">
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Guided stress & focus sessions</li>
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Sleep & recovery support</li>
+        <li><svg class="check" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Mood check-ins that learn</li>
       </ul>
     </div>
-    <div class="order-1" style="order:1; background:linear-gradient(160deg,#E7EDF5,#F3F6FB); border-radius:26px; padding:30px; border:1px solid #DAE4F0;">
-      <p style="font-size:13px; font-weight:700; color:#6E8CB0; text-transform:uppercase; letter-spacing:.1em;">How are you today?</p>
-      <div style="margin-top:18px; display:flex; justify-content:space-between; gap:8px;">
-        <span style="flex:1; aspect-ratio:1; border-radius:14px; background:#fff; display:grid; place-items:center; font-size:22px;">😔</span>
-        <span style="flex:1; aspect-ratio:1; border-radius:14px; background:#fff; display:grid; place-items:center; font-size:22px;">😐</span>
-        <span style="flex:1; aspect-ratio:1; border-radius:14px; background:linear-gradient(135deg,#6E8CB0,#9DB4CE); display:grid; place-items:center; font-size:22px; box-shadow:0 8px 16px -6px rgba(110,140,176,.6);">🙂</span>
-        <span style="flex:1; aspect-ratio:1; border-radius:14px; background:#fff; display:grid; place-items:center; font-size:22px;">😄</span>
+    <div class="mock mock--pistachio">
+      <p class="t-overline ink">How are you today?</p>
+      <div class="moods">
+        <span class="mood t-h2">😔</span>
+        <span class="mood t-h2">😐</span>
+        <span class="mood mood--selected t-h2">🙂</span>
+        <span class="mood t-h2">😄</span>
       </div>
-      <div style="margin-top:16px; background:#fff; border-radius:16px; padding:16px;">
-        <p style="font-size:13px; font-weight:700; color:#3A2233;">Today's session</p>
-        <p style="font-size:14px; color:#6E5E69; margin-top:5px; line-height:1.5;">A 6-minute breathing reset for the afternoon dip.</p>
-        <div style="margin-top:12px; height:6px; background:#E7EDF5; border-radius:999px;"><div style="width:40%; height:100%; background:#6E8CB0; border-radius:999px;"></div></div>
+      <div class="inner inner--session">
+        <p class="t-h3 ink">Today's session</p>
+        <p class="t-body">A 6-minute breathing reset for the afternoon dip.</p>
+        <div class="bar"><div class="bar-fill bar-fill--pistachio" style="width:40%;"></div></div>
       </div>
     </div>
   </section>
 
   <!-- MISSION -->
-  <section id="mission" style="background:linear-gradient(150deg,#3A2233,#7A2A50 60%,#8E2C57);">
-    <div class="section-pad" style="max-width:900px; margin:0 auto; padding:100px 32px; text-align:center; color:#fff;">
-      <span style="font-size:13px; letter-spacing:.18em; text-transform:uppercase; color:#E9C4D6; font-weight:700;">Our mission</span>
-      <p class="h2" style="font-family:'Cormorant Garamond',serif; font-size:44px; font-weight:500; line-height:1.25; margin:22px 0 0; text-wrap:balance;">"Instead of fighting their bodies, women learn to understand their unique needs — and use them to their advantage."</p>
-      <p style="font-size:18px; line-height:1.7; margin:28px auto 0; max-width:640px; opacity:.9;">Eva exists to help every woman achieve her Glow Up, build a more comfortable life, and enter her Prime Era on her own terms.</p>
-      <a href="#download" style="display:inline-block; margin-top:36px; background:#fff; color:#8E2C57; padding:15px 34px; border-radius:999px; font-weight:700; font-size:16px;">Begin your Prime Era</a>
+  <section id="mission" class="mission">
+    <div class="section wrap wrap--narrow">
+      <span class="t-overline">Our mission</span>
+      <p class="t-h1 ink mission-quote">"Instead of fighting their bodies, women learn to understand their unique needs — and use them to their advantage."</p>
+      <p class="t-body mission-body">Eva exists to help every woman achieve her Glow Up, build a more comfortable life, and enter her Prime Era on her own terms.</p>
+      <a href="#download" class="btn-primary">Begin your Prime Era</a>
     </div>
   </section>
 
   <!-- BLOG / SCIENCE -->
-  <section class="section-pad" style="max-width:1200px; margin:0 auto; padding:92px 32px;">
-    <div style="display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:20px;">
-      <div style="max-width:560px;">
-        <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">Rooted in science</span>
-        <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:44px; line-height:1.1; color:#3A2233; margin:12px 0 0;">Every recommendation, traceable to research</h2>
-        <p style="font-size:17px; line-height:1.6; margin:14px 0 0;">The blog is Eva's open library — the evidence behind her advice, always accessible to you.</p>
+  <section class="section wrap">
+    <div class="blog-head">
+      <div class="blog-head-copy">
+        <span class="t-overline">Rooted in science</span>
+        <h2 class="t-h1">Every recommendation, traceable to research</h2>
+        <p class="t-body">The blog is Eva's open library — the evidence behind her advice, always accessible to you.</p>
       </div>
-      <a href="#" style="font-weight:600; font-size:15.5px; display:inline-flex; align-items:center; gap:7px;">Explore the library <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      <a href="#" class="btn-text">Explore the library <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
     </div>
 
-    <div class="blog-grid" style="margin-top:46px; display:grid; grid-template-columns:repeat(3,1fr); gap:24px;">
-      <article style="background:#fff; border:1px solid #EFE6ED; border-radius:22px; overflow:hidden;">
-        <div style="height:160px; background:linear-gradient(140deg,#8E2C57,#C96A93); position:relative;"><span style="position:absolute; bottom:14px; left:16px; background:rgba(255,255,255,.9); color:#8E2C57; font-size:12px; font-weight:700; padding:5px 11px; border-radius:999px;">Hormones</span></div>
-        <div style="padding:22px;">
-          <h3 style="font-size:18.5px; font-weight:700; color:#3A2233; line-height:1.3;">Why your energy isn't the same every week</h3>
-          <p style="font-size:14.5px; line-height:1.55; margin:9px 0 0;">The four phases of your cycle — and how each one changes what your body can do.</p>
-          <p style="font-size:13px; color:#A695A0; margin-top:14px;">6 min read</p>
+    <div class="grid grid--3">
+      <article class="card post">
+        <div class="cover cover--blush"><span class="cover-tag t-label">Hormones</span></div>
+        <div class="post-body">
+          <h3 class="t-h3">Why your energy isn't the same every week</h3>
+          <p class="t-body">The four phases of your cycle — and how each one changes what your body can do.</p>
+          <p class="t-caption post-meta">6 min read</p>
         </div>
       </article>
-      <article style="background:#fff; border:1px solid #EFE6ED; border-radius:22px; overflow:hidden;">
-        <div style="height:160px; background:linear-gradient(140deg,#6E9C7E,#A9C9B4); position:relative;"><span style="position:absolute; bottom:14px; left:16px; background:rgba(255,255,255,.9); color:#4E7A5E; font-size:12px; font-weight:700; padding:5px 11px; border-radius:999px;">Nutrition</span></div>
-        <div style="padding:22px;">
-          <h3 style="font-size:18.5px; font-weight:700; color:#3A2233; line-height:1.3;">Iron, energy and the second half of your cycle</h3>
-          <p style="font-size:14.5px; line-height:1.55; margin:9px 0 0;">What the research says about fuelling the luteal phase and beyond.</p>
-          <p style="font-size:13px; color:#A695A0; margin-top:14px;">5 min read</p>
+      <article class="card post">
+        <div class="cover cover--pistachio"><span class="cover-tag t-label">Nutrition</span></div>
+        <div class="post-body">
+          <h3 class="t-h3">Iron, energy and the second half of your cycle</h3>
+          <p class="t-body">What the research says about fuelling the luteal phase and beyond.</p>
+          <p class="t-caption post-meta">5 min read</p>
         </div>
       </article>
-      <article style="background:#fff; border:1px solid #EFE6ED; border-radius:22px; overflow:hidden;">
-        <div style="height:160px; background:linear-gradient(140deg,#6E8CB0,#A9C1DA); position:relative;"><span style="position:absolute; bottom:14px; left:16px; background:rgba(255,255,255,.9); color:#4E6C8E; font-size:12px; font-weight:700; padding:5px 11px; border-radius:999px;">Mind</span></div>
-        <div style="padding:22px;">
-          <h3 style="font-size:18.5px; font-weight:700; color:#3A2233; line-height:1.3;">Stress, sleep and the science of recovery</h3>
-          <p style="font-size:14.5px; line-height:1.55; margin:9px 0 0;">Small, evidence-based habits that protect your focus and rest.</p>
-          <p style="font-size:13px; color:#A695A0; margin-top:14px;">7 min read</p>
+      <article class="card post">
+        <div class="cover cover--blush"><span class="cover-tag t-label">Mind</span></div>
+        <div class="post-body">
+          <h3 class="t-h3">Stress, sleep and the science of recovery</h3>
+          <p class="t-body">Small, evidence-based habits that protect your focus and rest.</p>
+          <p class="t-caption post-meta">7 min read</p>
         </div>
       </article>
     </div>
   </section>
 
   <!-- TESTIMONIALS -->
-  <section style="background:#F4EFF5;">
-    <div class="section-pad" style="max-width:1200px; margin:0 auto; padding:92px 32px;">
-      <div style="text-align:center; max-width:620px; margin:0 auto;">
-        <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">Loved by her</span>
-        <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:44px; line-height:1.1; color:#3A2233; margin:12px 0 0;">Women who stopped guessing</h2>
+  <section class="band">
+    <div class="section wrap">
+      <div class="section-head">
+        <span class="t-overline">Loved by her</span>
+        <h2 class="t-h1">Women who stopped guessing</h2>
       </div>
-      <div class="blog-grid" style="margin-top:48px; display:grid; grid-template-columns:repeat(3,1fr); gap:24px;">
-        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
-          <div style="display:flex; gap:3px; color:#E0A44A;">★★★★★</div>
-          <p style="font-size:16px; line-height:1.6; color:#4A3A44; margin:16px 0 0;">"For the first time an app actually accounts for my cycle. My training finally feels like it's working <em>with</em> me."</p>
-          <div style="margin-top:22px; display:flex; align-items:center; gap:12px;">
-            <span style="width:44px; height:44px; border-radius:50%; background:linear-gradient(135deg,#C96A93,#E9C4D6); display:grid; place-items:center; color:#fff; font-weight:700;">L</span>
-            <div><p style="font-size:15px; font-weight:700; color:#3A2233;">Lena K.</p><p style="font-size:13px; color:#98868F;">Using Eva for 4 months</p></div>
+      <div class="grid grid--3">
+        <div class="card quote">
+          <div class="stars t-h3">★★★★★</div>
+          <p class="t-body ink">"For the first time an app actually accounts for my cycle. My training finally feels like it's working <em>with</em> me."</p>
+          <div class="quote-by">
+            <span class="avatar avatar--pink avatar--lg t-control">L</span>
+            <div><p class="t-body-medium ink">Lena K.</p><p class="t-caption">Using Eva for 4 months</p></div>
           </div>
         </div>
-        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
-          <div style="display:flex; gap:3px; color:#E0A44A;">★★★★★</div>
-          <p style="font-size:16px; line-height:1.6; color:#4A3A44; margin:16px 0 0;">"The nutrition advice changes with my phase and I feel the difference in my energy. It just gets me."</p>
-          <div style="margin-top:22px; display:flex; align-items:center; gap:12px;">
-            <span style="width:44px; height:44px; border-radius:50%; background:linear-gradient(135deg,#8FB09A,#CADFCE); display:grid; place-items:center; color:#fff; font-weight:700;">S</span>
-            <div><p style="font-size:15px; font-weight:700; color:#3A2233;">Sofia M.</p><p style="font-size:13px; color:#98868F;">Using Eva for 7 months</p></div>
+        <div class="card quote">
+          <div class="stars t-h3">★★★★★</div>
+          <p class="t-body ink">"The nutrition advice changes with my phase and I feel the difference in my energy. It just gets me."</p>
+          <div class="quote-by">
+            <span class="avatar avatar--pistachio avatar--lg t-control">S</span>
+            <div><p class="t-body-medium ink">Sofia M.</p><p class="t-caption">Using Eva for 7 months</p></div>
           </div>
         </div>
-        <div style="background:#fff; border-radius:22px; padding:30px; border:1px solid #EDE1EA;">
-          <div style="display:flex; gap:3px; color:#E0A44A;">★★★★★</div>
-          <p style="font-size:16px; line-height:1.6; color:#4A3A44; margin:16px 0 0;">"I love that every tip links to the science. I finally trust the advice I'm getting about my own body."</p>
-          <div style="margin-top:22px; display:flex; align-items:center; gap:12px;">
-            <span style="width:44px; height:44px; border-radius:50%; background:linear-gradient(135deg,#7E9BBE,#C4D4E6); display:grid; place-items:center; color:#fff; font-weight:700;">A</span>
-            <div><p style="font-size:15px; font-weight:700; color:#3A2233;">Amara T.</p><p style="font-size:13px; color:#98868F;">Using Eva for 2 months</p></div>
+        <div class="card quote">
+          <div class="stars t-h3">★★★★★</div>
+          <p class="t-body ink">"I love that every tip links to the science. I finally trust the advice I'm getting about my own body."</p>
+          <div class="quote-by">
+            <span class="avatar avatar--blush avatar--lg t-control">A</span>
+            <div><p class="t-body-medium ink">Amara T.</p><p class="t-caption">Using Eva for 2 months</p></div>
           </div>
         </div>
       </div>
@@ -450,94 +448,90 @@
   </section>
 
   <!-- FAQ -->
-  <section id="faq" class="section-pad" style="max-width:820px; margin:0 auto; padding:92px 32px;">
-    <div style="text-align:center;">
-      <span style="font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#C96A93; font-weight:700;">Questions</span>
-      <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:44px; line-height:1.1; color:#3A2233; margin:12px 0 0;">Good to know</h2>
+  <section id="faq" class="section wrap wrap--narrow">
+    <div class="section-head">
+      <span class="t-overline">Questions</span>
+      <h2 class="t-h1">Good to know</h2>
     </div>
-    <div style="margin-top:44px; display:flex; flex-direction:column; gap:12px;">
-      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
-        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">Is Eva a medical service?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
-        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">Eva is a personal wellness assistant, not a substitute for medical care. She helps you understand your body and build sustainable habits, and always points to the science behind her guidance.</p>
+    <div class="faq">
+      <details class="card faq-item">
+        <summary class="t-h3">Is Eva a medical service?<span class="faq-plus t-h1" aria-hidden="true">+</span></summary>
+        <p class="t-body">Eva is a personal wellness assistant, not a substitute for medical care. She helps you understand your body and build sustainable habits, and always points to the science behind her guidance.</p>
       </details>
-      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
-        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">How does Eva personalise her advice?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
-        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">During sign-up you share your age, measurements, goals, lifestyle, sports and anything affecting your hormones. Eva combines this with your cycle and daily check-ins to tailor nutrition, training and coaching.</p>
+      <details class="card faq-item">
+        <summary class="t-h3">How does Eva personalise her advice?<span class="faq-plus t-h1" aria-hidden="true">+</span></summary>
+        <p class="t-body">During sign-up you share your age, measurements, goals, lifestyle, sports and anything affecting your hormones. Eva combines this with your cycle and daily check-ins to tailor nutrition, training and coaching.</p>
       </details>
-      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
-        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">Is my data private?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
-        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">Your health data is personal and treated that way. You control what you share, and you can update or delete your profile at any time from Settings.</p>
+      <details class="card faq-item">
+        <summary class="t-h3">Is my data private?<span class="faq-plus t-h1" aria-hidden="true">+</span></summary>
+        <p class="t-body">Your health data is personal and treated that way. You control what you share, and you can update or delete your profile at any time from Settings.</p>
       </details>
-      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
-        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">Do I need to track my cycle for Eva to help?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
-        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">No — Eva is useful from day one for nutrition, training and mental well-being. Cycle tracking simply makes her guidance even more precise over time.</p>
+      <details class="card faq-item">
+        <summary class="t-h3">Do I need to track my cycle for Eva to help?<span class="faq-plus t-h1" aria-hidden="true">+</span></summary>
+        <p class="t-body">No — Eva is useful from day one for nutrition, training and mental well-being. Cycle tracking simply makes her guidance even more precise over time.</p>
       </details>
-      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
-        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">Which devices is Eva available on?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
-        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">Eva is available on iOS. Sign in with Apple, Google, or an email and password to sync across your devices.</p>
+      <details class="card faq-item">
+        <summary class="t-h3">Which devices is Eva available on?<span class="faq-plus t-h1" aria-hidden="true">+</span></summary>
+        <p class="t-body">Eva is available on iOS. Sign in with Apple, Google, or an email and password to sync across your devices.</p>
       </details>
-      <details style="background:#fff; border:1px solid #EFE6ED; border-radius:18px; padding:4px 22px;">
-        <summary style="display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; font-size:17.5px; font-weight:600; color:#3A2233;">How much does Eva cost?<span class="faq-plus" style="font-size:26px; color:#C96A93; transition:transform .25s; line-height:1;">+</span></summary>
-        <p style="padding:0 0 22px; font-size:15.5px; line-height:1.65;">You can start for free and explore the core features. Deeper coaching and personalised programs are part of Eva's premium plan.</p>
+      <details class="card faq-item">
+        <summary class="t-h3">How much does Eva cost?<span class="faq-plus t-h1" aria-hidden="true">+</span></summary>
+        <p class="t-body">You can start for free and explore the core features. Deeper coaching and personalised programs are part of Eva's premium plan.</p>
       </details>
     </div>
   </section>
 
   <!-- DOWNLOAD CTA -->
-  <section id="download" style="max-width:1200px; margin:0 auto; padding:0 32px 92px;">
-    <div class="cta-pad" style="position:relative; overflow:hidden; background:linear-gradient(150deg,#8E2C57,#C96A93); border-radius:32px; padding:72px 48px; text-align:center; color:#fff;">
-      <div style="position:absolute; top:-80px; left:-60px; width:280px; height:280px; border-radius:50%; background:rgba(255,255,255,.08);"></div>
-      <div style="position:absolute; bottom:-100px; right:-40px; width:320px; height:320px; border-radius:50%; background:rgba(255,255,255,.08);"></div>
-      <div style="position:relative;">
-        <h2 class="h2" style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:52px; line-height:1.08; text-wrap:balance;">Start your Glow Up today</h2>
-        <p style="font-size:19px; line-height:1.6; margin:18px auto 0; max-width:520px; opacity:.94;">Download Eva and meet the first AI assistant that finally understands your body.</p>
-        <div style="margin:34px 0 0; display:flex; gap:14px; flex-wrap:wrap; justify-content:center;">
-          <a href="#" style="display:inline-flex; align-items:center; gap:11px; background:#fff; color:#3A2233; padding:14px 22px; border-radius:14px;">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="#3A2233"><path d="M16.5 12.6c0-2 1.6-3 1.7-3.1-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7s-1.6-.7-2.6-.7c-1.3 0-2.6.8-3.3 2-1.4 2.4-.4 6 1 8 .7 1 1.4 2 2.5 2s1.4-.6 2.6-.6 1.5.6 2.6.6 1.8-1 2.4-2c.8-1.1 1.1-2.2 1.1-2.3-.1 0-2.1-.8-2.1-3.1zM14.6 6.2c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.6 1 .1 2-.5 2.5-1.2z"/></svg>
-            <span style="text-align:left; line-height:1.1;"><span style="display:block; font-size:11px; opacity:.7;">Download on the</span><span style="display:block; font-size:17px; font-weight:700;">App Store</span></span>
-          </a>
-        </div>
-        <p style="font-size:14px; margin-top:20px; opacity:.85;">Free to start · Cancel anytime</p>
+  <section id="download" class="wrap cta-section">
+    <div class="cta-block">
+      <h2 class="t-display">Start your Glow Up today</h2>
+      <p class="t-body">Download Eva and meet the first AI assistant that finally understands your body.</p>
+      <div class="store-row store-row--center">
+        <a href="#" class="store-badge">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.5 12.6c0-2 1.6-3 1.7-3.1-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7s-1.6-.7-2.6-.7c-1.3 0-2.6.8-3.3 2-1.4 2.4-.4 6 1 8 .7 1 1.4 2 2.5 2s1.4-.6 2.6-.6 1.5.6 2.6.6 1.8-1 2.4-2c.8-1.1 1.1-2.2 1.1-2.3-.1 0-2.1-.8-2.1-3.1zM14.6 6.2c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.6 1 .1 2-.5 2.5-1.2z"/></svg>
+          <span class="store-text"><span class="t-caption">Download on the</span><span class="t-h3">App Store</span></span>
+        </a>
       </div>
+      <p class="t-caption cta-note">Free to start · Cancel anytime</p>
     </div>
   </section>
 
   <!-- FOOTER -->
-  <footer style="background:#2B1A26; color:#C9B7C2;">
-    <div style="max-width:1200px; margin:0 auto; padding:64px 32px 40px;">
-      <div class="footer-grid" style="display:grid; grid-template-columns:1.4fr 1fr 1fr 1fr; gap:40px;">
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-grid">
         <div>
-          <p style="font-family:'Cormorant Garamond',serif; font-size:32px; font-weight:700; background:linear-gradient(120deg,#E9C4D6,#C96A93); -webkit-background-clip:text; background-clip:text; color:transparent;">Eva</p>
-          <p style="font-size:14.5px; line-height:1.6; margin-top:12px; max-width:280px;">The first AI assistant built for every woman's Prime Era.</p>
+          <p class="t-h1 wordmark">Eva</p>
+          <p class="t-body footer-tagline">The first AI assistant built for every woman's Prime Era.</p>
         </div>
         <div>
-          <p style="font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:#8C7683; font-weight:700;">Product</p>
-          <div style="margin-top:16px; display:flex; flex-direction:column; gap:11px; font-size:14.5px;">
-            <a href="#features" style="color:#C9B7C2;">Features</a>
-            <a href="#how" style="color:#C9B7C2;">How it works</a>
-            <a href="#science" style="color:#C9B7C2;">Science</a>
-            <a href="#download" style="color:#C9B7C2;">Download</a>
+          <p class="t-overline">Product</p>
+          <div class="footer-links t-body">
+            <a href="#features">Features</a>
+            <a href="#how">How it works</a>
+            <a href="#science">Science</a>
+            <a href="#download">Download</a>
           </div>
         </div>
         <div>
-          <p style="font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:#8C7683; font-weight:700;">Company</p>
-          <div style="margin-top:16px; display:flex; flex-direction:column; gap:11px; font-size:14.5px;">
-            <a href="#mission" style="color:#C9B7C2;">Mission</a>
-            <a href="#" style="color:#C9B7C2;">Blog</a>
-            <a href="#" style="color:#C9B7C2;">Careers</a>
-            <a href="#" style="color:#C9B7C2;">Contact</a>
+          <p class="t-overline">Company</p>
+          <div class="footer-links t-body">
+            <a href="#mission">Mission</a>
+            <a href="#">Blog</a>
+            <a href="#">Careers</a>
+            <a href="#">Contact</a>
           </div>
         </div>
         <div>
-          <p style="font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:#8C7683; font-weight:700;">Legal</p>
-          <div style="margin-top:16px; display:flex; flex-direction:column; gap:11px; font-size:14.5px;">
-            <a href="/privacy" style="color:#C9B7C2;">Privacy</a>
-            <a href="/terms" style="color:#C9B7C2;">Terms</a>
-            <a href="#" style="color:#C9B7C2;">Data & security</a>
+          <p class="t-overline">Legal</p>
+          <div class="footer-links t-body">
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+            <a href="#">Data & security</a>
           </div>
         </div>
       </div>
-      <div style="margin-top:48px; padding-top:24px; border-top:1px solid #4A3540; display:flex; justify-content:space-between; flex-wrap:wrap; gap:14px; font-size:13.5px; color:#8C7683;">
+      <div class="footer-bottom t-caption">
         <span>© 2026 Eva. All rights reserved.</span>
         <span>Made with care, for her.</span>
       </div>
@@ -548,38 +542,335 @@
 
 <style is:global>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#FBF8FB; font-family:'Hanken Grotesk',system-ui,sans-serif; color:#6E5E69; -webkit-font-smoothing:antialiased; }
-  a { color:#8E2C57; text-decoration:none; }
-  a:hover { color:#C96A93; }
-  ::selection { background:#E9C4D6; color:#3A2233; }
+  body {
+    background:var(--eva-bg); font-family:var(--eva-font); color:var(--eva-text-secondary);
+    -webkit-font-smoothing:antialiased;
+  }
+  a { color:var(--eva-action-top); text-decoration:none; }
+  a:hover { color:var(--eva-action-bottom); }
+  a:focus-visible, summary:focus-visible { outline:var(--eva-focus-ring) solid var(--eva-focus); outline-offset:2px; border-radius:var(--eva-radius-text); }
+  ::selection { background:var(--eva-blush); color:var(--eva-text); }
+  strong { font-weight:600; color:var(--eva-text); }
   details > summary { list-style:none; cursor:pointer; }
   details > summary::-webkit-details-marker { display:none; }
   details[open] .faq-plus { transform:rotate(45deg); }
-  @keyframes floaty { 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-14px); } }
+  @keyframes floaty { 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(calc(-1 * var(--eva-space-3))); } }
+  @media (prefers-reduced-motion: reduce) { .phone { animation:none !important; } }
+</style>
 
-  /* Responsive overrides (the mockup is desktop-only; !important is needed to
-     beat the inline styles preserved from the design) */
+<style>
+  /* `clip`, not `hidden`: hidden makes this the scroll container and breaks the sticky header. */
+  .page { max-width:100%; overflow-x:clip; }
+  .wrap { max-width:1200px; margin:0 auto; padding-left:var(--eva-space-8); padding-right:var(--eva-space-8); }
+  .wrap--narrow { max-width:820px; }
+  .ink { color:var(--eva-text); }
+  .check { flex:none; color:var(--eva-deep-pistachio); }
+
+  /* Section rhythm: the §4 scale stops at 40, so sections breathe at 2 × 40. */
+  .section { padding-top:calc(var(--eva-space-10) * 2); padding-bottom:calc(var(--eva-space-10) * 2); }
+  .band { background:var(--eva-bg-secondary); }
+  .section-head { max-width:720px; margin:0 auto var(--eva-space-10); text-align:center; }
+  .section-head h2, .section-head p { margin-top:var(--eva-space-3); color:var(--eva-text); }
+  .section-head p { color:var(--eva-text-secondary); }
+
+  /* §4 standard card. */
+  .card {
+    background:var(--eva-card-fill);
+    -webkit-backdrop-filter:var(--eva-card-blur); backdrop-filter:var(--eva-card-blur);
+    border:1px solid var(--eva-card-border); border-radius:var(--eva-radius-card);
+    box-shadow:var(--eva-card-shadow);
+  }
+  .grid { display:grid; gap:var(--eva-space-6); }
+  .grid--4 { grid-template-columns:repeat(4, 1fr); }
+  .grid--3 { grid-template-columns:repeat(3, 1fr); }
+
+  /* NAV — §7's bar fill. */
+  .site-header {
+    position:sticky; top:0; z-index:50;
+    background:var(--eva-bar); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px);
+    border-bottom:1px solid var(--eva-control-border);
+  }
+  .nav { display:flex; align-items:center; justify-content:space-between; gap:var(--eva-space-6); padding-top:var(--eva-space-3); padding-bottom:var(--eva-space-3); }
+  .logo img { height:34px; width:auto; display:block; }
+  .nav-links { display:flex; align-items:center; gap:var(--eva-space-8); }
+  /* §5 text button type: 14/600. */
+  .nav-links a { display:inline-flex; align-items:center; min-height:var(--eva-touch); font-size:14px; font-weight:600; color:var(--eva-text-secondary); }
+  .nav-links a:hover { color:var(--eva-text); }
+
+  /* §5 primary, on the §9a action ramp (white on the canvas pink fails AA). */
+  .btn-primary {
+    display:inline-flex; align-items:center; justify-content:center;
+    min-height:var(--eva-control-height); padding:0 var(--eva-space-8);
+    border-radius:var(--eva-radius-control);
+    background:var(--eva-grad-action); color:var(--eva-text-on-dark);
+    font-size:14.5px; font-weight:600; white-space:nowrap;
+    box-shadow:var(--eva-shadow-action);
+    transition:transform .12s ease;
+  }
+  .btn-primary:hover { color:var(--eva-text-on-dark); background:var(--eva-grad-action-pressed); }
+  .btn-primary:active { transform:scale(.97); }
+  /* In the bar it takes the §1 touch floor rather than 52. */
+  .btn-primary--bar { min-height:var(--eva-touch); padding:0 var(--eva-space-6); }
+  /* §5 text button: min-height 48, radius 14, 14/600, action ink (§9a). */
+  .btn-text {
+    display:inline-flex; align-items:center; gap:var(--eva-space-2);
+    min-height:48px; border-radius:var(--eva-radius-text);
+    font-size:14px; font-weight:600; color:var(--eva-action-top);
+  }
+
+  /* HERO */
+  .hero { position:relative; overflow:hidden; }
+  .blob { position:absolute; z-index:0; border-radius:50%; }
+  .blob--blush { top:-160px; right:-120px; width:520px; height:520px; background:radial-gradient(circle, var(--eva-blush), transparent 68%); }
+  .blob--pistachio { bottom:-180px; left:-140px; width:460px; height:460px; background:radial-gradient(circle, var(--eva-light-pistachio), transparent 70%); }
+  .hero-grid {
+    position:relative; z-index:1;
+    display:grid; grid-template-columns:1.05fr .95fr; gap:calc(var(--eva-space-10) + var(--eva-space-4)); align-items:center;
+    padding-top:calc(var(--eva-space-10) * 2); padding-bottom:calc(var(--eva-space-10) * 2);
+  }
+  .tag {
+    display:inline-flex; align-items:center; gap:var(--eva-space-2);
+    padding:var(--eva-space-2) var(--eva-space-3); border-radius:var(--eva-radius-chip);
+    background:var(--eva-blush); color:var(--eva-text);
+  }
+  .tag-dot { width:8px; height:8px; border-radius:50%; background:var(--eva-deep-pink); }
+  .hero-title { margin-top:var(--eva-space-6); color:var(--eva-text); text-wrap:balance; }
+  .accent { color:var(--eva-action-top); }
+  .lead { margin-top:var(--eva-space-6); max-width:520px; }
+  .store-row { margin-top:var(--eva-space-8); display:flex; gap:var(--eva-space-3); flex-wrap:wrap; }
+  .store-row--center { justify-content:center; }
+  /* §5 Auth · Apple: solid, white. */
+  .store-badge {
+    display:inline-flex; align-items:center; gap:var(--eva-space-3);
+    min-height:var(--eva-control-height); padding:var(--eva-space-2) var(--eva-space-6);
+    border-radius:var(--eva-radius-control);
+    background:var(--eva-apple); color:var(--eva-text-on-dark);
+  }
+  .store-badge:hover { color:var(--eva-text-on-dark); }
+  .store-text { display:flex; flex-direction:column; text-align:left; }
+  .store-text .t-caption { line-height:1.2; }
+  .store-text .t-h3 { line-height:1.2; }
+  .social { margin-top:var(--eva-space-8); display:flex; align-items:center; gap:var(--eva-space-3); }
+  .avatars { display:flex; }
+  .avatars .avatar + .avatar { margin-left:calc(-1 * var(--eva-space-3)); }
+  .avatar {
+    flex:none; display:grid; place-items:center;
+    width:40px; height:40px; border-radius:50%; border:2px solid var(--eva-bg);
+  }
+  .avatar--lg { width:44px; height:44px; border:0; }
+  .avatar--sm { width:24px; height:24px; border:0; }
+  /* A white letter needs the §9a action ramp; the pale fills take Primary Text. */
+  .avatar--pink { background:var(--eva-grad-action); color:var(--eva-text-on-dark); }
+  .avatar--pistachio { background:linear-gradient(135deg, var(--eva-light-pistachio), var(--eva-pistachio)); color:var(--eva-text); }
+  .avatar--blush { background:linear-gradient(135deg, var(--eva-bg), var(--eva-blush)); color:var(--eva-text); }
+
+  /* Phone mockup — a picture of the app, so it wears the app's tokens. */
+  .phone-stage { position:relative; display:flex; justify-content:center; }
+  .phone {
+    position:relative; width:310px; height:635px; padding:11px;
+    background:var(--eva-text); border-radius:46px;
+    box-shadow:0 40px 80px -30px var(--eva-shadow-ink);
+    animation:floaty 6s ease-in-out infinite;
+  }
+  .screen {
+    position:relative; width:100%; height:100%; overflow:hidden;
+    display:flex; flex-direction:column;
+    background:var(--eva-grad-blush); border-radius:36px;
+  }
+  .status { position:relative; display:flex; justify-content:space-between; align-items:center; padding:var(--eva-space-3) var(--eva-space-6) var(--eva-space-1); color:var(--eva-text); }
+  .notch { position:absolute; left:50%; top:0; width:78px; height:22px; transform:translateX(-50%); background:var(--eva-text); border-radius:0 0 var(--eva-radius-chip) var(--eva-radius-chip); }
+  .status-icons { display:flex; gap:var(--eva-space-1); align-items:center; }
+  .app { flex:1; padding:var(--eva-space-3) var(--eva-space-4) 0; display:flex; flex-direction:column; gap:var(--eva-space-3); }
+  .app-head { display:flex; justify-content:space-between; align-items:center; }
+  .cycle-card {
+    display:flex; align-items:center; gap:var(--eva-space-4); padding:var(--eva-space-4);
+    border-radius:var(--eva-radius-card); background:var(--eva-grad-action); color:var(--eva-text-on-dark);
+    box-shadow:var(--eva-shadow-action);
+  }
+  .ring { position:relative; flex:none; width:78px; height:78px; }
+  .ring svg { position:absolute; inset:0; transform:rotate(-90deg); }
+  .ring-label { position:absolute; inset:0; display:grid; place-items:center; text-align:center; }
+  .ring-label .t-h2 { line-height:1; }
+  .cycle-card .t-caption { margin-top:var(--eva-space-1); }
+  .shortcuts { display:grid; grid-template-columns:1fr 1fr; gap:var(--eva-space-2); }
+  .shortcut { display:flex; align-items:center; gap:var(--eva-space-2); min-height:var(--eva-touch); padding:var(--eva-space-2); border-radius:var(--eva-radius-chip); color:var(--eva-text); }
+  .shortcut--blush { background:var(--eva-blush); }
+  .shortcut--pistachio { background:var(--eva-light-pistachio); }
+  .shortcut-icon { width:30px; height:30px; flex:none; display:grid; place-items:center; border-radius:10px; background:var(--eva-opaque); }
+  .shortcut--blush .shortcut-icon { color:var(--eva-action-top); }
+  .shortcut--pistachio .shortcut-icon { color:var(--eva-success-ink); }
+  .chat { padding:var(--eva-space-3); border-radius:var(--eva-radius-control); background:var(--eva-glass-elevated); border:1px solid var(--eva-card-border); }
+  .chat-row { display:flex; gap:var(--eva-space-2); align-items:flex-start; }
+  .bubble { padding:var(--eva-space-2) var(--eva-space-3); border-radius:var(--eva-space-3) var(--eva-space-3) var(--eva-space-3) var(--eva-space-1); background:var(--eva-bg-secondary); color:var(--eva-text); }
+  .chat-input { margin-top:var(--eva-space-3); display:flex; align-items:center; gap:var(--eva-space-2); padding:var(--eva-space-2) var(--eva-space-3); border-radius:var(--eva-space-3); background:var(--eva-bg-secondary); }
+  .chat-input .t-caption { flex:1; }
+  .send { width:26px; height:26px; display:grid; place-items:center; border-radius:50%; background:var(--eva-grad-action); color:var(--eva-text-on-dark); }
+  .tabbar { height:60px; flex:none; display:flex; justify-content:space-around; align-items:center; padding:0 var(--eva-space-3); background:var(--eva-bar); border-top:1px solid var(--eva-control-border); }
+  .tab { color:var(--eva-text-muted); }
+  .tab--active { color:var(--eva-action-top); }
+
+  /* VALUES STRIP */
+  .strip { border-top:1px solid var(--eva-control-border); border-bottom:1px solid var(--eva-control-border); background:var(--eva-glass-l2); }
+  .strip-inner { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:var(--eva-space-4); padding-top:var(--eva-space-6); padding-bottom:var(--eva-space-6); }
+  .strip-items { display:flex; flex-wrap:wrap; gap:var(--eva-space-6) var(--eva-space-8); color:var(--eva-text); }
+  .check-item { display:flex; align-items:center; gap:var(--eva-space-2); }
+
+  /* STATS */
+  .stat { padding:var(--eva-space-6); }
+  .stat .t-body { margin-top:var(--eva-space-3); }
+  .stat-figure { color:var(--eva-action-top); }
+  .stat--brand { background:var(--eva-grad-action); border-color:transparent; }
+  .stat--brand .stat-figure, .stat--brand .t-body { color:var(--eva-text-on-dark); }
+
+  /* FEATURES */
+  .feature { padding:var(--eva-space-8); }
+  .feature h3 { margin-top:var(--eva-space-6); color:var(--eva-text); }
+  .feature .t-body { margin-top:var(--eva-space-2); }
+  .icon-tile { width:52px; height:52px; display:grid; place-items:center; border-radius:var(--eva-radius-control); }
+  .icon-tile--blush { background:var(--eva-blush); color:var(--eva-action-top); }
+  .icon-tile--pistachio { background:var(--eva-light-pistachio); color:var(--eva-success-ink); }
+
+  /* DEEP DIVES */
+  .split {
+    max-width:1100px; margin:0 auto;
+    padding:var(--eva-space-10) var(--eva-space-8);
+    display:grid; grid-template-columns:1fr 1fr; gap:calc(var(--eva-space-10) + var(--eva-space-6)); align-items:center;
+  }
+  .split--first { padding-top:calc(var(--eva-space-10) * 2); }
+  .split--last { padding-bottom:calc(var(--eva-space-10) * 2); }
+  .split--reverse .split-copy { order:2; }
+  .split-copy h3 { margin-top:var(--eva-space-3); color:var(--eva-text); }
+  .split-copy > .t-body { margin-top:var(--eva-space-4); }
+  .checklist { list-style:none; margin-top:var(--eva-space-6); display:flex; flex-direction:column; gap:var(--eva-space-3); color:var(--eva-text); }
+  .checklist li { display:flex; gap:var(--eva-space-3); align-items:center; }
+
+  .mock {
+    padding:var(--eva-space-8); border-radius:var(--eva-radius-card);
+    border:1px solid var(--eva-card-border); box-shadow:var(--eva-card-shadow);
+  }
+  .mock--blush { background:var(--eva-grad-blush); }
+  .mock--pistachio { background:var(--eva-grad-pistachio); }
+  .mock--stack { display:flex; flex-direction:column; gap:var(--eva-space-3); }
+  .inner { padding:var(--eva-space-4); border-radius:var(--eva-radius-control); background:var(--eva-glass-elevated); }
+  .inner--session { margin-top:var(--eva-space-4); }
+  .inner--session .t-body { margin-top:var(--eva-space-1); }
+  .inner-head { display:flex; justify-content:space-between; align-items:center; }
+
+  .cal { margin-top:var(--eva-space-4); display:grid; grid-template-columns:repeat(7, 1fr); gap:var(--eva-space-2); text-align:center; }
+  .cal-dow { color:var(--eva-text-secondary); }
+  .day { aspect-ratio:1; display:grid; place-items:center; border-radius:var(--eva-radius-chip); background:var(--eva-opaque); color:var(--eva-text-secondary); }
+  /* Period is §2 Primary Pink as a wash, so the number stays Primary Text; the marked day
+     takes the §9a solid because it carries a white label. */
+  .day--period { background:var(--eva-pink); color:var(--eva-text); }
+  .day--ovulation { background:var(--eva-action-solid); color:var(--eva-text-on-dark); box-shadow:var(--eva-shadow-action); }
+  .day--training { background:var(--eva-pistachio); color:var(--eva-text); }
+  .legend { margin-top:var(--eva-space-4); display:flex; flex-wrap:wrap; gap:var(--eva-space-4); color:var(--eva-text-secondary); }
+  .legend > span { display:flex; align-items:center; gap:var(--eva-space-2); }
+  .swatch { width:10px; height:10px; border-radius:3px; box-shadow:none; }
+
+  .kcal { margin-top:var(--eva-space-2); }
+  .kcal-unit { color:var(--eva-text-secondary); }
+  .bars { margin-top:var(--eva-space-4); display:flex; flex-direction:column; gap:var(--eva-space-3); }
+  .bar-label { display:flex; justify-content:space-between; margin-bottom:var(--eva-space-1); color:var(--eva-text-secondary); }
+  .bar { height:8px; border-radius:var(--eva-radius-pill); background:var(--eva-bg-secondary); }
+  .inner--session .bar { margin-top:var(--eva-space-3); }
+  .bar-fill { height:100%; border-radius:var(--eva-radius-pill); }
+  .bar-fill--action { background:var(--eva-action-top); }
+  .bar-fill--pink { background:var(--eva-pink); }
+  .bar-fill--pistachio { background:var(--eva-deep-pistachio); }
+
+  .pill { padding:var(--eva-space-1) var(--eva-space-2); border-radius:var(--eva-radius-chip); border:1px solid transparent; white-space:nowrap; }
+  .pill--pistachio { background:var(--eva-light-pistachio); color:var(--eva-text); }
+  .pill--success { background:var(--eva-success-tint); border-color:var(--eva-success-border); color:var(--eva-success-ink); }
+  .pill--action { background:var(--eva-grad-action); color:var(--eva-text-on-dark); }
+  .pill--quiet { background:var(--eva-bg-secondary); color:var(--eva-text-secondary); }
+
+  .session { display:flex; align-items:center; gap:var(--eva-space-3); padding:var(--eva-space-4); border-radius:var(--eva-radius-control); background:var(--eva-glass-elevated); border:1px solid transparent; }
+  /* §6 radio row, selected. */
+  .session--selected { background:var(--eva-selected-fill); border-color:var(--eva-selected-border); }
+  .session-text { flex:1; }
+  .session-tile { width:44px; height:44px; flex:none; display:grid; place-items:center; border-radius:var(--eva-radius-chip); }
+  .session-tile--solid { background:var(--eva-action-solid); color:var(--eva-text-on-dark); }
+  .session-tile--action { background:var(--eva-grad-action); color:var(--eva-text-on-dark); }
+  .session-tile--pistachio { background:var(--eva-pistachio); color:var(--eva-text); }
+
+  /* §6 five-point scale: the selected cell raised, opaque and outlined; the rest at 72%. */
+  .moods { margin-top:var(--eva-space-4); display:flex; justify-content:space-between; gap:var(--eva-space-2); }
+  .mood { flex:1; aspect-ratio:1; display:grid; place-items:center; border-radius:var(--eva-radius-chip); background:var(--eva-glass-elevated); opacity:.72; }
+  .mood--selected { opacity:1; background:var(--eva-opaque); outline:2px solid var(--eva-action-top); box-shadow:var(--eva-card-shadow); }
+
+  /* MISSION — §2 pink→pistachio. */
+  .mission { background:var(--eva-grad-pink-pistachio); text-align:center; }
+  .mission-quote { margin-top:var(--eva-space-6); text-wrap:balance; }
+  .mission-body { margin:var(--eva-space-6) auto var(--eva-space-8); max-width:640px; color:var(--eva-text); }
+
+  /* BLOG */
+  .blog-head { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:var(--eva-space-6); margin-bottom:var(--eva-space-10); }
+  .blog-head-copy { max-width:560px; }
+  .blog-head-copy h2 { margin-top:var(--eva-space-3); color:var(--eva-text); }
+  .blog-head-copy .t-body { margin-top:var(--eva-space-3); }
+  .post { overflow:hidden; }
+  /* The §2 washes stand in for the editorial image, as on Home's rail (§9a, #102). */
+  .cover { position:relative; height:160px; }
+  .cover--blush { background:var(--eva-grad-blush); }
+  .cover--pistachio { background:var(--eva-grad-pistachio); }
+  .cover-tag { position:absolute; bottom:var(--eva-space-4); left:var(--eva-space-4); padding:var(--eva-space-1) var(--eva-space-3); border-radius:var(--eva-radius-chip); background:var(--eva-glass-elevated); color:var(--eva-text); }
+  .post-body { padding:var(--eva-space-6); }
+  .post-body h3 { color:var(--eva-text); }
+  .post-body .t-body { margin-top:var(--eva-space-2); }
+  .post-meta { margin-top:var(--eva-space-3); }
+
+  /* TESTIMONIALS */
+  .quote { padding:var(--eva-space-8); }
+  .stars { color:var(--eva-action-top); letter-spacing:.1em; }
+  .quote > .t-body { margin-top:var(--eva-space-4); }
+  .quote-by { margin-top:var(--eva-space-6); display:flex; align-items:center; gap:var(--eva-space-3); }
+
+  /* FAQ */
+  .faq { display:flex; flex-direction:column; gap:var(--eva-space-3); }
+  .faq-item { padding:0 var(--eva-space-6); }
+  .faq-item summary { display:flex; justify-content:space-between; align-items:center; gap:var(--eva-space-4); min-height:var(--eva-touch); padding:var(--eva-space-6) 0; color:var(--eva-text); }
+  .faq-plus { color:var(--eva-action-top); transition:transform .25s; line-height:1; font-weight:400; }
+  .faq-item > .t-body { padding-bottom:var(--eva-space-6); }
+
+  /* DOWNLOAD CTA */
+  .cta-section { padding-bottom:calc(var(--eva-space-10) * 2); }
+  .cta-block {
+    padding:calc(var(--eva-space-10) * 2) var(--eva-space-10);
+    border-radius:var(--eva-radius-sheet); text-align:center;
+    background:var(--eva-grad-action); color:var(--eva-text-on-dark);
+    box-shadow:var(--eva-shadow-action);
+  }
+  .cta-block h2 { text-wrap:balance; }
+  .cta-block > .t-body { margin:var(--eva-space-4) auto 0; max-width:520px; }
+  .cta-note { margin-top:var(--eva-space-6); }
+
+  /* FOOTER — no dark palette is designed (DESIGN.md §10), so the footer sits on Secondary Background. */
+  .site-footer { background:var(--eva-bg-secondary); border-top:1px solid var(--eva-control-border); }
+  .footer-inner { padding-top:calc(var(--eva-space-10) + var(--eva-space-6)); padding-bottom:var(--eva-space-10); }
+  .footer-grid { display:grid; grid-template-columns:1.4fr 1fr 1fr 1fr; gap:var(--eva-space-10); }
+  .wordmark { color:var(--eva-action-top); }
+  .footer-tagline { margin-top:var(--eva-space-3); max-width:280px; }
+  .footer-links { margin-top:var(--eva-space-4); display:flex; flex-direction:column; gap:var(--eva-space-2); }
+  .footer-links a { color:var(--eva-text-secondary); }
+  .footer-links a:hover { color:var(--eva-text); }
+  .footer-bottom { margin-top:var(--eva-space-10); padding-top:var(--eva-space-6); border-top:1px solid var(--eva-control-border); display:flex; justify-content:space-between; flex-wrap:wrap; gap:var(--eva-space-3); }
+
   @media (max-width: 960px) {
-    .hero-grid, .split, .stats-grid, .features-grid, .blog-grid, .footer-grid {
-      grid-template-columns: 1fr !important;
-    }
-    .stats-grid, .features-grid { grid-template-columns: repeat(2, 1fr) !important; }
-    .footer-grid { grid-template-columns: repeat(2, 1fr) !important; }
-    .split { gap: 36px !important; }
-    .split .order-1 { order: 2 !important; }
-    .split .order-2 { order: 1 !important; }
-    .hero-grid h1 { font-size: 46px !important; }
+    .hero-grid, .split, .grid--3 { grid-template-columns:1fr; }
+    .grid--4, .footer-grid { grid-template-columns:repeat(2, 1fr); }
+    .split { gap:var(--eva-space-8); }
+    .split--reverse .split-copy { order:0; }
   }
   @media (max-width: 640px) {
-    .nav-links { display: none !important; }
-    .stats-grid, .features-grid, .footer-grid { grid-template-columns: 1fr !important; }
-    .hero-grid { padding: 48px 24px 64px !important; }
-    .hero-grid h1 { font-size: 38px !important; }
-    .section-pad { padding: 60px 24px !important; }
-    .split { padding-left: 24px !important; padding-right: 24px !important; }
-    .h2 { font-size: 32px !important; }
-    .h3 { font-size: 29px !important; }
-    .cta-pad { padding: 48px 24px !important; }
+    .wrap, .split { padding-left:var(--eva-space-4); padding-right:var(--eva-space-4); }
+    .nav-links { display:none; }
+    .hero-grid { padding-top:var(--eva-space-10); padding-bottom:calc(var(--eva-space-10) + var(--eva-space-6)); }
+    .section { padding-top:calc(var(--eva-space-10) + var(--eva-space-6)); padding-bottom:calc(var(--eva-space-10) + var(--eva-space-6)); }
+    .grid--4, .footer-grid { grid-template-columns:1fr; }
+    .cta-block { padding:var(--eva-space-10) var(--eva-space-6); }
+    .mock { padding:var(--eva-space-6); }
+    .feature, .quote { padding:var(--eva-space-6); }
   }
 </style>
 
