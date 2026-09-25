@@ -2278,8 +2278,12 @@ link and its address, and an artifact outlives the runner. Links, `#token=` frag
 addresses (plain and percent-encoded), JWT-shaped strings (an emulator's unsigned one
 included) and token-length strings are replaced; the `request` and `request_timeout` lines
 carry none of those and survive whole. The startup-failure prints go through the same scrub,
-and `api/test/suite-log-redaction.test.ts` pins every rule against the real line formats. A job killed by `timeout-minutes` is cancelled rather than failed,
-and uploads nothing.
+and `api/test/suite-log-redaction.test.ts` pins every rule against the real line formats.
+The upload runs on `failure() || cancelled()`: a job killed by `timeout-minutes` ends
+cancelled rather than failed, and a hung request is the run most likely to end that way —
+the first two dispatch runs of #263 both did, and uploaded nothing under `failure()` alone.
+On a cancel the logs exist only if `verify-mobile.sh`'s exit trap ran before the runner
+killed it.
 
 **A red suite does not block the merge**, only the deploy. That half of #67 is not
 implementable from this repository: required status checks are branch protection or a
