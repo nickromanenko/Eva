@@ -8,7 +8,8 @@ clock nobody has written down is one that runs out while people work out who to 
 **Status: draft with placeholders (#90).** Every `{{…}}` is a name, address or number that
 does not exist yet. Most wait on gate L1 (the entity), L3 (the privacy programme,
 counsel) and the Article 27 representatives. A placeholder still here at launch makes this
-document false. §10 lists them all.
+document false. §10.1 lists every one that must be filled before launch; the rest are
+filled in during an incident.
 
 **It is not legal advice.** Every sentence that states what a law requires is marked
 *counsel*, as in `docs/LAUNCH.md`. Under A24 no counsel is retained. Each marked sentence is
@@ -57,7 +58,7 @@ that column is *no*.
 | Google Cloud / Firebase | database, API hosting, logs, Auth, Hosting | Cloud Console support case; `{{GCP_SUPPORT_PLAN}}` | project `{{GCP_PROJECT_ID}}` | **no**. Read the Cloud Data Processing Addendum's incident-notification term |
 | Postmark | transactional email (address + link) | `{{POSTMARK_CONTACT}}` | server `{{POSTMARK_SERVER}}` | **no**. No DPA is recorded yet |
 | LLM vendor (A5) | receives health data in prompts (LAUNCH §4.5) | `{{LLM_VENDOR_CONTACT}}` | `{{LLM_VENDOR_ACCOUNT}}` | **no**. Vendor not chosen |
-| Food-database vendor (#25 Q10) | receives food queries | `{{FOOD_DB_VENDOR_CONTACT}}` | — | **no**. Vendor not chosen |
+| Food-database vendors (A22, #25 Q10) | receive food queries: Open Food Facts and USDA FoodData Central as the base, plus one metered commercial fallback | fallback: `{{FOOD_FALLBACK_VENDOR_CONTACT}}`. OFF and USDA are public datasets with no DPA to sign; *counsel*: whether querying them sends anything personal | — | **no**. The fallback vendor is not named yet |
 | Photo-recognition vendor (#25 Q11) | receives meal photos | `{{PHOTO_VENDOR_CONTACT}}` | — | **no**. Vendor not chosen |
 | Apple | Sign in with Apple key, App Store | Apple Developer account `{{APPLE_TEAM_ID}}` | key `{{APPLE_KEY_ID}}` | **no** |
 | GitHub | source, CI, Workload Identity trust | `{{GITHUB_ORG_OWNER}}` | repo `Eva` | n/a (holds no user data) |
@@ -88,7 +89,7 @@ vendor's copy of any of them, is a health-data incident by default.
 
 The FTC rule counts **unauthorised disclosure** as a breach, not only intrusion (LAUNCH
 §2.1). *counsel*: 16 CFR §318.2, "breach of security", as amended in 2024. Under GDPR,
-Art. 4(12) likewise covers accidental disclosure. In practice these are the likelier
+Art. 4(12) is believed to cover accidental disclosure as well (*counsel*). In practice these are the likelier
 incidents for Eva:
 
 | Incident | How it could happen here |
@@ -96,7 +97,7 @@ incidents for Eva:
 | **An export reaches the wrong person** | `GET /me/export` (#58) serves the caller's own account. A fault that served another account's data, or an export the user shared that support then handled carelessly. |
 | **A mail goes to the wrong address** | An activation or reset link sent to an address that is not the account's. A reset link is a live credential for 60 minutes (GUARDRAILS 12a). |
 | **A vendor misconfiguration** | Postmark, or the LLM or other vendors once they ship, logging or retaining content beyond what the DPA allows, training on it, or exposing a dashboard. Prompts are health data (LAUNCH §4.5). |
-| **Health data in a log** | A log line that breaks GUARDRAILS 12. Everyone with log access in the project can read Cloud Logging. `EMAIL_TRANSPORT=log` running in production is the same fault, because it logs the link and the address (`api/src/email.ts`). |
+| **Health data in a log** | A log line that breaks GUARDRAILS 12. Everyone with log access in the project can read Cloud Logging. (`EMAIL_TRANSPORT=log`, which logs the link and the address, cannot cause this in production: `config.ts` refuses to boot with it under `NODE_ENV=production`.) |
 | **A loosened rules file** | `firestore.rules` or `storage.rules` deployed with anything other than `if false`. A client SDK could then read Firestore directly. `everyAllowIsDenied()` and `needs: test` exist to prevent this (GUARDRAILS 6a). |
 | **A wrong answer to a request** | Data handed to a requester outside `docs/REQUESTS.md` §3. REQUESTS.md's sources name this as a reportable event. |
 | **A cache or proxy stores a response** | A health or session response stored somewhere shared. #280 made `no-store` the default, so this now needs a regression. |
@@ -184,7 +185,7 @@ Put these in the incident record the moment T0 is written. With T0 = hour 0:
 | **H+48** | Notifiability decision per regime, with reasons recorded. Draft Art. 33 notice ready | DPO + counsel |
 | **H+72** | **GDPR/UK GDPR authority notice sent**, phased if facts are still arriving (Art. 33(4)), or the non-notification reasoning recorded in the register | DPO; sign-off Nick |
 | **D+7** | Scope final or bounded, individual notice drafted, state-law list complete | DPO + counsel |
-| **D+30** | Target for individual and state notices. This leaves 30 days' margin inside HBNR for the shorter state clocks | comms; sign-off Nick |
+| **D+30** | **Default** target for individual notices. It is not a safe margin for state notices: some state deadlines are believed to be shorter than 30 days (*counsel*), and each one on `{{STATE_AG_LIST}}` is placed on this timeline by its own clock | comms; sign-off Nick |
 | **D+60** | **HBNR hard stop** for individual notices and the FTC (≥ 500) | comms |
 | **D+30 after close** | Post-incident review published (§9) | incident lead |
 
@@ -196,8 +197,8 @@ Put these in the incident record the moment T0 is written. With T0 = hour 0:
 
 The reporter opens a record in `{{EVIDENCE_STORE}}` using the §9.1 skeleton, writes T0 (UTC)
 and what they saw, and pages on-call. A report that turns out to be nothing is closed with
-a sentence. It is still recorded, because Art. 33(5) wants breaches documented and a
-dismissed report is evidence that the process ran.
+a sentence. It is still recorded. *counsel*: Art. 33(5) is read as requiring breaches to be
+documented, and a dismissed report is evidence that the process ran.
 
 ### 4.2 Declaring
 
@@ -216,8 +217,9 @@ better than a missed one.
 
 Every incident, notified or not, goes in the GDPR breach register kept by the DPO in
 `{{EVIDENCE_STORE}}`: facts, effects, remedial action, and the reasoning behind each
-notification decision (Art. 33(5)). This also serves as the HBNR log for breaches of fewer
-than 500 people.
+notification decision (Art. 33(5), *counsel*). *counsel*: whether the same register can
+serve as the log HBNR is believed to require for breaches of fewer than 500 people, or
+whether that log needs its own form.
 
 ---
 
@@ -304,7 +306,11 @@ Owner: **on-call**, directed by the incident lead.
    changed). Route the relevant window to a bucket with a locked retention
    (`{{EVIDENCE_LOG_BUCKET}}`, a log sink or a copy), covering the Cloud Run request log,
    the API's stdout lines, and the Admin Activity and Data Access audit logs. Record the
-   filter used.
+   filter used. **Exception: health data found in a log** (§2.1). Do not copy those entries
+   into a locked-retention bucket, because a lock that erasure cannot reach turns one
+   disclosure into a permanent one. Preserve the filter, the counts, the time range and a
+   minimal redacted excerpt instead. Copy the payload itself only if the DPO and the
+   incident lead decide it is needed, and record that decision.
 2. **Do not delete Cloud Run revisions.** A compromised revision is evidence. Route
    traffic away from it (§8.2) instead of deleting it.
 3. **Disable secret versions, do not destroy them.** Secret Manager's *disable* keeps the
@@ -338,7 +344,7 @@ running them, not copy-paste.
 |---|---|---|---|
 | **Rotate `JWT_SECRET`.** Add a new version of `eva-jwt-secret`, then deploy a new `eva-api` revision so every instance reads it (`deploy-api.yml` binds `:latest` at deploy), then disable the old version | **Every session dies.** `auth.ts` verifies with one secret, so every outstanding token fails and the app's `sessionExpired` path (ARCHITECTURE §3, #76) signs every user out | Everyone signs in again. Password, Apple and Google credentials are untouched | on-call; incident lead approves |
 | **Bump one account's `tokenVersion`** | That account's outstanding tokens are refused byte-for-byte as expired (#76). Other accounts are untouched | Only that user signs in again | on-call. **Gap:** there is no admin route or script for this. It is a hand edit of `users/{uid}.tokenVersion` (+1) in the console, which `bumpTokenVersion` in `users.ts` otherwise does in a transaction. File an issue for a script |
-| **Force a password reset** | A reset bumps `tokenVersion` and ends every other session (#76) | The user has to act | the user, via `/auth/password/forgot` |
+| **Ask the user to reset her password** | A reset bumps `tokenVersion` and ends every other session (#76) | She has to act, via `/auth/password/forgot` | comms asks; on-call confirms the `tokenVersion` moved |
 
 ### 8.2 The API
 
@@ -346,7 +352,7 @@ running them, not copy-paste.
 |---|---|---|---|
 | **Route traffic back to a known-good revision.** `gcloud run services update-traffic eva-api --to-revisions={{GOOD_REVISION}}=100` | Stops a bad deploy from serving without deleting it (§7 step 2) | Loses whatever the bad revision added | on-call |
 | **Stop serving entirely.** Remove public invocation, or set ingress to internal | The API refuses everyone. The app cannot read or write | Total outage. Only for an active SEV1 with no narrower lever | incident lead |
-| **Stop the deploy path.** Disable `Deploy API`, `Deploy Website` and `Deploy Rules` in GitHub Actions, and remove the Workload Identity binding for the repository | Nothing new reaches production | No fixes ship until it is restored | incident lead |
+| **Stop the deploy path.** Disable `Deploy API`, `Deploy Website` and `Deploy Rules` in GitHub Actions, and remove the Workload Identity binding for the repository | Nothing new reaches production | No fixes ship until it is restored, **including the rules redeploy in §8.4**. Restore the binding first, once the CI identity is known to be clean, or have a person with project access redeploy the rules with the Firebase CLI | incident lead |
 
 ### 8.3 Credentials and keys
 
@@ -354,7 +360,7 @@ running them, not copy-paste.
 |---|---|---|---|
 | `JWT_SECRET` | Secret Manager `eva-jwt-secret` | §8.1 | everyone signed out |
 | `POSTMARK_API_KEY` | Secret Manager `eva-postmark-key` | new server token in Postmark, new secret version, redeploy, revoke the old token | activation and reset mail fails until redeployed (`email_send_failed`) |
-| `APPLE_SIGNIN_KEY` / `APPLE_KEY_ID` | Secret Manager `eva-apple-signin-key`; repo variable `APPLE_KEY_ID` | **revoke the key in the Apple Developer account**, create a new one, update both, redeploy | Sign in with Apple, and Apple revocation at `DELETE /me`, answer `503` until redeployed (`provider_endpoint_unavailable`) |
+| `APPLE_SIGNIN_KEY` / `APPLE_KEY_ID` | Secret Manager `eva-apple-signin-key`; repo variable `APPLE_KEY_ID` | **revoke the key in the Apple Developer account**, create a new one, add it as a new secret version, update `APPLE_KEY_ID`, redeploy, then disable the old version | Until the redeploy, Apple answers the old key with a 4xx, which `providers.ts` treats as `rejected`, not `unavailable`. `DELETE /me` still deletes, but logs `apple_revocation_failed` and leaves the Apple grant unrevoked, so list the deletions in that window. In Eva's code the key signs only the revocation client secret. If the same key is also configured on Firebase's Apple provider, Sign in with Apple is refused as `401 INVALID_CREDENTIALS` with `provider_signin_refused`, not as a `503` |
 | Google OAuth client | repo variable `GOOGLE_IOS_CLIENT_ID`; Google Cloud console | new client, update, redeploy, **and ship an app build** if the client id is baked into the app | Google sign-in down in between |
 | Firebase web API key | repo variable `GCP_FIREBASE_WEB_API_KEY` | restrict or regenerate in the Google Cloud console, update, redeploy | every Identity Toolkit call fails until redeployed |
 | Runtime service account | IAM | remove its roles or disable it. Rotate any user-managed keys (there should be none; ADC) | API down until a replacement is bound |
@@ -368,19 +374,27 @@ running them, not copy-paste.
   checking the Admin Activity log for a rules release. If they do not, redeploy the
   repository's rules through `Deploy Rules`, which runs `everyAllowIsDenied()` first
   (GUARDRAILS 6a).
-- **A vendor.** Suspend the integration: remove the key from Secret Manager, which the
-  owning module then treats as unconfigured, and redeploy. Then send the vendor a written
-  instruction under its DPA to contain and report.
+- **A vendor.** Rotate, do not remove. Issue a new key at the vendor, add it as a new
+  Secret Manager version, deploy, then **disable** the old version and revoke the old key
+  at the vendor. Never destroy or delete the secret. Removing a key does not make today's
+  modules "unconfigured". For Postmark, `deploy-api.yml` hard-codes `EMAIL_TRANSPORT=postmark`
+  and binds `eva-postmark-key:latest`, and `config.ts` requires `POSTMARK_API_KEY` under
+  `postmark` and refuses `log` in production. A deploy without the key therefore produces a
+  revision that does not boot, while the old revision, still holding the leaked key, keeps
+  serving. The Apple and Google credentials are optional in `config.ts`, but they are bound
+  the same way. "Suspend by removing the key" can only be relied on for a future vendor
+  module that is built to treat a missing key as unconfigured. Then send the vendor a
+  written instruction under its DPA to contain and report.
 - **Health data found in a log.** Restrict access to the bucket, then delete the entries
   once §7 step 1 has preserved what counsel needs. Deletion is Always-human. Fix the line in a
   PR that cites GUARDRAILS 12.
 
 ### 8.5 Eradication and recovery
 
-Once contained: find the root cause, fix it in a PR (the normal process applies,
-including the security-engineer checker), verify, then undo the containment steps that
-cost users something, one at a time and in the record. Do not restore a service to the
-state that failed.
+Owner: **incident lead**, with on-call doing the work. Once contained: find the root
+cause, fix it in a PR (the normal process applies, including the security-engineer
+checker), verify, then undo the containment steps that cost users something, one at a time
+and in the record. Do not restore a service to the state that failed.
 
 ---
 
@@ -452,7 +466,8 @@ Contact: {{COMMS}}, {{…}}
 ### 9.6 Eva to a controller, if Eva is ever a processor
 
 Not applicable today, because Eva processes only for itself. Recorded so the question gets
-asked if a B2B arrangement ever exists (Art. 33(2)).
+asked if a B2B arrangement ever exists. *counsel*: Art. 33(2) is read as requiring a
+processor to notify its controller without undue delay.
 
 ---
 
@@ -472,8 +487,8 @@ closing:
 The review is blameless about people and specific about mechanisms. It lives with the
 incident record in `{{EVIDENCE_STORE}}`, and a redacted copy goes in `docs/reviews/`.
 
-**Rehearsal.** A runbook that has never been run does not work (#90 Risks). Before launch,
-run one tabletop exercise, a mis-sent reset link, from T0 to the H+72 decision, and record
+**Rehearsal.** Owner: **incident lead**. A runbook that has never been run does not work
+(#90 Risks). Before launch, run one tabletop exercise, a mis-sent reset link, from T0 to the H+72 decision, and record
 it in `docs/reviews/`. Repeat it `{{REHEARSAL_CADENCE}}`.
 
 ### 10.1 What has to be true before launch
@@ -481,16 +496,28 @@ it in `docs/reviews/`. Repeat it `{{REHEARSAL_CADENCE}}`.
 This document is only true at launch if every item here is closed. The items are gate L8,
 with dependencies on L1 and L3.
 
-| Item | Closes | Depends on |
-|---|---|---|
-| Every `{{…}}` in §1 filled in with a real person or address | §1 | L1 (entity), L3 (counsel), the Art. 27 representatives |
-| Each vendor's incident-notification term read from its signed DPA, and §1.2's last column updated | §3.2 | LAUNCH §2.5 DPAs |
-| Every *counsel* marker confirmed or corrected, including the state-law list | §3 | L3. Under A24 there is no counsel. **Breach notification across the US, EU and UK is where a sourced product-owner reading is least safe.** Whether to retain breach counsel anyway is a decision for Nick, and this document does not make it |
-| Decide whether to enable Data Access audit logs for Firestore and Secret Manager, weighing the uids they would then hold | §5.3 | — |
-| Confirm log retention, and create the locked evidence bucket | §5.1, §7 | infra |
-| Confirm Firestore point-in-time recovery, and schedule backups (#89) | §7 step 4 | A23 |
-| A script to bump one account's `tokenVersion` | §8.1 | issue to file |
-| One tabletop exercise | §10 | — |
+| Item | Owner | Closes | Depends on |
+|---|---|---|---|
+| People: `{{INCIDENT_LEAD}}`, `{{ON_CALL_PRIMARY}}`, `{{ON_CALL_SECONDARY}}`, `{{DPO}}`, `{{COMMS}}` | product owner | §1.1 | — |
+| Counsel: `{{COUNSEL}}`, `{{COUNSEL_PHONE}}`, `{{COUNSEL_EMAIL}}` | product owner | §1.2 | L3; see the *counsel* row below |
+| The entity: `{{ENTITY}}`, `{{ENTITY_ADDRESS}}` (as in `docs/REQUESTS.md`) | product owner | §9 | L1 |
+| Representatives: `{{EU_ART27_REP}}`, `{{EU_ART27_REF}}`, `{{UK_ART27_REP}}`, `{{UK_ART27_REF}}`, with a mandate that says what each does in the first 72 hours | product owner | §1.2, §3.2 | L1 |
+| Regulator details: `{{FTC_FORM_URL}}`, `{{ICO_URL}}`, `{{ICO_REG}}`, `{{STATE_AG_LIST}}` | DPO | §1.2, §3.2 | L3 (the state list is counsel's) |
+| Vendor and account details: `{{GCP_PROJECT_ID}}`, `{{GCP_SUPPORT_PLAN}}`, `{{POSTMARK_CONTACT}}`, `{{POSTMARK_SERVER}}`, `{{LLM_VENDOR_CONTACT}}`, `{{LLM_VENDOR_ACCOUNT}}`, `{{FOOD_FALLBACK_VENDOR_CONTACT}}`, `{{PHOTO_VENDOR_CONTACT}}`, `{{APPLE_TEAM_ID}}`, `{{APPLE_KEY_ID}}`, `{{GITHUB_ORG_OWNER}}` | on-call | §1.2 | the vendor choices (A5, A22, #25 Q11) |
+| Eva's own channels: `{{SECURITY_CONTACT_EMAIL}}`, `{{PRIVACY_CONTACT_EMAIL}}`, `{{SUPPORT_EMAIL}}`, `{{TOLL_FREE}}`, `{{WEBSITE_URL}}`, `{{INCIDENT_CHANNEL}}` | comms | §1.2, §9.3 | L1 (domain); *counsel*: whether HBNR needs a toll-free number |
+| Where evidence lives: `{{EVIDENCE_STORE}}`, `{{EVIDENCE_LOG_BUCKET}}` (created, retention locked) | on-call | §1.2, §7 | infra |
+| Rehearsal cadence: `{{REHEARSAL_CADENCE}}` | incident lead | §10 | — |
+| Each vendor's incident-notification term read from its signed DPA, and §1.2's last column updated | DPO | §3.2 | LAUNCH §2.5 DPAs |
+| Every *counsel* marker confirmed or corrected, including the state-law list | DPO, with counsel | §2–§4, §9 | L3. Under A24 there is no counsel. **Breach notification across the US, EU and UK is where a sourced product-owner reading is least safe.** Whether to retain breach counsel anyway is a decision for Nick, and this document does not make it |
+| Decide whether to enable Data Access audit logs for Firestore and Secret Manager, weighing the uids they would then hold | incident lead | §5.3 | — |
+| Confirm log retention | on-call | §5.1, §7 | infra |
+| Confirm Firestore point-in-time recovery, and schedule backups (#89) | on-call | §7 step 4 | A23 |
+| A script to bump one account's `tokenVersion` | incident lead (files the issue) | §8.1 | issue to file |
+| One tabletop exercise | incident lead | §10 | — |
+
+The remaining placeholders (`{{ID}}`, `{{T0}}`, `{{TIME}}`, `{{DATE}}`, `{{N}}`,
+`{{REPORTER}}`, `{{GOOD_REVISION}}`, and the unnamed `{{…}}` in §9) are facts about one
+incident. They are filled in when it happens, not before launch.
 
 ---
 
