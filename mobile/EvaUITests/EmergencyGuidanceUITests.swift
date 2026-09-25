@@ -42,7 +42,7 @@ final class EmergencyGuidanceUITests: EvaUITestCase {
 
         relaunch(app, card: "home_flag", country: "US")
         let covered = app.otherElements["home.card"]
-        XCTAssertTrue(covered.waitForExistence(timeout: 20), "The flag card never drew")
+        XCTAssertTrue(covered.appears(within: 20), "The flag card never drew")
         // The card lands *before* the guidance fetch does, and the substitution applies
         // when the table arrives — so the assertion waits for the wording, not for the
         // card. A timeout here means the table never reached the card.
@@ -69,7 +69,7 @@ final class EmergencyGuidanceUITests: EvaUITestCase {
 
         relaunch(app, card: "home_flag", country: "DE")
         let uncovered = app.otherElements["home.card"]
-        XCTAssertTrue(uncovered.waitForExistence(timeout: 20), "The flag card never drew")
+        XCTAssertTrue(uncovered.appears(within: 20), "The flag card never drew")
         XCTAssertTrue(
             wait(for: Self.fallbackFragment, in: uncovered),
             "An uncovered region did not resolve to the fallback: \(uncovered.label)"
@@ -99,18 +99,18 @@ final class EmergencyGuidanceUITests: EvaUITestCase {
         tap(app.buttons["tab.profile"], in: app)
 
         let row = app.buttons["profile.emergency"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "Profile has no emergency row")
+        XCTAssertTrue(row.appears(within: 10), "Profile has no emergency row")
         tap(row, in: app)
 
         let wording = app.staticTexts["emergency.wording"]
-        XCTAssertTrue(wording.waitForExistence(timeout: 10), "The screen has no guidance line")
+        XCTAssertTrue(wording.appears(within: 10), "The screen has no guidance line")
         XCTAssertTrue(
             wording.label.contains(Self.coveredFragment),
             "A US device's screen does not show the US wording: \(wording.label)"
         )
 
         let number = app.staticTexts["emergency.number"]
-        XCTAssertTrue(number.waitForExistence(timeout: 5), "A covered screen shows no number")
+        XCTAssertTrue(number.appears(within: 5), "A covered screen shows no number")
         XCTAssertTrue(
             number.label.contains("911"), "The number is not the country's: \(number.label)"
         )

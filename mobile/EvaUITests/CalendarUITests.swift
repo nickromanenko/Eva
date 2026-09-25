@@ -96,7 +96,7 @@ final class CalendarUITests: EvaUITestCase {
         signUpAndActivate(app, email: email)
 
         XCTAssertTrue(
-            app.buttons["tab.calendar"].waitForExistence(timeout: 15),
+            app.buttons["tab.calendar"].appears(within: 15),
             "Entering the app did not reach the tab bar"
         )
         XCTAssertTrue(app.buttons["tab.home"].exists, "The tab bar has no Home tab")
@@ -108,13 +108,13 @@ final class CalendarUITests: EvaUITestCase {
         // suite is about — the grid, the paging, the marks — is unchanged.
         tap(app.buttons["tab.calendar"], in: app)
         XCTAssertTrue(
-            app.otherElements["calendar.grid"].waitForExistence(timeout: 15),
+            app.otherElements["calendar.grid"].appears(within: 15),
             "The Calendar tab does not show the month grid"
         )
 
         let today = Self.todayISO()
         XCTAssertTrue(
-            app.buttons["calendar.day.\(today)"].waitForExistence(timeout: 10),
+            app.buttons["calendar.day.\(today)"].appears(within: 10),
             "The grid is not showing the current month: no cell for \(today)"
         )
         XCTAssertTrue(
@@ -125,8 +125,8 @@ final class CalendarUITests: EvaUITestCase {
         // MARK: Zero data is explorable, and says so without blocking anything
 
         XCTAssertTrue(
-            app.staticTexts["calendar.empty"].waitForExistence(timeout: 10)
-                || app.otherElements["calendar.empty"].waitForExistence(timeout: 1),
+            app.staticTexts["calendar.empty"].appears(within: 10)
+                || app.otherElements["calendar.empty"].appears(within: 1),
             "A brand-new account was not shown the first-log card"
         )
         capture("01-calendar-empty")
@@ -158,7 +158,7 @@ final class CalendarUITests: EvaUITestCase {
         tap(app.buttons["calendar.nextMonth"], in: app)
         let nextMonthFirst = Self.firstOfNextMonthISO()
         XCTAssertTrue(
-            app.buttons["calendar.day.\(nextMonthFirst)"].waitForExistence(timeout: 10),
+            app.buttons["calendar.day.\(nextMonthFirst)"].appears(within: 10),
             "Tapping Next month did not page the grid to \(nextMonthFirst)"
         )
         XCTAssertNotEqual(
@@ -169,7 +169,7 @@ final class CalendarUITests: EvaUITestCase {
         // Back again by swipe, which is the artboard's own gesture for this.
         app.otherElements["calendar.grid"].swipeRight()
         XCTAssertTrue(
-            app.buttons["calendar.day.\(today)"].waitForExistence(timeout: 10),
+            app.buttons["calendar.day.\(today)"].appears(within: 10),
             "Swiping right did not page back to the current month"
         )
 
@@ -177,8 +177,8 @@ final class CalendarUITests: EvaUITestCase {
 
         tap(app.buttons["calendar.monthPicker"], in: app)
         XCTAssertTrue(
-            app.otherElements["calendar.monthPickerCard"].waitForExistence(timeout: 10)
-                || app.staticTexts["Jump to month"].waitForExistence(timeout: 1),
+            app.otherElements["calendar.monthPickerCard"].appears(within: 10)
+                || app.staticTexts["Jump to month"].appears(within: 1),
             "Tapping the header did not open the month picker"
         )
         capture("02-month-picker")
@@ -190,7 +190,7 @@ final class CalendarUITests: EvaUITestCase {
         let target = String(format: "%04d-%02d", Self.currentYear(), targetMonth)
         tap(app.buttons["calendar.month.\(target)"], in: app)
         XCTAssertTrue(
-            app.buttons["calendar.day.\(target)-01"].waitForExistence(timeout: 10),
+            app.buttons["calendar.day.\(target)-01"].appears(within: 10),
             "The month picker did not jump to \(target)"
         )
         XCTAssertNotEqual(
@@ -223,17 +223,17 @@ final class CalendarUITests: EvaUITestCase {
         // the only way to make the calendar re-read the range it has already cached.
         relaunchKeepingTheKeychain(app)
         XCTAssertTrue(
-            app.buttons["tab.calendar"].waitForExistence(timeout: 25),
+            app.buttons["tab.calendar"].appears(within: 25),
             "A relaunch with a stored session did not reach the tab bar"
         )
         tap(app.buttons["tab.calendar"], in: app)
         XCTAssertTrue(
-            app.otherElements["calendar.grid"].waitForExistence(timeout: 25),
+            app.otherElements["calendar.grid"].appears(within: 25),
             "A relaunch with a stored session did not reach the calendar"
         )
 
         let todayCell = app.buttons["calendar.day.\(today)"]
-        XCTAssertTrue(todayCell.waitForExistence(timeout: 20))
+        XCTAssertTrue(todayCell.appears(within: 20))
         // The cell says what is on it in words, not only in 6pt coloured shapes — which is
         // the accessibility half of "position and shape, never colour alone".
         XCTAssertTrue(
@@ -249,7 +249,7 @@ final class CalendarUITests: EvaUITestCase {
 
         tap(todayCell, in: app)
         XCTAssertTrue(
-            app.staticTexts["calendar.day.count"].waitForExistence(timeout: 10),
+            app.staticTexts["calendar.day.count"].appears(within: 10),
             "Selecting a day showed no detail for it"
         )
         XCTAssertEqual(
@@ -258,7 +258,7 @@ final class CalendarUITests: EvaUITestCase {
         )
         let cycleRow = entryRow(app, id: cycleID)
         XCTAssertTrue(
-            cycleRow.waitForExistence(timeout: 10),
+            cycleRow.appears(within: 10),
             "The selected day does not list the cycle entry \(cycleID)"
         )
         XCTAssertTrue(

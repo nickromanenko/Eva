@@ -24,7 +24,7 @@ final class ProfileLogOutUITests: EvaUITestCase {
 
         signUpAndActivate(app, email: email)
         XCTAssertTrue(
-            app.buttons["tab.calendar"].waitForExistence(timeout: 10),
+            app.buttons["tab.calendar"].appears(within: 10),
             "Did not land on the tab bar"
         )
 
@@ -33,7 +33,7 @@ final class ProfileLogOutUITests: EvaUITestCase {
         tap(app.buttons["tab.profile"], in: app)
         let profileEmail = app.staticTexts["profile.email"]
         XCTAssertTrue(
-            profileEmail.waitForExistence(timeout: 10),
+            profileEmail.appears(within: 10),
             "The tab bar has no way through to Profile, which is now the only way to log out"
         )
         XCTAssertEqual(
@@ -43,7 +43,7 @@ final class ProfileLogOutUITests: EvaUITestCase {
 
         tap(app.buttons["profile.logout"], in: app)
         XCTAssertTrue(
-            app.textFields["signup.email"].waitForExistence(timeout: 10),
+            app.textFields["signup.email"].appears(within: 10),
             "Log out did not return the app to signed-out onboarding"
         )
         // Popping back to the dashboard would also leave Profile behind, and would not be
@@ -63,7 +63,7 @@ final class ProfileLogOutUITests: EvaUITestCase {
         // signed out.
         relaunchKeepingTheKeychain(app)
         XCTAssertTrue(
-            app.textFields["signup.email"].waitForExistence(timeout: 20),
+            app.textFields["signup.email"].appears(within: 20),
             "The app signed itself back in after a log out — the token survived in the Keychain"
         )
         XCTAssertFalse(
@@ -75,14 +75,14 @@ final class ProfileLogOutUITests: EvaUITestCase {
         // quietly took the account with it would otherwise look identical from here.
         tap(app.buttons["text.Log in"], in: app)
         XCTAssertTrue(
-            app.staticTexts["Welcome back"].waitForExistence(timeout: 5),
+            app.staticTexts["Welcome back"].appears(within: 5),
             "The sign-up screen's cross-link did not reach the log-in screen"
         )
         type(email, into: app.textFields["login.email"], in: app)
         revealAndTypePassword(Self.password, prefix: "login", in: app)
         tap(app.buttons["primary.Log in"], in: app)
         XCTAssertTrue(
-            app.buttons["tab.calendar"].waitForExistence(timeout: 15),
+            app.buttons["tab.calendar"].appears(within: 15),
             "The account could not be logged back into after logging out of it"
         )
     }

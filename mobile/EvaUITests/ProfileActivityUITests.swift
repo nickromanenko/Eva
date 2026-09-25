@@ -27,17 +27,17 @@ final class ProfileActivityUITests: EvaUITestCase {
         // The editor leaving is the success signal: `ProfileEditorScreen` dismisses only after
         // the PUT succeeds, and stays put with the API's refusal under Save otherwise.
         XCTAssertTrue(
-            save.waitForNonExistence(timeout: 15),
+            save.disappears(within: 15),
             "Saving medications with the activity band unanswered did not return to Profile — "
                 + "the API refused the body, or the save never finished"
         )
         let activityRow = app.buttons["profile.activity"]
-        XCTAssertTrue(activityRow.waitForExistence(timeout: 5), "Profile has no Activity row")
+        XCTAssertTrue(activityRow.appears(within: 5), "Profile has no Activity row")
         XCTAssertEqual(activityRow.label, "Activity", "An unanswered band drew a value on the row")
 
         // Activity: Save is held until a band is picked.
         tap(activityRow, in: app)
-        XCTAssertTrue(save.waitForExistence(timeout: 10), "Activity did not open its editor")
+        XCTAssertTrue(save.appears(within: 10), "Activity did not open its editor")
         XCTAssertFalse(save.isEnabled, "Activity's Save is open before any band is picked")
 
         tap(app.buttons["chip.Lightly active"], in: app)
@@ -46,10 +46,10 @@ final class ProfileActivityUITests: EvaUITestCase {
 
         // Back on Profile, the row names the band in words, never as its code.
         XCTAssertTrue(
-            save.waitForNonExistence(timeout: 15),
+            save.disappears(within: 15),
             "Saving Activity did not return to Profile — the API refused what the chip sent"
         )
-        XCTAssertTrue(activityRow.waitForExistence(timeout: 5), "Profile has no Activity row")
+        XCTAssertTrue(activityRow.appears(within: 5), "Profile has no Activity row")
         XCTAssertEqual(activityRow.label, "Activity, Lightly active")
     }
 }

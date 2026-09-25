@@ -34,7 +34,7 @@ final class ProfilePersonalisationUITests: EvaUITestCase {
         // A new account has answered nothing, so the nudge is owed and on Home.
         let dismiss = app.buttons["nudge.dismiss"]
         XCTAssertTrue(
-            dismiss.waitForExistence(timeout: 15),
+            dismiss.appears(within: 15),
             "A new account with no profile reached Home without the profile nudge"
         )
         XCTAssertTrue(
@@ -44,7 +44,7 @@ final class ProfilePersonalisationUITests: EvaUITestCase {
 
         tap(dismiss, in: app)
         XCTAssertTrue(
-            dismiss.waitForNonExistence(timeout: 15),
+            dismiss.disappears(within: 15),
             "Dismissing the profile nudge did not take it off Home"
         )
 
@@ -79,12 +79,12 @@ final class ProfilePersonalisationUITests: EvaUITestCase {
         // Reaching it: the nudge's own action is the route a new user is offered.
         let addDetails = app.buttons["text.Add details"]
         XCTAssertTrue(
-            addDetails.waitForExistence(timeout: 15),
+            addDetails.appears(within: 15),
             "A new account with no profile reached Home without the profile nudge"
         )
         tap(addDetails, in: app)
         XCTAssertTrue(
-            app.buttons["profile.medications"].waitForExistence(timeout: 10),
+            app.buttons["profile.medications"].appears(within: 10),
             "The nudge's Add details did not land on Profile's personalisation rows"
         )
 
@@ -106,11 +106,11 @@ final class ProfilePersonalisationUITests: EvaUITestCase {
         // The profile exists now, so the nudge is no longer owed — without a dismissal.
         tap(app.buttons["tab.home"], in: app)
         XCTAssertTrue(
-            app.staticTexts["home.greeting"].waitForExistence(timeout: 10),
+            app.staticTexts["home.greeting"].appears(within: 10),
             "Home did not come back after completing the profile"
         )
         XCTAssertFalse(
-            app.buttons["nudge.dismiss"].waitForExistence(timeout: 3),
+            app.buttons["nudge.dismiss"].appears(within: 3),
             "The profile nudge is still on Home after every Profile row was saved"
         )
 
@@ -137,7 +137,7 @@ final class ProfilePersonalisationUITests: EvaUITestCase {
         tap(row, in: app, file: file, line: line)
         let save = app.buttons["primary.Save"]
         XCTAssertTrue(
-            save.waitForExistence(timeout: 10),
+            save.appears(within: 10),
             "\(identifier) did not open its editor",
             file: file, line: line
         )
@@ -151,13 +151,13 @@ final class ProfilePersonalisationUITests: EvaUITestCase {
         )
         tap(save, in: app, file: file, line: line)
         XCTAssertTrue(
-            save.waitForNonExistence(timeout: 15),
+            save.disappears(within: 15),
             "Saving \(identifier) did not return to Profile — the API refused the body, "
                 + "or the save never finished",
             file: file, line: line
         )
         XCTAssertTrue(
-            row.waitForExistence(timeout: 5),
+            row.appears(within: 5),
             "Saving \(identifier) did not come back to Profile",
             file: file, line: line
         )
@@ -199,17 +199,17 @@ final class ProfilePersonalisationUITests: EvaUITestCase {
         line: UInt = #line
     ) {
         XCTAssertTrue(
-            app.buttons["tab.home"].waitForExistence(timeout: 25),
+            app.buttons["tab.home"].appears(within: 25),
             "Did not reach the app after \(moment)",
             file: file, line: line
         )
         XCTAssertTrue(
-            app.staticTexts["home.greeting"].waitForExistence(timeout: 10),
+            app.staticTexts["home.greeting"].appears(within: 10),
             "Home is not on screen after \(moment)",
             file: file, line: line
         )
         XCTAssertFalse(
-            app.buttons["nudge.dismiss"].waitForExistence(timeout: 3),
+            app.buttons["nudge.dismiss"].appears(within: 3),
             "The profile nudge came back after \(moment)",
             file: file, line: line
         )

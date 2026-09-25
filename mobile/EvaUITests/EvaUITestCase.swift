@@ -111,7 +111,7 @@ class EvaUITestCase: XCTestCase {
         fillSignUpForm(app, email: email)
 
         let submit = app.buttons["primary.Create account"]
-        XCTAssertTrue(submit.waitForExistence(timeout: 5), file: file, line: line)
+        XCTAssertTrue(submit.appears(within: 5), file: file, line: line)
         XCTAssertTrue(
             submit.isEnabled,
             "Sign-up CTA stayed disabled — form input did not land",
@@ -129,7 +129,7 @@ class EvaUITestCase: XCTestCase {
             passConsentGate(app, file: file, line: line)
 
             XCTAssertTrue(
-                app.buttons["tab.home"].waitForExistence(timeout: 20),
+                app.buttons["tab.home"].appears(within: 20),
                 "Signing in after activation did not reach the app",
                 file: file, line: line
             )
@@ -169,7 +169,7 @@ class EvaUITestCase: XCTestCase {
         line: UInt
     ) {
         let gate = app.staticTexts["Check your inbox"]
-        if gate.waitForExistence(timeout: 15) { return }
+        if gate.appears(within: 15) { return }
 
         // Answered between the wait expiring and now: late, not lost. Checked before the
         // screen is read, or a gate that just arrived reads as "the sign-up button is gone".
@@ -193,7 +193,7 @@ class EvaUITestCase: XCTestCase {
             app.launch()
             fillSignUpForm(app, email: email)
             let submit = app.buttons["primary.Create account"]
-            XCTAssertTrue(submit.waitForExistence(timeout: 5), file: file, line: line)
+            XCTAssertTrue(submit.appears(within: 5), file: file, line: line)
             XCTAssertTrue(
                 submit.isEnabled,
                 "Sign-up CTA stayed disabled on the retry — form input did not land",
@@ -202,7 +202,7 @@ class EvaUITestCase: XCTestCase {
             tap(submit, in: app, file: file, line: line)
         }
 
-        if gate.waitForExistence(timeout: 15) {
+        if gate.appears(within: 15) {
             print("SIGN-UP STALLED (#264): recovered — the retry reached the activation gate.")
             return
         }
@@ -374,14 +374,14 @@ class EvaUITestCase: XCTestCase {
         // From wherever the caller is. After `signUpAndActivate` that is the activation
         // gate, whose way out is "Change email" back to sign-up; from sign-up it is the
         // "Log in" cross-link. Both are tried because the two callers arrive differently.
-        if app.buttons["text.Change email"].waitForExistence(timeout: 3) {
+        if app.buttons["text.Change email"].appears(within: 3) {
             tap(app.buttons["text.Change email"], in: app)
         }
-        if app.buttons["text.Log in"].waitForExistence(timeout: 5) {
+        if app.buttons["text.Log in"].appears(within: 5) {
             tap(app.buttons["text.Log in"], in: app)
         }
         XCTAssertTrue(
-            app.staticTexts["Welcome back"].waitForExistence(timeout: 10),
+            app.staticTexts["Welcome back"].appears(within: 10),
             "Could not reach the log-in screen",
             file: file, line: line
         )
@@ -400,7 +400,7 @@ class EvaUITestCase: XCTestCase {
 
         let failure = app.staticTexts["login.error"]
         XCTAssertFalse(
-            failure.waitForExistence(timeout: 8),
+            failure.appears(within: 8),
             // The label, not just the fact: "wrong password" and "confirm your email
             // first" are different bugs, and a bare failure cannot tell them apart.
             """
@@ -525,7 +525,7 @@ class EvaUITestCase: XCTestCase {
     ) -> String {
         tap(app.buttons["text.Log in"], in: app)
         XCTAssertTrue(
-            app.staticTexts["Welcome back"].waitForExistence(timeout: 5),
+            app.staticTexts["Welcome back"].appears(within: 5),
             "The sign-up screen's cross-link did not reach the log-in screen",
             file: file, line: line
         )
@@ -536,7 +536,7 @@ class EvaUITestCase: XCTestCase {
 
         let error = app.staticTexts["login.error"]
         XCTAssertTrue(
-            error.waitForExistence(timeout: 15),
+            error.appears(within: 15),
             "A failed log in showed no error at all for \(email)",
             file: file, line: line
         )
@@ -554,11 +554,11 @@ class EvaUITestCase: XCTestCase {
     func openBodyMeasurements(_ app: XCUIApplication) {
         tap(app.buttons["tab.profile"], in: app)
         let row = app.buttons["profile.bodyMeasurements"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "Profile has no Body measurements row")
+        XCTAssertTrue(row.appears(within: 10), "Profile has no Body measurements row")
         tap(row, in: app)
         XCTAssertTrue(
-            element("stepper.weight.kilograms", in: app).waitForExistence(timeout: 10)
-                || element("stepper.weight.pounds", in: app).waitForExistence(timeout: 1),
+            element("stepper.weight.kilograms", in: app).appears(within: 10)
+                || element("stepper.weight.pounds", in: app).appears(within: 1),
             "Body measurements did not open its editor"
         )
     }
@@ -733,7 +733,7 @@ class EvaUITestCase: XCTestCase {
         // A short probe first so the common case stays fast, then swipes, then the full
         // wait as the assertion. An element that is genuinely missing still fails, with the
         // same message it failed with before.
-        if !element.waitForExistence(timeout: 1) {
+        if !element.appears(within: 1) {
             var reveals = 0
             while !element.exists && reveals < 4 {
                 if column.exists { column.swipeUp() } else { app.swipeUp() }
@@ -741,7 +741,7 @@ class EvaUITestCase: XCTestCase {
             }
         }
         XCTAssertTrue(
-            element.waitForExistence(timeout: timeout),
+            element.appears(within: timeout),
             "Missing element: \(element)", file: file, line: line
         )
         var swipes = 0
@@ -854,5 +854,32 @@ class EvaUITestCase: XCTestCase {
             frame = next
         }
         return frame
+    }
+}
+
+/// `waitForExistence` and `waitForNonExistence`, without the poll they spend when the answer
+/// is already true (#328).
+///
+/// **Measured, not assumed.** On the Xcode 26.2 / iOS 26.2 runner, `waitForExistence` does
+/// not look before it waits: it logs "Waiting 1.0s for …", sleeps one polling interval, and
+/// only then checks — so an element that is already on screen costs ~1.1s to find. Every
+/// `tap` here goes through `scrollIntoView`, which asks twice, so a tap cost over 2s before
+/// it touched anything. In run 36170720381 (main, 56 min) 1193 of the UI suite's 1240
+/// existence waits were answered at that first check, and together they were 1320s of the
+/// suite's 2830s — the largest single cost, ahead of every launch, tap and keystroke
+/// combined.
+///
+/// A single `exists` read (one accessibility snapshot, ~35ms) answers the common case. The
+/// result is the same in every case: present → true at once, as the wait would have said a
+/// second later; absent → the full wait, exactly as before. So a negative wait —
+/// `XCTAssertFalse(x.appears(within: 8))` — still spends all eight seconds looking.
+@MainActor
+extension XCUIElement {
+    func appears(within timeout: TimeInterval) -> Bool {
+        exists || waitForExistence(timeout: timeout)
+    }
+
+    func disappears(within timeout: TimeInterval) -> Bool {
+        !exists || waitForNonExistence(timeout: timeout)
     }
 }

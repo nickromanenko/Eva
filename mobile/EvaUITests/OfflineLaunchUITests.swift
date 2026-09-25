@@ -37,7 +37,7 @@ final class OfflineLaunchUITests: EvaUITestCase {
 
         signUpAndActivate(app, email: email)
         XCTAssertTrue(
-            app.buttons["tab.calendar"].waitForExistence(timeout: 10),
+            app.buttons["tab.calendar"].appears(within: 10),
             "Did not land on the tab bar"
         )
 
@@ -48,7 +48,7 @@ final class OfflineLaunchUITests: EvaUITestCase {
 
         relaunch(app, api: Self.deadAPI)
         XCTAssertTrue(
-            app.staticTexts["unreachable.title"].waitForExistence(timeout: 20),
+            app.staticTexts["unreachable.title"].appears(within: 20),
             "A launch that could not reach the API showed no retry screen"
         )
         XCTAssertFalse(
@@ -80,7 +80,7 @@ final class OfflineLaunchUITests: EvaUITestCase {
         // *next* launch landing on onboarding.
         tap(app.buttons["primary.Try again"], in: app)
         XCTAssertTrue(
-            app.staticTexts["unreachable.title"].waitForExistence(timeout: 20),
+            app.staticTexts["unreachable.title"].appears(within: 20),
             "Retrying against an API that is still down left the retry screen"
         )
         XCTAssertFalse(
@@ -97,7 +97,7 @@ final class OfflineLaunchUITests: EvaUITestCase {
 
         relaunch(app, api: Self.apiBaseURL)
         XCTAssertTrue(
-            app.buttons["tab.calendar"].waitForExistence(timeout: 25),
+            app.buttons["tab.calendar"].appears(within: 25),
             "The session did not survive a launch that could not reach the API — "
                 + "the app came up signed out with the API available again"
         )
@@ -115,12 +115,12 @@ final class OfflineLaunchUITests: EvaUITestCase {
 
         relaunch(app, api: Self.deadAPI)
         XCTAssertTrue(
-            app.staticTexts["unreachable.title"].waitForExistence(timeout: 20),
+            app.staticTexts["unreachable.title"].appears(within: 20),
             "The second unreachable launch showed no retry screen"
         )
         tap(app.buttons["text.Log out"], in: app)
         XCTAssertTrue(
-            app.textFields["signup.email"].waitForExistence(timeout: 10),
+            app.textFields["signup.email"].appears(within: 10),
             "Log out on the retry screen did not reach onboarding, so the screen has no exit"
         )
 
@@ -128,7 +128,7 @@ final class OfflineLaunchUITests: EvaUITestCase {
         // were still there it would validate and this launch would reach the tab bar.
         relaunch(app, api: Self.apiBaseURL)
         XCTAssertTrue(
-            app.textFields["signup.email"].waitForExistence(timeout: 25),
+            app.textFields["signup.email"].appears(within: 25),
             "Logging out of the retry screen left the token in the Keychain — the app signed itself back in"
         )
         XCTAssertFalse(

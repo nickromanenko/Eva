@@ -25,14 +25,14 @@ final class ProviderSignInUITests: EvaUITestCase {
         let app = launch()
 
         XCTAssertTrue(
-            app.textFields["signup.email"].waitForExistence(timeout: 20),
+            app.textFields["signup.email"].appears(within: 20),
             "The app did not open on sign-up"
         )
         assertProviderButtons(on: "sign-up", in: app)
 
         tap(app.buttons["text.Log in"], in: app)
         XCTAssertTrue(
-            app.staticTexts["Welcome back"].waitForExistence(timeout: 5),
+            app.staticTexts["Welcome back"].appears(within: 5),
             "The sign-up screen's cross-link did not reach the log-in screen"
         )
         assertProviderButtons(on: "log-in", in: app)
@@ -80,7 +80,7 @@ final class ProviderSignInUITests: EvaUITestCase {
         app.launchEnvironment.removeValue(forKey: "EVA_UITEST_RESET")
         app.launch()
         XCTAssertTrue(
-            app.buttons["tab.home"].waitForExistence(timeout: 20),
+            app.buttons["tab.home"].appears(within: 20),
             "Relaunching with the session kept did not reach the app"
         )
 
@@ -100,7 +100,7 @@ final class ProviderSignInUITests: EvaUITestCase {
         openDeleteModal(app)
         let note = app.staticTexts.matching(identifier: "delete.appleNote")
         XCTAssertTrue(
-            note.firstMatch.waitForExistence(timeout: 5),
+            note.firstMatch.appears(within: 5),
             "The delete modal does not warn an Apple-connected account that Apple will ask to confirm"
         )
         // Joined: `EvaInfoBanner` does not combine its title and message, so the identifier
@@ -130,7 +130,7 @@ final class ProviderSignInUITests: EvaUITestCase {
         app.launchEnvironment.removeValue(forKey: "EVA_UITEST_RESET")
         app.launch()
         XCTAssertTrue(
-            app.buttons["tab.home"].waitForExistence(timeout: 20),
+            app.buttons["tab.home"].appears(within: 20),
             "Relaunching with the session kept did not reach the app"
         )
 
@@ -166,7 +166,7 @@ final class ProviderSignInUITests: EvaUITestCase {
         for (identifier, label) in [("auth.apple", "Continue with Apple"), ("auth.google", "Continue with Google")] {
             let button = app.buttons[identifier]
             XCTAssertTrue(
-                button.waitForExistence(timeout: 5),
+                button.appears(within: 5),
                 "The \(screen) screen has no \(identifier) button",
                 file: file, line: line
             )
@@ -189,7 +189,7 @@ final class ProviderSignInUITests: EvaUITestCase {
     private func openProfile(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         tap(app.buttons["tab.profile"], in: app, file: file, line: line)
         XCTAssertTrue(
-            app.staticTexts["profile.email"].waitForExistence(timeout: 10),
+            app.staticTexts["profile.email"].appears(within: 10),
             "Profile did not open",
             file: file, line: line
         )
@@ -200,7 +200,7 @@ final class ProviderSignInUITests: EvaUITestCase {
     private func openDeleteModal(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         tap(app.buttons["destructive.Delete profile"], in: app, file: file, line: line)
         XCTAssertTrue(
-            app.staticTexts["delete.title"].waitForExistence(timeout: 5),
+            app.staticTexts["delete.title"].appears(within: 5),
             "The danger card did not open the confirmation modal",
             file: file, line: line
         )
@@ -214,7 +214,7 @@ final class ProviderSignInUITests: EvaUITestCase {
     private func closeDeleteModal(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         tap(app.buttons["text.Cancel"], in: app, file: file, line: line)
         XCTAssertTrue(
-            app.staticTexts["delete.title"].waitForNonExistence(timeout: 5),
+            app.staticTexts["delete.title"].disappears(within: 5),
             "Cancel did not close the delete modal",
             file: file, line: line
         )
