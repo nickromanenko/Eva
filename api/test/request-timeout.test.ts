@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { Hono } from 'hono'
+import { recordRoute } from '../src/request-log'
 import { REQUEST_TIMEOUT_MS, withRequestTimeout } from '../src/request-timeout'
 
 /**
@@ -21,8 +23,15 @@ describe('withRequestTimeout', () => {
   test('a hung request names its route in the log before the kill', async () => {
     const { logged, restore } = captureErrors()
     try {
-      const hung = withRequestTimeout(() => new Promise<Response>(() => {}), 5)
-      void hung(new Request('http://localhost/auth/signup', { method: 'POST' }))
+      // Through a router with `recordRoute`, as `index.ts` wires it: the route logged is
+      // the matched pattern (#263), which only exists once Hono has matched.
+      const app = new Hono()
+      app.use('*', recordRoute)
+      // A parameterised route, so the pattern and the path differ and a regression to the
+      // raw pathname fails here rather than passing by coincidence.
+      app.patch('/me/events/:id', () => new Promise<Response>(() => {}))
+      const hung = withRequestTimeout(app.fetch, 5)
+      void hung(new Request('http://localhost/me/events/evt-hung-1', { method: 'PATCH' }))
       await Bun.sleep(30)
     } finally {
       restore()
@@ -30,9 +39,10 @@ describe('withRequestTimeout', () => {
     expect(logged).toHaveLength(1)
     expect(JSON.parse(logged[0]!)).toEqual({
       event: 'request_timeout',
-      method: 'POST',
-      route: '/auth/signup',
+      method: 'PATCH',
+      route: '/me/events/:id',
     })
+    expect(logged[0]).not.toContain('evt-hung-1')
   })
 
   test('a request that answers in time logs nothing', async () => {

@@ -89,9 +89,54 @@ api_ensure_up() {
     api_health "$API_URL" && { export EVA_API_URL="$API_URL"; return 0; }
     sleep 0.5
   done
-  echo "✗ API failed to start"
-  cat "$API_LOG"
+  echo "✗ API failed to start (log redacted — see redact_suite_log)"
+  redact_log_lines "$API_LOG"
   return 1
+}
+
+# Copy a suite log to somewhere it will be kept (#263), with what GUARDRAILS 12 forbids in a
+# log taken out: `redact_suite_log SRC DEST`. A missing or empty SRC writes nothing.
+#
+# The kept copy is uploaded as a CI artifact, and an artifact outlives the runner — five
+# days, readable by anyone who can read the repository's Actions. The *live* log cannot be
+# made clean at the source, because under `EMAIL_TRANSPORT=log` the API's whole job is to
+# print each activation and reset link with the address it went to (GUARDRAILS 12's one
+# exception, refused in production). Against the emulators those tokens are dead once the
+# runner is, and the addresses are fabricated `e2e+…` ones — but the rule is "never log the
+# link, the token, its hash, or the address", not "unless it is probably harmless", and a
+# log whose safety depends on where it came from is one copy away from being unsafe. So the
+# copy is scrubbed, and the scrub is broad rather than exact:
+#
+#   link=…           the log transport's whole link, fragment token included
+#   #token=…         a link fragment that reached a line without `link=` in front of it
+#   an address       `local%40domain.tld` (percent-encoded, as in a logged URL) and any
+#                    `local@domain.tld` — the mailbox names one on every activation
+#   a JWT            `eyJ….….…`; the last segment may be empty, which is what the Auth
+#                    emulator's unsigned ID tokens look like
+#   43+ url-safe     a raw link token (43 base64url chars) or its sha256 hex (64)
+#
+# What survives is what diagnosis needs: the `request` / `request_timeout` lines (route
+# pattern, status, ms — nothing to scrub), error classes, and the mailbox's status codes.
+# `api/test/suite-log-redaction.test.ts` pins each rule against the real line formats.
+#
+# `redact_log_lines FILE` writes the scrubbed lines to stdout — also what the startup-failure
+# paths print, so a step log gets the same scrub as the artifact.
+redact_log_lines() {
+  sed -E \
+    -e 's/link=[^[:space:]]+/link=[redacted-link]/g' \
+    -e 's/#token=[^[:space:]"]*/#[redacted-token]/g' \
+    -e 's/[A-Za-z0-9._%+-]+%40[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[redacted-address]/g' \
+    -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[redacted-address]/g' \
+    -e 's/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/[redacted-jwt]/g' \
+    -e 's/[A-Za-z0-9_-]{43,}/[redacted-token]/g' \
+    "$1"
+}
+
+redact_suite_log() {
+  local src="$1" dest="$2"
+  [ -n "$src" ] && [ -s "$src" ] || return 0
+  mkdir -p "$(dirname "$dest")" || return 0
+  redact_log_lines "$src" >"$dest" 2>/dev/null || rm -f "$dest"
 }
 
 # Pre-flight: refuse to run when the environment the suite needs is absent or unusable

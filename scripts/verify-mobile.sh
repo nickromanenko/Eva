@@ -57,6 +57,21 @@ SIMULATOR=${EVA_SIMULATOR_ID:-D748EB89-9D96-4D48-9033-9AC0DA65FE7A}
 # `mobile/build/` is gitignored. Removed first so a local re-run does not hit "already exists".
 RESULT_BUNDLE="$ROOT/mobile/build/Eva.xcresult"
 rm -rf "$RESULT_BUNDLE"
+# The API's and the UI-test mailbox's logs, kept (#263). Both processes write to `mktemp`
+# files that die with a CI runner, so the server side of a failed UI test — did
+# `request_timeout` fire for `POST /auth/signup` during the hang? — was unanswerable after
+# the fact. On exit they are copied here through `redact_suite_log` (api-server.sh: the log
+# transport prints activation links and addresses, and this copy is uploaded), and
+# `test-mobile.yml` uploads the directory when the suite fails. Fixed path for the same
+# reason as the result bundle; cleared first so a local re-run never shows the last one's.
+SUITE_LOG_DIR="$ROOT/mobile/build/suite-logs"
+rm -rf "$SUITE_LOG_DIR"
+save_suite_logs() {
+  redact_suite_log "$API_LOG" "$SUITE_LOG_DIR/api.log"
+  redact_suite_log "${MAILBOX_LOG:-}" "$SUITE_LOG_DIR/mailbox.log"
+  [ -d "$SUITE_LOG_DIR" ] && echo "▶ suite logs (redacted): $SUITE_LOG_DIR"
+  return 0
+}
 FAILED=0
 
 command -v xcodegen >/dev/null || { echo "✗ xcodegen missing — brew install xcodegen"; exit 1; }
@@ -110,8 +125,9 @@ if [ "$BUILD_ONLY" = "1" ]; then
     -destination "platform=iOS Simulator,id=$SIMULATOR,arch=arm64" \
     -derivedDataPath build -resultBundlePath "$RESULT_BUNDLE" build-for-testing) || FAILED=1
 else
-  # The UI test signs up for real, so it needs the API up.
-  api_ensure_up || exit 1
+  # The UI test signs up for real, so it needs the API up. A failed start still keeps its
+  # log: the trap below is not set yet, and api_ensure_up's own only stops the server.
+  api_ensure_up || { save_suite_logs; exit 1; }
 
   # …and, since #6, an account cannot sign in until an emailed link has been opened,
   # which a simulator cannot do. `api/scripts/uitest-mailbox.ts` is the stand-in: it is
@@ -136,7 +152,13 @@ else
   (cd "$ROOT/api" && PORT="$MAILBOX_PORT" EVA_API_URL="$API_URL" EVA_MAILBOX_LEDGER="$MAILBOX_LEDGER" \
     exec bun run scripts/uitest-mailbox.ts) >"$MAILBOX_LOG" 2>&1 &
   MAILBOX_PID=$!
-  mailbox_stop() { kill "$MAILBOX_PID" 2>/dev/null || true; api_stop; release_lock; }
+  # Logs are saved after both processes are stopped, so each copy is the whole log.
+  mailbox_stop() {
+    kill "$MAILBOX_PID" 2>/dev/null || true
+    api_stop
+    save_suite_logs
+    release_lock
+  }
   trap mailbox_stop EXIT
 
   MAILBOX_UP=0
@@ -146,7 +168,7 @@ else
     fi
     sleep 0.5
   done
-  [ "$MAILBOX_UP" = "1" ] || { echo "✗ UI-test mailbox failed to start"; cat "$MAILBOX_LOG"; exit 1; }
+  [ "$MAILBOX_UP" = "1" ] || { echo "✗ UI-test mailbox failed to start"; redact_log_lines "$MAILBOX_LOG"; exit 1; }
   echo "▶ UI-test mailbox at $MAILBOX_URL"
 
   echo "▶ build + UI tests (simulator $SIMULATOR, API $API_URL)"

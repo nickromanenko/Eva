@@ -296,3 +296,30 @@ jobs:
           path: mobile/build/Eva.xcresult
           if-no-files-found: ignore
           retention-days: 5
+
+      # The server side of a failed suite (#263): the API's and the UI-test mailbox's logs,
+      # which verify-mobile.sh copies to mobile/build/suite-logs/ on exit. Without them a UI
+      # test that hung on a request could say *that* it waited, and nothing could say whether
+      # the API ever answered — the `request` line (route pattern, status, ms) and
+      # `request_timeout` are what decide it, and they lived in a mktemp file on a runner that
+      # no longer exists.
+      #
+      # **On failure or cancellation only**, unlike the xcresult: a green run's logs answer no
+      # question, and an artifact on every nightly is storage for nothing. `cancelled()` is
+      # not optional: a job killed by `timeout-minutes` ends *cancelled*, not failed, so
+      # `failure()` alone skips this step — and a hung request is exactly the run that ends
+      # that way, which is the case this upload exists for. The first two dispatch runs of
+      # #263 both hit the 45-minute ceiling and uploaded nothing. A manual cancel uploads too;
+      # that costs one small artifact. **Redacted, not raw**: under `EMAIL_TRANSPORT=log` the
+      # API prints every activation link and the address it went to, and an artifact
+      # outlives the runner; `redact_suite_log` in scripts/lib/api-server.sh says what it
+      # removes and why. On a cancel the copy exists only if verify-mobile.sh's exit trap ran
+      # before the runner killed it; if it did not, `if-no-files-found: warn` says so.
+      - name: Upload API and mailbox logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-logs-${{ github.job }}-run${{ github.run_id }}-${{ github.sha }}
+          path: mobile/build/suite-logs/
+          if-no-files-found: warn
+          retention-days: 5

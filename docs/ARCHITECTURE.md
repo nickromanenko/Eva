@@ -92,7 +92,8 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
 | `data-export.ts` | The body of `GET /me/export` (#58): the account, the nutrition profile (#221) and two page generators in, one JSON document out as a stream | Pure leaf: no Firestore, no clock, no `fetch`, no log line; its imports are `import type`. Reads the first page of each collection before the route sends headers, and writes the closing brackets last, so a truncated body is never valid JSON |
-| `request-timeout.ts` | The per-request timeout that names a hung request in the log before Bun's `idleTimeout` kills the connection (#225) | Pure leaf: wraps the handler in a timer, reads no clock and no Firestore. Logs only the route path — no payload, address or token |
+| `request-timeout.ts` | The per-request timeout that names a hung request in the log before Bun's `idleTimeout` kills the connection (#225) | Wraps the handler in a timer, reads no clock and no Firestore. Logs only method and the matched route pattern (from `request-log.ts`) — no payload, address, token or id |
+| `request-log.ts` | One `request` line per finished request (#263), and the route pattern both request-level lines carry (`recordRoute`, `routeOf`) | Leaf. Records the pattern Hono matched; writes the line at the server edge, outside `app`. Fields are exactly `method`, `route`, `status`, `ms` — never the path the caller sent |
 
 Layering: `index.ts` → (`auth`, `identity-toolkit`, `providers`, `rate-limit`, `users`,
 `events`, `refdata`, `content`, `today`, `nutrition-profile`, `email-tokens`, `email`) →
@@ -774,6 +775,20 @@ from the app's error and it names exactly one line. The cost, stated: no stack, 
 line locates a fault to a route and a class rather than a line number. If that is ever too
 thin the answer is a reviewed field — an error class of ours carrying a safe code — not
 the message.
+
+**Two request-level lines, and `route` means the same in both (#225, #263).** Every request
+that answers writes `{"event":"request","method","route","status","ms"}` to stdout; one
+still in flight at `REQUEST_TIMEOUT_MS` writes `{"event":"request_timeout","method","route"}`
+to stderr first. Together they say what happened to every request, not only the ones that
+hung — which is what a failed UI suite needs from the API's log. `route` is the matched
+pattern, by the same rule as `unhandled_error` above, and `null` for a path no route
+matched: the raw path of a miss is whatever the caller typed. `recordRoute`, the first
+middleware registered, records the pattern; `withRequestLog` writes the line from outside
+`app`, wrapping `app.fetch` beside `withRequestTimeout`, so the status logged is the one the
+client got, `app.onError`'s 500s included. `ms` is time to the `Response`, so for the
+streamed `GET /me/export` it is the first page, not the whole body. No env flag: on Cloud
+Run this sits beside the platform's own request log, which already records the full URL, so
+it adds volume and no exposure. Until #263 `request_timeout` logged the raw pathname.
 
 **A JSON body that is not an object is `400 VALIDATION`, answered once (#119).** Every route
 that reads a body reads it through `readBody` in `index.ts`: no body, or a body that is not
@@ -2252,6 +2267,23 @@ a command nobody runs automatically cannot do that. (`mobile/`'s Plan approval a
 cells did move to `AI` on 2026-09-16 — by direct instruction, not by the ratchet, which is
 recorded as such in that file. The gap this paragraph describes is unchanged: it is why
 they could not have been *earned*.)
+
+**A failed `Full suite` run keeps the server side of the failure (#263).** The
+`.xcresult` says what the app saw; it cannot say whether the API ever answered the request
+a UI test waited on. `verify-mobile.sh` copies the API's and the UI-test mailbox's logs to
+`mobile/build/suite-logs/` on exit, and `test-mobile.yml` uploads that directory when the
+job fails — never on a green run. The copy is **redacted** (`redact_suite_log` in
+`scripts/lib/api-server.sh`): under `EMAIL_TRANSPORT=log` the API prints every activation
+link and its address, and an artifact outlives the runner. Links, `#token=` fragments,
+addresses (plain and percent-encoded), JWT-shaped strings (an emulator's unsigned one
+included) and token-length strings are replaced; the `request` and `request_timeout` lines
+carry none of those and survive whole. The startup-failure prints go through the same scrub,
+and `api/test/suite-log-redaction.test.ts` pins every rule against the real line formats.
+The upload runs on `failure() || cancelled()`: a job killed by `timeout-minutes` ends
+cancelled rather than failed, and a hung request is the run most likely to end that way —
+the first two dispatch runs of #263 both did, and uploaded nothing under `failure()` alone.
+On a cancel the logs exist only if `verify-mobile.sh`'s exit trap ran before the runner
+killed it.
 
 **A red suite does not block the merge**, only the deploy. That half of #67 is not
 implementable from this repository: required status checks are branch protection or a
