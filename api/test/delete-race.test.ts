@@ -27,6 +27,7 @@ import {
   markUserDeleted,
 } from '../src/users'
 import { isRequestLine } from './support/request-line'
+import { testEmail } from './support/test-email'
 
 /**
  * A write racing `DELETE /me` (#286).
@@ -71,7 +72,7 @@ const nutritionDocs = (uid: string) => userDoc(uid).collection('nutrition')
 /** A live, activated account with a collect consent on record (#86), and a session for it. */
 const account = async (): Promise<{ uid: string; token: string }> => {
   const uid = `e2e-delete-race-${crypto.randomUUID()}`
-  const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+  const email = testEmail()
   createdUids.push(uid)
   await userDoc(uid).set({
     email,

@@ -13,6 +13,7 @@ import { adminAuth, firestore } from '../src/firebase'
 import { config } from '../src/config'
 import { resetAuthRateLimits } from '../src/rate-limit'
 import { createUnactivatedAccount } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * Live round trips happen in this file, so the ceiling is chosen rather than inherited
@@ -216,7 +217,7 @@ describe('signin does not reveal whether an address is registered', () => {
       // which they already know. Padding it would buy nothing and would make every
       // refused attempt cost a held connection, which is what an attacker's traffic
       // becomes. Moving `throttleAuth` inside `atLeast` is the mutation this catches.
-      const email = `e2e+floor-429-${crypto.randomUUID()}@e2e.evaapp.dev`
+      const email = testEmail('floor-429')
 
       let refused: Answer | null = null
       let elapsed = 0
@@ -346,7 +347,7 @@ describe('signup deliberately does distinguish a taken address', () => {
     // for it — so the gate's condition is never evaluated in either direction, and
     // widening it from `existing.user?.activated` to `existing.user` left this test
     // green. The case below is the one with teeth.
-    const unproven = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+    const unproven = testEmail()
     const { uid } = await adminAuth.createUser({ email: unproven, password: PASSWORD })
     try {
       const res = await post('/auth/signup', { email: unproven })
@@ -361,7 +362,7 @@ describe('signup deliberately does distinguish a taken address', () => {
     // is reached: an account made by `POST /auth/signup` *before* #120 — a document, a
     // password, and `activatedAt: null` — whose owner never clicked the link. Sign-up is
     // the route that re-issues it, so a `409` here strands them with no way back in.
-    const stranded = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+    const stranded = testEmail()
     const uid = await createUnactivatedAccount(stranded, PASSWORD)
     try {
       const res = await post('/auth/signup', { email: stranded })

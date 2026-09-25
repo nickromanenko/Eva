@@ -3,6 +3,7 @@ import { Timestamp } from 'firebase-admin/firestore'
 import { mintToken } from '../src/auth'
 import { adminAuth, firestore } from '../src/firebase'
 import { default as server } from '../src/index'
+import { testEmail } from './support/test-email'
 
 /**
  * The retired "qualitative mode" setting (#283).
@@ -31,7 +32,7 @@ const createdUids: string[] = []
 /** An activated account whose document still carries the retired field, as one written
  *  while #252's route existed would. */
 const legacyAccount = async (): Promise<{ uid: string; token: string }> => {
-  const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+  const email = testEmail()
   const { uid } = await adminAuth.createUser({
     email,
     password: 'correct-horse-8',

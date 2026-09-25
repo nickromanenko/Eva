@@ -30,6 +30,7 @@ import type { Banner } from '../src/content'
 import { BANNERS, TEMPLATES, VOCABULARY, REVIEW as SEED_REVIEW } from '../scripts/seed-content'
 import { bootApi } from './support/boot-api'
 import { signUpActivated } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * The Today card (#98, slice D3 of #10): `GET /me/today`, the daily cache, and the
@@ -67,7 +68,7 @@ const onEmulators = Boolean(
 )
 
 const PASSWORD = 'correct-horse-8'
-const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const email = testEmail()
 
 /**
  * The pattern rung's thresholds, for this file only.

@@ -23,6 +23,7 @@ import {
 } from '../src/nutrition-profile'
 import { ACTIVITY_BAND_CODES, type ActivityBand, storedLifestyle } from '../src/users'
 import { isRequestLine } from './support/request-line'
+import { testEmail } from './support/test-email'
 
 /**
  * Nutrition S1 (#221): the activity band as a code, and the nutrition profile document.
@@ -60,7 +61,7 @@ const nutritionDoc = (uid: string) => userDoc(uid).collection('nutrition').doc('
 const account = async (
   opts: { consent?: boolean; profile?: Record<string, unknown> | null; auth?: boolean } = {},
 ): Promise<{ uid: string; token: string }> => {
-  const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+  const email = testEmail()
   const uid = opts.auth
     ? (await adminAuth.createUser({ email, password: 'correct-horse-8', emailVerified: true })).uid
     : `e2e-nutrition-${crypto.randomUUID()}`

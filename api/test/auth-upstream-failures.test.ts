@@ -14,6 +14,7 @@ import { issueToken } from '../src/email-tokens'
 import { FieldValue } from 'firebase-admin/firestore'
 import { adminAuth, firestore } from '../src/firebase'
 import { resetAuthRateLimits } from '../src/rate-limit'
+import { testEmail } from './support/test-email'
 
 /**
  * Live round trips happen in this file, so the ceiling is chosen rather than inherited
@@ -332,7 +333,7 @@ describe('creating the account: an upstream failure that is not EMAIL_EXISTS', (
     // A real account for the address, because the race this models is real: somebody
     // reserved it by calling Identity Toolkit directly while this caller was reading
     // their email. Without one the route has nothing to claim and rightly rethrows.
-    const squatted = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+    const squatted = testEmail()
     const { uid } = await adminAuth.createUser({ email: squatted, password: PASSWORD })
     strays.push(uid)
 
@@ -391,7 +392,7 @@ describe('creating the account: an upstream failure that is not EMAIL_EXISTS', (
  */
 describe('a request that dies after the claim leaves nothing armed', () => {
   test('the address is not marked proven unless the account was activated', async () => {
-    const email = `e2e+midflight-${crypto.randomUUID()}@e2e.evaapp.dev`
+    const email = testEmail('midflight')
     const { uid } = await adminAuth.createUser({ email, password: PASSWORD })
     strays.push(uid)
     await firestore
@@ -469,7 +470,7 @@ describe('the email-exists race obeys the same guards as every other path', () =
     // An *activated* account, built the way an activated account looks: Auth user plus a
     // document with `activatedAt` set. Without both, the guard reads `user: null` and the
     // branch is never entered in either direction.
-    const owned = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+    const owned = testEmail()
     const { uid } = await adminAuth.createUser({ email: owned, password: PASSWORD })
     strays.push(uid)
     await firestore
@@ -770,7 +771,7 @@ describe("the Identity Toolkit client's own classification", () => {
  */
 describe("createAccountWithPassword classifies the Admin SDK's own failures", () => {
   test('an address that already exists is email-exists, which the route claims', async () => {
-    const email = `e2e+create-${crypto.randomUUID()}@e2e.evaapp.dev`
+    const email = testEmail('create')
     const uid = await realCreateAccount(email, PASSWORD)
     strays.push(uid)
     // **Created unproven, and the route proves it at the end.** `emailVerified` turns off
@@ -795,7 +796,7 @@ describe("createAccountWithPassword classifies the Admin SDK's own failures", ()
     // Seven characters: under Firebase's own six-character floor is not enough to get a
     // refusal, so this uses the length Eva's edge would have caught — reaching here at
     // all means the edge changed, and the answer must still be a 400 rather than a 503.
-    const email = `e2e+create-${crypto.randomUUID()}@e2e.evaapp.dev`
+    const email = testEmail('create')
     const err = (await realCreateAccount(email, '12345').then(
       () => null,
       (e: unknown) => e,
@@ -816,7 +817,7 @@ describe("createAccountWithPassword classifies the Admin SDK's own failures", ()
     })
     try {
       const err = (await realCreateAccount(
-        `e2e+create-${crypto.randomUUID()}@e2e.evaapp.dev`,
+        testEmail('create'),
         PASSWORD,
       ).then(
         () => null,

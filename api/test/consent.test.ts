@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { adminAuth, firestore } from '../src/firebase'
 import { signUpActivated } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * The consent record and the collection gate (A21, #86).
@@ -17,7 +18,7 @@ import { signUpActivated } from './support/session'
 setDefaultTimeout(20_000)
 
 const BASE = process.env.EVA_API_URL ?? 'http://localhost:3003'
-const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const email = testEmail()
 const password = 'correct-horse-8'
 let token = ''
 let uid = ''

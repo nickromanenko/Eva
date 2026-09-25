@@ -150,7 +150,10 @@ Each rule is stated so a reviewer can check it mechanically.
     real-project floor; it is a rule, not a workflow.
 16. `scripts/e2e.sh` hits the **real Firebase project**. Test accounts must use the
     `e2e+*@e2e.evaapp.dev` pattern so the cleanup sweep can find them. Never create
-    test users outside that pattern.
+    test users outside that pattern. A generated address in `api/test` comes from
+    `testEmail()` (`api/test/support/test-email.ts`), which puts it on the run's ledger:
+    every script's sweep is scoped to its own ledger with `--only`, and the unscoped sweep is
+    run by hand only (#341, `scripts/e2e-cleanup.ts`).
 17. Don't weaken, skip, or delete a failing test to get green. Fix the code, or
     explain why the test was wrong.
 

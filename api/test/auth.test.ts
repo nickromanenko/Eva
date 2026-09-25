@@ -9,6 +9,7 @@ import {
   createPreDateOfBirthAccount,
   createUnactivatedAccount,
 } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * Integration tests against the REAL Firebase project (per spec §6).
@@ -23,7 +24,7 @@ import {
 setDefaultTimeout(20_000)
 
 const BASE = process.env.EVA_API_URL ?? 'http://localhost:3003'
-const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const email = testEmail()
 const password = 'correct-horse-8'
 const createdUids: string[] = []
 /** Every address this file signed up, so the token sweep below can find what the uid sweep
@@ -32,7 +33,7 @@ const createdEmails: string[] = [email]
 
 /** A fresh address per case, for the ones that must not share the suite's account. */
 const address = () => {
-  const value = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+  const value = testEmail()
   createdEmails.push(value)
   return value
 }
@@ -191,7 +192,7 @@ describe('auth', () => {
     const unknown = await api('/auth/signin', {
       method: 'POST',
       body: JSON.stringify({
-        email: `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`,
+        email: testEmail(),
         password: 'wrong-password-1',
       }),
     })
@@ -301,7 +302,7 @@ describe('auth', () => {
     const unknownAddress = await api('/auth/signin', {
       method: 'POST',
       body: JSON.stringify({
-        email: `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`,
+        email: testEmail(),
         password,
       }),
     })
@@ -710,7 +711,7 @@ describe('activation password rule', () => {
     // rule. Sign-in must not start rejecting the users who already hold one — and
     // the document is written in the pre-#6 shape, with no `activatedAt`, which is
     // what "predates" means for the activation gate too.
-    const legacyEmail = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+    const legacyEmail = testEmail()
     const legacyPassword = 'horsestaple'
     const legacyUid = await createLegacyAccount(legacyEmail, legacyPassword)
     createdUids.push(legacyUid)

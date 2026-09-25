@@ -10,6 +10,7 @@ import {
   issueToken,
 } from '../src/email-tokens'
 import { firestore } from '../src/firebase'
+import { testEmail } from './support/test-email'
 
 /**
  * The `afterAll` below sweeps `authTokens/` with live round trips, and a **per-case timeout
@@ -34,7 +35,7 @@ setDefaultTimeout(20_000)
 
 const UID = `email-tokens-test-${crypto.randomUUID()}`
 const OTHER_UID = `email-tokens-test-${crypto.randomUUID()}`
-const EMAIL = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const EMAIL = testEmail()
 
 /** Real round trips to Firestore, several per test (#31). */
 const SLOW = 20_000
@@ -45,7 +46,7 @@ const sha256 = (raw: string) => createHash('sha256').update(raw).digest('hex')
 
 /** The address the `uid: null` cases below use, and the only handle they have — sweeping
  *  them needs the email key, which is the point of that half of the sweep. */
-const PENDING_EMAIL = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const PENDING_EMAIL = testEmail()
 
 afterAll(async () => {
   await deleteTokensForAccount(UID, null).catch(() => {})

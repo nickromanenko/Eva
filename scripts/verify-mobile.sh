@@ -211,7 +211,8 @@ print(sum(ui(n) for n in json.load(sys.stdin).get("testNodes", [])))' 2>/dev/nul
   # project — including the one a second run on another simulator (#162) is signed in to,
   # whose next request then answers 401 and ends its session mid-test. That is how
   # `DeleteAccountUITests` failed at "Export data instead" on the welcome screen. Accounts
-  # left behind by a run that died before this line are for `scripts/e2e.sh`'s full sweep.
+  # left behind by a run that died before this line are for the unscoped sweep, which is
+  # run by hand only — see "The unscoped sweep is manual only" in scripts/e2e-cleanup.ts.
   echo "▶ cleanup sweep (e2e accounts this run created)"
   (cd "$ROOT/api" && bun run "$ROOT/scripts/e2e-cleanup.ts" --only "$MAILBOX_LEDGER") || FAILED=1
 fi

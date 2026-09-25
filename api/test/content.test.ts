@@ -20,6 +20,7 @@ import {
 } from '../src/content'
 import { BANNERS, NUDGES, REVIEW as SEED_REVIEW, TEMPLATES } from '../scripts/seed-content'
 import { signUpActivated } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * The Dashboard content store (#97) — `content/`, `GET /content`, and the seed.
@@ -54,7 +55,7 @@ const collection = () => firestore.collection('content')
 
 let token = ''
 let uid = ''
-const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const email = testEmail()
 /** Documents this file created, so the sweep leaves the project as it found it. */
 const createdDocs: string[] = []
 

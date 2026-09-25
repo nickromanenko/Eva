@@ -6,6 +6,7 @@ import { analyzeCycles, type CycleDay, type CycleRules } from '../src/cycle'
 import { createEvent } from '../src/events'
 import { adminAuth, firestore } from '../src/firebase'
 import { signUpActivated } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * `GET /me/cycle/predictions` — the calendar's overlay (#205, slice C12a of #11).
@@ -39,7 +40,7 @@ import { signUpActivated } from './support/session'
 setDefaultTimeout(20_000)
 
 const PASSWORD = 'correct-horse-8'
-const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const email = testEmail()
 
 /**
  * The constants the fixtures below are built for: A25–A27's values and #186's period gap,

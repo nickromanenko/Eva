@@ -8,6 +8,7 @@ import { default as server } from '../src/index'
 import { consumeAuthAttempt, resetAuthRateLimits } from '../src/rate-limit'
 import { markUserDeleted, saveQuestionnaire } from '../src/users'
 import { activateAccount, createLegacyAccount, signUpActivated } from './support/session'
+import { testEmail } from './support/test-email'
 
 // A value snapshot, so the ordering test can wrap the route's process-global module binding
 // and then restore exactly what this file found rather than restoring its own wrapper.
@@ -112,7 +113,7 @@ const authUserExists = async (uid: string): Promise<boolean> => {
 /** One account with a calendar behind it: three live entries across three types, plus a
  *  fourth that has been soft-deleted and so is sitting inside its 30-day window. */
 const seedAccount = async (): Promise<{ email: string; token: string; uid: string }> => {
-  const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+  const email = testEmail()
   // Sign up, activate, sign in (#6) — a session no longer falls out of sign-up.
   const { token, uid } = await signUpActivated(BASE, email, password)
   createdUids.push(uid)
@@ -440,7 +441,7 @@ describe('a delete interrupted after the tombstone', () => {
    * activation gate.
    */
   beforeAll(async () => {
-    email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+    email = testEmail()
     uid = await createLegacyAccount(email, password)
     createdUids.push(uid)
 
@@ -505,8 +506,8 @@ describe('a delete interrupted after the tombstone', () => {
       //
       // **The Auth emulator does not implement it**, so the two environments assert
       // different things below — each the one that is true of it, and both worth having.
-      const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
-      const moved = `e2e+moved-${crypto.randomUUID()}@e2e.evaapp.dev`
+      const own = testEmail()
+      const moved = testEmail('moved')
       const { uid: movable } = await adminAuth.createUser({
         email: own,
         password,
@@ -666,7 +667,7 @@ describe("deleting an account returns its address's throttle budget", () => {
       // `createLegacyAccount` makes an Auth user the way one existed before #6 — no
       // confirmation, so `emailVerified` is false by construction and nothing had to
       // be moved to get there.
-      const email = `e2e+unproven-${crypto.randomUUID()}@e2e.evaapp.dev`
+      const email = testEmail('unproven')
       const uid = await createLegacyAccount(email, password)
       createdUids.push(uid)
       expect((await addressOfAuthAccount(uid)).proven).toBe(false)
@@ -689,7 +690,7 @@ describe("deleting an account returns its address's throttle budget", () => {
   test(
     "the address is served again, and the caller's IP budget is not given back",
     async () => {
-      const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+      const email = testEmail()
       // `emailVerified: true` because the route only forgets an address Auth
       // considers proven — see the note on `forgetEmail` in the route.
       const { uid } = await adminAuth.createUser({ email, password, emailVerified: true })
@@ -708,7 +709,7 @@ describe("deleting an account returns its address's throttle budget", () => {
       exhaust(email)
       expect(consumeAuthAttempt('signin', null, email)).toBe(false)
       // A second address, throttled and *not* deleted: what the clear must not reach.
-      const bystander = `e2e+bystander-${crypto.randomUUID()}@e2e.evaapp.dev`
+      const bystander = testEmail('bystander')
       exhaust(bystander)
       expect(consumeAuthAttempt('signin', null, bystander)).toBe(false)
 
@@ -727,8 +728,8 @@ describe('deleting an account does not trust an unproven address as a token key'
   test(
     "the moved address's pending token survives, while the uid's token does not",
     async () => {
-      const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
-      const moved = `e2e+moved-${crypto.randomUUID()}@e2e.evaapp.dev`
+      const own = testEmail()
+      const moved = testEmail('moved')
       const { uid } = await adminAuth.createUser({
         email: own,
         password,
@@ -778,7 +779,7 @@ describe('deleting an account does not trust an unproven address as a token key'
   test(
     'a proven address is swept before the tombstone and before Auth releases it',
     async () => {
-      const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+      const own = testEmail()
       const { uid } = await adminAuth.createUser({
         email: own,
         password,
@@ -867,7 +868,7 @@ describe('deleting an account does not trust an unproven address as a token key'
   test(
     'a tombstoned retry skips the address half even when Auth still calls it proven',
     async () => {
-      const own = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+      const own = testEmail()
       const { uid } = await adminAuth.createUser({
         email: own,
         password,

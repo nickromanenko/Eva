@@ -18,6 +18,7 @@ import { issueToken } from '../src/email-tokens'
 import { getUser, markActivated, markUserDeleted } from '../src/users'
 import { createUnactivatedAccount } from './support/session'
 import type { IdpCredential } from '../src/identity-toolkit'
+import { testEmail } from './support/test-email'
 
 /**
  * Live round trips happen in this file, so the ceiling is chosen rather than inherited
@@ -134,7 +135,7 @@ const appleBody = () => ({
   rawNonce: RAW_NONCE,
 })
 
-const newEmail = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const newEmail = () => testEmail()
 
 const createdUids: string[] = []
 
