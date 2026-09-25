@@ -171,6 +171,10 @@ class EvaUITestCase: XCTestCase {
         let gate = app.staticTexts["Check your inbox"]
         if gate.waitForExistence(timeout: 15) { return }
 
+        // Answered between the wait expiring and now: late, not lost. Checked before the
+        // screen is read, or a gate that just arrived reads as "the sign-up button is gone".
+        if gate.exists { return }
+
         let first = signUpState(app)
         guard first.isStalledInFlight else {
             XCTFail(
@@ -179,8 +183,6 @@ class EvaUITestCase: XCTestCase {
             )
             return
         }
-        // Answered between the wait expiring and the state being read: late, not lost.
-        if gate.exists { return }
 
         print(
             "SIGN-UP STALLED (#264): no answer to POST /auth/signup in 15s — \(first). "
@@ -192,6 +194,11 @@ class EvaUITestCase: XCTestCase {
             fillSignUpForm(app, email: email)
             let submit = app.buttons["primary.Create account"]
             XCTAssertTrue(submit.waitForExistence(timeout: 5), file: file, line: line)
+            XCTAssertTrue(
+                submit.isEnabled,
+                "Sign-up CTA stayed disabled on the retry — form input did not land",
+                file: file, line: line
+            )
             tap(submit, in: app, file: file, line: line)
         }
 
@@ -239,7 +246,9 @@ class EvaUITestCase: XCTestCase {
         return SignUpState(
             ctaExists: submit.exists,
             ctaEnabled: submit.exists && submit.isEnabled,
-            spinner: app.activityIndicators.firstMatch.exists,
+            // The CTA's own spinner, not any on screen: `PrimaryButton` draws it inside the
+            // button while `isLoading`, and that is the state this is asking about.
+            spinner: submit.exists && submit.activityIndicators.firstMatch.exists,
             error: error.exists ? error.label : nil,
             rateLimited: app.descendants(matching: .any)["signup.rateLimited"].exists
         )
