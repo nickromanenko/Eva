@@ -53,7 +53,9 @@ const userDoc = (uid: string) => firestore.collection('users').doc(uid)
 const nutritionDoc = (uid: string) => userDoc(uid).collection('nutrition').doc('profile')
 
 /** An activated account with a collect consent on record (#86), and a session for it. With
- *  `auth`, a real Auth user too — `DELETE /me` asks Auth for the address. */
+ *  `auth`, a real Auth user too — `DELETE /me` asks Auth for the address, and since #117 every
+ *  route that serves `User` (`GET /me`, `PUT /me/questionnaire`) reads Auth's federated
+ *  providers beside the document and answers 401 without an Auth user. */
 const account = async (
   opts: { consent?: boolean; profile?: Record<string, unknown> | null; auth?: boolean } = {},
 ): Promise<{ uid: string; token: string }> => {
@@ -152,7 +154,7 @@ describe('lifestyle is one of four codes (#221)', () => {
   })
 
   test('every code is accepted and stored as the code', async () => {
-    const { uid, token } = await account()
+    const { uid, token } = await account({ auth: true })
     for (const code of ACTIVITY_BAND_CODES) {
       const res = await call(token, 'PUT', '/me/questionnaire', questionnaire(code))
       expect(res.status).toBe(200)
@@ -181,7 +183,7 @@ describe('lifestyle is one of four codes (#221)', () => {
   test('unanswered — null or absent — is accepted and stored as null', async () => {
     // Every profile editor re-sends the whole profile, so an account with no band (new, or a
     // legacy label read as absent) must still be able to save its goals and sports.
-    const { uid, token } = await account()
+    const { uid, token } = await account({ auth: true })
     for (const body of [
       questionnaire(null),
       (({ lifestyle: _, ...rest }) => rest)(questionnaire(null)),
@@ -198,7 +200,7 @@ describe('lifestyle is one of four codes (#221)', () => {
   })
 
   test('a profile with no band round-trips, and answering it later is a code', async () => {
-    const { token } = await account()
+    const { token } = await account({ auth: true })
     const saved = await call(token, 'PUT', '/me/questionnaire', questionnaire(null))
     expect(saved.status).toBe(200)
     // What an editor does: read the profile back and re-send it whole, band still unanswered.
@@ -297,6 +299,7 @@ describe('the four stored labels map to codes on read, and nothing else does (#2
     ]
     for (const [stored, served] of cases) {
       const { uid, token } = await account({
+        auth: true,
         profile: {
           dateOfBirth: '1995-06-15',
           weightKg: 64,
