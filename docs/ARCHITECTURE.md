@@ -87,7 +87,7 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
-| `data-export.ts` | The body of `GET /me/export` (#58): the account and two page generators in, one JSON document out as a stream | Pure leaf: no Firestore, no clock, no `fetch`, no log line; its imports are `import type`. Reads the first page of each collection before the route sends headers, and writes the closing brackets last, so a truncated body is never valid JSON |
+| `data-export.ts` | The body of `GET /me/export` (#58): the account, the nutrition profile (#221) and two page generators in, one JSON document out as a stream | Pure leaf: no Firestore, no clock, no `fetch`, no log line; its imports are `import type`. Reads the first page of each collection before the route sends headers, and writes the closing brackets last, so a truncated body is never valid JSON |
 | `request-timeout.ts` | The per-request timeout that names a hung request in the log before Bun's `idleTimeout` kills the connection (#225) | Pure leaf: wraps the handler in a timer, reads no clock and no Firestore. Logs only the route path — no payload, address or token |
 
 Layering: `index.ts` → (`auth`, `identity-toolkit`, `providers`, `rate-limit`, `users`,
@@ -147,8 +147,9 @@ mode among its arguments, so S12's luteal and mode adjustments wrap it rather th
 inside it, and cannot arrive later as an optional parameter with a default.
 
 `data-export.ts` (`GET /me/export`, #58) is a leaf below the middle row too: `index.ts` hands
-it the account the gate read and the two page generators `events.ts` and `today.ts` export,
-and it turns them into a byte stream. Its three imports are `import type`, so it can reach
+it the account the gate read, the nutrition profile `nutrition-profile.ts` reads
+(`getNutritionProfile`, #221), and the two page generators `events.ts` and `today.ts` export,
+and it turns them into a byte stream. Its four imports are `import type`, so it can reach
 no collection — which is what keeps "each collection is read only by its owner" true of the
 one route that reads all of them.
 
@@ -191,7 +192,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `POST /auth/password/reset` | Token in the link | `200 { token, user }` — sets the password and signs in |
 | `POST /auth/idp` | — | `200 { token, user }` — Apple or Google; signs up and signs in at once, already activated |
 | `GET /me` | Bearer | `{ user }` |
-| `GET /me/export` | Bearer | `200` JSON attachment `eva-export-YYYY-MM-DD.json` (UTC), `Cache-Control: no-store`, streamed: `{ format: "eva-export", version: 1, exportedAt, account, events, today }` — `account` is `GET /me`'s `user`, `events` every stored entry in `GET /me/events`' shape **including soft-deleted ones** (`deletedAt` set), `today` every stored card in `GET /me/today`'s shape (#58). `429 RATE_LIMITED` per account and per IP. §4 "Data export" lists what is left out |
+| `GET /me/export` | Bearer | `200` JSON attachment `eva-export-YYYY-MM-DD.json` (UTC), `Cache-Control: no-store`, streamed: `{ format: "eva-export", version: 1, exportedAt, account, nutritionProfile, events, today }` — `account` is `GET /me`'s `user`, `nutritionProfile` is `GET /me/nutrition/profile`'s `nutritionProfile` or `null` before setup is started (#221), `events` every stored entry in `GET /me/events`' shape **including soft-deleted ones** (`deletedAt` set), `today` every stored card in `GET /me/today`'s shape (#58). `429 RATE_LIMITED` per account and per IP. §4 "Data export" lists what is left out |
 | `POST /me/auth/providers` | Bearer | `{ user }` — attaches a provider to *this* account; `409 PROVIDER_ALREADY_LINKED` when its `sub` belongs to another |
 | `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately; an optional `appleAuthorizationCode` also revokes the Apple token. `429 RATE_LIMITED` past `RATE_LIMIT_DELETE_PER_ACCOUNT` calls for one account in a window (#119) |
 | `PUT /me/questionnaire` | Bearer | `{ user }` — behind `requireCollectConsent` (#86): the profile is health data, and nothing about her is written before the collect consent exists |
@@ -1354,6 +1355,12 @@ app's decoders and the export cannot drift apart:
 - `account` — exactly `GET /me`'s `user`, from the same gate (`requireServedAccount`): the
   account snapshot plus Auth's federated identities, assembled as §4 `authProviders`
   describes (#117). Profile, consent records, providers, activation, settings.
+- `nutritionProfile` — exactly `GET /me/nutrition/profile`'s `nutritionProfile` (#221): the
+  setup answers, the hide-numbers preference, the progress marker and the derived `complete`
+  flag. **`null`, present, when she has not started setup** — so "none" reads differently
+  from an export written before the key existed. One document, read whole by the route
+  before the headers go, so a failure reading it is an ordinary `500` like the account's.
+  Added without a `version` bump: adding a key is not one.
 - `events` — **every document** in `users/{uid}/events/`, in `GET /me/events`' shape. That
   includes soft-deleted entries, marked by a non-null `deletedAt`, and it includes entries
   past their 30-day window that the purge has not reached yet (the purge job does not exist
@@ -1370,6 +1377,8 @@ What is left out, deliberately:
 - A stored event's fields outside the event shape, if any were ever written: the export
   serves `toEvent`'s whitelist, never the raw document.
 - `dataChangedAt` and `storedAt` on a card — the cache's regeneration bookkeeping.
+- `createdAt`/`updatedAt` on the nutrition profile document — audit stamps; the route's
+  shape already omits them.
 - `authTokens/` — link-token hashes are credentials (GUARDRAILS 12a), not her data, and the
   address they were sent to is already `account.email`.
 - The Firebase Auth record — the password hash is a credential; the address and the linked

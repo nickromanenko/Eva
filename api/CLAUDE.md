@@ -298,7 +298,8 @@ today.ts ──► events.ts · users.ts · content.ts · dashboard-rules.ts · 
   rather than two copies that can drift. Both cost nothing at runtime: `cycle.ts` imports only
   types and `nutrition.ts` imports nothing.
 - `data-export.ts` — the body of `GET /me/export` (#58). Pure leaf: the account (the served
-  `User` from `requireServedAccount`, exactly `GET /me`'s — never the gate's `UserRecord`, #117) and the
+  `User` from `requireServedAccount`, exactly `GET /me`'s — never the gate's `UserRecord`, #117), the
+  nutrition profile (`getNutritionProfile`, read by the route before the headers, #221) and the
   page generators `exportEvents` (`events.ts`) and `exportTodayCards` (`today.ts`) in, a
   `ReadableStream` of one JSON document out, pulling the next page only when the response
   wants more bytes. Two properties are the design and each has a test: it reads the **first

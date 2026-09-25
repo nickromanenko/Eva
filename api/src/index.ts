@@ -1682,9 +1682,10 @@ app.get('/me', requireAuth, requireServedAccount, (c) => c.json({ user: c.get('s
  * LAUNCH.md §2.3). Decided on the issue: JSON, delivered as an in-app download — no email,
  * no link, so the export exists nowhere but in this response and on her device.
  *
- * `{ format, version, exportedAt, account, events, today }`: `account` is exactly what
- * `GET /me` answers — the same gate, `requireServedAccount`, so the same assembled
- * `authProviders` (#117) — `events` is every stored entry in `GET /me/events`' shape **including
+ * `{ format, version, exportedAt, account, nutritionProfile, events, today }`: `account` is
+ * exactly what `GET /me` answers — the same gate, `requireServedAccount`, so the same assembled
+ * `authProviders` (#117) — `nutritionProfile` exactly what `GET /me/nutrition/profile` answers,
+ * or `null` before setup is started (#221), `events` is every stored entry in `GET /me/events`' shape **including
  * soft-deleted ones** (their `deletedAt` is what marks them), `today` every stored card in
  * `GET /me/today`'s shape. ARCHITECTURE §4 "Data export" lists what is deliberately left out
  * — credentials, the session generation, cache bookkeeping — and why.
@@ -1715,11 +1716,14 @@ app.get('/me/export', requireAuth, requireServedAccount, async (c) => {
 
   const exportedAt = new Date().toISOString()
   const pageSize = config.dataExport.pageSize
+  // Read whole, here, before a header exists — a failure is an ordinary 500, like the account's.
+  const nutritionProfile = await getNutritionProfile(uid)
   const body = await openExport({
     exportedAt,
     // The served `User`, never the gate's `UserRecord` (#117): `authProviders` assembled
     // from Auth and the stored password fact, and no `passwordChosen` key in her file.
     account: c.get('served'),
+    nutritionProfile,
     events: exportEvents(uid, pageSize),
     today: exportTodayCards(uid, pageSize),
     onAbort: (err) => {

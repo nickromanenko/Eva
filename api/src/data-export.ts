@@ -1,4 +1,5 @@
 import type { EvaEvent } from './events'
+import type { NutritionProfile } from './nutrition-profile'
 import type { TodayDocument } from './today'
 import type { User } from './users'
 
@@ -7,15 +8,16 @@ import type { User } from './users'
  * document written out a page at a time.
  *
  * A pure leaf, like `request-timeout.ts`: no Firestore, no clock, no `fetch`, no log line.
- * The route reads the account, hands in the two owning modules' page generators
- * (`exportEvents`, `exportTodayCards`) and the instant it stamps, and this turns them into
- * bytes. Its three imports are `import type`, so it reaches nothing at runtime.
+ * The route reads the account and the nutrition profile, hands in the two owning modules'
+ * page generators (`exportEvents`, `exportTodayCards`) and the instant it stamps, and this
+ * turns them into bytes. Its four imports are `import type`, so it reaches nothing at
+ * runtime.
  *
  * **What a truncated body looks like is the design.** Once the headers are out, a read that
  * fails can no longer become a `{ error }` response. So:
  *
  * - `openExport` reads the **first page of both collections before it returns**, and the
- *   account was read by the gate before that. A Firestore that is down at the start is
+ *   account (by the gate) and the nutrition profile (by the route) were read before that. A Firestore that is down at the start is
  *   therefore an ordinary throw at the route — `app.onError`'s `500 INTERNAL` in the usual
  *   shape — and never a `200` with half a body. Only a failure on a *later* page reaches the
  *   stream.
@@ -47,6 +49,10 @@ export interface ExportSource {
   /** Exactly what `GET /me` answers with — `User` already leaves the session generation,
    *  the activation and deletion instants and the audit stamps behind (`users.ts`). */
   account: User
+  /** Exactly what `GET /me/nutrition/profile` answers (#221) — the setup answers and the
+   *  derived `complete` flag — or `null` when she has not started setup. One document, so it
+   *  is read whole by the route before the headers go, like the account. */
+  nutritionProfile: NutritionProfile | null
   /** Every event, soft-deleted included, a page at a time (`exportEvents`). */
   events: AsyncGenerator<EvaEvent[], void, undefined>
   /** Every stored Today card, a page at a time (`exportTodayCards`). */
@@ -97,10 +103,10 @@ async function* arrayBody<T>(
  * page is in memory at a time however large the account is.
  *
  * Throws — before any byte exists — if either first read fails. Key order is fixed:
- * `format`, `version`, `exportedAt`, `account`, `events`, `today`.
+ * `format`, `version`, `exportedAt`, `account`, `nutritionProfile`, `events`, `today`.
  */
 export const openExport = async (source: ExportSource): Promise<ReadableStream<Uint8Array>> => {
-  const { exportedAt, account, events, today, onAbort } = source
+  const { exportedAt, account, nutritionProfile, events, today, onAbort } = source
   let firstEvents: Page<EvaEvent>
   let firstToday: Page<TodayDocument>
   try {
@@ -117,6 +123,7 @@ export const openExport = async (source: ExportSource): Promise<ReadableStream<U
     version: EXPORT_VERSION,
     exportedAt,
     account,
+    nutritionProfile,
   })
   async function* chunks(): AsyncGenerator<string, void, undefined> {
     yield `${head.slice(0, -1)},"events":[`
