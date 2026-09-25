@@ -324,6 +324,35 @@ describe('GET /me/export — the download', () => {
     expect(exported.account.id).toBe(alice.uid)
   })
 
+  test('account.authProviders is assembled as GET /me assembles it, not read from the document (#117)', async () => {
+    // The stored array and Auth disagree in both directions: the document lists Google,
+    // which Auth does not hold; Auth holds Apple, which the document does not list. The
+    // export has to answer as `GET /me` does — Auth's federated identities plus the stored
+    // password fact — and must not carry the gate's internal `passwordChosen`.
+    const email = newEmail()
+    const session = await signUpActivated(main.base, email, password)
+    created.push(session.uid)
+    await userDoc(session.uid).update({ authProviders: ['password', 'google.com'] })
+    await adminAuth.updateUser(session.uid, {
+      providerToLink: {
+        providerId: 'apple.com',
+        uid: `apple.com-sub-${crypto.randomUUID()}`,
+        email,
+      },
+    })
+
+    const [res, me] = await Promise.all([
+      exportAs({ email, ...session }),
+      call(main.base, '/me', session.token).then((r) => r.json() as Promise<{ user: User }>),
+    ])
+    expect(res.status).toBe(200)
+    const exported = (await res.json()) as ExportBody
+
+    expect(me.user.authProviders).toEqual(['password', 'apple.com'])
+    expect(exported.account.authProviders).toEqual(me.user.authProviders)
+    expect(Object.keys(exported.account)).not.toContain('passwordChosen')
+  })
+
   test('every event, across pages, exactly once — and each in GET /me/events’ shape', async () => {
     const body = (await (await exportAs(alice)).json()) as ExportBody
     const stored = (await userDoc(alice.uid).collection('events').listDocuments()).map((d) => d.id)

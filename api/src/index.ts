@@ -1669,7 +1669,8 @@ app.get('/me', requireAuth, requireServedAccount, (c) => c.json({ user: c.get('s
  * no link, so the export exists nowhere but in this response and on her device.
  *
  * `{ format, version, exportedAt, account, events, today }`: `account` is exactly what
- * `GET /me` answers, `events` is every stored entry in `GET /me/events`' shape **including
+ * `GET /me` answers — the same gate, `requireServedAccount`, so the same assembled
+ * `authProviders` (#117) — `events` is every stored entry in `GET /me/events`' shape **including
  * soft-deleted ones** (their `deletedAt` is what marks them), `today` every stored card in
  * `GET /me/today`'s shape. ARCHITECTURE §4 "Data export" lists what is deliberately left out
  * — credentials, the session generation, cache bookkeeping — and why.
@@ -1690,7 +1691,7 @@ app.get('/me', requireAuth, requireServedAccount, (c) => c.json({ user: c.get('s
  * Nothing about it is logged except, on a mid-stream failure, the error's class name — not
  * the uid, not a count, not a date (GUARDRAILS 12).
  */
-app.get('/me/export', requireAuth, requireAccount, async (c) => {
+app.get('/me/export', requireAuth, requireServedAccount, async (c) => {
   const uid = c.get('claims').sub
   if (!consumeExportAttempt(clientIp(c), uid)) {
     return c.json(error('RATE_LIMITED', 'Too many attempts. Try again later.'), 429, {
@@ -1702,7 +1703,9 @@ app.get('/me/export', requireAuth, requireAccount, async (c) => {
   const pageSize = config.dataExport.pageSize
   const body = await openExport({
     exportedAt,
-    account: c.get('account'),
+    // The served `User`, never the gate's `UserRecord` (#117): `authProviders` assembled
+    // from Auth and the stored password fact, and no `passwordChosen` key in her file.
+    account: c.get('served'),
     events: exportEvents(uid, pageSize),
     today: exportTodayCards(uid, pageSize),
     onAbort: (err) => {

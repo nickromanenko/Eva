@@ -1324,8 +1324,9 @@ device. `Cache-Control: no-store` keeps it out of every cache on the way.
 What is in it, and in which shape — each the shape an existing route already serves, so the
 app's decoders and the export cannot drift apart:
 
-- `account` — exactly `GET /me`'s `user`, from the snapshot `requireAccount` already read.
-  Profile, consent records, providers, activation, settings.
+- `account` — exactly `GET /me`'s `user`, from the same gate (`requireServedAccount`): the
+  account snapshot plus Auth's federated identities, assembled as §4 `authProviders`
+  describes (#117). Profile, consent records, providers, activation, settings.
 - `events` — **every document** in `users/{uid}/events/`, in `GET /me/events`' shape. That
   includes soft-deleted entries, marked by a non-null `deletedAt`, and it includes entries
   past their 30-day window that the purge has not reached yet (the purge job does not exist
@@ -1345,7 +1346,9 @@ What is left out, deliberately:
 - `authTokens/` — link-token hashes are credentials (GUARDRAILS 12a), not her data, and the
   address they were sent to is already `account.email`.
 - The Firebase Auth record — the password hash is a credential; the address and the linked
-  providers are already in `account`. The `/auth/*` throttle's counters are in memory and
+  Apple/Google identities are already in `account` (the latter read from Auth, #117). The
+  dormant federated entries of the stored `authProviders` array are not exported: they are
+  a stale copy of those identities, not a separate fact about her (§4). The `/auth/*` throttle's counters are in memory and
   keyed by address and IP, not by account.
 - `refdata/` and `content/` are global: an entry's symptom *codes* are exported, their labels
   are the catalogue's (§4 above), so the file is complete about her and not about Eva.
