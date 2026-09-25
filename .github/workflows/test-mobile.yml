@@ -28,6 +28,9 @@
 #   suite (push to main, and nightly) — the whole thing, including XCUITests. Catches the
 #     rest before it compounds across merges, which is the part of #135 that hurt.
 #
+# A third job, `paths`, is not a test of the app: it keeps the two trigger path lists below
+# identical (#317), on ubuntu, in seconds.
+#
 # **The toolchain is pinned, not inherited (#230).** `macos-15`'s default Xcode is 16.4
 # (iPhoneSimulator18.5.sdk), while the "Pick a simulator" step deliberately selects the
 # newest runtime the image carries (iOS 26.2 at the time of writing). An 18.5-linked binary
@@ -53,8 +56,13 @@ on:
       - "mobile/**"
       - "scripts/ci-mobile.sh"
       - "scripts/verify-mobile.sh"
+      # The harness verify-mobile.sh and ci-mobile.sh run around the app: the API launcher
+      # and log redaction, the UI-test mailbox, the refdata seed and the end-of-run sweep.
+      # Each can fail the suite on its own, without a line of the app changing.
       - "scripts/lib/api-server.sh"
       - "api/scripts/uitest-mailbox.ts"
+      - "api/scripts/seed-refdata.ts"
+      - "scripts/e2e-cleanup.ts"
       # The UI suite drives the real API, so an api/ change can break it without touching
       # a single file under mobile/. Kept narrow on purpose: the whole of api/** would run
       # a 10x-billed macOS job on every backend PR.
@@ -72,14 +80,21 @@ on:
       - "api/src/cycle.ts"   # the prediction confidence/withheld codes
       - "api/src/today.ts"   # the Today card shape
       - ".github/workflows/test-mobile.yml"
+      - "scripts/verify-mobile-paths.sh"
   push:
     branches: [main]
     paths:
+      # Identical to the pull_request list above, entry for entry: a PR-only guard catches
+      # nothing on the nightly, and a push-only guard catches nothing before merge. The two
+      # had drifted (#317); the `paths` job below now fails when they differ. Comments are
+      # kept on the pull_request list only — the check compares entries, not comments.
       - "mobile/**"
       - "scripts/ci-mobile.sh"
       - "scripts/verify-mobile.sh"
-      # Must stay in step with the pull_request list above: a PR-only guard catches nothing
-      # on the nightly, and a push-only guard catches nothing before merge.
+      - "scripts/lib/api-server.sh"
+      - "api/scripts/uitest-mailbox.ts"
+      - "api/scripts/seed-refdata.ts"
+      - "scripts/e2e-cleanup.ts"
       - "api/src/index.ts"
       - "api/src/users.ts"
       - "api/src/events.ts"
@@ -87,6 +102,7 @@ on:
       - "api/src/cycle.ts"
       - "api/src/today.ts"
       - ".github/workflows/test-mobile.yml"
+      - "scripts/verify-mobile-paths.sh"
   schedule:
     # 04:00 UTC. The suite is the only check on a surface whose dependencies — Xcode, the
     # simulator runtime, the Swift version — move underneath it without any commit. #135's
@@ -99,6 +115,22 @@ permissions:
   contents: read
 
 jobs:
+  paths:
+    # #317: the push and pull_request path lists above must be identical, and Actions has no
+    # way to share one list between them (it rejects YAML anchors). Seconds on ubuntu, not
+    # macOS. It runs whenever this file changes — the file is on its own path list — which
+    # is the only way either list can change.
+    name: Path lists in step
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Compare push and pull_request paths
+        run: scripts/verify-mobile-paths.sh
+
   build:
     # Every trigger. On a pull request this is the whole check; on main and the nightly it
     # is the fast fail, so a compile break reports in minutes rather than after the suite.
