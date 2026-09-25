@@ -106,9 +106,17 @@ enum EvaTodayCardFixtures {
     ///
     /// The titles and meta lines are the canvas' verbatim. **The URLs are not**: the canvas
     /// draws none, and a real article URL does not exist until the §Blog explore decides
-    /// where articles live. So they point at `example.com` (reserved for exactly this, RFC
-    /// 2606) under a path that says it is a fixture — a page that loads, so the Safari
-    /// presentation can be exercised, and that nobody could mistake for Eva's content.
+    /// where articles live. So they point at the three RFC 2606 reserved domains, under a
+    /// path that says it is a fixture — pages that load, so the Safari presentation can be
+    /// exercised, and that nobody could mistake for Eva's content.
+    ///
+    /// **One host per position, on purpose.** Safari's bar shows the host and not the path,
+    /// so a distinct host is the only part of the URL a UI test can read back — which is
+    /// what lets `HomeUITests` prove the *tapped* card's URL opened, not a fixed one or
+    /// always the first.
+    /// The rail's fixture hosts, by position. See `banners(forState:)`.
+    static let fixtureHosts = ["example.com", "example.org", "example.net"]
+
     static func banners(forState state: String) -> [EvaTodayBanner] {
         let set: [(String, String)]
         switch state {
@@ -139,7 +147,7 @@ enum EvaTodayCardFixtures {
                 id: id,
                 title: item.0,
                 meta: item.1,
-                url: URL(string: "https://example.com/eva-fixture/\(id)")!
+                url: URL(string: "https://\(fixtureHosts[index])/eva-fixture/\(id)")!
             )
         }
     }

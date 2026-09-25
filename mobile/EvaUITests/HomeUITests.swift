@@ -84,28 +84,6 @@ final class HomeUITests: EvaUITestCase {
             "The notifications button is live — it is inert until §Notifications is sliced"
         )
 
-        // MARK: The live API's rail, end to end (#102)
-        //
-        // No fixture on this launch: this is `GET /me/today` itself, and whatever it answers
-        // today, no rail can come of it. On the real project it currently answers **503**
-        // (the cycle rules are unset, #26/#176), and once it answers 200 every seeded banner
-        // still has an empty URL, so the server selects none and sends `banners: []`. So this
-        // asserts only that the live path draws no rail; the decoded-empty case is
-        // `TodayBannerTests` and the seeded `none` state below. Whichever state the day
-        // resolved to, it has to have resolved before absence means anything.
-        XCTAssertTrue(
-            app.otherElements["home.card"].waitForExistence(timeout: 20)
-                || app.otherElements["home.noCard"].exists
-                || app.staticTexts["home.noCard"].exists
-                || app.otherElements["home.loadError"].exists
-                || app.staticTexts["home.loadError"].exists,
-            "Home's first read never resolved"
-        )
-        XCTAssertFalse(
-            app.otherElements["home.banners"].exists,
-            "The live API served no openable banners, and Home still drew the rail"
-        )
-
         // MARK: The cold start a real device meets first
         //
         // `content/` is unseeded (#97 refuses without a reviewer), so `GET /me/today` has
@@ -123,6 +101,9 @@ final class HomeUITests: EvaUITestCase {
             "A day with no card resolved to a spinner rather than to a screen"
         )
         // #102: no banners → the "Worth reading" section is absent, not an empty header.
+        // Seeded rather than read off the live API on purpose: what the live route serves
+        // depends on the project's content (today every seeded banner URL is empty, so it
+        // serves none), and an assertion about that would break the day real URLs land.
         XCTAssertFalse(
             app.otherElements["home.banners"].exists,
             "A day with no banners drew the Worth reading section"
@@ -192,13 +173,30 @@ final class HomeUITests: EvaUITestCase {
             lastX = banner.frame.minX
         }
 
-        // Tap opens the article in Safari, in the app; Done comes back to Home.
-        let first = app.buttons["home.banner.fixture_home_d_1"]
-        tap(first, in: app)
+        // Tap opens *that card's* article in Safari, in the app; Done comes back to Home.
+        //
+        // The **second** card, and its URL asserted by host: the fixtures give each position
+        // its own reserved domain because Safari's bar shows only the host. Opening a fixed
+        // URL, or always the first banner's, would show example.com and fail here.
+        let second = app.buttons["home.banner.fixture_home_d_2"]
+        tap(second, in: app)
         let done = app.buttons["Done"]
         XCTAssertTrue(
             done.waitForExistence(timeout: 15),
             "Tapping a banner did not open its article in SFSafariViewController"
+        )
+        let opened = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "example.org", "example.org"
+        )).firstMatch
+        XCTAssertTrue(
+            opened.waitForExistence(timeout: 15),
+            "Tapping the second banner did not open the second banner's URL (example.org)"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any).matching(NSPredicate(
+                format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "example.com", "example.com"
+            )).firstMatch.exists,
+            "Tapping the second banner opened the first banner's URL"
         )
         XCTAssertFalse(
             rail.exists && rail.isHittable,
