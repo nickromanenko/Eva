@@ -1403,12 +1403,13 @@ superseded token, which is the dead-token answer — no code added, no log line.
 A writer with no request behind it — none exists today; a job writing Eva-sourced entries
 would be the first — passes `NO_SESSION`, which skips the comparison and nothing else: a
 tombstone still refuses it. It is an explicit value, not an optional argument, so leaving
-the session out is a compile error; and `delete-race.test.ts` fails if any module but
+the session out is a compile error — and a `unique symbol`, so it cannot be typed as a string
+literal either, only imported by name; and `delete-race.test.ts` fails if any module but
 `users.ts` names it, so the first production use is a decision made in review rather than a
 quiet opt-out. That file forces the reset *inside* the write's transaction, just before its
 account read — the read set would otherwise order the bump after the commit — for each
-`POST /me/events` path, `PATCH`/`DELETE /me/events/:id`, the nutrition PATCH and the Today
-cache write, and each case fails with the comparison removed.
+`POST /me/events` path, `PATCH`/`DELETE /me/events/:id`, `POST /me/events/:id/restore`,
+`PUT /me/body-signals/:date`, the nutrition PATCH and the Today cache write, and each case fails with the comparison removed.
 
 The cost, from throwaway timing runs made while implementing #286 — a laptop against the
 production Firestore, not a benchmark kept in the repo. **Every write pays one extra billed

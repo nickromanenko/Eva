@@ -92,7 +92,8 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   every writer takes the request's `session` (`tokenVersionOf(claims)`, passed by the route,
   never looked up) and `assertAccountLive` compares it with the stored `tokenVersion` out of
   the snapshot it already reads, throwing `SessionSupersededError` on a mismatch. `NO_SESSION`
-  is the explicit mode for a writer with no request token (a job; none exists today): it skips
+  (a `unique symbol`, so no string literal stands in for it) is the explicit mode for a writer
+  with no request token (a job; none exists today): it skips
   the comparison and keeps the tombstone check. No route may pass it, and
   `delete-race.test.ts` fails if any module but this one names it.
   **`tokenVersion` is the account's session generation (#76)**, and `bumpTokenVersion` is

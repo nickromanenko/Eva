@@ -678,6 +678,28 @@ describe('a write whose session a password reset ends between the gate and the c
     })
   }
 
+  test('POST /me/events/:id/restore carries the session too: refused, the entry stays deleted', async () => {
+    const { uid, token } = await account()
+    const entry = await createEvent(uid, SESSION, sport(todayUtc()))
+    expect(await softDeleteEvent(uid, SESSION, entry.id)).toBe(true)
+    const doc = eventDocs(uid).doc(entry.id)
+    const before = (await doc.get()).data()
+    await refusedMidWrite(uid, token, () => call(token, 'POST', `/me/events/${entry.id}/restore`))
+    expect((await doc.get()).data()).toEqual(before)
+  })
+
+  test('PUT /me/body-signals/:date carries the session too: refused, nothing written', async () => {
+    const { uid, token } = await account()
+    await refusedMidWrite(uid, token, () =>
+      call(token, 'PUT', `/me/body-signals/${todayUtc()}`, {
+        timeZone: 'UTC',
+        energy: 3,
+        symptoms: [],
+      }),
+    )
+    expect((await eventDocs(uid).get()).size).toBe(0)
+  })
+
   test('a writer called directly throws SessionSupersededError, not AccountGoneError', async () => {
     const { uid } = await account()
     expect(await bumpTokenVersion(uid)).toBe(SESSION + 1)

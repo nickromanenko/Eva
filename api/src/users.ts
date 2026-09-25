@@ -435,11 +435,13 @@ export class SessionSupersededError extends Error {
  * still refused on a tombstone — a job must not strand data under a deleted account any more
  * than a request may — and only the generation check is skipped, because there is no
  * generation to hold it to. Explicit rather than an optional argument, so omitting the
- * session is a compile error and not a quiet opt-out; `delete-race.test.ts` scans `src/` so
+ * session is a compile error and not a quiet opt-out. A `unique symbol` rather than a string,
+ * so the bypass can only be reached by importing this name — a string literal a route could
+ * type from memory does not compile as a `WriteSession`. `delete-race.test.ts` scans `src/` so
  * that no module but this one names it, which makes a first production use a decision
  * somebody has to make in review.
  */
-export const NO_SESSION = 'no-session'
+export const NO_SESSION: unique symbol = Symbol('no-session')
 
 /** Whose write this is: the token version the request's session was minted at, or
  *  `NO_SESSION` (#294). */
