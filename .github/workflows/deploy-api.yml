@@ -101,9 +101,12 @@ jobs:
           # reachable, which is what RATE_LIMIT_TRUSTED_PROXY_HOPS's default of 1 assumes: a
           # direct Cloud Run service, one trusted X-Forwarded-For entry (#37). Raising it to
           # 2 for an external load balancer is only half the change — add
-          # `--ingress=internal-and-cloud-load-balancing` here in the same change, or a request
-          # sent straight to run.app carries a one-entry header, resolves to no caller, and
-          # skips per-IP throttling on every auth, token and provider route (#149).
+          # `--ingress=internal-and-cloud-load-balancing` here in the same change, or anyone
+          # can call run.app directly. With no X-Forwarded-For that request carries a
+          # one-entry header, resolves to no caller, and skips per-IP throttling. Worse, a
+          # caller who sends one entry gets a two-entry header, and the API keys on the
+          # address the caller wrote, so it can pick a fresh per-IP budget on every request.
+          # Both hit every auth, token and provider route and the export route (#149, #305).
           # config.ts and ARCHITECTURE §3 carry the full reasoning.
           gcloud run deploy eva-api \
             --source api \

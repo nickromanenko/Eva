@@ -896,9 +896,15 @@ a topology change has to meet it, and the two-hop path is tested before anyone n
 
 Raising it is half a change. `deploy-api.yml` deploys with `--allow-unauthenticated` and no
 `--ingress`, so the `run.app` URL stays publicly reachable: set the value to `2` without
-also passing `--ingress=internal-and-cloud-load-balancing`, and a request sent straight to
-`run.app` carries a one-entry header, resolves to no caller, and skips the per-IP dimension
-entirely. That is the same outage as leaving it at `1`, reached from the other side. Below
+also passing `--ingress=internal-and-cloud-load-balancing`, and anyone can call `run.app`
+directly, in one of two ways. With no `X-Forwarded-For`, the request carries a one-entry
+header, resolves to no caller, and skips the per-IP dimension entirely. With one entry of
+the caller's own, Cloud Run's makes it two, and the entry read as the caller is the one the
+caller wrote — so they pick a fresh per-IP budget on every request. That second variant is
+worse than skipping the throttle: it is keyed on a value the caller chooses (#305). Both
+reach every auth, token and provider route and `GET /me/export` (`consumeExportAttempt`);
+routes with a per-address or per-account limit keep it, and the provider and token routes
+are left with nothing. Below
 `1` the API refuses to boot — `0` would read like the per-dimension disable switch every
 other `RATE_LIMIT_*` value has, while in fact removing per-IP throttling from `/auth/idp`,
 `/me/auth/providers`, `/auth/activate` and `/auth/password/reset`, where it is the only
