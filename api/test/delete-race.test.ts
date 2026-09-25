@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
-import { Timestamp, Transaction } from 'firebase-admin/firestore'
+import { DocumentReference, Timestamp, Transaction } from 'firebase-admin/firestore'
 import { mintToken } from '../src/auth'
 import { config } from '../src/config'
 import * as content from '../src/content'
@@ -328,53 +328,74 @@ describe('a write racing DELETE /me through the route', () => {
 // ── Inside the transaction: the read has to be in the read set ─────────────────────────
 
 describe('the account read is part of the write transaction, not a check before it', () => {
-  test('a delete that starts after the account read and before the commit leaves nothing', async () => {
-    const { uid } = await account()
+  /**
+   * Starts DELETE /me — tombstone, then the sweep, *not* awaited — the moment the account
+   * document has been read "live", by whichever read the writer uses: a transactional `get`
+   * or `getAll`, or a plain `DocumentReference.get`. The transaction is still open. With the
+   * read in the read set, the tombstone has to wait for (or abort) this transaction, so the
+   * write is either swept or refused. With a read outside it, nothing holds the tombstone, the
+   * sweep finishes inside the pause, and the write lands after it.
+   */
+  const deleteAfterAccountRead = (uid: string) => {
     const accountPath = userDoc(uid).path
-    let deleting: Promise<void> | null = null
-    const real = Transaction.prototype.get
-    const spy = spyOn(Transaction.prototype, 'get').mockImplementation(async function (
-      this: Transaction,
-      ...args: unknown[]
-    ) {
-      const result = await (real as (...a: unknown[]) => Promise<unknown>).apply(this, args)
-      const target = args[0] as { path?: string }
-      if (deleting === null && target.path === accountPath) {
-        // The account read has returned "live". Now DELETE /me starts — tombstone, then the
-        // sweep — and is *not* awaited: the transaction is still open. With the read in the
-        // read set, the tombstone has to wait for (or abort) this transaction, so the write
-        // is either swept or refused. With a plain `get` nothing holds it, the sweep finishes
-        // inside the pause below, and the write lands after it.
-        deleting = (async () => {
-          for (let attempt = 0; ; attempt++) {
-            try {
-              await markUserDeleted(uid)
-              break
-            } catch (err) {
-              if (attempt >= 5) throw err
+    const state: { deleting: Promise<void> | null } = { deleting: null }
+    const readsAccount = (value: unknown): boolean =>
+      (value as { path?: unknown } | null)?.path === accountPath
+    const hook = <T extends object>(proto: T, method: keyof T) => {
+      const real = proto[method] as (...a: unknown[]) => Promise<unknown>
+      return spyOn(proto, method as never).mockImplementation(async function (
+        this: unknown,
+        ...args: unknown[]
+      ) {
+        const result = await real.apply(this, args)
+        if (state.deleting === null && [this, ...args].some(readsAccount)) {
+          state.deleting = (async () => {
+            for (let attempt = 0; ; attempt++) {
+              try {
+                await markUserDeleted(uid)
+                break
+              } catch (err) {
+                if (attempt >= 5) throw err
+              }
             }
-          }
-          await deleteAllUserEvents(uid)
-        })()
-        // Long enough for the unlocked version's tombstone and sweep to finish; bounded,
-        // because in the locked version the tombstone is waiting on this very transaction.
-        await Promise.race([deleting, Bun.sleep(4_000)])
-      }
-      return result
-    } as typeof real)
-    try {
-      // Refused on a retry, or committed before the tombstone and then swept — both are fine.
-      // What is not fine is an entry left once the delete has finished.
-      await createEvent(uid, sport(todayUtc())).catch((err: unknown) => {
-        expect(err).toBeInstanceOf(AccountGoneError)
-      })
-    } finally {
-      spy.mockRestore()
+            await deleteAllUserEvents(uid)
+          })()
+          // Long enough for an unlocked tombstone and sweep to finish; bounded, because a
+          // locked tombstone is waiting on this very transaction.
+          await Promise.race([state.deleting, Bun.sleep(4_000)])
+        }
+        return result
+      } as never)
     }
-    expect(deleting).not.toBeNull()
-    await deleting
-    expect((await eventDocs(uid).get()).size).toBe(0)
-  })
+    const spies = [
+      hook(Transaction.prototype, 'get'),
+      hook(Transaction.prototype, 'getAll'),
+      hook(DocumentReference.prototype, 'get'),
+    ]
+    return { state, restore: () => spies.forEach((spy) => spy.mockRestore()) }
+  }
+
+  for (const [path, entry] of [
+    ['the plain path — the account is its only read', () => sport(todayUtc())],
+    ['the one-per-day path — the account read folded into its own', () => cycle(todayUtc())],
+  ] as const) {
+    test(`${path}: a delete between the account read and the commit leaves nothing`, async () => {
+      const { uid } = await account()
+      const race = deleteAfterAccountRead(uid)
+      try {
+        // Refused on a retry, or committed before the tombstone and then swept — both are
+        // fine. What is not fine is an entry left once the delete has finished.
+        await createEvent(uid, entry()).catch((err: unknown) => {
+          expect(err).toBeInstanceOf(AccountGoneError)
+        })
+      } finally {
+        race.restore()
+      }
+      expect(race.state.deleting).not.toBeNull()
+      await race.state.deleting
+      expect((await eventDocs(uid).get()).size).toBe(0)
+    })
+  }
 })
 
 // ── Every writer, directly ─────────────────────────────────────────────────────────────

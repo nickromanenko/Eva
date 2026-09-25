@@ -83,8 +83,10 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   per-user subcollection calls it inside its own transaction and it throws `AccountGoneError`
   on a tombstone or a missing document, so a write that passed `requireAccount` just before
   the tombstone cannot land after the sweep. It is the one thing `events.ts` and
-  `nutrition-profile.ts` import from here — a writer never reads `users/` itself. A new
-  subcollection writer calls it too; ARCHITECTURE §4 "A write racing the delete" says why
+  `nutrition-profile.ts` import from here — a writer never reads `users/` itself. A writer
+  that reads its own document passes that reference in and gets the snapshot back from the
+  same `getAll`: a separate read is a round trip per write, which is what pushed
+  `cycle-predictions.test.ts` past its ceiling. A new subcollection writer calls it too; ARCHITECTURE §4 "A write racing the delete" says why
   inside the transaction is the whole of it.
   **`tokenVersion` is the account's session generation (#76)**, and `bumpTokenVersion` is
   the written-down rule for what ends a session — a password reset always, activation's

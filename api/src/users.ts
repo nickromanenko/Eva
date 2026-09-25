@@ -423,16 +423,28 @@ export class AccountGoneError extends Error {
  * ordering, which is what a check before the transaction (or the gate alone) cannot say.
  *
  * `!exists` refuses too: a missing document is a finished delete, and a write there would be
- * the same orphan with the tombstone already gone. The cost is one document read per write,
- * billed as a read, and the contention of a read lock on `users/{uid}` for the life of a
- * short transaction — ARCHITECTURE §4 has the measurement.
+ * the same orphan with the tombstone already gone.
+ *
+ * **`refs` are the writer's own reads, taken in the same round trip.** A writer that has to
+ * read its document anyway passes that reference here and gets its snapshot back, in order:
+ * one `getAll`, so the account read costs a billed read and no extra round trip. A separate
+ * `tx.get` before the writer's own was one full round trip per write — enough, on a laptop's
+ * link to the production Firestore, to push `cycle-predictions.test.ts`'s 22 sequential posts
+ * past its 20s ceiling. A writer with nothing to read passes nothing and pays that round trip,
+ * because there is no read to fold it into. The lock on `users/{uid}` lasts the life of a
+ * short transaction either way — ARCHITECTURE §4 has the measurement.
  */
-export const assertAccountLive = async (
+export const assertAccountLive = async <Refs extends FirebaseFirestore.DocumentReference[]>(
   tx: FirebaseFirestore.Transaction,
   uid: string,
-): Promise<void> => {
-  const snapshot = await tx.get(users().doc(uid))
-  if (!snapshot.exists || isTombstone(snapshot)) throw new AccountGoneError()
+  ...refs: Refs
+): Promise<{ [K in keyof Refs]: FirebaseFirestore.DocumentSnapshot }> => {
+  const [account, ...snapshots] = await tx.getAll(users().doc(uid), ...refs)
+  if (account === undefined || !account.exists || isTombstone(account)) {
+    throw new AccountGoneError()
+  }
+  // `getAll` answers in the order it was asked, one snapshot per reference.
+  return snapshots as { [K in keyof Refs]: FirebaseFirestore.DocumentSnapshot }
 }
 
 /** Creates the user doc if missing; returns the (existing or new) user.

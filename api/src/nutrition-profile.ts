@@ -376,8 +376,7 @@ export const saveNutritionProfile = async (
 ): Promise<SaveNutritionProfileResult> => {
   const ref = documents(uid).doc(PROFILE_DOC)
   return firestore.runTransaction(async (tx) => {
-    await assertAccountLive(tx, uid)
-    const snapshot = await tx.get(ref)
+    const [snapshot] = await assertAccountLive(tx, uid, ref)
     const { complete: _, ...before } = snapshot.exists ? toProfile(snapshot.data()!) : toProfile({})
     const after: Omit<NutritionProfile, 'complete'> = { ...before, ...patch }
 

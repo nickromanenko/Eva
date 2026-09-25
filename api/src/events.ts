@@ -230,8 +230,7 @@ export const createEvent = async (uid: string, input: NewEvent): Promise<EvaEven
   if (ONE_PER_DAY.has(input.type)) {
     const ref = collection.doc(dayDocId(input.type, input.localDate))
     await firestore.runTransaction(async (tx) => {
-      await assertAccountLive(tx, uid)
-      const existing = await tx.get(ref)
+      const [existing] = await assertAccountLive(tx, uid, ref)
       // Replacing clears a previous soft delete: the day has an entry again.
       tx.set(ref, {
         ...writableFields(input),
@@ -340,8 +339,7 @@ export const updateEvent = async (
   // an edit landing on a tombstoned account's entry and answering as if the account were live.
   const refusal = await firestore.runTransaction<Exclude<UpdateResult, { ok: true }> | null>(
     async (tx) => {
-      await assertAccountLive(tx, uid)
-      const snapshot = await tx.get(ref)
+      const [snapshot] = await assertAccountLive(tx, uid, ref)
       // A soft-deleted event is gone as far as the API is concerned; `restoreEvent` is
       // the one way back, so editing one must not silently resurrect it as a side effect.
       if (!snapshot.exists || snapshot.get('deletedAt') !== null)
@@ -375,8 +373,7 @@ export const softDeleteEvent = async (uid: string, id: string): Promise<boolean>
   const ref = events(uid).doc(id)
   // A transaction since #286, for `updateEvent`'s reason.
   return firestore.runTransaction(async (tx) => {
-    await assertAccountLive(tx, uid)
-    const snapshot = await tx.get(ref)
+    const [snapshot] = await assertAccountLive(tx, uid, ref)
     if (!snapshot.exists) return false
     if (snapshot.get('deletedAt') !== null) return true // already deleted: idempotent
     tx.update(ref, {
@@ -512,8 +509,7 @@ export const restoreEvent = async (uid: string, id: string): Promise<RestoreResu
   const cutoffMs = retentionCutoff().toMillis()
 
   const outcome = await firestore.runTransaction<RestoreOutcome>(async (tx) => {
-    await assertAccountLive(tx, uid)
-    const snapshot = await tx.get(ref)
+    const [snapshot] = await assertAccountLive(tx, uid, ref)
     if (!snapshot.exists) return 'not-found'
 
     const deletedAt = snapshot.get('deletedAt')

@@ -1381,21 +1381,29 @@ the caller is, one step earlier. No error code was added. `api/test/delete-race.
 forces the interleaving two ways, and each fails with any one check removed: the tombstone
 and the sweeps run after the gate and before the write's transaction starts (every writer, and
 the three routes), and — the case that pins "inside" — they start *after* the transaction's
-account read and before its commit, which a plain `get` in place of `tx.get` lets through.
+account read and before its commit, which an account read outside the transaction lets through.
 
-The cost, from a throwaway timing script run while implementing #286 — a laptop against the
-production Firestore, warm, median of 25, not a benchmark kept in the repo: one extra billed document read per write, and one extra round trip — a plain event
-create went from ~135ms (a bare `set`) to ~262ms (a transaction), a one-per-day create from
-~254ms to ~383ms. The round trip is the laptop's ~130ms here and a few milliseconds from
-Cloud Run in the same region. Contention: the read holds a lock on `users/{uid}` for the
-length of a short transaction, so a profile save or `markUserDeleted` on the *same* account
-may wait that long; subcollection writers only share the lock and do not contend with each
-other. The same lock runs the other way: a burst of writes landing while `DELETE /me` stamps
-the tombstone can make that write wait and, under enough contention, fail — the route then
-answers `500`, and a retry resumes it, because every step is idempotent (within the
-per-account delete throttle's budget). `tx.getAll` could fold the account read into the writer's own first read and save the
-round trip; not done, because it would widen the helper's contract for milliseconds in
-production.
+The cost, from throwaway timing runs made while implementing #286 — a laptop against the
+production Firestore, not a benchmark kept in the repo. **Every write pays one extra billed
+document read.** Round trips depend on whether the writer reads anything of its own:
+
+- A writer that already reads its document — one-per-day create, edit, soft delete, restore,
+  the nutrition PATCH — passes that reference to `assertAccountLive`, which reads it and the
+  account in one `tx.getAll`. No extra round trip. The first version used a separate `tx.get`,
+  one round trip more per write, and that alone took `cycle-predictions.test.ts`'s first case
+  (22 sequential posts) from the edge of its 20s ceiling to past it: a warm `POST /me/events`
+  measured ~711ms against `main`'s ~656ms, and ~615ms once folded.
+- A writer with nothing of its own to read — a plain create, the idempotency-key create
+  (its read is a query, which `getAll` cannot carry), the Today cache write — pays one
+  round trip. A plain create went from ~135ms (a bare `set`) to ~262ms (a transaction). The
+  round trip is the laptop's ~130ms; from Cloud Run in the same region it is a few ms.
+
+Contention: the read holds a lock on `users/{uid}` for the length of a short transaction, so
+a profile save or `markUserDeleted` on the *same* account may wait that long; subcollection
+writers only share the lock and do not contend with each other. The same lock runs the other
+way: a burst of writes landing while `DELETE /me` stamps the tombstone can make that write
+wait and, under enough contention, fail — the route then answers `500`, and a retry resumes
+it, because every step is idempotent (within the per-account delete throttle's budget).
 
 One residual race is worth knowing rather than discovering: a sign-in that passed Identity
 Toolkit microseconds before step 2 can land its `ensureUser` after step 5 and recreate the
