@@ -78,13 +78,18 @@ afterAll(async () => {
 describe('the retired qualitative-mode setting (#283)', () => {
   test('PUT /me/nutrition-settings is an unmatched route, and writes nothing', async () => {
     const { uid, token } = await legacyAccount()
+    // Read back after every send, not once at the end: a handler that writes and then answers
+    // 404 must fail here. `false` goes first because it is the value that differs from the
+    // stored `true`; the `true` send is there so a write of it would still be a 404 to assert.
     for (const qualitativeOnly of [false, true]) {
       const res = await call(token, 'PUT', '/me/nutrition-settings', { qualitativeOnly })
       expect(res.status).toBe(404)
       expect(res.body.error.code).toBe('NOT_FOUND')
+      expect({ sent: qualitativeOnly, stored: await stored(uid) }).toEqual({
+        sent: qualitativeOnly,
+        stored: true,
+      })
     }
-    // `false` was sent first: had anything written it, the stored `true` would be gone.
-    expect(await stored(uid)).toBe(true)
   })
 
   test('GET /me no longer serves the field, and leaves the stored value as it was', async () => {

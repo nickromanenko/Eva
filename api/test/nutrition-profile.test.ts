@@ -718,3 +718,70 @@ describe('one owning module (GUARDRAILS 10)', () => {
     expect(REFERENCE.test("import { planDailyTargets } from './nutrition'")).toBe(false)
   })
 })
+
+describe('hideNumbers is never inferred (A31, #212, #283)', () => {
+  /**
+   * A31 is "self-declared only": the hide-numbers preference changes because she asked, never
+   * because Eva concluded something from her logs, her weight or her profile. #252's scan
+   * pinned that for the retired user-document field; this is the same guard for the live
+   * one. Two halves:
+   *
+   * - `saveNutritionProfile` is named only by its module and by `index.ts`, whose one call is
+   *   `PATCH /me/nutrition/profile`. Any other module that could reach it — an import, an
+   *   alias, a re-export — fails. (A direct Firestore write to `nutrition/` from elsewhere is
+   *   already the one-owner scan's failure above.)
+   * - No other module builds a `hideNumbers` value: an object key, a shorthand property, an
+   *   assignment or a quoted field name. Reading it (`profile.hideNumbers`, destructuring)
+   *   stays allowed, because the screens that hide numbers will have to. A type member
+   *   `hideNumbers: boolean` is not a write and is allowed too.
+   *
+   * What it does not catch: a key assembled at runtime (`['hide' + 'Numbers']`), or a write
+   * through `index.ts` itself from something other than the route; review owns those.
+   */
+  const WRITER = /\bsaveNutritionProfile\b/
+  const BUILDS =
+    /\bhideNumbers\s*\??:(?!\s*(boolean|null)\b)|[{,]\s*hideNumbers\s*[,}](?!\s*=)|\bhideNumbers\s*=(?![=>])|\[\s*['"`]hideNumbers['"`]\s*\]|['"`]hideNumbers['"`]\s*:/
+
+  test('saveNutritionProfile is named only by its module and by the route', async () => {
+    for (const [file, source] of await sources()) {
+      const names = WRITER.test(stripComments(source))
+      expect({ file, names }).toEqual({
+        file,
+        names: file === 'nutrition-profile.ts' || file === 'index.ts',
+      })
+    }
+  })
+
+  test('no module but the owner and the route builds a hideNumbers value', async () => {
+    for (const [file, source] of await sources()) {
+      if (file === 'nutrition-profile.ts' || file === 'index.ts') continue
+      const built = BUILDS.exec(stripComments(source))
+      expect({ file, built: built?.[0] ?? null }).toEqual({ file, built: null })
+    }
+  })
+
+  test('the scans would see each shape they name, and pass the reads', () => {
+    for (const wrong of [
+      'await saveNutritionProfile(uid, { hideNumbers: true })',
+      'await saveNutritionProfile(uid, { goal, hideNumbers })',
+      'const patch = { hideNumbers: logs.length < 3 }',
+      'patch.hideNumbers = true',
+      "tx.update(ref, { 'hideNumbers': true })",
+      "patch['hideNumbers'] = true",
+    ]) {
+      expect({ wrong, caught: BUILDS.test(wrong) }).toEqual({ wrong, caught: true })
+    }
+    expect(WRITER.test("import { saveNutritionProfile as save } from './nutrition-profile'")).toBe(
+      true,
+    )
+    for (const read of [
+      'if (profile.hideNumbers) return withoutCalories(card)',
+      'const { goal, hideNumbers } = profile',
+      'profile.hideNumbers === true',
+      'interface Card { hideNumbers: boolean }',
+      'interface Card { hideNumbers?: boolean | null }',
+    ]) {
+      expect({ read, caught: BUILDS.test(read) }).toEqual({ read, caught: false })
+    }
+  })
+})
