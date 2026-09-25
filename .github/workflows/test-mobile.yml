@@ -199,8 +199,12 @@ jobs:
     needs: build
     runs-on: macos-15
     # The ceiling is for a hang — a simulator that never boots, a JVM emulator that never
-    # comes up — not for a slow run. The suite is ~10 minutes locally.
-    timeout-minutes: 45
+    # comes up — not for a slow run. On the macOS runner a full job is estimated at ~58 min
+    # (2026-09-25: ~10 min setup + ~35 min for the 21 of 27 UI tests that ran before 45 cut
+    # it off, + ~12 min for the rest; single UI tests take 60–260 s). 45 cancelled every
+    # run on main from 2026-09-24 16:10 while every test passed (#326). 90 leaves ~50%;
+    # re-measure from a completed run and raise it deliberately, never let it silently cut.
+    timeout-minutes: 90
     env:
       # #230: see the header. The image default (Xcode 16.4 / iOS 18.5 SDK) must not decide.
       DEVELOPER_DIR: /Applications/Xcode_26.2.app
