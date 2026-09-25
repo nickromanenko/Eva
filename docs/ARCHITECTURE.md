@@ -2072,9 +2072,14 @@ failure ejected the user, so being stuck was impossible; keeping the token remov
 exit, and a retry button is not a substitute for one when `/me` fails for this account
 every time.
 
-One consequence is filed rather than fixed (#59): if a `DELETE /me` fails *because* the
-token died, the sign-out tears down the modal before it can say so, and a user sees the
-signed-out screen for an account that still exists.
+**A sign-out can carry a reason (#59).** If a `DELETE /me` fails *because* the token
+died, the sign-out tears down the modal before it can say so, and a signed-out screen is
+exactly what a deletion that worked looks like — for an account that still exists. The
+route is **not** exempted from the rule: `authorized(signedOutReason:_:)` still signs out,
+and only passes `AppSession.signedOutReason` along for the signed-out screen, which then
+opens on log in with a banner saying the profile was not deleted and to log in and try
+again. Every other route passes none, and any other sign-out or a new session clears it.
+It is in memory only; a relaunch forgets it.
 
 `OnboardingStep` is a linear enum with explicit `next()`/`back()`. Add a screen by
 adding a case and wiring both transitions — there is no implicit ordering.

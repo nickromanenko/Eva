@@ -7,9 +7,23 @@ import SwiftUI
 /// puts the questionnaire fields in Profile, so once a user authenticates they land in the
 /// app and personalise from Profile rather than through a post-auth wizard. What remains
 /// here is the canvas-true auth screen on `EvaScreenBackground`.
+///
+/// **The reason a session ended (#59).** When `AppSession` signs out with a
+/// `SignedOutReason`, the flow opens on log in rather than sign-up and that screen says
+/// what happened. Read once, at creation: `EvaRootView` builds this view fresh on every
+/// move to `.signedOut`, so each sign-out gets the step its own reason calls for.
 struct OnboardingFlowView: View {
-    @State private var model = OnboardingModel()
+    @State private var model: OnboardingModel
     let session: AppSession
+
+    init(session: AppSession) {
+        self.session = session
+        _model = State(
+            initialValue: OnboardingModel(
+                startingAt: session.signedOutReason == nil ? .createAccount : .logIn
+            )
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -43,6 +57,7 @@ struct OnboardingFlowView: View {
         case .logIn:
             LoginStepView(
                 model: model,
+                signedOutReason: session.signedOutReason,
                 onSubmit: { _, _ in try await signIn() },
                 onProviderCredential: signIn(with:),
                 onGoToSignUp: model.chooseCreateAccount,

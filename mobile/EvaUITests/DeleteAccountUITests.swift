@@ -12,6 +12,9 @@ import XCTest
 /// each would sign up again and the last would still have to do everything the first
 /// three did.
 ///
+/// A second test (#59) covers the one failure the modal cannot report itself: a delete
+/// whose credential has died, which signs the app out and takes the modal with it.
+///
 /// The account this creates deletes itself, so unlike the rest of the suite it should
 /// leave nothing for `scripts/e2e-cleanup.ts` to sweep. It still uses the
 /// `e2e+<uuid>@e2e.evaapp.dev` pattern (GUARDRAILS §16): a run that fails before step 6
@@ -228,6 +231,109 @@ final class DeleteAccountUITests: EvaUITestCase {
         XCTAssertFalse(
             message.isEmpty,
             "login.error is present but empty, so the log-in failure is not evidence of anything"
+        )
+    }
+
+    /// Issue #59: a delete whose credential has died must not look like a delete that
+    /// worked.
+    ///
+    /// The session is killed for real, on the server, while the modal is open — the
+    /// mailbox resets the password to the one it already is, and a reset ends every other
+    /// session (#76). So `DELETE /me` goes out carrying a token the app believes in and the
+    /// live API answers 401, which is the path the issue describes and not a stand-in for
+    /// it. The app is expected to sign out (the central rule, unchanged) *and* to say on
+    /// the screen it lands on that nothing was deleted.
+    ///
+    /// Then the two halves a banner alone cannot prove: the account really is still there
+    /// — logging back in reaches the app — and doing what the banner says works, which is
+    /// also what removes the account this test made.
+    func testADeleteRefusedForADeadSessionSaysTheProfileWasNotDeleted() throws {
+        let app = launch()
+        let email = Self.freshEmail()
+
+        signUpAndActivate(app, email: email)
+        openDeleteModal(app)
+        passTheGate(app)
+
+        // MARK: The credential dies behind the app's back
+
+        endSessionsOutOfBand(email: email)
+        tap(app.buttons["delete.confirm"], in: app)
+
+        // MARK: What the user is told
+
+        let reason = app.staticTexts["login.signedOutReason"]
+        XCTAssertTrue(
+            reason.waitForExistence(timeout: 20),
+            app.textFields["signup.email"].exists
+                ? "A refused delete returned to sign-up in silence — exactly what a deletion that worked looks like"
+                : "A refused delete did not reach the signed-out screen with a reason"
+        )
+        // Log in, not sign-up: the account exists, and signing back in is the remedy.
+        XCTAssertTrue(
+            app.staticTexts["Welcome back"].exists,
+            "The reason is shown, but not on the log-in screen"
+        )
+        // Joined for the same reason `RateLimitedUITests` joins: `EvaInfoBanner` does not
+        // combine its title and message, so the identifier reaches each separately.
+        let text = app.staticTexts.matching(identifier: "login.signedOutReason")
+            .allElementsBoundByIndex
+            .map { $0.label }
+            .joined(separator: " ")
+        XCTAssertTrue(
+            text.contains("not deleted"),
+            "The banner does not say the profile was not deleted: \(text)"
+        )
+        XCTAssertTrue(
+            text.contains("Log in") && text.contains("again"),
+            "The banner does not say what to do next: \(text)"
+        )
+
+        // MARK: The account survived
+
+        signIn(app, email: email, password: Self.password)
+        XCTAssertTrue(
+            app.buttons["tab.home"].waitForExistence(timeout: 20),
+            "Logging back in after a refused delete did not reach the app — the account may be gone"
+        )
+
+        // MARK: Doing what the banner says works
+
+        openDeleteModal(app)
+        passTheGate(app)
+        tap(app.buttons["delete.confirm"], in: app)
+        XCTAssertTrue(
+            app.textFields["signup.email"].waitForExistence(timeout: 20),
+            "The retried deletion did not return the app to sign-up"
+        )
+        XCTAssertFalse(
+            app.staticTexts["login.signedOutReason"].exists,
+            "A deletion that worked was reported as refused"
+        )
+    }
+
+    /// Profile ▸ Delete profile, and the modal is up.
+    private func openDeleteModal(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        tap(app.buttons["tab.profile"], in: app, file: file, line: line)
+        tap(app.buttons["destructive.Delete profile"], in: app, file: file, line: line)
+        XCTAssertTrue(
+            app.staticTexts["delete.title"].waitForExistence(timeout: 5),
+            "The danger card did not open the confirmation modal",
+            file: file, line: line
+        )
+    }
+
+    /// Types the word, dismisses the keyboard, and waits for the confirm button to go live.
+    private func passTheGate(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let field = app.textFields["delete.confirmation"]
+        type(Self.confirmationWord, into: field, in: app, file: file, line: line)
+        field.typeText("\n")
+        wait(
+            for: [expectation(
+                for: NSPredicate(format: "isEnabled == true"),
+                evaluatedWith: app.buttons["delete.confirm"]
+            )],
+            timeout: 5
         )
     }
 }
