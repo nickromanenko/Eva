@@ -3,29 +3,31 @@
  * properties so no page or layout inlines a colour, a size or a radius (GUARDRAILS 20).
  * The iOS twin is mobile/Eva/Theme/; where the two disagree, DESIGN.md wins.
  *
- * Montserrat is self-hosted: the same OFL static files the app bundles
- * (mobile/Eva/Resources/Fonts), copied byte-for-byte with their licence
- * (public/fonts/OFL.txt). No page makes a font request to a third party.
- * Only the three cuts the type scale uses ship — 400, 500, 600 (§3).
+ * Montserrat is self-hosted: the OFL static files the app bundles
+ * (mobile/Eva/Resources/Fonts), re-wrapped as woff2 with their licence
+ * (public/fonts/OFL.txt). woff2 is a lossless container — the outlines and tables
+ * are the app's, only compressed (~1.35 MB of TTF → ~380 KB). No page makes a font
+ * request to a third party. Only the three cuts the type scale uses ship — 400, 500,
+ * 600 (§3).
  */
 
 @font-face {
   font-family: Montserrat;
-  src: url('/fonts/Montserrat-Regular.ttf') format('truetype');
+  src: url('/fonts/Montserrat-Regular.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: Montserrat;
-  src: url('/fonts/Montserrat-Medium.ttf') format('truetype');
+  src: url('/fonts/Montserrat-Medium.woff2') format('woff2');
   font-weight: 500;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: Montserrat;
-  src: url('/fonts/Montserrat-SemiBold.ttf') format('truetype');
+  src: url('/fonts/Montserrat-SemiBold.woff2') format('woff2');
   font-weight: 600;
   font-style: normal;
   font-display: swap;
@@ -52,6 +54,13 @@
   --eva-opaque: #FFFFFF;          /* §6 focused input: "fill goes opaque #fff" */
   --eva-disabled-text: #B3A9AE;   /* §6 disabled input text */
   --eva-control-border: rgba(40, 33, 38, .1);
+  /* §6 Input fill and states */
+  --eva-input-fill: rgba(255, 255, 255, .75);
+  --eva-input-focus-ring: rgba(201, 95, 134, .16);
+  --eva-input-error-fill: rgba(255, 255, 255, .8);
+  --eva-input-error-ring: rgba(196, 100, 90, .14);
+  --eva-input-disabled-fill: rgba(248, 243, 240, .8);
+  --eva-input-disabled-border: rgba(40, 33, 38, .07);
   --eva-bar: rgba(255, 249, 246, .8); /* §7 tab bar */
 
   /* §2 Semantic — base · tint · border · ink */
@@ -72,10 +81,8 @@
   --eva-info-border: rgba(90, 123, 160, .26);
   --eva-info-ink: #3F5A76;
 
-  /* §5 Primary as drawn on the canvas (the email-link pages use it). */
-  --eva-primary-top: #EE93B1;
-  --eva-primary-pressed-top: #D9799C;
-  --eva-primary-pressed-bottom: #B45276;
+  /* §5 Primary · disabled fill; its label takes Primary Text (§9a). */
+  --eva-primary-disabled: rgba(201, 95, 134, .28);
 
   /* §9a Action ramp — anything that carries a label or is pink text on the light
      ground. White on the canvas pink fails AA; these pass. */

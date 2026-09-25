@@ -40,8 +40,8 @@ const { title } = Astro.props;
 
   body {
     min-height: 100vh;
-    background: var(--eva-bg) linear-gradient(135deg, var(--eva-blush), var(--eva-bg)) fixed;
-    font-family: Montserrat, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--eva-bg) var(--eva-grad-blush) fixed;
+    font-family: var(--eva-font);
     color: var(--eva-text-secondary);
     -webkit-font-smoothing: antialiased;
   }
@@ -65,25 +65,27 @@ const { title } = Astro.props;
     max-width: 420px;
     padding: var(--eva-space-8) var(--eva-space-6);
     border-radius: var(--eva-radius-card);
-    background: linear-gradient(150deg, rgba(255, 255, 255, .66), rgba(255, 255, 255, .36));
-    -webkit-backdrop-filter: blur(26px) saturate(1.7);
-    backdrop-filter: blur(26px) saturate(1.7);
-    border: 1px solid rgba(255, 255, 255, .72);
-    box-shadow:
-      0 12px 30px -18px rgba(40, 33, 38, .35),
-      inset 0 1px 0 rgba(255, 255, 255, .9),
-      inset 0 -1px 0 rgba(255, 255, 255, .4);
+    background: var(--eva-card-fill);
+    -webkit-backdrop-filter: var(--eva-card-blur);
+    backdrop-filter: var(--eva-card-blur);
+    border: 1px solid var(--eva-card-border);
+    box-shadow: var(--eva-card-shadow);
   }
 
-  /* H1 · screen title, Body, Caption — DESIGN.md §3. */
+  /* H1 · screen title, Body, Caption — DESIGN.md §3. Caption takes Secondary Text: muted
+     measures under 3:1 on the card, and this caption is informative (the §9a settings-row
+     argument, as tokens.css's t-caption). */
   h1 { font-size: 28px; line-height: 34px; font-weight: 600; color: var(--eva-text); }
   h1:focus { outline: none; }
   p { font-size: 15px; line-height: 24px; }
   h1 + p, p + p { margin-top: var(--eva-space-3); }
-  .caption { color: var(--eva-text-muted); font-size: 12.5px; line-height: 19px; }
+  .caption { color: var(--eva-text-secondary); font-size: 12.5px; line-height: 19px; }
   .actions + .caption { margin-top: var(--eva-space-4); }
 
-  /* Semantic marks: ✓ circle, ! circle, i circle — the shape carries the state, never the colour alone. */
+  /* Semantic marks: ✓ circle, ! circle, i circle — the shape carries the state, never the colour alone.
+     The glyph must reach 4.5:1 on its own tint over the card. Success and info take their
+     §2 ink (5.3:1+). Error's base measures 3.3:1 and even its ink only 4.4:1 there, so the
+     "!" takes the §9a ramp's bottom stop (5.1:1+); the tint, border and message stay error. */
   .mark {
     display: inline-flex;
     align-items: center;
@@ -98,14 +100,15 @@ const { title } = Astro.props;
     font-weight: 600;
     line-height: 1;
   }
-  .mark--success { color: var(--eva-success); background: var(--eva-success-tint); border-color: var(--eva-success-border); }
-  .mark--error { color: var(--eva-error); background: var(--eva-error-tint); border-color: var(--eva-error-border); }
-  .mark--info { color: var(--eva-info); background: var(--eva-info-tint); border-color: var(--eva-info-border); font-family: Georgia, serif; font-style: italic; }
-  .mark--pending { color: var(--eva-text-muted); border-color: rgba(40, 33, 38, .1); }
+  .mark--success { color: var(--eva-success-ink); background: var(--eva-success-tint); border-color: var(--eva-success-border); }
+  .mark--error { color: var(--eva-action-bottom); background: var(--eva-error-tint); border-color: var(--eva-error-border); }
+  .mark--info { color: var(--eva-info-ink); background: var(--eva-info-tint); border-color: var(--eva-info-border); font-family: Georgia, serif; font-style: italic; }
+  .mark--pending { color: var(--eva-text-muted); border-color: var(--eva-control-border); }
 
   .actions { display: flex; flex-direction: column; gap: var(--eva-space-2); margin-top: var(--eva-space-6); }
 
-  /* Primary button — DESIGN.md §5. */
+  /* Primary button — DESIGN.md §5, on the §9a action ramp: white on the canvas pink
+     measures 3.84:1. Disabled takes Primary Text, also §9a. */
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -115,21 +118,21 @@ const { title } = Astro.props;
     padding: 0 var(--eva-space-6);
     border: 0;
     border-radius: var(--eva-radius-control);
-    background: linear-gradient(180deg, var(--eva-primary-top), var(--eva-deep-pink));
+    background: var(--eva-grad-action);
     color: var(--eva-text-on-dark);
     font: inherit;
     font-size: 14.5px;
     font-weight: 600;
     text-decoration: none;
     cursor: pointer;
-    box-shadow: 0 12px 26px -12px rgba(201, 95, 134, .8);
+    box-shadow: var(--eva-shadow-action);
     transition: transform .12s ease, background .12s ease;
   }
-  .btn-primary:active { background: linear-gradient(180deg, var(--eva-primary-pressed-top), var(--eva-primary-pressed-bottom)); transform: scale(.97); }
-  .btn-primary:focus-visible { outline: var(--eva-focus-ring) solid rgba(40, 33, 38, .6); outline-offset: 2px; }
-  .btn-primary:disabled { background: rgba(201, 95, 134, .28); box-shadow: none; cursor: default; transform: none; }
+  .btn-primary:active { background: var(--eva-grad-action-pressed); transform: scale(.97); }
+  .btn-primary:focus-visible { outline: var(--eva-focus-ring) solid var(--eva-focus); outline-offset: 2px; }
+  .btn-primary:disabled { background: var(--eva-primary-disabled); color: var(--eva-text); box-shadow: none; cursor: default; transform: none; }
 
-  /* Text button — DESIGN.md §5. */
+  /* Text button — DESIGN.md §5; §9a ink. */
   .btn-text {
     display: inline-flex;
     align-items: center;
@@ -139,14 +142,14 @@ const { title } = Astro.props;
     border: 0;
     border-radius: var(--eva-radius-text);
     background: transparent;
-    color: var(--eva-deep-pink);
+    color: var(--eva-action-top);
     font: inherit;
     font-size: 14px;
     font-weight: 600;
     text-decoration: none;
     cursor: pointer;
   }
-  .btn-text:focus-visible { outline: var(--eva-focus-ring) solid rgba(40, 33, 38, .6); outline-offset: 2px; }
+  .btn-text:focus-visible { outline: var(--eva-focus-ring) solid var(--eva-focus); outline-offset: 2px; }
 
   /* Input, label, helper, error — DESIGN.md §3 and §6. */
   .field { display: flex; flex-direction: column; gap: var(--eva-space-2); margin-top: var(--eva-space-4); }
@@ -155,17 +158,17 @@ const { title } = Astro.props;
     height: var(--eva-control-height);
     padding: 0 15px;
     border-radius: var(--eva-radius-control);
-    border: 1px solid rgba(40, 33, 38, .1);
-    background: rgba(255, 255, 255, .75);
+    border: 1px solid var(--eva-control-border);
+    background: var(--eva-input-fill);
     color: var(--eva-text);
     font: inherit;
     font-size: 15px;
     outline: none;
   }
-  .field input:focus { background: var(--eva-opaque); border-color: var(--eva-deep-pink); box-shadow: 0 0 0 var(--eva-focus-ring) rgba(201, 95, 134, .16); }
-  .field input[aria-invalid="true"] { background: rgba(255, 255, 255, .8); border-color: var(--eva-error); box-shadow: 0 0 0 var(--eva-focus-ring) rgba(196, 100, 90, .14); }
-  .field input:disabled { background: rgba(248, 243, 240, .8); color: var(--eva-disabled-text); border-color: rgba(40, 33, 38, .07); }
-  .field .helper { font-size: 12px; line-height: 18px; color: var(--eva-text-muted); }
+  .field input:focus { background: var(--eva-opaque); border-color: var(--eva-deep-pink); box-shadow: 0 0 0 var(--eva-focus-ring) var(--eva-input-focus-ring); }
+  .field input[aria-invalid="true"] { background: var(--eva-input-error-fill); border-color: var(--eva-error); box-shadow: 0 0 0 var(--eva-focus-ring) var(--eva-input-error-ring); }
+  .field input:disabled { background: var(--eva-input-disabled-fill); color: var(--eva-disabled-text); border-color: var(--eva-input-disabled-border); }
+  .field .helper { font-size: 12px; line-height: 18px; color: var(--eva-text-secondary); }
   .error {
     display: flex;
     align-items: flex-start;
