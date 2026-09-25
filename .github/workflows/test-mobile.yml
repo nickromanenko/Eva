@@ -312,7 +312,8 @@ jobs:
       # #263 both hit the 45-minute ceiling and uploaded nothing. A manual cancel uploads too;
       # that costs one small artifact. **Redacted, not raw**: under `EMAIL_TRANSPORT=log` the
       # API prints every activation link and the address it went to, and an artifact
-      # outlives the runner; `redact_suite_log` in scripts/lib/api-server.sh says what it
+      # outlives the runner and, the repository being public, is downloadable by anyone
+      # (ARCHITECTURE.md §6a); `redact_suite_log` in scripts/lib/api-server.sh says what it
       # removes and why. On a cancel the copy exists only if verify-mobile.sh's exit trap ran
       # before the runner killed it; if it did not, `if-no-files-found: warn` says so.
       - name: Upload API and mailbox logs
