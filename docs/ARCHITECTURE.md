@@ -2143,6 +2143,7 @@ CI authenticates by Workload Identity Federation — **no key files in CI, ever*
 | `scripts/verify-rules.sh` | `Test Rules` | PR + push touching the rules | — (rules deploy is manual) |
 | `scripts/verify-mobile.sh --build` | `Test Mobile` / `Build` | PR touching `mobile/**`, then again on `main` | — |
 | `scripts/ci-mobile.sh` | `Test Mobile` / `Full suite` | push to `main`, and nightly — **not** on a PR | — |
+| `scripts/verify-secrets.sh` | `Check Secrets` | **every** PR, no path filter, and push to `main` | — (see below) |
 
 Before #67 exactly one of those ran, and `Deploy API` pushed to production Cloud Run on
 every merge touching `api/**` with no typecheck and no test in between. The deploys now
@@ -2239,6 +2240,18 @@ later than intended, and `main` can hold a commit that does not pass.
 Closing it costs a GitHub Pro subscription, and is a decision rather than a task. Making
 the repository public is not the alternative it looks like: this is a health app whose
 issues and PRs discuss real user data handling.
+
+**`Check Secrets` is the one check with nothing downstream to gate (#297).** It runs
+`scripts/verify-secrets.sh` — GUARDRAILS 1 as a script — on every pull request and on
+`main`, with `contents: read`, no secrets and no Workload Identity; it reads tracked files
+and nothing else. It has no path filter because a credential can land at any path. Both
+credential accidents so far (#7's `.p8`, #295's `api/.secrets` symlink) reached `main`
+through a `git add -A` no CI step looked at. But the other suites stop a deploy when they
+go red; this one has no deploy to stop, so until it is a **required check on `main`** it
+only tells you. Making it required is a repository setting for a human, and it runs into
+the same `403` as the paragraph above: it is part of that decision, not a separate one.
+It checks the tree, not history — a key added and removed inside one PR passes, and is
+still in history to rotate.
 
 ## 7. Known gaps (deliberate, not oversights)
 

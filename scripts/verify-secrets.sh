@@ -15,6 +15,12 @@
 # handles, and every one of them is a literal that has no business being committed:
 # private-key PEM blocks, service-account JSON, Google API keys, and Postmark's UUID-shaped
 # server tokens. Adding a pattern is cheap; a false negative costs a rotation.
+#
+# Runs in CI on every pull request and on `main` (`.github/workflows/check-secrets.yml`,
+# #297), not only inside scripts/verify.sh. It reports there; it blocks a merge only once a
+# human makes it a required check on `main` — a repository setting (ARCHITECTURE.md §6a).
+# Keep it credential-free and history-free: CI runs it with `contents: read` and a
+# depth-1 checkout.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
