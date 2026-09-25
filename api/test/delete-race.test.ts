@@ -91,12 +91,36 @@ const account = async (): Promise<{ uid: string; token: string }> => {
  *  request's session. */
 const SESSION = 0
 
+/**
+ * **In parallel, across accounts and across each account's three sweeps (#339).** One at a
+ * time this was ~26 accounts x 4 round trips and measured 17.3-17.6 s against the real
+ * project, a cold connection short of the 20 s ceiling — and a hook that times out is
+ * reported against an unrelated test and leaves the rest of the sweep undone (#31). Nothing
+ * here depends on order: each sweep deletes by path, and the user document's delete does not
+ * cascade, so it can go last without waiting on anything but its own account's sweeps.
+ *
+ * `allSettled`, so one failed delete does not strand the others — but a failure is thrown
+ * once everything has run, not swallowed: a sweep that silently fails is rows left in the
+ * real project that nobody hears about. Counts and messages only, never a uid (#334).
+ */
 afterAll(async () => {
-  for (const uid of createdUids) {
-    await deleteAllUserEvents(uid).catch(() => {})
-    await deleteAllUserToday(uid).catch(() => {})
-    await deleteNutritionProfile(uid).catch(() => {})
-    await deleteUserDocument(uid).catch(() => {})
+  const outcomes = await Promise.all(
+    createdUids.map(async (uid) => {
+      const sweeps = await Promise.allSettled([
+        deleteAllUserEvents(uid),
+        deleteAllUserToday(uid),
+        deleteNutritionProfile(uid),
+      ])
+      return [...sweeps, ...(await Promise.allSettled([deleteUserDocument(uid)]))]
+    }),
+  )
+  const failures = outcomes.flat().filter((o) => o.status === 'rejected')
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((f) => f.reason),
+      `delete-race cleanup: ${failures.length} of ${outcomes.length * 4} deletes failed — ` +
+        failures.map((f) => String(f.reason?.message ?? f.reason)).join('; '),
+    )
   }
 })
 
