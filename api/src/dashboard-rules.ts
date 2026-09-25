@@ -866,12 +866,24 @@ export interface BannerInput {
   focusAreas: readonly string[]
 }
 
-/** Only an absolute `https://` URL is a destination the rail can open in an in-app browser.
- *  Parsed, not prefix-matched, so `https://` alone is refused too. */
+/**
+ * Only an absolute `https://` URL is a destination the rail can open in an in-app browser —
+ * and **only when the string stored is already the URL the parser reads**.
+ *
+ * The check and the thing served must be the same string. `new URL` forgives a great deal on
+ * the way in: it trims surrounding whitespace, drops tabs and newlines from anywhere inside,
+ * lower-cases the scheme and host, and resolves `..`. Checking the parsed URL and then serving
+ * the raw one would put a string on the rail this function never judged, and a client parsing
+ * it more strictly could open something else, or nothing. Serving `parsed.href` instead would
+ * put a URL on the rail that no reviewer wrote. So a row whose `url` is not exactly its own
+ * normal form is refused, and the fix is a visible edit in `content/` — the same fail-closed
+ * direction as every other clause here. The cost is that `https://example.org` (no trailing
+ * `/`) is refused where `https://example.org/` is served; an article URL has a path.
+ */
 const opensSomewhere = (url: string): boolean => {
   try {
     const parsed = new URL(url)
-    return parsed.protocol === 'https:' && parsed.hostname.length > 0
+    return parsed.protocol === 'https:' && parsed.hostname.length > 0 && parsed.href === url
   } catch {
     return false
   }
@@ -889,9 +901,9 @@ const opensSomewhere = (url: string): boolean => {
  *   variants requires to carry no pregnancy content at all. An untagged row reaches nobody.
  * - **It does not repeat the card's subject** (Banner area 3). The comparison is on the id the
  *   ladder chose, so the card and the rail cannot disagree about what today is about.
- * - **It has a title, a meta line and an `https://` URL.** The rail draws the first two and the
- *   tap opens the third (#102); a card missing any of them is a broken card, and an item with
- *   no article behind it is a link to nothing.
+ * - **It has a title, a meta line and an `https://` URL in its normal form** (`opensSomewhere`).
+ *   The rail draws the first two and the tap opens the third (#102); a card missing any of
+ *   them is a broken card, and an item with no article behind it is a link to nothing.
  */
 const eligible = (item: Banner, input: BannerInput): boolean =>
   item.status === 'active' &&

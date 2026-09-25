@@ -1494,6 +1494,31 @@ describe('the banner rail: only active, complete rows with an article', () => {
     expect(ids(selectBanners([row({ id: 'x', url: article('x') })], onDay()))).toEqual(['x'])
   })
 
+  test('the URL served is the URL checked: one the parser would have to repair is refused', () => {
+    // Each of these parses to a clean `https://` URL — `new URL` trims the ends, drops tabs
+    // and newlines from inside, and lower-cases scheme and host — so a check on the parsed
+    // value alone passes them, and the raw string would then be what the rail serves.
+    for (const url of [
+      ` ${article('x')}`,
+      `${article('x')} `,
+      `${article('x')}\n`,
+      'https://example.org/art\nicles/x',
+      'https://exa\tmple.org/articles/x',
+      'HTTPS://example.org/articles/x',
+      'https://Example.org/articles/x',
+      'https://example.org/articles/../x',
+      'https://example.org',
+    ]) {
+      expect({ url, served: ids(selectBanners([row({ id: 'x', url })], onDay())) }).toEqual({
+        url,
+        served: [],
+      })
+    }
+    // What is served is byte-for-byte what was stored.
+    const [served] = selectBanners([row({ id: 'x', url: article('x') })], onDay())
+    expect(served?.url).toBe(article('x'))
+  })
+
   test('a row missing its title or its meta line is not served', () => {
     expect(selectBanners([row({ id: 'x', title: '  ' })], onDay())).toEqual([])
     expect(selectBanners([row({ id: 'x', meta: '' })], onDay())).toEqual([])

@@ -154,7 +154,9 @@ today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts �
   must not repeat, and pure on the same terms. Filter, rank, cut, never pad: eligible is
   `active` + `mode` equal to today's **exactly** (the parser's `'any'` default is not a
   wildcard for a banner — an untagged row reaches no rail) + not tagged in `subjects` with the
-  card's template id + a title, a meta line and an `https://` URL; ranked by how many of her
+  card's template id + a title, a meta line and an `https://` URL equal to its own
+  `new URL(url).href` (what is served is exactly what was checked — a URL the parser would
+  repair is refused, never normalised); ranked by how many of her
   focus areas a row carries, then `order`, then id; at most three, and fewer is fewer. **A row
   with no article is not served** — the tap opens the URL — so with every seeded `url` still
   empty, no environment shows a rail today. **The cycle phase is not an input**: no row carries

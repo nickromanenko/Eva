@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { Timestamp } from 'firebase-admin/firestore'
 import {
   applyContent,
@@ -537,19 +537,21 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
     )
     await applyContent('templates', rewritten, REVIEW, { rewrite: true })
     invalidateContentCache()
-    // The store really does hold different words now, so a regeneration would show.
-    expect(contentVersion({ templates: rewritten, banners: [], nudges: [] })).not.toBe(
-      first.contentVersion,
-    )
+    try {
+      // The store really does hold different words now, so a regeneration would show.
+      expect(contentVersion({ templates: rewritten, banners: [], nudges: [] })).not.toBe(
+        first.contentVersion,
+      )
 
-    const second = await getToday(uid, request(), RULES)
-    expect(second.generatedAt).toBe(first.generatedAt)
-    expect(second.contentVersion).toBe(first.contentVersion)
-    expect(second.card.title).toBe(first.card.title)
-    expect(second.card.title).not.toBe('Rewritten by today.test.ts')
-
-    await applyContent('templates', TEMPLATES, REVIEW, { rewrite: true })
-    invalidateContentCache()
+      const second = await getToday(uid, request(), RULES)
+      expect(second.generatedAt).toBe(first.generatedAt)
+      expect(second.contentVersion).toBe(first.contentVersion)
+      expect(second.card.title).toBe(first.card.title)
+      expect(second.card.title).not.toBe('Rewritten by today.test.ts')
+    } finally {
+      await applyContent('templates', TEMPLATES, REVIEW, { rewrite: true })
+      invalidateContentCache()
+    }
   })
 
   /**
@@ -738,12 +740,19 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
     invalidateContentCache()
   }
 
+  // Every case starts from the seeded rail and no nutrition profile, and is put back after
+  // itself whether it passed or not: a case that rewrote `content/banners` and then failed
+  // must not hand the next case — or the route cases below, through the spawned server's
+  // content cache — a store it did not expect.
+  const reset = async () => {
+    await restoreRail()
+    await deleteNutritionProfile(uid)
+  }
   beforeAll(async () => {
     await clearEvents()
-    await deleteNutritionProfile(uid)
-    await restoreRail()
+    await reset()
   })
-  afterAll(restoreRail)
+  afterEach(reset)
 
   test('the rail is stored with the card: the same items on every call that day', async () => {
     const first = await rebuild()
@@ -762,7 +771,6 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
     // And a day built after the retirement does not select it (#146).
     const rebuilt = await rebuild()
     expect(rebuilt.banners.map((b) => b.id)).not.toContain(served!.id)
-    await restoreRail()
   })
 
   test('the rail never carries a row tagged with the card the ladder chose that day', async () => {
@@ -803,20 +811,33 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
     const complete = await getToday(uid, request(), RULES)
     expect(complete.generatedAt).not.toBe(partial.generatedAt)
     expect(complete.banners[0]?.id).toBe('cycle_iron')
-    await deleteNutritionProfile(uid)
   })
 
-  test('a banner document with no signature reaches no rail', async () => {
-    // Written past `applyContent`, as the console can: same rows, no reviewer.
-    await firestore.collection('content').doc('banners').set({ items: RAIL })
-    invalidateContentCache()
-    const today = await rebuild()
-    expect(today.banners).toEqual([])
-    // The card is unaffected: only the rail's own document is judged.
-    expect(today.card.templateId).toBeDefined()
-    await restoreRail()
-    expect((await rebuild()).banners.length).toBeGreaterThan(0)
-  })
+  /**
+   * Written past `applyContent`, as the console can: the same rows, under no signature and
+   * under a partial one. `reviewProblems` needs all three fields, so a document carrying a
+   * reviewer's name and nothing else is as unsigned as one carrying nothing — the case a
+   * check on `reviewedBy` alone would pass.
+   */
+  for (const [label, signature] of [
+    ['no signature', {}],
+    ['only a reviewer, no date or source', { reviewedBy: 'someone' }],
+  ] as const) {
+    test(`a banner document with ${label} reaches no rail`, async () => {
+      await firestore
+        .collection('content')
+        .doc('banners')
+        .set({ items: RAIL, ...signature })
+      invalidateContentCache()
+      const today = await rebuild()
+      expect(today.banners).toEqual([])
+      // The card is unaffected: only the rail's own document is judged.
+      expect(today.card.templateId).toBeDefined()
+      // And the same rows, signed, do reach it — so the empty rail above is the signature.
+      await restoreRail()
+      expect((await rebuild()).banners.length).toBeGreaterThan(0)
+    })
+  }
 
   test('a day stored before the rail existed is served with an empty one, not rebuilt', async () => {
     const built = await rebuild()

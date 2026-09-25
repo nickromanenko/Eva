@@ -1732,7 +1732,10 @@ preference:
   parser defaults a missing tag to `'any'` and that is never a wildcard for a banner, so an
   untagged row reaches no rail, the loss-mode one included — not tagged in `subjects` with
   the card's template id (PRD Banner area 3), and carrying a title, a meta line and an
-  absolute `https://` URL.
+  absolute `https://` URL **already in its normal form** — the stored string must equal
+  `new URL(url).href`, so a URL the parser would have to repair (surrounding space, an
+  embedded newline or tab, an upper-case host, a `..`) is refused rather than checked in one
+  form and served in another.
 - **Ranked** by how many of her declared focus areas a row carries, then by the store's
   `order`, then by id. Focus areas rank; they never filter. Only a finished setup's count —
   PRD §Nutrition coach, nothing suggested from partial data.
