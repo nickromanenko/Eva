@@ -48,17 +48,81 @@ while IFS= read -r f; do
 done < <(git ls-files -- '.secrets' '*/.secrets' '.secrets/*' '*/.secrets/*' 2>/dev/null)
 
 # Content. `git grep` searches tracked files only, which is the set that matters.
+#
+# Every pattern goes in with `-e`: one starting with `-` is otherwise read as an option. The
+# PEM pattern was, for as long as this script existed — git exited 129, `2>/dev/null` hid
+# it, and the empty output read as "clean" (#301). So an exit status other than 0 (matches)
+# or 1 (no matches) fails the check: a scan that did not run has not passed.
+#
+# `.env.example` holds deliberate placeholders; this script describes the patterns it hunts
+# and would otherwise match itself.
+EXCLUDES=(':!api/.env.example' ':!scripts/verify-secrets.sh')
+
+scan_failed() {
+  report "git grep exited $1" "the scan for \"$2\" did not run — a check that cannot run has not passed"
+}
+
 scan() {
-  local pattern="$1" why="$2" out
-  # `.env.example` holds deliberate placeholders; this script describes the patterns it
-  # hunts and would otherwise match itself.
-  out=$(git grep -lIE "$pattern" -- . \
-        ':!api/.env.example' ':!scripts/verify-secrets.sh' 2>/dev/null)
-  [ -n "$out" ] && while IFS= read -r f; do report "$f" "$why"; done <<< "$out"
+  local pattern="$1" why="$2" out rc
+  out=$(git grep -lIE -e "$pattern" -- . "${EXCLUDES[@]}")
+  rc=$?
+  case $rc in
+    0) while IFS= read -r f; do report "$f" "$why"; done <<< "$out" ;;
+    1) ;;
+    *) scan_failed "$rc" "$why" ;;
+  esac
   return 0
 }
 
-scan '-----BEGIN [A-Z ]*PRIVATE KEY-----' "a private key is committed"
+# Private keys. A header alone is not a key: the tracked tree names the PEM header in prose
+# (PROVIDER-SIGNIN.md, config.ts), in a placeholder, and in a test that assembles a PEM
+# around a key it generates at run time. What makes a committed key is the body, so both
+# forms below require base64 of real length straight after the header. The shortest key
+# this repo handles, an EC P-256 `.p8`, opens with a full 64-character line; 40 leaves
+# room for other wrappings and is still far longer than any placeholder.
+PEM_HEADER='-----BEGIN [A-Z ]*PRIVATE KEY-----'
+PEM_WHY="a private key is committed"
+
+# On one line, with escaped newlines — a JSON `private_key`, an env value.
+# Single-quoted so the regex gets `\\n`, a literal backslash-n.
+scan "${PEM_HEADER}"'(\\r)?\\n[A-Za-z0-9+/]{40}' "$PEM_WHY"
+
+# Across lines, as a key file is written. `git grep` matches line by line, so it only finds
+# the files with a header; awk then reads the lines after each header, past a legacy
+# encrypted key's `Proc-Type:`/`DEK-Info:` lines and blank lines, for a base64 line. No
+# interval expressions: macOS awk does not reliably support them.
+pem_body_follows() {
+  awk '
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/ { look = 4; next }
+    look > 0 {
+      look--
+      line = $0
+      sub(/^[ \t]+/, "", line)
+      if (match(line, /^[A-Za-z0-9+\/]+/) && RLENGTH >= 40) { found = 1; exit }
+      if (line == "" || line ~ /^[A-Za-z-]+: /) next
+      look = 0
+    }
+    END { exit !found }
+  ' "$1"
+}
+
+out=$(git grep -lIE -e "$PEM_HEADER" -- . "${EXCLUDES[@]}")
+rc=$?
+case $rc in
+  0)
+    while IFS= read -r f; do
+      pem_body_follows "$f"
+      case $? in
+        0) report "$f" "$PEM_WHY" ;;
+        1) ;;
+        *) report "$f" "could not be read to check for a private-key body — a check that cannot run has not passed" ;;
+      esac
+    done <<< "$out"
+    ;;
+  1) ;;
+  *) scan_failed "$rc" "$PEM_WHY" ;;
+esac
+
 scan '"type": *"service_account"' "a service-account JSON is committed"
 scan 'AIza[0-9A-Za-z_-]{35}' "a Google API key literal is committed"
 # Postmark server tokens are UUIDs. Matching bare UUIDs would be far too broad, so this
