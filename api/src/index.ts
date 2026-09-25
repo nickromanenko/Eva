@@ -222,6 +222,45 @@ const nonErrorName = (value: unknown): string => {
 }
 
 /**
+ * Every response is `cache-control: no-store` unless its handler said otherwise (#280).
+ *
+ * Almost everything this API answers is a session token, an account or health data, and a
+ * response with no `Cache-Control` at all is one any client or intermediary may store
+ * heuristically. The iOS app no longer does (#279), but the default belongs here, where it
+ * is true of the next client too — a web page, a debugging proxy — without that client
+ * having to know. It replaces the per-route `noStore` #6 put on the two link routes, which
+ * this covers and which had the gap described below.
+ *
+ * Two rules, and both are the design:
+ *
+ * - **A handler's own `Cache-Control` stands** on the response it returned. `/content` and
+ *   `/refdata` send `private, no-cache` beside an `ETag`, and their `304` handshake is what
+ *   keeps the copy and the catalogues current offline; overwriting it would break that
+ *   silently for anything that speaks HTTP caching. So the header is set only when absent.
+ * - **A response `app.onError` built is always `no-store`**, whatever the handler had set
+ *   before it threw — `c.error` is how that is known. A 500 is never worth keeping, and
+ *   without this a throw after `/content` set its headers would answer a cacheable 500.
+ *
+ * **Registered first — before `wrapNonErrors`, so outside it.** Set after `await next()`, a
+ * throw passing through this block would skip the line; that is exactly how `noStore` let a
+ * non-`Error` inside a link route answer without the header. Outside `wrapNonErrors` nothing
+ * passes through as a throw: an `Error` is answered by `onError` at the level it was thrown,
+ * and a non-`Error` is wrapped and answered at `wrapNonErrors`' level — both inside this —
+ * and an unmatched path's `notFound` is answered inside Hono's chain as well. The one throw
+ * that still escapes is `onError` itself throwing, which is Bun's unshaped 500 regardless.
+ *
+ * `c.res.headers`, not `c.header()`: after `next()` the response is built, and only the
+ * built response's headers go out. Like `wrapNonErrors`, this holds no per-request state.
+ */
+const noStoreByDefault = createMiddleware(async (c, next) => {
+  await next()
+  if (c.error !== undefined || !c.res.headers.has('cache-control')) {
+    c.res.headers.set('cache-control', 'no-store')
+  }
+})
+app.use('*', noStoreByDefault)
+
+/**
  * Every request, so that `app.onError` above is reached by **every** throw and not only
  * by the ones that happen to be `Error`s (#53).
  *
@@ -232,10 +271,11 @@ const nonErrorName = (value: unknown): string => {
  * dependency rather than a live bug; it is three lines, and the alternative is a response
  * shape that is true of every route except the one that surprises us.
  *
- * **Registered before every route and every other `app.use`**, which is what makes it
- * wrap them: Hono runs handlers for a path in registration order, so middleware added
- * after a route does not run for it. That is also why `webCors` and `noStore` sit above
- * the two link routes rather than at the end of the file.
+ * **Registered before every route and every other `app.use` but `noStoreByDefault`**, which
+ * is what makes it wrap them: Hono runs handlers for a path in registration order, so
+ * middleware added after a route does not run for it. That is also why `webCors` sits above
+ * the two link routes rather than at the end of the file. `noStoreByDefault` is the one
+ * thing registered before this, deliberately — see above for why it has to be outside.
  *
  * **It does not disturb #5's throttle**, and the reason is worth writing down because the
  * issue assumed otherwise: the throttle is not middleware. `throttleAuth`, `throttleToken`
@@ -244,13 +284,10 @@ const nonErrorName = (value: unknown): string => {
  * throw, so it never touches the `catch` below. Every shaped 4xx is likewise a *returned*
  * response, which this never inspects or replaces.
  *
- * **One exception, found in review and stated rather than glossed.** `noStore` (below) sets
- * its header *after* `await next()`, so a throw passing through it skips that line: a
- * non-`Error` thrown inside `/auth/activate` or `/auth/password/reset` answers a shaped 500
- * without `cache-control: no-store`. That is pre-existing — before this middleware such a
- * throw escaped to the runtime and got no shape at all — and near-harmless, since the body
- * is the constant `INTERNAL` message and a ref. It is filed, not fixed here, because
- * `noStore` belongs to #6 and this issue does not touch it.
+ * A non-`Error` thrown inside `/auth/activate` or `/auth/password/reset` used to answer its
+ * shaped 500 without `cache-control: no-store`, because the per-route `noStore` sat inside
+ * this and set its header after `await next()`. `noStoreByDefault` replaced it from outside
+ * (#280), which is what closed that.
  *
  * The wrapper carries **no `cause`**, deliberately. `cause` would retain the thrown value,
  * and the next person to improve this log line would find it there — which is exactly the
@@ -317,8 +354,8 @@ class BodyNotAnObjectError extends Error {
  *   `DELETE /me`, which read `[]` as "no Apple code" and deleted.
  *
  * Thrown rather than returned so the guard is here once and each handler's call stays one
- * line; `onError` is reached at the handler's own level of Hono's `compose`, so `noStore`
- * and CORS still wrap the answer.
+ * line; `onError` is reached at the handler's own level of Hono's `compose`, so
+ * `noStoreByDefault` and CORS still wrap the answer.
  */
 const readBody = async (c: Context): Promise<Record<string, unknown>> => {
   let parsed: unknown
@@ -769,16 +806,10 @@ const webCors = cors({
 app.use('/auth/activate', webCors)
 app.use('/auth/password/reset', webCors)
 
-/** Both link routes change state and are reached with a one-time credential in the body.
- *  Nothing between here and the browser may keep a copy of either half. */
-const noStore = createMiddleware(async (c, next) => {
-  await next()
-  // `c.res.headers`, not `c.header()`: after `next()` the handler has already built the
-  // response, and only the built response's headers are what goes out.
-  c.res.headers.set('cache-control', 'no-store')
-})
-app.use('/auth/activate', noStore)
-app.use('/auth/password/reset', noStore)
+// Both link routes change state and are reached with a one-time credential in the body, so
+// nothing between here and the browser may keep a copy of either half. That is
+// `noStoreByDefault`'s answer on every route (#280); these two set no `Cache-Control` of
+// their own, and must not.
 
 /**
  * The shape `email-tokens.ts` issues — `TOKEN_LENGTH` characters of base64url — and

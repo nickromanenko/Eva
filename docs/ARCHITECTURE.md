@@ -181,6 +181,19 @@ value's *type* and never the value, because a thrown object could be a payload �
 `app.notFound` answers `404 NOT_FOUND` as JSON. So every response the API can produce now
 carries the shape above, including the ones nobody wrote a handler for.
 
+**Every response is `Cache-Control: no-store` unless its route says otherwise (#280).** A
+response with no `Cache-Control` may be stored heuristically by any client or intermediary,
+and most of what this API answers is a session token, an account or health data. So
+`noStoreByDefault`, registered ahead of everything — outside #53's `wrapNonErrors`, so a thrown
+value of any kind reaches it as an answered response rather than skipping it — sets the
+header on every response that has none: success, refusal, `404` for an unmatched path. Two
+rules around it: a route's own `Cache-Control` stands (`/content` and `/refdata` send
+`private, no-cache` with an `ETag`, and their `304` handshake depends on it), and a response
+`app.onError` built is `no-store` regardless of what the route had set before it threw. It
+replaced the per-route `noStore` on the two link routes, which set its header after the
+handler and so skipped it for a non-`Error` throw. `GET /me/export` still names `no-store`
+itself, which the default leaves alone.
+
 | Route | Auth | Success |
 |---|---|---|
 | `GET /health` | — | `{ status: "ok" }` |
@@ -757,7 +770,7 @@ number, a string) throws `BodyNotAnObjectError`, and `onError` answers it `400 V
 used to reach `body.provider` as a `TypeError`, which was a 500 and an `unhandled_error` line
 on the unauthenticated `/auth/idp` — a free way to fill the signal that is meant to mean "we
 shipped a bug". Hono calls `onError` at the handler's own level of its `compose`, so
-middleware around the route (`noStore`, CORS) still wraps the answer.
+middleware around the route (`noStoreByDefault`, CORS) still wraps the answer.
 
 Two limits worth knowing. Hono hands `onError` only a thrown `Error`; anything else
 (`throw "boom"`) is rethrown to the runtime and answers its own unshaped 500 — nothing in
