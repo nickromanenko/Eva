@@ -242,9 +242,11 @@ struct ProfilePayload: Encodable {
     let goals: [String]
     let conditions: [String]
     let medications: String
-    /// An activity-band code, or `nil` — which the synthesized encoder **omits**. Never `""`:
-    /// `parseProfile` refuses anything but one of the four codes (#221), and an absent key
-    /// is at least an honest "unanswered" rather than an empty string posing as an answer.
+    /// An activity-band code, or `nil` — which the synthesized encoder **omits**, the way
+    /// every unanswered field in this app's bodies is omitted. Never `""`: `parseProfile`
+    /// takes one of the four codes or no answer at all (#221), and an empty string is
+    /// neither. Omitting is what lets a save from any *other* editor go through while the
+    /// band is still unanswered; only the Activity editor holds Save for it.
     let lifestyle: String?
     let sports: [String]
     let timeZone: String

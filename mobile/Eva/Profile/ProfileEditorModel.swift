@@ -128,9 +128,10 @@ final class ProfileEditorModel {
 
     // MARK: - The activity band, which has to be answered too (#221)
 
-    /// Whether the activity question has an answer. Held for the same reason as the
-    /// medication one: `parseProfile` refuses anything that is not an `ACTIVITY_BANDS` code,
-    /// and there is no code for "unanswered".
+    /// Whether the activity question has an answer — what the **Activity editor's** Save
+    /// waits for, since saving that screen without picking a band would be saving nothing.
+    /// Every other editor saves regardless: an unanswered band is left out of the body,
+    /// which `parseProfile` accepts as unanswered (#221).
     var hasLifestyleAnswer: Bool { lifestyle != nil }
 
     /// The chip label for the stored code, or `nil` while unanswered — what the Profile

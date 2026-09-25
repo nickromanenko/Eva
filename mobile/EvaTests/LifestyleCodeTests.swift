@@ -49,6 +49,21 @@ struct LifestyleCodeTests {
         #expect(body["lifestyle"] == nil, "lifestyle was sent as \(String(describing: body["lifestyle"]))")
     }
 
+    @Test("saving another editor with the band unset sends no lifestyle, and the rest intact",
+          arguments: ["null", #""Sedentary""#])
+    func anotherEditorSavesWithTheBandUnset(served: String) throws {
+        // Her stored band is one the API serves as unanswered — never set, or a pre-#221
+        // label it could not map — and she saves Goals. The body must be one `parseProfile`
+        // accepts: `lifestyle` absent (never `""`, never a guessed band), everything else sent.
+        let model = ProfileEditorModel(profile: try Self.profile(lifestyle: served))
+        model.goals.insert("Sleep")
+        let body = try Self.encoded(model)
+        #expect(body["lifestyle"] == nil, "lifestyle was sent as \(String(describing: body["lifestyle"]))")
+        #expect(body["goals"] as? [String] == ["Sleep"])
+        #expect(body["medications"] as? String == "none")
+        #expect(body["dateOfBirth"] as? String == "1998-09-25")
+    }
+
     // MARK: - Reading
 
     private static func profile(lifestyle: String) throws -> APIProfile {
