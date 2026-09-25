@@ -9,6 +9,14 @@ struct EvaApp: App {
     /// until Settings overrides it.
     @State private var country = EvaCountrySetting.shared
 
+    init() {
+        // Builds before #279 loaded the API through the shared `URLSession`, which left
+        // health-data responses in `Library/Caches/<bundle id>/Cache.db`. `APIClient` no
+        // longer writes there, and nothing else in the app uses the shared cache, so
+        // whatever is in it is a leftover to remove rather than something to keep.
+        URLCache.shared.removeAllCachedResponses()
+    }
+
     var body: some Scene {
         WindowGroup {
             // The design specimen replaces the whole app when EVA_SPECIMEN=1, so token

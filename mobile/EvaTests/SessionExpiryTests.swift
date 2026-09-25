@@ -11,9 +11,9 @@ import Testing
 /// password. The rule lives in two places, and both halves are covered here — the
 /// mapping in `APIClient.send`, and what `AppSession` does with the result.
 ///
-/// Every test drives real `URLSession.shared` traffic through `EvaStubURLProtocol`
-/// rather than a fake client, so what is under test is the shipped `send` path,
-/// including the header it actually put on the wire.
+/// Every test drives real `URLSession` traffic, under the configuration the app ships,
+/// through `EvaStubURLProtocol` rather than a fake client, so what is under test is the
+/// shipped `send` path, including the header it actually put on the wire.
 ///
 /// `.serialized` is load-bearing: the stub is one global response and the Keychain is
 /// one global entry, so these must not interleave with each other.
@@ -43,7 +43,7 @@ struct SessionExpiryTests {
         static let user = #"{"user":{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true}}"#
 
         static func client(token: String?) -> APIClient {
-            APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { token })
+            APIClient(baseURL: EvaStubURLProtocol.baseURL, token: { token }, session: EvaStubURLProtocol.session)
         }
 
         @Test("401 on a request that sent a token is a dead session")
@@ -210,7 +210,8 @@ struct SessionExpiryTests {
                 // does — so a test that clears it mid-flow is testing the real path.
                 client: APIClient(
                     baseURL: EvaStubURLProtocol.baseURL,
-                    token: { KeychainTokenStore.shared.token }
+                    token: { KeychainTokenStore.shared.token },
+                    session: EvaStubURLProtocol.session
                 ),
                 tokenStore: store
             )

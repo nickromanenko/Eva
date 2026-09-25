@@ -15,8 +15,9 @@ import Testing
 /// `.unreachable` while quietly clearing the token would satisfy a state-only test and
 /// still sign the user out at the next launch.
 ///
-/// Traffic goes through `EvaStubURLProtocol` and real `URLSession.shared`, so what runs
-/// is the shipped `APIClient.send` path including the header it put on the wire.
+/// Traffic goes through `EvaStubURLProtocol` and a real `URLSession` built from the app's
+/// own configuration, so what runs is the shipped `APIClient.send` path including the
+/// header it put on the wire.
 ///
 /// Nested inside `SessionExpiryTests` for a mechanical reason rather than a conceptual
 /// one: that suite is `.serialized`, and `.serialized` orders a suite only against its
@@ -66,7 +67,8 @@ extension SessionExpiryTests {
             return AppSession(
                 client: APIClient(
                     baseURL: EvaStubURLProtocol.baseURL,
-                    token: { KeychainTokenStore.shared.token }
+                    token: { KeychainTokenStore.shared.token },
+                    session: EvaStubURLProtocol.session
                 ),
                 tokenStore: store
             )
@@ -111,6 +113,10 @@ extension SessionExpiryTests {
 
             #expect(store.token == Self.token, "A \(status) at launch cleared the Keychain")
             #expect(session.state.isUnreachable, "A \(status) at launch left the app in \(session.state)")
+            // `.unreachable` is also what a request that never reached the stub looks like
+            // (#279): a client built without `session:` fails on `.invalid` as a network
+            // error. This is what tells the two apart.
+            #expect(EvaStubURLProtocol.requestCount > 0, "The launch never reached the stub")
         }
 
         /// A 200 that is not a `UserResponse` — the captive portal that answers every
@@ -128,6 +134,10 @@ extension SessionExpiryTests {
 
             #expect(store.token == Self.token, "An undecodable reply cleared the Keychain")
             #expect(session.state.isUnreachable, "An undecodable reply left the app in \(session.state)")
+            // `.unreachable` is also what a request that never reached the stub looks like
+            // (#279): a client built without `session:` fails on `.invalid` as a network
+            // error. This is what tells the two apart.
+            #expect(EvaStubURLProtocol.requestCount > 0, "The launch never reached the stub")
         }
 
         // MARK: - The failure that is
@@ -162,7 +172,8 @@ extension SessionExpiryTests {
             let session = AppSession(
                 client: APIClient(
                     baseURL: EvaStubURLProtocol.baseURL,
-                    token: { KeychainTokenStore.shared.token }
+                    token: { KeychainTokenStore.shared.token },
+                    session: EvaStubURLProtocol.session
                 ),
                 tokenStore: store
             )

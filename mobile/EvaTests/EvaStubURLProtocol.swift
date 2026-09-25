@@ -1,22 +1,25 @@
 import Foundation
 import Synchronization
 import Testing
+@testable import Eva
 
-/// A stub HTTP layer for `APIClient`, which loads through `URLSession.shared`.
+/// A stub HTTP layer for `APIClient`.
 ///
-/// `URLProtocol.registerClass` is the only seam into `URLSession.shared` — a session
-/// built from a configuration reads `configuration.protocolClasses` instead, so the
-/// global registry is what a client with a hard-coded shared session can be reached
-/// through. That keeps the app source untouched: `APIClient.baseURL` and
-/// `APIClient.token` are already injectable, so a test client points here and this class
-/// answers.
+/// `APIClient` loads through its own session (#279), not `URLSession.shared`, so
+/// `URLProtocol.registerClass` — which only reaches the shared session — no longer gets
+/// here. A test client passes `session: EvaStubURLProtocol.session` instead: a session
+/// built from **the app's own** `APIClient.sessionConfiguration()` with this class put in
+/// front of its protocol list. That keeps the stubbed traffic under the exact
+/// configuration the app ships — no URL cache, ephemeral storage, the same timeouts — so
+/// a test cannot pass on a configuration the app does not use.
 ///
-/// It only claims requests to `stub.eva.invalid`, for two reasons. Nothing else in the
-/// hosting app process — `EvaApp` builds a real `AppSession` and bootstraps at launch —
-/// has its traffic silently rewritten. And `.invalid` is guaranteed never to resolve
-/// (RFC 2606), so if registration ever stops taking effect these tests fail with
-/// `APIError.network` rather than quietly reaching a real server and passing for the
-/// wrong reason.
+/// It only claims requests to `stub.eva.invalid`, and `.invalid` is guaranteed never to
+/// resolve (RFC 2606), so a client that is **not** given this session can never reach a
+/// real server. It fails with `APIError.network` instead — which is not the same as
+/// failing the test. `APIClient.session` is the default, so a test that forgets
+/// `session:` bypasses the stub without a word, and for `OfflineLaunchTests`
+/// `.network` is the *expected* outcome. Any test whose passing result a network failure
+/// could also produce asserts `requestCount > 0` as well.
 ///
 /// ## Three ways to arm it, in order of how much a test needs to say
 ///
@@ -42,6 +45,13 @@ import Testing
 final class EvaStubURLProtocol: URLProtocol {
 
     static let baseURL = URL(string: "https://stub.eva.invalid")!
+
+    /// The session a stubbed `APIClient` loads through. See the type comment.
+    static let session: URLSession = {
+        let configuration = APIClient.sessionConfiguration()
+        configuration.protocolClasses = [EvaStubURLProtocol.self] + (configuration.protocolClasses ?? [])
+        return URLSession(configuration: configuration)
+    }()
 
     /// A request this stub can be asked about: method plus path, which is all
     /// `APIClient` varies.
@@ -81,6 +91,9 @@ final class EvaStubURLProtocol: URLProtocol {
         /// replying, so a test can act while the request is provably open. One gate per
         /// rule, so holding `GET /me` does not hold `POST /auth/signin`.
         var gate: DispatchSemaphore?
+        /// What the response offers the session's cache. `.notAllowed` everywhere except
+        /// the #279 tests, which need a response that *could* be stored to prove it is not.
+        var storage: URLCache.StoragePolicy = .notAllowed
     }
 
     /// What was asked, per route. Kept per route as well as in total because a test that
@@ -131,20 +144,27 @@ final class EvaStubURLProtocol: URLProtocol {
         /// Routes that were asked for and had no rule. Surfaced by `unroutedRequests`
         /// so a test can name them, in addition to the `Issue` recorded at the time.
         var unrouted: [Route] = []
-        var isRegistered = false
     }
 
     private static let state = Mutex(State())
 
     // MARK: - Arming: one answer for whatever asks next
 
-    /// Arms the next response and registers the class on first use.
+    /// Arms the next response.
     ///
     /// Also clears every previous rule and the recorded requests, so `lastAuthorization`
     /// always describes the exchange the test just set up and never a leftover from the
     /// previous one.
-    static func stub(status: Int, body: String, headers: [String: String] = [:]) {
-        arm(catchAll: Rule(outcome: .response(status: status, body: body, headers: headers)))
+    static func stub(
+        status: Int,
+        body: String,
+        headers: [String: String] = [:],
+        storage: URLCache.StoragePolicy = .notAllowed
+    ) {
+        arm(catchAll: Rule(
+            outcome: .response(status: status, body: body, headers: headers),
+            storage: storage
+        ))
     }
 
     /// Arms the next request to fail at the transport, the way an offline launch does.
@@ -190,15 +210,7 @@ final class EvaStubURLProtocol: URLProtocol {
     }
 
     private static func arm(rules: [Route: Rule] = [:], catchAll: Rule?) {
-        let needsRegistration = state.withLock { state -> Bool in
-            state = State(rules: rules, catchAll: catchAll, isRegistered: state.isRegistered)
-            let first = !state.isRegistered
-            state.isRegistered = true
-            return first
-        }
-        if needsRegistration {
-            URLProtocol.registerClass(EvaStubURLProtocol.self)
-        }
+        state.withLock { $0 = State(rules: rules, catchAll: catchAll) }
     }
 
     // MARK: - What was asked
@@ -318,7 +330,7 @@ final class EvaStubURLProtocol: URLProtocol {
         }
 
         guard let gate = rule.gate else {
-            deliver(rule.outcome)
+            deliver(rule)
             return
         }
 
@@ -337,12 +349,12 @@ final class EvaStubURLProtocol: URLProtocol {
         DispatchQueue.global().async {
             _ = gate.wait(timeout: .now() + 30)
             guard !self.isCancelled.withLock({ $0 }) else { return }
-            self.deliver(rule.outcome)
+            self.deliver(rule)
         }
     }
 
-    private func deliver(_ outcome: Outcome) {
-        switch outcome {
+    private func deliver(_ rule: Rule) {
+        switch rule.outcome {
         case .failure(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
         case .response(let status, let body, let headers):
@@ -356,9 +368,9 @@ final class EvaStubURLProtocol: URLProtocol {
                 httpVersion: "HTTP/1.1",
                 headerFields: ["Content-Type": "application/json"].merging(headers) { _, new in new }
             )!
-            // `.notAllowed`: a cached 401 answering a later request would make these
-            // tests depend on their own order.
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            // `.notAllowed` by default: a cached 401 answering a later request would make
+            // these tests depend on their own order.
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: rule.storage)
             client?.urlProtocol(self, didLoad: Data(body.utf8))
             client?.urlProtocolDidFinishLoading(self)
         }
