@@ -96,7 +96,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
 
         signUpAndActivate(app, email: email)
         XCTAssertTrue(
-            app.buttons["tab.calendar"].appears(within: 15),
+            app.buttons["tab.calendar"].waitForExistence(timeout: 15),
             "Entering the app did not reach the tab bar"
         )
 
@@ -119,7 +119,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
         // sentence the whole feature turns on: an estimate must never be announced the way
         // a fact is.
         let logged = app.buttons["calendar.day.\(loggedDay)"]
-        XCTAssertTrue(logged.appears(within: 20), "No cell for the logged day")
+        XCTAssertTrue(logged.waitForExistence(timeout: 20), "No cell for the logged day")
         XCTAssertTrue(
             logged.label.contains("Medium flow logged"),
             "The logged day does not announce what was logged: \(logged.label)"
@@ -132,7 +132,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
         // …and every predicted day says "Predicted" and does **not** say "logged".
         for day in Self.fertileDays {
             let cell = app.buttons["calendar.day.\(day)"]
-            XCTAssertTrue(cell.appears(within: 10), "No cell for \(day)")
+            XCTAssertTrue(cell.waitForExistence(timeout: 10), "No cell for \(day)")
             XCTAssertTrue(
                 cell.label.contains("Predicted fertile window"),
                 "\(day) is in the fertile window and does not say so: \(cell.label)"
@@ -144,7 +144,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
         }
 
         let predicted = app.buttons["calendar.day.\(Self.predictedPeriodDay)"]
-        XCTAssertTrue(predicted.appears(within: 10))
+        XCTAssertTrue(predicted.waitForExistence(timeout: 10))
         XCTAssertTrue(
             predicted.label.contains("Predicted period"),
             "The predicted period day does not say so: \(predicted.label)"
@@ -155,7 +155,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
         // feature to start inventing data is a client that paints "a period" around it.
         for day in Self.periodNeighbours {
             let neighbour = app.buttons["calendar.day.\(day)"]
-            XCTAssertTrue(neighbour.appears(within: 10), "No cell for \(day)")
+            XCTAssertTrue(neighbour.waitForExistence(timeout: 10), "No cell for \(day)")
             XCTAssertFalse(
                 neighbour.label.contains("Predicted"),
                 """
@@ -167,7 +167,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
 
         // The card above the grid states the estimate, and the legend states the notice.
         let summary = summaryCard(app)
-        XCTAssertTrue(summary.appears(within: 10), "No summary card over a prediction")
+        XCTAssertTrue(summary.waitForExistence(timeout: 10), "No summary card over a prediction")
         let narrowCard = summary.label
         XCTAssertTrue(
             narrowCard.localizedCaseInsensitiveContains("estimate"),
@@ -183,7 +183,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
 
         relaunch(app, prediction: Self.body(confidence: "wide", withheld: nil, drawsDays: true))
         openCalendar(app)
-        XCTAssertTrue(summary.appears(within: 20), "No summary card at the wide band")
+        XCTAssertTrue(summary.waitForExistence(timeout: 20), "No summary card at the wide band")
         let wideCard = summary.label
         XCTAssertNotEqual(
             wideCard, narrowCard,
@@ -210,7 +210,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
             openCalendar(app)
 
             XCTAssertTrue(
-                summary.appears(within: 20),
+                summary.waitForExistence(timeout: 20),
                 "\(reason) drew an empty grid with no explanation on it"
             )
             withheldCards.insert(summary.label)
@@ -246,7 +246,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
         relaunch(app, prediction: "unavailable")
         openCalendar(app)
         XCTAssertTrue(
-            app.buttons["calendar.day.\(loggedDay)"].appears(within: 20),
+            app.buttons["calendar.day.\(loggedDay)"].waitForExistence(timeout: 20),
             "A 503 from the prediction route took the calendar down with it"
         )
         XCTAssertFalse(
@@ -288,7 +288,7 @@ final class CalendarPredictionUITests: EvaUITestCase {
     private func assertTheLegendCarriesTheNotice(_ app: XCUIApplication) {
         let legend = app.staticTexts.matching(identifier: "calendar.legend")
         XCTAssertTrue(
-            legend.firstMatch.appears(within: 10),
+            legend.firstMatch.waitForExistence(timeout: 10),
             "The calendar legend is not on screen at all"
         )
         let lines = legend.allElementsBoundByIndex.map(\.label)
@@ -360,12 +360,12 @@ final class CalendarPredictionUITests: EvaUITestCase {
 
     private func openCalendar(_ app: XCUIApplication) {
         XCTAssertTrue(
-            app.buttons["tab.calendar"].appears(within: 25),
+            app.buttons["tab.calendar"].waitForExistence(timeout: 25),
             "A relaunch with a stored session did not reach the tab bar"
         )
         tap(app.buttons["tab.calendar"], in: app)
         XCTAssertTrue(
-            app.otherElements["calendar.grid"].appears(within: 25),
+            app.otherElements["calendar.grid"].waitForExistence(timeout: 25),
             "The Calendar tab does not show the month grid"
         )
     }

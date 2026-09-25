@@ -857,29 +857,30 @@ class EvaUITestCase: XCTestCase {
     }
 }
 
-/// `waitForExistence` and `waitForNonExistence`, without the poll they spend when the answer
-/// is already true (#328).
+/// `waitForExistence`, without the poll it spends when the element is already there (#328).
 ///
-/// **Measured, not assumed.** On the Xcode 26.2 / iOS 26.2 runner, `waitForExistence` does
-/// not look before it waits: it logs "Waiting 1.0s for …", sleeps one polling interval, and
-/// only then checks — so an element that is already on screen costs ~1.1s to find. Every
-/// `tap` here goes through `scrollIntoView`, which asks twice, so a tap cost over 2s before
-/// it touched anything. In run 36170720381 (main, 56 min) 1193 of the UI suite's 1240
-/// existence waits were answered at that first check, and together they were 1320s of the
-/// suite's 2830s — the largest single cost, ahead of every launch, tap and keystroke
-/// combined.
+/// **Measured, not assumed.** On the Xcode 26.2 / iOS 26.2 runner `waitForExistence` does not
+/// look before it waits: it logs "Waiting 1.0s for …", sleeps one polling interval, and only
+/// then checks — so an element already on screen costs ~1.1s to find. Every `tap` goes
+/// through `scrollIntoView`, which asks twice, so a tap cost over 2s before it touched
+/// anything. In run 36170720381 (main, 56 min) 1193 of the UI suite's 1240 existence waits
+/// were answered at that first check: 1320s of the suite's 2830s, more than every launch,
+/// tap and keystroke combined.
 ///
-/// A single `exists` read (one accessibility snapshot, ~35ms) answers the common case. The
-/// result is the same in every case: present → true at once, as the wait would have said a
-/// second later; absent → the full wait, exactly as before. So a negative wait —
-/// `XCTAssertFalse(x.appears(within: 8))` — still spends all eight seconds looking.
+/// One `exists` read (one accessibility snapshot, ~35ms) answers the common case, and the
+/// answer is the same in every case: present → true now rather than a second later; absent →
+/// the full wait, exactly as before. A negative wait — `XCTAssertFalse(x.appears(within: 8))`
+/// — still spends all eight seconds looking.
+///
+/// **Used by this harness only, not yet by the suites' own assertions.** Several of those
+/// wait for an element and then read its label, and the element is there *before* the label
+/// settles — the one-second poll was quietly giving the request time to land. Converted
+/// wholesale, `ConsentUITests.testWithdrawalStatesItsConsequenceBeforeConfirming` read
+/// "On · …" where "Paused · …" arrived a moment later. Those want a wait on the label itself
+/// (as `CalendarLoggingUITests.waitForLabel` does) before they can drop the poll.
 @MainActor
 extension XCUIElement {
     func appears(within timeout: TimeInterval) -> Bool {
         exists || waitForExistence(timeout: timeout)
-    }
-
-    func disappears(within timeout: TimeInterval) -> Bool {
-        !exists || waitForNonExistence(timeout: timeout)
     }
 }

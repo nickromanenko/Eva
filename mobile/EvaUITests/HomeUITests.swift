@@ -65,13 +65,13 @@ final class HomeUITests: EvaUITestCase {
         signUpAndActivate(app, email: email)
 
         XCTAssertTrue(
-            app.buttons["tab.home"].appears(within: 15),
+            app.buttons["tab.home"].waitForExistence(timeout: 15),
             "Entering the app did not reach the tab bar"
         )
         // #99's first acceptance criterion, and the reason #159's note about Calendar
         // being the landing tab is now spent: the Dashboard exists, so Home is first.
         XCTAssertTrue(
-            app.staticTexts["home.greeting"].appears(within: 15),
+            app.staticTexts["home.greeting"].waitForExistence(timeout: 15),
             "Home is not the landing tab — its header is not on screen"
         )
         XCTAssertTrue(app.buttons["home.profile"].exists, "The Home header has no profile button")
@@ -92,8 +92,8 @@ final class HomeUITests: EvaUITestCase {
 
         relaunch(app, card: "none")
         XCTAssertTrue(
-            app.otherElements["home.noCard"].appears(within: 20)
-                || app.staticTexts["home.noCard"].appears(within: 1),
+            app.otherElements["home.noCard"].waitForExistence(timeout: 20)
+                || app.staticTexts["home.noCard"].waitForExistence(timeout: 1),
             "A day with no card showed neither a card nor an explanation"
         )
         XCTAssertFalse(
@@ -118,7 +118,7 @@ final class HomeUITests: EvaUITestCase {
         for (state, line) in Self.states {
             relaunch(app, card: state)
             let card = app.otherElements["home.card"]
-            XCTAssertTrue(card.appears(within: 20), "\(state) drew no card")
+            XCTAssertTrue(card.waitForExistence(timeout: 20), "\(state) drew no card")
             // The card is **one** element and the whole sentence is its label — PRD
             // §Dashboard, Accessibility: "a single readable block, not a set of decorative
             // fragments". Reading the state's own line out of that label asserts both
@@ -141,7 +141,7 @@ final class HomeUITests: EvaUITestCase {
 
         relaunch(app, card: "home_d")
         let rail = app.otherElements["home.banners"]
-        XCTAssertTrue(rail.appears(within: 20), "home_d drew no Worth reading rail")
+        XCTAssertTrue(rail.waitForExistence(timeout: 20), "home_d drew no Worth reading rail")
         XCTAssertTrue(
             app.staticTexts["home.banners.title"].exists,
             "The rail has no Worth reading header"
@@ -158,7 +158,7 @@ final class HomeUITests: EvaUITestCase {
         for (index, item) in Self.cycleBanners.enumerated() {
             let banner = app.buttons["home.banner.fixture_home_d_\(index + 1)"]
             // Off-screen cards are still in the tree; `exists`, not `isHittable`.
-            XCTAssertTrue(banner.appears(within: 5), "Banner \(index + 1) is not drawn")
+            XCTAssertTrue(banner.waitForExistence(timeout: 5), "Banner \(index + 1) is not drawn")
             // VoiceOver reads the title, then the meta (#102) — one element, one label.
             XCTAssertEqual(
                 banner.label, "\(item.title), \(item.meta)",
@@ -182,14 +182,14 @@ final class HomeUITests: EvaUITestCase {
         tap(second, in: app)
         let done = app.buttons["Done"]
         XCTAssertTrue(
-            done.appears(within: 15),
+            done.waitForExistence(timeout: 15),
             "Tapping a banner did not open its article in SFSafariViewController"
         )
         let opened = app.descendants(matching: .any).matching(NSPredicate(
             format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "example.org", "example.org"
         )).firstMatch
         XCTAssertTrue(
-            opened.appears(within: 15),
+            opened.waitForExistence(timeout: 15),
             "Tapping the second banner did not open the second banner's URL (example.org)"
         )
         XCTAssertFalse(
@@ -204,7 +204,7 @@ final class HomeUITests: EvaUITestCase {
         )
         done.tap()
         XCTAssertTrue(
-            rail.appears(within: 10) && app.otherElements["home.card"].exists,
+            rail.waitForExistence(timeout: 10) && app.otherElements["home.card"].exists,
             "Done did not return to Home"
         )
 
@@ -212,7 +212,7 @@ final class HomeUITests: EvaUITestCase {
 
         relaunch(app, card: "home_a")
         let logNow = app.buttons["primary.Log now"]
-        XCTAssertTrue(logNow.appears(within: 20), "home_a has no Log now action")
+        XCTAssertTrue(logNow.waitForExistence(timeout: 20), "home_a has no Log now action")
         XCTAssertTrue(logNow.isEnabled, "Log now is disabled — it reaches the calendar's picker")
         XCTAssertTrue(
             app.buttons["secondary.Open Calendar"].isEnabled,
@@ -225,7 +225,7 @@ final class HomeUITests: EvaUITestCase {
         // rule to actions that work.
         let viewHistory = app.buttons["secondary.View cycle history"]
         XCTAssertTrue(
-            viewHistory.appears(within: 20),
+            viewHistory.waitForExistence(timeout: 20),
             "home_c's secondary action is not drawn — a disabled action is still drawn (#99)"
         )
         XCTAssertFalse(
@@ -245,14 +245,14 @@ final class HomeUITests: EvaUITestCase {
         // it resolves as `app.scrollViews` rather than `otherElements` — a row is the
         // unambiguous signal, and it is what `CalendarLoggingUITests` navigates by.
         XCTAssertTrue(
-            app.buttons["log.type.cycle"].appears(within: 10),
+            app.buttons["log.type.cycle"].waitForExistence(timeout: 10),
             "Log now did not open the calendar's log picker"
         )
 
         relaunch(app, card: "home_a")
         tap(app.buttons["secondary.Open Calendar"], in: app)
         XCTAssertTrue(
-            app.otherElements["calendar.grid"].appears(within: 10),
+            app.otherElements["calendar.grid"].waitForExistence(timeout: 10),
             "Open Calendar did not select the Calendar tab"
         )
 
@@ -264,7 +264,7 @@ final class HomeUITests: EvaUITestCase {
 
         relaunch(app, card: "home_d")
         let card = app.otherElements["home.card"]
-        XCTAssertTrue(card.appears(within: 20), "home_d drew no card")
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "home_d drew no card")
         let before = card.label
         pullToRefresh(app)
         XCTAssertEqual(
@@ -279,7 +279,7 @@ final class HomeUITests: EvaUITestCase {
         // before it can be a cached card and a test cannot take the network away mid-launch.
 
         relaunch(app, card: "home_d", refresh: "offline")
-        XCTAssertTrue(card.appears(within: 20), "The first read did not land a card")
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "The first read did not land a card")
         let cached = card.label
         pullToRefresh(app)
 
@@ -287,7 +287,7 @@ final class HomeUITests: EvaUITestCase {
         // combined element resolves as text rather than as a container.
         let bar = app.staticTexts["home.offline"]
         XCTAssertTrue(
-            bar.appears(within: 10),
+            bar.waitForExistence(timeout: 10),
             "A refresh with no network showed no offline bar"
         )
         XCTAssertTrue(
@@ -331,7 +331,7 @@ final class HomeUITests: EvaUITestCase {
         // there are three scroll views in the hierarchy and the first one is not reliably
         // this screen's.
         let column = app.scrollViews["home.scroll"]
-        XCTAssertTrue(column.appears(within: 10), "Home has no scrolling column")
+        XCTAssertTrue(column.waitForExistence(timeout: 10), "Home has no scrolling column")
         let start = column.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         let end = column.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
         // Slow, and held at the bottom. A flick is a scroll; `.refreshable` only engages
@@ -339,6 +339,6 @@ final class HomeUITests: EvaUITestCase {
         start.press(forDuration: 0.2, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 1.0)
         // The refresh has to finish before the card's label is read back, or "unchanged"
         // would be asserted about a card the refresh had not reached yet.
-        _ = app.otherElements["home.card"].appears(within: 5)
+        _ = app.otherElements["home.card"].waitForExistence(timeout: 5)
     }
 }

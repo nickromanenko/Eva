@@ -39,7 +39,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         signUpAndActivate(app, email: email)
 
         XCTAssertTrue(
-            app.buttons["tab.home"].appears(within: 10),
+            app.buttons["tab.home"].waitForExistence(timeout: 10),
             "Did not land on the tab bar"
         )
     }
@@ -70,7 +70,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
 
         tap(app.buttons["text.Log in"], in: app)
         XCTAssertTrue(
-            app.staticTexts["Welcome back"].appears(within: 5),
+            app.staticTexts["Welcome back"].waitForExistence(timeout: 5),
             "The sign-up screen's cross-link did not reach the log-in screen"
         )
 
@@ -78,12 +78,12 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         revealAndTypePassword(Self.password, prefix: "login", in: app)
 
         let submit = app.buttons["primary.Log in"]
-        XCTAssertTrue(submit.appears(within: 5))
+        XCTAssertTrue(submit.waitForExistence(timeout: 5))
         XCTAssertTrue(submit.isEnabled, "Log-in CTA stayed disabled — form input did not land")
         tap(submit, in: app)
 
         XCTAssertTrue(
-            app.buttons["tab.home"].appears(within: 15),
+            app.buttons["tab.home"].waitForExistence(timeout: 15),
             "Log in did not restore the session and land in the app"
         )
     }
@@ -173,7 +173,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
 
         let error = app.staticTexts["signup.error"]
         XCTAssertTrue(
-            error.appears(within: 15),
+            error.waitForExistence(timeout: 15),
             "A duplicate address was accepted, or its error never reached the screen"
         )
         XCTAssertTrue(
@@ -222,7 +222,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         fillSignUpForm(app, email: email)
         tap(app.buttons["primary.Create account"], in: app)
         XCTAssertTrue(
-            app.staticTexts["Check your inbox"].appears(within: 15),
+            app.staticTexts["Check your inbox"].waitForExistence(timeout: 15),
             "Sign-up did not reach the activation gate"
         )
         // Sign-up has just sent one, so the cooldown is already running — the server's
@@ -282,7 +282,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         // credential at all — treating `eva://activated` or a foreground as proof of
         // session — and sign-up starting to capture a password again.
         XCTAssertFalse(
-            app.buttons["tab.home"].appears(within: 5),
+            app.buttons["tab.home"].waitForExistence(timeout: 5),
             "The gate advanced by itself, which would need a password the app is not given"
         )
         XCTAssertTrue(
@@ -302,7 +302,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         signIn(app, email: email, password: Self.password)
         passConsentGate(app)
         XCTAssertTrue(
-            app.buttons["tab.home"].appears(within: 20),
+            app.buttons["tab.home"].waitForExistence(timeout: 20),
             "The account did not get in after the link was opened and the password typed"
         )
     }
@@ -319,11 +319,11 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         let app = launch()
 
         tap(app.buttons["text.Log in"], in: app)
-        XCTAssertTrue(app.staticTexts["Welcome back"].appears(within: 5))
+        XCTAssertTrue(app.staticTexts["Welcome back"].waitForExistence(timeout: 5))
         tap(app.buttons["text.Forgot password?"], in: app)
 
         XCTAssertTrue(
-            app.staticTexts["Reset your password"].appears(within: 5),
+            app.staticTexts["Reset your password"].waitForExistence(timeout: 5),
             "The log-in screen's link did not reach the reset request screen"
         )
 
@@ -331,7 +331,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         tap(app.buttons["primary.Send reset link"], in: app)
 
         XCTAssertTrue(
-            app.staticTexts["Link sent"].appears(within: 15),
+            app.staticTexts["Link sent"].waitForExistence(timeout: 15),
             "A reset request for an unknown address did not advance — the screen is telling callers which addresses exist"
         )
     }
@@ -365,7 +365,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
 
         let keyboard = app.keyboards.element
         XCTAssertTrue(
-            keyboard.appears(within: 5),
+            keyboard.waitForExistence(timeout: 5),
             "No keyboard came up, so this test proves nothing"
         )
 
@@ -408,7 +408,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         let app = launch()
 
         let submit = app.buttons["primary.Create account"]
-        XCTAssertTrue(submit.appears(within: 15))
+        XCTAssertTrue(submit.waitForExistence(timeout: 15))
         XCTAssertFalse(submit.isEnabled, "The CTA is enabled on an empty form")
 
         // Blur by tapping the CTA's neighbourhood rather than a second field — there is
@@ -426,7 +426,7 @@ final class OnboardingSignUpUITests: EvaUITestCase {
         // un-updated call site, which is what GUARDRAILS 22 is about.
         let emailError = app.staticTexts["signup.error"]
         XCTAssertTrue(
-            emailError.appears(within: 5),
+            emailError.waitForExistence(timeout: 5),
             "An address with no @ blurred without showing the email error"
         )
         XCTAssertFalse(submit.isEnabled, "The CTA is enabled for an invalid address")

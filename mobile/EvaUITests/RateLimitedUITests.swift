@@ -28,7 +28,7 @@ final class RateLimitedUITests: EvaUITestCase {
 
         tap(app.buttons["text.Log in"], in: app)
         XCTAssertTrue(
-            app.staticTexts["Welcome back"].appears(within: 15),
+            app.staticTexts["Welcome back"].waitForExistence(timeout: 15),
             "The cross-link did not reach the log-in screen"
         )
         type(email, into: app.textFields["login.email"], in: app)
@@ -47,13 +47,13 @@ final class RateLimitedUITests: EvaUITestCase {
             cta.tap()
             // Each attempt is a live round trip. Waiting on *either* outcome keeps the
             // loop honest — it does not assume which one this attempt got.
-            _ = fieldError.appears(within: 15)
-            _ = banner.appears(within: 1)
+            _ = fieldError.waitForExistence(timeout: 15)
+            _ = banner.waitForExistence(timeout: 1)
             attempts += 1
         }
 
         XCTAssertTrue(
-            banner.appears(within: 15),
+            banner.waitForExistence(timeout: 15),
             """
             \(attempts) refused log-ins did not produce the rate-limit banner. Either the \
             server's per-address limit has changed, or the 429 is still being rendered as \

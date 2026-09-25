@@ -119,7 +119,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         // Home is the landing tab since #99; the calendar is one tap away.
         tap(app.buttons["tab.calendar"], in: app)
         XCTAssertTrue(
-            app.otherElements["calendar.grid"].appears(within: 20),
+            app.otherElements["calendar.grid"].waitForExistence(timeout: 20),
             "The Calendar tab did not reach the calendar"
         )
 
@@ -129,7 +129,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
 
         openPicker(app)
         XCTAssertTrue(
-            app.staticTexts["log.targetDay"].appears(within: 10),
+            app.staticTexts["log.targetDay"].waitForExistence(timeout: 10),
             "The log picker does not state the day it is logging to"
         )
         capture("01-log-picker")
@@ -137,8 +137,8 @@ final class CalendarLoggingUITests: EvaUITestCase {
         // …and offers a way to change it, which `SPEC.picker` asks for by name.
         tapInSheet(app.buttons["log.changeDate"], in: app)
         XCTAssertTrue(
-            app.datePickers["log.datePicker"].appears(within: 10)
-                || app.otherElements["log.datePicker"].appears(within: 1),
+            app.datePickers["log.datePicker"].waitForExistence(timeout: 10)
+                || app.otherElements["log.datePicker"].waitForExistence(timeout: 1),
             "Change date opened no date picker"
         )
         tapInSheet(app.buttons["log.changeDate"], in: app)
@@ -147,7 +147,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
 
         tap(app.buttons["log.type.cycle"], in: app)
         XCTAssertTrue(
-            app.buttons["log.flow.medium"].appears(within: 10),
+            app.buttons["log.flow.medium"].waitForExistence(timeout: 10),
             "Choosing Menstrual cycle did not open the flow sheet"
         )
         tapInSheet(app.buttons["log.flow.medium"], in: app)
@@ -155,7 +155,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         tapInSheet(app.buttons["primary.Save"], in: app)
 
         XCTAssertTrue(
-            entryRow(app, "Menstrual cycle").appears(within: 20),
+            entryRow(app, "Menstrual cycle").waitForExistence(timeout: 20),
             "Saving a flow entry did not put it on the selected day"
         )
         XCTAssertTrue(
@@ -180,14 +180,14 @@ final class CalendarLoggingUITests: EvaUITestCase {
 
         openPicker(app)
         let cycleRow = app.buttons["log.type.cycle"]
-        XCTAssertTrue(cycleRow.appears(within: 10))
+        XCTAssertTrue(cycleRow.waitForExistence(timeout: 10))
         XCTAssertTrue(
             cycleRow.label.contains("Already logged"),
             "The picker does not say the day already has a cycle entry: \(cycleRow.label)"
         )
         tap(cycleRow, in: app)
         XCTAssertTrue(
-            app.buttons["primary.Save changes"].appears(within: 10),
+            app.buttons["primary.Save changes"].waitForExistence(timeout: 10),
             "Re-opening a logged day offered to create a second entry instead of editing"
         )
         tapInSheet(app.buttons["log.flow.heavy"], in: app)
@@ -207,7 +207,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         openPicker(app)
         tap(app.buttons["log.type.bodySignals"], in: app)
         XCTAssertTrue(
-            app.buttons["scale.Energy.2"].appears(within: 10),
+            app.buttons["scale.Energy.2"].waitForExistence(timeout: 10),
             "Choosing Body signals did not open the scales"
         )
         tapInSheet(app.buttons["scale.Energy.2"], in: app)
@@ -225,7 +225,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
             "The symptom catalogue did not load, so nothing here tested /refdata"
         )
         let chip = firstChip(in: "log.symptoms", app)
-        XCTAssertTrue(chip.appears(within: 10), "No symptom chips were drawn")
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "No symptom chips were drawn")
         let symptomLabel = chip.label
         tapInSheet(chip, in: app)
         capture("03-log-body-signals")
@@ -233,7 +233,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
 
         let bodyRow = entryRow(app, "Body signals")
         XCTAssertTrue(
-            bodyRow.appears(within: 20),
+            bodyRow.waitForExistence(timeout: 20),
             "Saving body signals did not put them on the selected day"
         )
         XCTAssertTrue(
@@ -251,7 +251,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
 
         tapOnCalendar(actionButton("delete", on: bodyRow), in: app)
         let undo = app.buttons["toast.Undo"]
-        let existed = undo.appears(within: 15)
+        let existed = undo.waitForExistence(timeout: 15)
         capture("04-delete-undo")
         XCTAssertTrue(
             existed,
@@ -266,7 +266,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
 
         tap(app.buttons["toast.Undo"], in: app)
         XCTAssertTrue(
-            entryRow(app, "Body signals").appears(within: 20),
+            entryRow(app, "Body signals").waitForExistence(timeout: 20),
             "Undo did not restore the entry"
         )
         XCTAssertEqual(
@@ -284,7 +284,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
             actionButton("delete", on: entryRow(app, "Menstrual cycle")), in: app
         )
         XCTAssertTrue(
-            app.buttons["toast.Undo"].appears(within: 15),
+            app.buttons["toast.Undo"].waitForExistence(timeout: 15),
             "Deleting the cycle entry offered no Undo"
         )
         openPicker(app)
@@ -310,7 +310,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         tap(app.buttons["log.type.sport"], in: app)
         let activity = firstChip(in: "log.activities", app)
         XCTAssertTrue(
-            activity.appears(within: 10),
+            activity.waitForExistence(timeout: 10),
             "The sport sheet drew no activities, so /refdata did not reach it"
         )
         let activityLabel = activity.label
@@ -320,7 +320,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
 
         let sportRow = entryRow(app, "Sport")
         XCTAssertTrue(
-            sportRow.appears(within: 20),
+            sportRow.waitForExistence(timeout: 20),
             "Saving a workout did not put it on the selected day"
         )
         XCTAssertTrue(
@@ -339,14 +339,14 @@ final class CalendarLoggingUITests: EvaUITestCase {
         // unambiguously ahead of today wherever the run starts.
         let aheadCell = app.buttons["calendar.day.\(Self.dayOfNextMonthISO(20))"]
         XCTAssertTrue(
-            aheadCell.appears(within: 15),
+            aheadCell.waitForExistence(timeout: 15),
             "Paging forward did not reach \(futureDay)'s month"
         )
         tap(aheadCell, in: app)
         openPicker(app)
 
         XCTAssertTrue(
-            app.buttons["log.type.appointment"].appears(within: 10),
+            app.buttons["log.type.appointment"].waitForExistence(timeout: 10),
             "The picker did not open on a future day"
         )
         XCTAssertTrue(
@@ -374,7 +374,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         tapInSheet(app.buttons["log.type.appointment"], in: app)
         let apptType = firstChip(in: "log.appointmentTypes", app)
         XCTAssertTrue(
-            apptType.appears(within: 10),
+            apptType.waitForExistence(timeout: 10),
             "The appointment sheet drew no types, so /refdata did not reach it"
         )
         let apptTypeLabel = apptType.label
@@ -385,7 +385,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         app.textFields["log.question.text"].typeText(question)
         tapInSheet(app.buttons["secondary.Add"], in: app)
         XCTAssertTrue(
-            app.staticTexts[question].appears(within: 5),
+            app.staticTexts[question].waitForExistence(timeout: 5),
             "Adding a question did not list it"
         )
         capture("06-log-appointment")
@@ -393,7 +393,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
 
         let apptRow = entryRow(app, "Doctor appointment")
         XCTAssertTrue(
-            apptRow.appears(within: 20),
+            apptRow.waitForExistence(timeout: 20),
             "Saving an appointment on a future day did not put it on that day"
         )
         XCTAssertTrue(
@@ -422,7 +422,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         app.descendants(matching: .any)
             .matching(identifier: "log.sheet").firstMatch.swipeDown(velocity: .fast)
         XCTAssertTrue(
-            app.buttons["calendar.log"].appears(within: 10),
+            app.buttons["calendar.log"].waitForExistence(timeout: 10),
             "Swiping the picker down did not return to the calendar"
         )
     }
@@ -462,7 +462,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
     ) {
         let button = app.buttons["calendar.log"]
         XCTAssertTrue(
-            button.appears(within: 15),
+            button.waitForExistence(timeout: 15),
             "The calendar has no Log button", file: file, line: line
         )
         XCTAssertTrue(
@@ -471,7 +471,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
             file: file, line: line
         )
         tap(button, in: app, file: file, line: line)
-        if app.staticTexts["log.targetDay"].appears(within: 10) { return }
+        if app.staticTexts["log.targetDay"].waitForExistence(timeout: 10) { return }
 
         // The sheet did not open. Before failing, ask the one thing a state dump cannot
         // answer: was the touch **swallowed**, or is the control **inert**?
@@ -493,7 +493,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         // captured before the retry and the failure below is unconditional.
         let firstState = pickerFailure(app, button)
         button.tap()
-        let secondOpened = app.staticTexts["log.targetDay"].appears(within: 10)
+        let secondOpened = app.staticTexts["log.targetDay"].waitForExistence(timeout: 10)
         XCTFail(
             """
             Tapping Log did not open the picker sheet.
@@ -557,7 +557,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         line: UInt = #line
     ) {
         XCTAssertTrue(
-            element.appears(within: 15),
+            element.waitForExistence(timeout: 15),
             "Missing element on the calendar: \(element)", file: file, line: line
         )
         // The tab bar plus the home indicator, with room for the floating Log button that
@@ -611,7 +611,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
     ) -> XCUIElement {
         let container = app.descendants(matching: .any).matching(identifier: field).firstMatch
         XCTAssertTrue(
-            container.appears(within: 10),
+            container.waitForExistence(timeout: 10),
             "The \(field) field is not on screen", file: file, line: line
         )
         return container.descendants(matching: .button)
@@ -657,7 +657,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         line: UInt = #line
     ) -> XCUIElement {
         XCTAssertTrue(
-            row.appears(within: 15),
+            row.waitForExistence(timeout: 15),
             "No row to take \(action) from", file: file, line: line
         )
         let id = row.identifier.replacingOccurrences(of: "calendar.entry.", with: "")
@@ -674,7 +674,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if element.exists, element.label.contains(text) { return true }
-            _ = element.appears(within: 0.5)
+            _ = element.waitForExistence(timeout: 0.5)
         }
         return false
     }
@@ -691,7 +691,7 @@ final class CalendarLoggingUITests: EvaUITestCase {
         line: UInt = #line
     ) {
         XCTAssertTrue(
-            element.appears(within: 10),
+            element.waitForExistence(timeout: 10),
             "Missing element in the log sheet: \(element)", file: file, line: line
         )
         let sheet = app.descendants(matching: .any)

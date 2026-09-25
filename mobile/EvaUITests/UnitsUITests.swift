@@ -100,7 +100,7 @@ final class UnitsUITests: EvaUITestCase {
         // Back to Profile, then the Units row.
         app.navigationBars.buttons.element(boundBy: 0).tap()
         let row = app.buttons["profile.units"]
-        XCTAssertTrue(row.appears(within: 10), "Profile has no Units row")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Profile has no Units row")
         XCTAssertEqual(
             row.label, "Units, Imperial",
             "The Units row is not showing what the US locale gave it"
@@ -108,7 +108,7 @@ final class UnitsUITests: EvaUITestCase {
 
         tap(row, in: app)
         let metric = app.buttons["units.option.metric"]
-        XCTAssertTrue(metric.appears(within: 10), "The Units row did not open its screen")
+        XCTAssertTrue(metric.waitForExistence(timeout: 10), "The Units row did not open its screen")
         XCTAssertTrue(
             app.buttons["units.option.imperial"].isSelected,
             "The Units screen opened with nothing selected, or with the wrong option selected"
@@ -118,7 +118,7 @@ final class UnitsUITests: EvaUITestCase {
 
         // Back to Profile — the row is the one place the setting is visible from outside.
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(row.appears(within: 10), "The back button did not return to Profile")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "The back button did not return to Profile")
         XCTAssertEqual(
             row.label, "Units, Metric",
             "The Units row did not follow the choice made on the screen behind it"
@@ -137,7 +137,7 @@ final class UnitsUITests: EvaUITestCase {
 
         openBodyMeasurements(app)
         XCTAssertTrue(
-            element("stepper.height.centimeters", in: app).appears(within: 20),
+            element("stepper.height.centimeters", in: app).waitForExistence(timeout: 20),
             """
             After a relaunch on a US device, Body measurements is not in the units the user \
             chose — either the override did not survive, or the locale is still winning.

@@ -35,7 +35,7 @@ final class DeleteAccountUITests: EvaUITestCase {
 
         signUpAndActivate(app, email: email)
         XCTAssertTrue(
-            app.buttons["tab.calendar"].appears(within: 10),
+            app.buttons["tab.calendar"].waitForExistence(timeout: 10),
             "Did not land on the tab bar"
         )
 
@@ -44,7 +44,7 @@ final class DeleteAccountUITests: EvaUITestCase {
         tap(app.buttons["tab.profile"], in: app)
         let profileEmail = app.staticTexts["profile.email"]
         XCTAssertTrue(
-            profileEmail.appears(within: 10),
+            profileEmail.waitForExistence(timeout: 10),
             "The dashboard has no way through to Profile"
         )
         // Not decoration: it is the only on-screen evidence that the account about to be
@@ -56,7 +56,7 @@ final class DeleteAccountUITests: EvaUITestCase {
 
         tap(app.buttons["destructive.Delete profile"], in: app)
         XCTAssertTrue(
-            app.staticTexts["delete.title"].appears(within: 5),
+            app.staticTexts["delete.title"].waitForExistence(timeout: 5),
             "The danger card did not open the confirmation modal"
         )
         // The wording, not just the element. #55 asks the modal to say plainly what is
@@ -92,7 +92,7 @@ final class DeleteAccountUITests: EvaUITestCase {
         // MARK: The gate
 
         let confirm = app.buttons["delete.confirm"]
-        XCTAssertTrue(confirm.appears(within: 5))
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         XCTAssertFalse(
             confirm.isEnabled,
             "The confirm button is live before anything has been typed"
@@ -139,13 +139,13 @@ final class DeleteAccountUITests: EvaUITestCase {
         // in its place. Without this, everything below would pass just as happily for a
         // return key that never arrived — which is the shape of a test that cannot fail.
         XCTAssertTrue(
-            keyboard.disappears(within: 5),
+            keyboard.waitForNonExistence(timeout: 5),
             "Return did not dismiss the keyboard, so there is no evidence the key was delivered"
         )
         // Waited for rather than read: a return that confirmed would take a network round
         // trip to reach onboarding, and an immediate read would win that race and pass.
         XCTAssertFalse(
-            app.textFields["signup.email"].appears(within: 5),
+            app.textFields["signup.email"].waitForExistence(timeout: 5),
             "Pressing return deleted the account — the typed-DELETE gate collapsed into one keystroke"
         )
         XCTAssertTrue(
@@ -167,7 +167,7 @@ final class DeleteAccountUITests: EvaUITestCase {
         // instead.
         tap(export, in: app)
         let saveSheet = app.buttons["Save"]
-        if !saveSheet.appears(within: 20) {
+        if !saveSheet.waitForExistence(timeout: 20) {
             let exportError = app.staticTexts["delete.exportError"]
             XCTFail(
                 exportError.exists
@@ -187,7 +187,7 @@ final class DeleteAccountUITests: EvaUITestCase {
             ))
         }
         XCTAssertTrue(
-            saveSheet.disappears(within: 10),
+            saveSheet.waitForNonExistence(timeout: 10),
             "The save sheet did not go away when cancelled"
         )
         XCTAssertTrue(
@@ -211,7 +211,7 @@ final class DeleteAccountUITests: EvaUITestCase {
 
         tap(confirm, in: app)
         XCTAssertTrue(
-            app.textFields["signup.email"].appears(within: 20),
+            app.textFields["signup.email"].waitForExistence(timeout: 20),
             "A confirmed deletion did not return the app to signed-out onboarding"
         )
         XCTAssertFalse(
@@ -264,7 +264,7 @@ final class DeleteAccountUITests: EvaUITestCase {
 
         let reason = app.staticTexts["login.signedOutReason"]
         XCTAssertTrue(
-            reason.appears(within: 20),
+            reason.waitForExistence(timeout: 20),
             app.textFields["signup.email"].exists
                 ? "A refused delete returned to sign-up in silence — exactly what a deletion that worked looks like"
                 : "A refused delete did not reach the signed-out screen with a reason"
@@ -293,7 +293,7 @@ final class DeleteAccountUITests: EvaUITestCase {
 
         signIn(app, email: email, password: Self.password)
         XCTAssertTrue(
-            app.buttons["tab.home"].appears(within: 20),
+            app.buttons["tab.home"].waitForExistence(timeout: 20),
             "Logging back in after a refused delete did not reach the app — the account may be gone"
         )
 
@@ -303,7 +303,7 @@ final class DeleteAccountUITests: EvaUITestCase {
         passTheGate(app)
         tap(app.buttons["delete.confirm"], in: app)
         XCTAssertTrue(
-            app.textFields["signup.email"].appears(within: 20),
+            app.textFields["signup.email"].waitForExistence(timeout: 20),
             "The retried deletion did not return the app to sign-up"
         )
         XCTAssertFalse(
@@ -317,7 +317,7 @@ final class DeleteAccountUITests: EvaUITestCase {
         tap(app.buttons["tab.profile"], in: app, file: file, line: line)
         tap(app.buttons["destructive.Delete profile"], in: app, file: file, line: line)
         XCTAssertTrue(
-            app.staticTexts["delete.title"].appears(within: 5),
+            app.staticTexts["delete.title"].waitForExistence(timeout: 5),
             "The danger card did not open the confirmation modal",
             file: file, line: line
         )

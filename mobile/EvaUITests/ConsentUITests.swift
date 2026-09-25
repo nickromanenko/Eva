@@ -23,7 +23,7 @@ final class ConsentUITests: EvaUITestCase {
         // Continue without the first toggle does not proceed, and says why.
         tap(app.buttons["primary.Continue"], in: app)
         XCTAssertTrue(
-            app.staticTexts["consent.message"].appears(within: 3),
+            app.staticTexts["consent.message"].waitForExistence(timeout: 3),
             "Continuing without the store consent gave no message and moved nowhere"
         )
         XCTAssertFalse(
@@ -44,7 +44,7 @@ final class ConsentUITests: EvaUITestCase {
         tap(app.switches["consent.store"], in: app)
         tap(app.buttons["primary.Continue"], in: app)
         XCTAssertTrue(
-            app.buttons["tab.home"].appears(within: 20),
+            app.buttons["tab.home"].waitForExistence(timeout: 20),
             "Continuing with the store consent did not reach the app"
         )
     }
@@ -57,14 +57,14 @@ final class ConsentUITests: EvaUITestCase {
 
         tap(app.buttons["tab.profile"], in: app)
         XCTAssertTrue(
-            app.buttons["profile.privacy"].appears(within: 5),
+            app.buttons["profile.privacy"].waitForExistence(timeout: 5),
             "Profile drew no Privacy row"
         )
         tap(app.buttons["profile.privacy"], in: app)
 
         // The collect consent this account gave on the screen is the state the row shows.
         XCTAssertTrue(
-            app.staticTexts["privacy.collect.state"].appears(within: 5),
+            app.staticTexts["privacy.collect.state"].waitForExistence(timeout: 5),
             "Privacy drew no state for the collect consent"
         )
         // "2026-08-30" is ConsentPolicy.version, spelled out: the UI-test target cannot
@@ -86,7 +86,7 @@ final class ConsentUITests: EvaUITestCase {
             NSPredicate(format: "label CONTAINS %@", "collecting anything new")
         ).firstMatch
         XCTAssertTrue(
-            consequence.appears(within: 5),
+            consequence.waitForExistence(timeout: 5),
             "The withdrawal dialog did not state what withdrawal does"
         )
 
@@ -96,7 +96,7 @@ final class ConsentUITests: EvaUITestCase {
         // both.
         tap(app.sheets.buttons["Withdraw"], in: app)
         XCTAssertTrue(
-            app.staticTexts["privacy.collect.state"].appears(within: 10)
+            app.staticTexts["privacy.collect.state"].waitForExistence(timeout: 10)
         )
         XCTAssertEqual(
             app.staticTexts["privacy.collect.state"].label,
