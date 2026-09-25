@@ -150,7 +150,11 @@ scan '"type": *"service_account"' "a service-account JSON is committed"
 scan 'AIza[0-9A-Za-z_-]{35}' "a Google API key literal is committed"
 # Postmark server tokens are UUIDs. Matching bare UUIDs would be far too broad, so this
 # only fires when one sits next to a word that says what it is.
-scan '(postmark|POSTMARK)[^\n]{0,40}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+#
+# `.`, not `[^\n]`: inside a bracket expression ERE has no escapes, so `[^\n]` meant
+# "neither a backslash nor the letter n" and `postmark token: <uuid>` slipped through (#306).
+# `git grep` matches line by line, so `.` cannot run past a newline anyway.
+scan '([Pp]ostmark|POSTMARK).{0,40}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
   "what looks like a Postmark server token is committed"
 
 if [ "$FAILED" -ne 0 ]; then
