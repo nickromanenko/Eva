@@ -125,7 +125,7 @@ const api = (path: string, init?: RequestInit & { token?: string | null }) => {
   if (child && (child.exitCode !== null || child.signalCode !== null)) {
     throw new Error(
       `the API this file spawned in beforeAll has exited (exit ${child.exitCode}, signal ${child.signalCode}); ` +
-        'this case never reached the route. Look for the earlier case that timed out or failed first.',
+        'this case never reached the route. An earlier case timed out and Bun killed it: look for "this test timed out".',
     )
   }
   return apiAt(base, path, init)
@@ -242,12 +242,22 @@ const ahead = (days: number) => shiftDays(todayIn('UTC'), days)
 const eventDocs = () => firestore.collection('users').doc(uid).collection('events')
 
 /** Hard-removes every entry, soft-deleted ones included: a soft delete is still a row the
- *  range read would have to filter, and every case here asserts an exact set of dates. */
+ *  range read would have to filter, and every case here asserts an exact set of dates.
+ *
+ *  In batched commits rather than one delete per document (#293): one at a time cost every
+ *  fixture case here 1–2s more against the real project, out of its own 20s, and the
+ *  confidence case, which clears twice, went from 9.2s to 3.7s. A batch holds at most 500
+ *  writes. */
 const clearEvents = async () => {
   const snapshot = await eventDocs()
     .get()
     .catch(() => null)
-  for (const doc of snapshot?.docs ?? []) await doc.ref.delete().catch(() => {})
+  const docs = snapshot?.docs ?? []
+  for (let at = 0; at < docs.length; at += 500) {
+    const batch = firestore.batch()
+    for (const doc of docs.slice(at, at + 500)) batch.delete(doc.ref)
+    await batch.commit().catch(() => {})
+  }
 }
 
 const post = (body: unknown) => api('/me/events', { method: 'POST', body: JSON.stringify(body) })
