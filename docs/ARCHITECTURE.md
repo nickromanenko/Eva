@@ -439,9 +439,8 @@ value in a header is a channel.
 
 The reason string never leaves `IdentityToolkitError`: not into a body, a header, or a log
 line (GUARDRAILS 12), and the failing `fetch`'s own error is dropped rather than attached,
-because its message contains the request URL — which carries the web API key (public,
-GUARDRAILS 4a, but still not log material) and the full request, which is ours to keep out
-of a log line.
+because its message contains the request URL, which carries the web API key — public
+(GUARDRAILS 4a), but still not log material.
 
 *How an operator tells an outage from a bug:* `unavailable` is the one branch that logs —
 one line, `{"event":"identity_toolkit_unavailable","route","upstreamStatus"}`, carrying no

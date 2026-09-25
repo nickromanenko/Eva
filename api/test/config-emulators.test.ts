@@ -4,9 +4,9 @@ import { describe, expect, test } from 'bun:test'
  * The emulator switch (#67), and the one thing about it that is a security control rather
  * than a convenience.
  *
- * `FIREBASE_AUTH_EMULATOR_HOST` decides where every credential call goes, and that URL
- * carries every signup and signin password. A deploy variable set by mistake — or by anyone
- * who can set one — would send them to a host of someone else's choosing,
+ * `FIREBASE_AUTH_EMULATOR_HOST` decides where every credential call goes, and those calls
+ * carry every signup and signin password in their bodies. A deploy variable set by mistake —
+ * or by anyone who can set one — would send them to a host of someone else's choosing,
  * and nothing about the running service would look wrong from the outside. `config.ts`
  * refuses to boot instead.
  *
