@@ -21,8 +21,8 @@ final class ProfileEditorModel {
     var weightKg: Double
     var heightCm: Double
     var goals: Set<String>
-    /// `conditions` and `medications` hold **codes**, not the labels drawn on the chips —
-    /// see `ProfileOption`.
+    /// `conditions`, `medications` and `lifestyle` hold **codes**, not the labels drawn on
+    /// the chips — see `ProfileOption`.
     var conditions: Set<String>
     var medications: String?
     var lifestyle: String?
@@ -52,7 +52,15 @@ final class ProfileEditorModel {
         ProfileOption("hrt", "HRT"),
         ProfileOption("none", "None"),
     ]
-    static let lifestyleOptions = ["Mostly sitting", "Lightly active", "Active", "Very active"]
+    /// PRD §Sign Up (A8) — the activity band (#221). Codes are `nutrition.ts`'
+    /// `ACTIVITY_BANDS`, which the nutrition engine keys its activity factors by; the labels
+    /// are the ones the chips have always drawn.
+    static let lifestyleOptions = [
+        ProfileOption("mostlySitting", "Mostly sitting"),
+        ProfileOption("lightlyActive", "Lightly active"),
+        ProfileOption("active", "Active"),
+        ProfileOption("veryActive", "Very active"),
+    ]
     static let sportOptions = ["Strength", "Running", "Yoga", "Pilates", "Cycling", "Swimming", "Dancing", "Walking"]
 
     init(profile: APIProfile?) {
@@ -63,7 +71,7 @@ final class ProfileEditorModel {
             goals = Set(profile.goals)
             conditions = Set(profile.conditions)
             medications = profile.medications.isEmpty ? nil : profile.medications
-            lifestyle = profile.lifestyle.isEmpty ? nil : profile.lifestyle
+            lifestyle = profile.lifestyle
             sports = Set(profile.sports)
         } else {
             dateOfBirth = Self.defaultDateOfBirth
@@ -118,6 +126,29 @@ final class ProfileEditorModel {
     /// legitimate answer there.
     var hasMedicationAnswer: Bool { medications != nil }
 
+    // MARK: - The activity band, which has to be answered too (#221)
+
+    /// Whether the activity question has an answer — what the **Activity editor's** Save
+    /// waits for, since saving that screen without picking a band would be saving nothing.
+    /// Every other editor saves regardless: an unanswered band is left out of the body,
+    /// which `parseProfile` accepts as unanswered (#221).
+    var hasLifestyleAnswer: Bool { lifestyle != nil }
+
+    /// The chip label for the stored code, or `nil` while unanswered. Never the code itself.
+    var lifestyleLabel: String? {
+        Self.lifestyleOptions.first { $0.code == lifestyle }?.label
+    }
+
+    /// The Profile ▸ Activity row's trailing value: the label, or nothing while unanswered —
+    /// the same empty-until-answered rule the goals and sports rows follow.
+    var activityRowValue: String { lifestyleLabel ?? "" }
+
+    /// What an Activity chip does. Here rather than inline in the view so that "the chip
+    /// stores the code, not the label it draws" is something a unit test can hold (#221).
+    func selectLifestyle(_ option: ProfileOption) {
+        lifestyle = option.code
+    }
+
     // MARK: - The payload
 
     /// The edited profile as the API body. `timeZone` is sent so the 18+ floor is measured
@@ -130,7 +161,7 @@ final class ProfileEditorModel {
             goals: goals.sorted(),
             conditions: conditions.sorted(),
             medications: medications ?? "",
-            lifestyle: lifestyle ?? "",
+            lifestyle: lifestyle,
             sports: sports.sorted(),
             timeZone: TimeZone.current.identifier
         )

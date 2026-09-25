@@ -65,7 +65,7 @@ const profile = {
   goals: ['Energy'],
   conditions: ['noneOfThese'],
   medications: 'none',
-  lifestyle: 'Active',
+  lifestyle: 'active',
   sports: ['Yoga'],
   timeZone: 'UTC',
 }

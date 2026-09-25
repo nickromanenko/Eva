@@ -11,6 +11,7 @@ import {
 import { adminAuth, firestore } from '../src/firebase'
 import { ExportAbortedError, openExport } from '../src/data-export'
 import { exportEvents, type EvaEvent } from '../src/events'
+import type { NutritionProfile } from '../src/nutrition-profile'
 import { exportTodayCards, type TodayDocument } from '../src/today'
 import type { User } from '../src/users'
 import { bootApi, type BootedApi } from './support/boot-api'
@@ -100,6 +101,7 @@ interface ExportBody {
   version: number
   exportedAt: string
   account: User
+  nutritionProfile: NutritionProfile | null
   events: EvaEvent[]
   today: TodayDocument[]
 }
@@ -209,6 +211,18 @@ beforeAll(async () => {
 
   await sport(bob, day(2), `${bobMarker} note`)
 
+  // A started nutrition setup for Alice (#221), through the route the app uses; Bob has none.
+  const setup = await call(main.base, '/me/nutrition/profile', alice.token, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      goal: 'lose',
+      focusAreas: ['ironDeficiencyAnaemia', 'moreWater'],
+      targetWeightKg: 61.5,
+      step: 'mealPattern',
+    }),
+  })
+  if (setup.status !== 200) throw new Error(`PATCH /me/nutrition/profile answered ${setup.status}`)
+
   // Carol: one ordinary entry, one stored entry with no `localDate`, `createdAt` or
   // `updatedAt`, and one card with neither `date` nor `generatedAt` — each the field another ordering would
   // sort on, and a query ordered on a field skips every document that lacks it.
@@ -227,7 +241,7 @@ afterAll(async () => {
   main?.child.kill()
   throttled?.child.kill()
   for (const uid of created) {
-    for (const sub of ['events', 'today']) {
+    for (const sub of ['events', 'today', 'nutrition']) {
       const docs = await userDoc(uid)
         .collection(sub)
         .listDocuments()
@@ -308,6 +322,7 @@ describe('GET /me/export — the download', () => {
       'version',
       'exportedAt',
       'account',
+      'nutritionProfile',
       'events',
       'today',
     ])
@@ -351,6 +366,33 @@ describe('GET /me/export — the download', () => {
     expect(me.user.authProviders).toEqual(['password', 'apple.com'])
     expect(exported.account.authProviders).toEqual(me.user.authProviders)
     expect(Object.keys(exported.account)).not.toContain('passwordChosen')
+  })
+
+  test('nutritionProfile is exactly what GET /me/nutrition/profile answers', async () => {
+    const [exported, served] = await Promise.all([
+      exportAs(alice).then((r) => r.json() as Promise<ExportBody>),
+      call(main.base, '/me/nutrition/profile', alice.token).then(
+        (r) => r.json() as Promise<{ nutritionProfile: NutritionProfile }>,
+      ),
+    ])
+    expect(exported.nutritionProfile).toEqual(served.nutritionProfile)
+    // Her answers, partial and saying so — and not the stored audit stamps.
+    expect(exported.nutritionProfile).toMatchObject({
+      goal: 'lose',
+      focusAreas: ['ironDeficiencyAnaemia', 'moreWater'],
+      targetWeightKg: 61.5,
+      step: 'mealPattern',
+      complete: false,
+    })
+    expect(Object.keys(exported.nutritionProfile!)).not.toContain('updatedAt')
+  })
+
+  test('nutritionProfile is null for an account that has not started setup', async () => {
+    const exported = (await (await exportAs(bob)).json()) as ExportBody
+    expect((await call(main.base, '/me/nutrition/profile', bob.token)).status).toBe(404)
+    // Present and null — not absent — so a reader can tell "none" from "an older export".
+    expect('nutritionProfile' in exported).toBe(true)
+    expect(exported.nutritionProfile).toBe(null)
   })
 
   test('every event, across pages, exactly once — and each in GET /me/events’ shape', async () => {
@@ -492,6 +534,7 @@ async function* pages<T>(list: T[][], failAt = -1): AsyncGenerator<T[], void, un
 }
 
 const account = { id: 'u1', email: 'x@example.com' } as unknown as User
+const profile = { goal: 'maintain', complete: false } as unknown as NutritionProfile
 const ev = (id: string) => ({ id, deletedAt: null }) as unknown as EvaEvent
 const card = (date: string) => ({ date }) as unknown as TodayDocument
 
@@ -527,6 +570,7 @@ describe('openExport', () => {
     const stream = await openExport({
       exportedAt: '2026-09-24T10:00:00.000Z',
       account,
+      nutritionProfile: profile,
       events: pages([[ev('a'), ev('b')], [ev('c')], []]),
       today: pages([[card('2026-09-01')], [card('2026-09-02')]]),
       onAbort: () => {
@@ -541,9 +585,11 @@ describe('openExport', () => {
       'version',
       'exportedAt',
       'account',
+      'nutritionProfile',
       'events',
       'today',
     ])
+    expect(body.nutritionProfile).toEqual(profile)
     expect(body.events.map((e: EvaEvent) => e.id)).toEqual(['a', 'b', 'c'])
     expect(body.today.map((t: TodayDocument) => t.date)).toEqual(['2026-09-01', '2026-09-02'])
   })
@@ -552,11 +598,13 @@ describe('openExport', () => {
     const stream = await openExport({
       exportedAt: '2026-09-24T10:00:00.000Z',
       account,
+      nutritionProfile: null,
       events: pages([]),
       today: pages([]),
       onAbort: () => {},
     })
     const body = JSON.parse((await drain(stream)).text)
+    expect(body.nutritionProfile).toBe(null)
     expect(body.events).toEqual([])
     expect(body.today).toEqual([])
   })
@@ -567,6 +615,7 @@ describe('openExport', () => {
       openExport({
         exportedAt: '2026-09-24T10:00:00.000Z',
         account,
+        nutritionProfile: null,
         events: pages([[ev('a')]], 0),
         today: pages([]),
         onAbort: () => {
@@ -586,6 +635,7 @@ describe('openExport', () => {
       const stream = await openExport({
         exportedAt: '2026-09-24T10:00:00.000Z',
         account,
+        nutritionProfile: null,
         events,
         today,
         onAbort: (err) => seen.push(err),

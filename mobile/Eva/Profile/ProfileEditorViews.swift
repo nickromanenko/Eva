@@ -13,7 +13,8 @@ struct ProfileEditorScreen<Content: View>: View {
     let title: String
     var subtitle: String? = nil
     let buttonTitle: String
-    /// Holds Save while the editor's own rule is unmet (18+ floor, medication answered).
+    /// Holds Save while the editor's own rule is unmet (18+ floor, medication or activity
+    /// answered).
     var isSaveEnabled: Bool = true
     @ViewBuilder let content: Content
 
@@ -156,15 +157,16 @@ struct ActivitySettingsView: View {
             session: session,
             title: "Activity",
             subtitle: "How active is your day-to-day?",
-            buttonTitle: "Save"
+            buttonTitle: "Save",
+            isSaveEnabled: editor.hasLifestyleAnswer
         ) {
             VStack(spacing: EvaSpacing.sm) {
-                ForEach(ProfileEditorModel.lifestyleOptions, id: \.self) { option in
+                ForEach(ProfileEditorModel.lifestyleOptions) { option in
                     ChipToggleButton(
-                        label: option,
-                        isSelected: editor.lifestyle == option
+                        label: option.label,
+                        isSelected: editor.lifestyle == option.code
                     ) {
-                        editor.lifestyle = option
+                        editor.selectLifestyle(option)
                     }
                 }
             }

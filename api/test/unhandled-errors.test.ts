@@ -799,6 +799,7 @@ describe('a JSON body that is not an object is a 400, never a 500 (#119)', () =>
     ['PUT', '/me/consent/collect', true],
     ['PUT', '/me/questionnaire', true],
     ['PUT', '/me/nutrition-settings', true],
+    ['PATCH', '/me/nutrition/profile', true],
     ['POST', '/me/events', true],
     ['PATCH', `/me/events/${EVENT_ID}`, true],
     ['PUT', '/me/body-signals/2026-08-27', true],

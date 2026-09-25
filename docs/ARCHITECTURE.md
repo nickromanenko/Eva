@@ -82,15 +82,17 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 
 | `cycle.ts` | The cycle maths (C11, #176): logged flow days in — the periods they group into (#186), counted cycles, the median next-period date, the fertile window, the FIGO irregularity band and the confidence class out | Pure: no Firestore, no clock, no `fetch`, no log line. Holds no constant of its own — every number arrives from `config.ts` and it refuses to answer without them. Every gate fails closed. The one reader of `periodEnd`, for one decision (§4) |
 | `nutrition.ts` | The nutrition targets engine (S2, #222): body metrics, goal, target weight and focus areas in — the day's calorie target, the macronutrient split, the clamp that bound it and the timeline that follows out | Pure: no Firestore, no clock, no `fetch`, no log line, and **no import at all**. Holds no dose of its own — every number arrives from `config.ts` and it refuses to answer without them. Takes no cycle phase and no calendar mode, which is what keeps S12 outside it. Every clamp is a floor on calories, and the timeline is derived from the clamped target |
+| `nutrition-profile.ts` | The `users/{uid}/nutrition/` subcollection (#221, S1 of #25): the Nutrition coach's setup answers — goal, focus areas, meal pattern, target weight, the hide-numbers preference — and the setup-progress marker; read, patch, delete-all. Also **the one definition of a finished setup**, `completedSetup` | The only module that touches `nutrition/`. The field list is exactly the setup answers — no disordered-eating field (#212), no score (S8). `complete` is derived on every read, never stored. Logs nothing |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
-| `data-export.ts` | The body of `GET /me/export` (#58): the account and two page generators in, one JSON document out as a stream | Pure leaf: no Firestore, no clock, no `fetch`, no log line; its imports are `import type`. Reads the first page of each collection before the route sends headers, and writes the closing brackets last, so a truncated body is never valid JSON |
+| `data-export.ts` | The body of `GET /me/export` (#58): the account, the nutrition profile (#221) and two page generators in, one JSON document out as a stream | Pure leaf: no Firestore, no clock, no `fetch`, no log line; its imports are `import type`. Reads the first page of each collection before the route sends headers, and writes the closing brackets last, so a truncated body is never valid JSON |
 | `request-timeout.ts` | The per-request timeout that names a hung request in the log before Bun's `idleTimeout` kills the connection (#225) | Pure leaf: wraps the handler in a timer, reads no clock and no Firestore. Logs only the route path — no payload, address or token |
 
 Layering: `index.ts` → (`auth`, `identity-toolkit`, `providers`, `rate-limit`, `users`,
-`events`, `refdata`, `content`, `today`, `email-tokens`, `email`) → (`firebase`, `config`). Never call upward,
+`events`, `refdata`, `content`, `today`, `nutrition-profile`, `email-tokens`, `email`) →
+(`firebase`, `config`). Never call upward,
 never sideways along the middle row.
 
 **`today.ts` is the one sanctioned exception to "never sideways", and it is one by
@@ -130,18 +132,24 @@ same shape as `today.ts → dashboard-rules.ts`, and they cost nothing at runtim
 
 `nutrition.ts` (S2 of the Nutrition coach, #222) is a leaf on the same terms and one step
 further: it imports **nothing at all**, so it shares no vocabulary with anything and cannot
-reach anything. That is deliberate in one place in particular — it does not take `Profile`,
-because `Profile.lifestyle` is a bare string until #221 lands and accepting it would force the
-activity-factor lookup with a fallback that #221 exists to remove. It declares `ActivityBand`
-as a closed four-member union instead, and the factor table is a `Record` over that union, so
-a band without a factor is a compile error rather than a plausible 1.2. The other thing its
+reach anything. That is deliberate in one place in particular — it does not take `Profile`.
+It declares `ActivityBand` as a closed four-member union, and the factor table is a `Record`
+over that union, so a band without a factor is a compile error rather than a plausible 1.2.
+Since #221 that union is also the profile's: `users.ts` re-exports the engine's own array as
+`ACTIVITY_BAND_CODES` (a downward value import from a leaf with no imports, free at runtime),
+`parseProfile` refuses anything outside it, and `Profile.lifestyle` is `ActivityBand | null` —
+so there is one list of bands in the codebase, and a `null` the caller has to narrow away
+(nutrition setup asks) before the engine can be called at all. `nutrition-profile.ts` imports
+the engine's goal types the same way, `import type` only, so a stored goal is handed to
+`planDailyTargets` untranslated. The other thing its
 signature carries is the whole of "cycle-agnostic": there is no cycle phase and no calendar
 mode among its arguments, so S12's luteal and mode adjustments wrap it rather than reaching
 inside it, and cannot arrive later as an optional parameter with a default.
 
 `data-export.ts` (`GET /me/export`, #58) is a leaf below the middle row too: `index.ts` hands
-it the account the gate read and the two page generators `events.ts` and `today.ts` export,
-and it turns them into a byte stream. Its three imports are `import type`, so it can reach
+it the account the gate read, the nutrition profile `nutrition-profile.ts` reads
+(`getNutritionProfile`, #221), and the two page generators `events.ts` and `today.ts` export,
+and it turns them into a byte stream. Its four imports are `import type`, so it can reach
 no collection — which is what keeps "each collection is read only by its owner" true of the
 one route that reads all of them.
 
@@ -184,11 +192,13 @@ carries the shape above, including the ones nobody wrote a handler for.
 | `POST /auth/password/reset` | Token in the link | `200 { token, user }` — sets the password and signs in |
 | `POST /auth/idp` | — | `200 { token, user }` — Apple or Google; signs up and signs in at once, already activated |
 | `GET /me` | Bearer | `{ user }` |
-| `GET /me/export` | Bearer | `200` JSON attachment `eva-export-YYYY-MM-DD.json` (UTC), `Cache-Control: no-store`, streamed: `{ format: "eva-export", version: 1, exportedAt, account, events, today }` — `account` is `GET /me`'s `user`, `events` every stored entry in `GET /me/events`' shape **including soft-deleted ones** (`deletedAt` set), `today` every stored card in `GET /me/today`'s shape (#58). `429 RATE_LIMITED` per account and per IP. §4 "Data export" lists what is left out |
+| `GET /me/export` | Bearer | `200` JSON attachment `eva-export-YYYY-MM-DD.json` (UTC), `Cache-Control: no-store`, streamed: `{ format: "eva-export", version: 1, exportedAt, account, nutritionProfile, events, today }` — `account` is `GET /me`'s `user`, `nutritionProfile` is `GET /me/nutrition/profile`'s `nutritionProfile` or `null` before setup is started (#221), `events` every stored entry in `GET /me/events`' shape **including soft-deleted ones** (`deletedAt` set), `today` every stored card in `GET /me/today`'s shape (#58). `429 RATE_LIMITED` per account and per IP. §4 "Data export" lists what is left out |
 | `POST /me/auth/providers` | Bearer | `{ user }` — attaches a provider to *this* account; `409 PROVIDER_ALREADY_LINKED` when its `sub` belongs to another |
 | `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately; an optional `appleAuthorizationCode` also revokes the Apple token. `429 RATE_LIMITED` past `RATE_LIMIT_DELETE_PER_ACCOUNT` calls for one account in a window (#119) |
 | `PUT /me/questionnaire` | Bearer | `{ user }` — behind `requireCollectConsent` (#86): the profile is health data, and nothing about her is written before the collect consent exists |
 | `PUT /me/nutrition-settings` | Bearer | `{ user }` — `{ qualitativeOnly: boolean }`, the self-serve "qualitative mode" toggle (#212, A31) |
+| `GET /me/nutrition/profile` | Bearer | `{ nutritionProfile }` — the Nutrition coach's setup answers and progress (#221), with a derived `complete` flag; `404 NOT_FOUND` until setup is started |
+| `PATCH /me/nutrition/profile` | Bearer | `{ nutritionProfile }` — any subset of `goal`, `focusAreas`, `mealPattern`, `targetWeightKg`, `hideNumbers`, `step`; an absent key is left as it was. Creates the document on the first write. `400 VALIDATION` for an unknown key, a fourth focus area (refused, never truncated), `step: "done"` with a required answer missing, or a target weight for a goal that has none; behind `requireCollectConsent` (#86) |
 | `POST /me/profile-nudge/dismiss` | Bearer | `{ user }` — marks the "complete your profile" nudge dismissed (#19); server-side, survives reinstall |
 | `PUT /me/consent/{kind}` | Bearer | `{ user }` — records or withdraws one consent (#86). `kind` is `collect` or `share`; `{ granted: true, version }` records the consent with the version of the text the client showed, `{ granted: false }` withdraws — the freeze: the record keeps its version and `at`, and gains `withdrawnAt`. `share` governs nothing today; it is recorded because the screen offers it. Withdrawing a never-granted consent is a no-op |
 | `GET /me/events?from=&to=` | Bearer | `{ events }` — inclusive `localDate` range, soft-deleted excluded |
@@ -204,7 +214,7 @@ carries the shape above, including the ones nobody wrote a handler for.
 
 **Health writes sit behind the collect consent (#86, A21).** `requireCollectConsent`
 guards the routes that create or change health data — events (write, patch, restore),
-body signals, and the questionnaire — and answers `403 CONSENT_REQUIRED` for both shapes
+body signals, the questionnaire, and the nutrition profile (#221) — and answers `403 CONSENT_REQUIRED` for both shapes
 of "no": no record (every pre-#86 account, every new account until the screen is
 through) and a withdrawn record (the freeze). Reads, deletes and preference-only writes
 (nutrition-settings, the profile nudge) stay open, because collecting is what needs
@@ -1084,9 +1094,13 @@ the same reason `saveNutritionSetting` is the only writer of its field: a consen
 anything else could change cannot testify.
 
 `Profile` is validated at the edge in `parseProfile` (`index.ts`): weight 30–200 kg,
-height 120–220 cm, `medications` one of `MEDICATION_CODES` and `conditions` a list drawn
-from `CONDITION_CODES` (both in `users.ts` — opaque, permanent codes, the rule `refdata.ts`
-follows and for the same reason). Widening a range or adding a code is a product decision,
+height 120–220 cm, `medications` one of `MEDICATION_CODES`, `conditions` a list drawn
+from `CONDITION_CODES`, and `lifestyle` one of `ACTIVITY_BAND_CODES` (#221) — `mostlySitting`,
+`lightlyActive`, `active`, `veryActive` — or `null`/absent, stored as `null` for "not answered
+yet", because every profile editor re-sends the whole profile and an account with no band
+must still be able to save the rest (all in `users.ts` — opaque, permanent codes, the rule
+`refdata.ts` follows and for the same reason; the band's array is the nutrition engine's own,
+re-exported, so the codes the route accepts and the factors the engine holds are one list). Widening a range or adding a code is a product decision,
 not a bug fix; changing an existing code is a data migration.
 
 **The profile stores a date of birth; the age is derived and never stored** (#81, A8). A
@@ -1112,6 +1126,18 @@ key, serves a profile with no `dateOfBirth` as no profile at all, and reports
 `questionnaireCompleted` as false over it — so the app asks for the profile again and the 18+
 floor is applied to the answer. The account still opens and nothing is deleted; the stored
 map is replaced the next time she saves the profile.
+
+**Documents written before #221 store `lifestyle` as the English label the chip drew, and
+nothing rewrites them either.** The band is the one profile answer arithmetic reads (the
+activity factor), so a label is a live defect the moment a target is computed: a reworded or
+localised chip would match no band, and a lookup with a fallback lands every such user on the
+sedentary factor, which is also the most-chosen band and so invisible. Decided on #221: the
+four strings the app ever offered — "Mostly sitting", "Lightly active", "Active", "Very
+active" — map to the four codes **on read**, by an explicit table in `users.ts`
+(`storedLifestyle`), matched exactly. **Any other string is absent** (`lifestyle: null`), and
+absent means nutrition setup asks rather than a band being guessed. The profile is still
+served and `questionnaireCompleted` is unaffected; the stored label stays until she next saves
+her profile, which replaces the map with a code.
 
 `authTokens/{sha256(token)}` — the activation and password-reset links (#6). Top-level
 rather than under `users/`, because the document is looked up by the token alone, before
@@ -1290,7 +1316,7 @@ The order is the design, because a partial failure has to be safe *and* resumabl
 3. delete the Firebase Auth user — the credentials open nothing and the address is free
    again;
 4. delete every event, soft-deleted ones included, a batch at a time, then every stored
-   Today card;
+   Today card, then the nutrition profile (#221);
 5. delete `users/{uid}`, the tombstone step 2 wrote.
 
 `today/` is in step 4 rather than forgotten because a filled card is her own logged data
@@ -1298,8 +1324,10 @@ written out as prose: leaving it would make the Dashboard cache the one readable
 an account that no longer exists. It is also a *subcollection*, which in Firestore outlives
 the parent document, so deleting it after step 5 would orphan it rather than remove it —
 the same reason the events go where they do. `api/test/account-deletion.test.ts` enumerates
-both subcollections with `listDocuments`, which is what makes a new one added without a
-sweep fail the suite rather than pass it quietly.
+both subcollections with `listDocuments`, and `api/test/nutrition-profile.test.ts` does the
+same for `nutrition/` — which is what makes a sweep removed later fail the suite rather than
+pass it quietly. It does not catch a *new* subcollection added with no sweep at all: that is
+still review's to see.
 
 Link-token cleanup goes before the tombstone mark; health data goes after the mark and
 before the tombstone document is removed, so that **a missing user document implies a
@@ -1327,6 +1355,12 @@ app's decoders and the export cannot drift apart:
 - `account` — exactly `GET /me`'s `user`, from the same gate (`requireServedAccount`): the
   account snapshot plus Auth's federated identities, assembled as §4 `authProviders`
   describes (#117). Profile, consent records, providers, activation, settings.
+- `nutritionProfile` — exactly `GET /me/nutrition/profile`'s `nutritionProfile` (#221): the
+  setup answers, the hide-numbers preference, the progress marker and the derived `complete`
+  flag. **`null`, present, when she has not started setup** — so "none" reads differently
+  from an export written before the key existed. One document, read whole by the route
+  before the headers go, so a failure reading it is an ordinary `500` like the account's.
+  Added without a `version` bump: adding a key is not one.
 - `events` — **every document** in `users/{uid}/events/`, in `GET /me/events`' shape. That
   includes soft-deleted entries, marked by a non-null `deletedAt`, and it includes entries
   past their 30-day window that the purge has not reached yet (the purge job does not exist
@@ -1343,6 +1377,8 @@ What is left out, deliberately:
 - A stored event's fields outside the event shape, if any were ever written: the export
   serves `toEvent`'s whitelist, never the raw document.
 - `dataChangedAt` and `storedAt` on a card — the cache's regeneration bookkeeping.
+- `createdAt`/`updatedAt` on the nutrition profile document — audit stamps; the route's
+  shape already omits them.
 - `authTokens/` — link-token hashes are credentials (GUARDRAILS 12a), not her data, and the
   address they were sent to is already `account.email`.
 - The Firebase Auth record — the password hash is a credential; the address and the linked
@@ -1658,6 +1694,50 @@ overlay and re-asks, because the route recomputes on read and a moved anchor mov
 projection. A `503` from the route draws nothing and says nothing — which is deliberately
 *not* what a withheld prediction does, since only one of the two is an answer about her
 data.
+
+`users/{uid}/nutrition/profile` — the Nutrition coach's setup answers (#221, S1 of #25).
+Owned by `api/src/nutrition-profile.ts`. **A subcollection with its own route rather than a
+map on `users/{uid}`**, decided on #221: `GET /me` serves the user document's shape verbatim,
+so a goal and a target weight there would reach every caller of `/me` — the `tokenVersion`
+argument above. One document, `profile`, in a collection so a later slice can add a sibling
+without a second top-level owner.
+
+```
+goal            'lose' | 'gain' | 'buildMuscle' | 'maintain' | 'eatBetter' | null   // PRD Step 1
+focusAreas      FocusAreaCode[]    // PRD Step 2: 17 codes, at most 3, optional ([])
+mealPattern     { mealsPerDay: 2|3|4|5, snacks: boolean, mealTimes: 'HH:mm'[] | null } | null
+targetWeightKg  number | null      // PRD Step 5; kg, always (§5). Only with goals 1–3
+hideNumbers     boolean | null     // #212: hide calories, macros, weight targets. null = not yet asked
+step            'goal' | 'focusAreas' | 'mealPattern' | 'bodyMetrics' | 'targetWeight' | 'done'
+createdAt, updatedAt  serverTimestamp
+```
+
+Served as those fields plus **`complete`, which is derived on every read and never stored**:
+`step` is `done` *and* every required answer is present (goal, meal pattern, the preference,
+and a target weight for goals 1–3). PRD line 677 — *"Nothing is calculated, displayed or
+suggested from partial data"* — and Edge case 1's resumable draft are one field apart, so
+completeness has exactly one definition, `completedSetup`, which is also the only function
+that hands out a goal *paired* with its target weight in the shape the engine takes. A
+document that says `done` over a missing answer reads as partial. `PATCH` refuses `done` while
+an answer is missing, and refuses an edit that would leave a finished setup missing one.
+
+The codes are permanent (the medication rule); the goal codes are the engine's own
+`NutritionGoal`, and the focus areas' PRD item numbers — which `nutrition.ts` reads for the
+fibre rule — are a total table, `FOCUS_AREA_PRD_ITEM`, in the owning module. Item 18
+(*"Support pregnancy nutrition"*) is added as a new code with Pregnancy mode (S12).
+
+**What is not here, deliberately.** No disordered-eating field (#212: Eva holds none), no
+"Meal fit" score (S8, gated on #26), and no body metrics — Step 4 confirms the Sign Up
+profile's own. An unknown key on a `PATCH` is refused rather than dropped, which is what
+stops one being added by reflex; the test pins the key set. **`hideNumbers` changes only when
+a request names it** — an absent key leaves it as it was and `null` is refused — so no write
+can silently turn the numbers back on (#212's "worst version").
+
+**Open: `users/{uid}.nutritionQualitativeOnly` (#252) is the same preference, placed before
+#221 decided where it lives.** #221's decision puts it here; #252's field and
+`PUT /me/nutrition-settings` were left untouched, because retiring a field and a route is not
+something #221 asked for. Nothing reads either yet. S3/S4 must not read both: which one
+survives, and what happens to any value stored in the other, is a decision still to take.
 
 **Planned (A3, A9 — §8 and §9 below; not yet in code):**
 

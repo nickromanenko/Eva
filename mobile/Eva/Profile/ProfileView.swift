@@ -150,7 +150,7 @@ struct ProfileView: View {
             ProfileSettingsRow(
                 label: "Activity",
                 meta: "Mostly sitting · Lightly active · Active · Very active",
-                value: editor.lifestyle ?? "",
+                value: editor.activityRowValue,
                 identifier: "profile.activity"
             ) {
                 ActivitySettingsView(editor: editor, session: session)

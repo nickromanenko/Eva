@@ -61,7 +61,8 @@ Each rule is stated so a reviewer can check it mechanically.
    never key users by email.
 10. **Every Firestore collection has exactly one owning module, and nothing else touches
     it.** `users.ts` owns `users/`; `events.ts` owns `users/{uid}/events/`;
-    `today.ts` owns `users/{uid}/today/`; `refdata.ts` owns `refdata/`; `content.ts` owns
+    `today.ts` owns `users/{uid}/today/`; `nutrition-profile.ts` owns
+    `users/{uid}/nutrition/`; `refdata.ts` owns `refdata/`; `content.ts` owns
     `content/`; `email-tokens.ts` owns `authTokens/`. Routes delegate; they don't query.
     (Widened from "only `users.ts` touches Firestore" when the calendar needed a second
     collection — the intent was never one file, it was no scattered database access.)
