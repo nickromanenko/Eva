@@ -107,12 +107,17 @@ Each rule is stated so a reviewer can check it mechanically.
 15. The surface's verify gate must pass before any PR is opened. A green run is the
     minimum, not the proof — say what you actually exercised.
     - **api:** `scripts/ci-api.sh` (the emulator suite CI runs, ~2.5 min). The real-project
-      `bun run verify` (~20 min) is additionally required only when the change touches
-      behaviour the emulators reimplement rather than run — `identity-toolkit.ts`,
-      `providers.ts`, the auth/sign-in/activation/reset routes, or Firebase settings — and
-      is otherwise run per batch, not per PR.
+      `bun run verify` (~20 min) is additionally required when the change touches
+      behaviour the emulators reimplement rather than run: `identity-toolkit.ts`,
+      `providers.ts`, `firebase.ts`, the emulator/real-project branches of `config.ts`, the
+      auth routes (`/auth/*`, `DELETE /me`, `POST /me/auth/providers`), a `runTransaction`
+      body that guards a session or deletion race, any test branch on `usingEmulators` /
+      `FIREBASE_AUTH_EMULATOR_HOST`, or a Firebase console setting. Otherwise it runs per
+      batch — and never less than **weekly and before any production deploy of `api/`**,
+      because the checks it alone runs (enumeration protection, MFA off) exist to catch a
+      console setting changing, which no PR does.
     - **mobile:** unit tests plus the UI test classes the change touches
-      (`ONLY_TESTING=… scripts/verify-mobile.sh`). The full `scripts/verify-mobile.sh`
+      (`ONLY_TESTING=… scripts/verify-mobile.sh`, which always adds the unit tests). The full `scripts/verify-mobile.sh`
       (~30 min) is required when a change touches navigation, session/auth or the
       networking layer, and is otherwise run per batch.
     Changed 2026-09-25 on Nick's direct instruction ("we need to move faster"): the

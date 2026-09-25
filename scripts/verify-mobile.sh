@@ -6,7 +6,8 @@
 #                                       tests, no API, no emulators
 #
 # Simulator: override with EVA_SIMULATOR_ID (default matches scripts/e2e.sh).
-# Subset: ONLY_TESTING='-only-testing:EvaUITests/HomeUITests' runs only those UI classes
+# Subset: ONLY_TESTING='-only-testing:EvaUITests/HomeUITests' runs those UI classes plus
+# every unit test (EvaTests is always added)
 # (GUARDRAILS 15 — the full suite is ~30 min and is not the per-PR gate for every change).
 #
 # One run per machine by default: the simulator, API port and mailbox port are shared, so a
@@ -162,7 +163,8 @@ else
     TEST_RUNNER_EVA_MAILBOX_URL="$MAILBOX_URL" xcodebuild \
     -project Eva.xcodeproj -scheme Eva \
     -destination "platform=iOS Simulator,id=$SIMULATOR,arch=arm64" \
-    -derivedDataPath build -resultBundlePath "$RESULT_BUNDLE" test ${ONLY_TESTING:-}) || FAILED=1
+    -derivedDataPath build -resultBundlePath "$RESULT_BUNDLE" test \
+    ${ONLY_TESTING:+-only-testing:EvaTests $ONLY_TESTING}) || FAILED=1
 
   echo "▶ cleanup sweep (e2e accounts created by the UI test)"
   (cd "$ROOT/api" && bun run "$ROOT/scripts/e2e-cleanup.ts") || FAILED=1
