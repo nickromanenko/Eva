@@ -547,10 +547,21 @@ export const config = {
      *
      * Raising it is half a change: `deploy-api.yml` deploys with `--allow-unauthenticated`
      * and no `--ingress`, so the `run.app` URL stays reachable. Set this to `2` without
-     * also passing `--ingress=internal-and-cloud-load-balancing` and a request sent
-     * straight to `run.app` carries a one-entry header, resolves to `null`, and skips the
-     * per-IP dimension entirely — the same outage as leaving it at `1`, reached from the
-     * other side.
+     * also passing `--ingress=internal-and-cloud-load-balancing` and anyone can call
+     * `run.app` directly (#305), in one of two ways:
+     *
+     * - **No `X-Forwarded-For`.** Cloud Run appends one entry, the header is shorter than
+     *   two, `callerFromForwarded` returns `null`, and the per-IP dimension is skipped.
+     * - **One entry the caller wrote.** Cloud Run appends its own, the header is two
+     *   entries long, and the second from the right — the one read as the caller — is the
+     *   one the caller sent. They can name a different address on every request and get a
+     *   fresh per-IP budget each time. This is the worse of the two: the throttle is not
+     *   absent, it is keyed on a value the caller picks.
+     *
+     * Either way per-IP throttling stops working on every auth, token and provider route
+     * and on `GET /me/export` (`consumeExportAttempt`). Routes with a per-address or
+     * per-account limit keep it; `/auth/idp`, `/me/auth/providers`, `/auth/activate` and
+     * `/auth/password/reset` are left with nothing.
      *
      * Minimum `1`: there is no topology with zero trusted hops, and `0` would not disable
      * "this dimension" the way the other knobs do — it would disable per-IP throttling on
