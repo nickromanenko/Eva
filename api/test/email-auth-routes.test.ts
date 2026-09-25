@@ -6,6 +6,7 @@ import { adminAuth, firestore } from '../src/firebase'
 import { markCredentialsProven } from '../src/identity-toolkit'
 import { markUserDeleted } from '../src/users'
 import { createUnactivatedAccount, signIn } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * The four routes that activation and password reset are made of (#6), driven live:
@@ -36,7 +37,7 @@ const PASSWORD = 'correct-horse-8'
 const createdUids: string[] = []
 const createdEmails: string[] = []
 
-const address = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const address = () => testEmail()
 
 /** An API-made account that has never confirmed its address. */
 const unactivated = async (): Promise<{ email: string; uid: string }> => {

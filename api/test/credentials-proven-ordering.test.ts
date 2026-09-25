@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, setDefaultTimeout, test } from 'bun:test'
 import { adminAuth, firestore } from '../src/firebase'
+import { testEmail } from './support/test-email'
 
 /**
  * The ordering invariant `api/CLAUDE.md` states, pinned at the two call sites that have to
@@ -82,7 +83,7 @@ const createdUids: string[] = []
 const createdEmails: string[] = []
 
 const address = () => {
-  const value = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+  const value = testEmail()
   createdEmails.push(value)
   return value
 }

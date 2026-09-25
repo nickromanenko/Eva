@@ -2,9 +2,9 @@
  * Sweeps e2e test accounts (e2e+*@e2e.evaapp.dev) from the real Firebase project: the Auth
  * user, the `users/{uid}` document, **and everything beneath it**.
  *
- *   cd api && bun run ../scripts/e2e-cleanup.ts            # sweep
- *   cd api && bun run ../scripts/e2e-cleanup.ts --dry-run  # count, delete nothing
  *   cd api && bun run ../scripts/e2e-cleanup.ts --only <file>  # just the addresses listed
+ *   cd api && bun run ../scripts/e2e-cleanup.ts --dry-run  # count, delete nothing
+ *   cd api && bun run ../scripts/e2e-cleanup.ts            # EVERY e2e account — by hand only
  *
  * ## `--only`, and why a UI run must not sweep everything (#322)
  *
@@ -16,6 +16,20 @@
  * the list its mailbox wrote (one address per line), and only those accounts are swept. The
  * ghost pass below is skipped in that mode: a ghost has no address, so it cannot be shown to
  * belong to this run. An unreadable list fails the sweep rather than widening it.
+ * `scripts/e2e.sh` does the same since #341, with one list for its API suite
+ * (`api/test/support/test-email.ts`) and its UI tests (the mailbox) together.
+ *
+ * ## The unscoped sweep is manual only (#341)
+ *
+ * No script or workflow runs this without `--only`, and none may. What the unscoped sweep is
+ * for — accounts, orphans and ghosts left by a run that died before its own sweep — cannot be
+ * told apart from the accounts of a run still in flight: that run may be on another machine,
+ * another simulator, or `Test Mobile` in CI on push and nightly, and nothing in an address or
+ * an Auth record says whose it is. A scheduled or scripted unscoped sweep would bring #322 back
+ * at a random hour. So an operator runs it, `--dry-run` first, when they know nothing is
+ * running against the real project: no local `e2e.sh` or `verify-mobile.sh`, and no
+ * `Test Mobile` run in progress on GitHub Actions. Until someone does, leftovers stay — they
+ * are throwaway accounts, and the Auth console shows them.
  *
  * ## Why `recursiveDelete` and not `.delete()` (#62)
  *

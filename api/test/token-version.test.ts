@@ -4,6 +4,7 @@ import { config } from '../src/config'
 import { issueToken } from '../src/email-tokens'
 import { adminAuth, firestore } from '../src/firebase'
 import { createUnactivatedAccount, signIn, signUpActivated } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * **A password reset invalidates every session** (#76) — the decision, and the only
@@ -37,7 +38,7 @@ const createdUids: string[] = []
 const createdEmails: string[] = []
 
 const address = (): string => {
-  const value = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+  const value = testEmail()
   createdEmails.push(value)
   return value
 }

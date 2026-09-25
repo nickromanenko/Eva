@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { adminAuth, firestore } from '../src/firebase'
+import { testEmail } from './support/test-email'
 
 // Each case spawns `bun run scripts/e2e-cleanup.ts` against a cold emulator — 0.2 s usually,
 // 3.4 s seen — so Bun's 5 s default flaked (#322 review). api/CLAUDE.md's #31 rule.
@@ -30,7 +31,7 @@ const apiDir = resolve(import.meta.dir, '..')
 const scratch = mkdtempSync(join(tmpdir(), 'eva-e2e-cleanup-test-'))
 const created: string[] = []
 
-const freshEmail = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const freshEmail = () => testEmail()
 
 /** An account the way the API leaves one: an Auth user and its `users/{uid}` document. */
 const account = async (email: string): Promise<string> => {

@@ -20,6 +20,7 @@ import {
   seedIfMissing,
 } from '../src/refdata'
 import { signUpActivated } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * Integration tests against the REAL Firebase project, same pattern as events.test.ts.
@@ -48,7 +49,7 @@ import { signUpActivated } from './support/session'
 setDefaultTimeout(20_000)
 
 const BASE = process.env.EVA_API_URL ?? 'http://localhost:3003'
-const email = `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const email = testEmail()
 const password = 'correct-horse-8'
 let token = ''
 let uid = ''

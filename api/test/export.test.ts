@@ -16,6 +16,7 @@ import { exportTodayCards, type TodayBanner, type TodayDocument } from '../src/t
 import type { User } from '../src/users'
 import { bootApi, type BootedApi } from './support/boot-api'
 import { signUpActivated } from './support/session'
+import { testEmail } from './support/test-email'
 
 /**
  * `GET /me/export` (#58): everything Eva holds about an account, as one JSON download.
@@ -52,7 +53,7 @@ const PAGE_SIZE = 2
 const THROTTLE_WINDOW_SECONDS = 777
 
 const password = 'correct-horse-8'
-const newEmail = () => `e2e+${crypto.randomUUID()}@e2e.evaapp.dev`
+const newEmail = () => testEmail()
 
 let main: BootedApi
 let throttled: BootedApi
