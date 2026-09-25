@@ -2159,6 +2159,7 @@ CI authenticates by Workload Identity Federation — **no key files in CI, ever*
 | `scripts/verify-mobile.sh --build` | `Test Mobile` / `Build` | PR touching `mobile/**`, then again on `main` | — |
 | `scripts/ci-mobile.sh` | `Test Mobile` / `Full suite` | push to `main`, and nightly — **not** on a PR | — |
 | `scripts/verify-secrets.sh` | `Check Secrets` | **every** PR, no path filter, and push to `main` | — (see below) |
+| `scripts/test-verify-secrets.sh` | `Check Secrets` | same job, after the check, under mawk | — |
 
 Before #67 exactly one of those ran, and `Deploy API` pushed to production Cloud Run on
 every merge touching `api/**` with no typecheck and no test in between. The deploys now
@@ -2269,6 +2270,14 @@ only tells you. Making it required is a repository setting for a human, and it r
 the same `403` as the paragraph above: it is part of that decision, not a separate one.
 It checks the tree, not history — a key added and removed inside one PR passes, and is
 still in history to rotate.
+
+The same job then runs `scripts/test-verify-secrets.sh` (#310) with `awk` pointed at
+mawk, Ubuntu's default awk (macOS uses a different one). It builds a throwaway repo,
+generates keys at run time, and asserts that each layout and file name the script must
+catch fails, a clean tree passes, and a failed `git grep` fails. It also runs the suite
+against mutated copies of the script (no `-z`, no `./` before awk's file, no exit-status
+check), and each of those must fail. Change the script and its test together: a mutation
+that no longer applies fails the test.
 
 ## 7. Known gaps (deliberate, not oversights)
 
