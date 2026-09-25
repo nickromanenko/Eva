@@ -43,7 +43,7 @@ scripts/verify-mobile.sh        # xcodegen + build + all UI tests (~30 min, need
 ONLY_TESTING=-only-testing:EvaUITests/HomeUITests scripts/verify-mobile.sh   # a subset
 scripts/verify-website.sh       # astro build
 scripts/e2e.sh                  # full stack against real Firebase (slow, creates accounts)
-scripts/verify.sh               # everything above except e2e
+scripts/verify.sh               # verify-api (REAL project) + rules + full mobile + website — not ci-api, not a subset
 ```
 
 ## Workflow
