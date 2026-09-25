@@ -822,13 +822,15 @@ Real platform limits, not decisions:
 - Portrait iPhone only, iOS 18+. No dark palette is designed yet; don't invent one.
 - **The website** takes the same tokens from one block, `website/src/styles/tokens.css`
   (custom properties plus the §3 roles as `t-display` … `t-overline` classes); no page or
-  layout inlines a hex. Montserrat is self-hosted from the app's own OFL files
-  (`website/public/fonts/`, with `OFL.txt`) — 400/500/600 only, no third-party font
-  request (#85). There is no website canvas, so the site applies the tokens rather than
-  a drawn page. It takes the §9a action ramp for pink text and for anything with a white
-  label, Secondary Text for captions (the settings-row argument), and a light footer,
-  since no dark palette exists. The email-link pages (`AuthLayout.astro`) share the block
-  and still draw §5's canvas primary.
+  layout inlines a colour literal. Montserrat is self-hosted from the app's own OFL files,
+  re-wrapped losslessly as woff2 (`website/public/fonts/`, with `OFL.txt`) — 400/500/600
+  only, no third-party font request (#85, #316). There is no website canvas, so the site
+  applies the tokens rather than a drawn page. It takes the §9a action ramp for pink text
+  and for anything with a white label, Secondary Text for captions and input helpers (the
+  settings-row argument), the §2 ink for the success and info marks' glyphs (the base
+  measures under 4:1 on its own tint) — the error "!" takes `--eva-action-bottom`, since
+  even the error ink renders ~4.4:1 on the error tint — and a light footer, since no dark palette exists. The email-link
+  pages (`AuthLayout.astro`) share the block and, since #316, the same ramp.
 - Selection is never colour alone — **fill, label colour and elevation move together**.
   A border is not part of it: the artboard's selected chip has fill, white label and
   shadow and no border, while the severe chip does carry one. (This sentence previously
