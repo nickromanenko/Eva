@@ -2275,9 +2275,10 @@ The same job then runs `scripts/test-verify-secrets.sh` (#310) with `awk` pointe
 mawk, Ubuntu's default awk (macOS uses a different one). It builds a throwaway repo,
 generates keys at run time, and asserts that each layout and file name the script must
 catch fails, a clean tree passes, and a failed `git grep` fails. It also runs the suite
-against mutated copies of the script (no `-z`, no `./` before awk's file, no exit-status
-check), and each of those must fail. Change the script and its test together: a mutation
-that no longer applies fails the test.
+against mutated copies of the script, each with one safeguard removed (`-z`, awk's `./`
+and `/dev/null`, each exit-status check, the temp-file writability guard). Each mutant
+must fail the cases named for it and still pass the clean tree. Change the script and its
+test together: a mutation that no longer applies, or no longer parses, fails the test.
 
 ## 7. Known gaps (deliberate, not oversights)
 

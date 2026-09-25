@@ -18,11 +18,13 @@
 #      file — the scanner runs over it like any other tracked file.
 #   2. Builds a throwaway git repo holding a copy of the script, and for each case stages
 #      the case's files, runs the script, and asserts the exit status and the reason.
-#   3. Runs the whole suite again against mutated copies of the script — no `-z`, no `./`
-#      before awk's file, no exit-status check in either scan — and requires each to fail.
-#      A test that passes against a broken script is not testing it. If a mutation no
-#      longer applies because the script changed, that is a failure too: update the
-#      mutation along with the script.
+#   3. Runs the whole suite again against mutated copies of the script, each with one
+#      safeguard removed (`-z`, awk's `./` and `/dev/null`, each exit-status check, the
+#      temp-file writability guard, the #306 fix). Each mutant must fail the cases named
+#      for it and must still pass the clean tree. A test that passes against a broken
+#      script is not testing it. A mutant that cannot be built is a failure too: perl
+#      erred, the result is empty, unchanged, or no longer parses. Update the mutation
+#      along with the script.
 #
 # Usage: scripts/test-verify-secrets.sh           (the real script plus its mutants)
 #        scripts/test-verify-secrets.sh SCRIPT    (the suite once, against SCRIPT)
@@ -30,9 +32,11 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SUBJECT="$ROOT/scripts/verify-secrets.sh"
 
-for tool in git openssl ssh-keygen awk; do
+for tool in git openssl ssh-keygen awk perl; do
   command -v "$tool" >/dev/null || { echo "✗ $tool is required"; exit 1; }
 done
+# Two cases take read permission away from a file; root reads it regardless.
+[ "$(id -u)" -ne 0 ] || { echo "✗ run this as an unprivileged user, not root"; exit 1; }
 
 WORK=$(mktemp -d) || { echo "✗ could not create a temporary directory"; exit 1; }
 trap 'rm -rf "$WORK"' EXIT
@@ -60,46 +64,81 @@ SA_TYPE='"type": "service_''account"'
 # ─── The throwaway repo ─────────────────────────────────────────────────────────────────
 REPO="$WORK/repo"
 mkdir -p "$REPO/scripts" "$REPO/api"
-git -C "$REPO" init -q
-git -C "$REPO" config user.email test@example.invalid
-git -C "$REPO" config user.name test
-git -C "$REPO" config commit.gpgsign false
 cp "$ROOT/api/.env.example" "$REPO/api/.env.example"
 echo "# Eva" > "$REPO/README.md"
 
-# A shim that makes one `git grep` fail, chosen by FAIL_GREP_ARG (an exact argument), and
-# leaves a mark so a case can tell the shim fired rather than the pattern having moved.
+# Wipe the repo's history so each suite starts from its own baseline.
+fresh_repo() {
+  rm -rf "$REPO/.git"
+  git -C "$REPO" init -q
+  git -C "$REPO" config user.email test@example.invalid
+  git -C "$REPO" config user.name test
+  git -C "$REPO" config commit.gpgsign false
+}
+
+# ─── Shims, each on PATH only for the case that needs it ────────────────────────────────
+# Each leaves $FIRED, so a case can tell the shim ran rather than the script having
+# changed shape under it.
+FIRED="$WORK/shim-fired"
 REAL_GIT=$(command -v git)
-mkdir -p "$WORK/shim"
-cat > "$WORK/shim/git" <<EOF
+REAL_AWK=$(command -v awk)
+REAL_MKTEMP=$(command -v mktemp)
+mkdir -p "$WORK/shim-git" "$WORK/shim-awk" "$WORK/shim-mktemp"
+
+# git: fail the one `git grep` given FAIL_GREP_ARG as an exact argument.
+cat > "$WORK/shim-git/git" <<EOF
 #!/bin/bash
 if [ "\${1:-}" = grep ] && [ -n "\${FAIL_GREP_ARG:-}" ]; then
   for a in "\$@"; do
-    if [ "\$a" = "\$FAIL_GREP_ARG" ]; then touch "$WORK/shim-fired"; echo "fatal: forced" >&2; exit 128; fi
+    if [ "\$a" = "\$FAIL_GREP_ARG" ]; then touch "$FIRED"; echo "fatal: forced" >&2; exit 128; fi
   done
 fi
 exec "$REAL_GIT" "\$@"
 EOF
-chmod +x "$WORK/shim/git"
+
+# awk: take read permission away from UNREADABLE_FOR_AWK, then run the real awk. git grep
+# has already listed the file, so this is a tracked file awk cannot open — and a script
+# that fed awk through `< "$1"` would already hold it open, which is what makes the
+# difference visible.
+cat > "$WORK/shim-awk/awk" <<EOF
+#!/bin/bash
+if [ -n "\${UNREADABLE_FOR_AWK:-}" ] && [ -e "\$UNREADABLE_FOR_AWK" ]; then
+  chmod 000 "\$UNREADABLE_FOR_AWK"; touch "$FIRED"
+fi
+exec "$REAL_AWK" "\$@"
+EOF
+
+# mktemp: hand back a temp file that cannot be written.
+cat > "$WORK/shim-mktemp/mktemp" <<EOF
+#!/bin/bash
+f=\$("$REAL_MKTEMP" "\$@") || exit
+chmod 444 "\$f"; touch "$FIRED"
+echo "\$f"
+EOF
+chmod +x "$WORK/shim-git/git" "$WORK/shim-awk/awk" "$WORK/shim-mktemp/mktemp"
 
 # ─── The suite ──────────────────────────────────────────────────────────────────────────
 PEM_WHY="a private key is committed"
 PM_WHY="what looks like a Postmark server token is committed"
 FAILS=0
+FAILED_CASES=""
 QUIET=0
 OUT="$WORK/out"
 
+# fail CASE MESSAGE — CASE is the name a mutant can require (see MUTANTS).
 fail() {
   FAILS=$((FAILS + 1))
+  FAILED_CASES="$FAILED_CASES|$1|"
   [ "$QUIET" -eq 1 ] && return
-  echo "✗ $1"
+  echo "✗ $1: $2"
   sed 's/^/    | /' "$OUT"
 }
 
 reset_repo() {
+  chmod -R u+rw "$REPO" 2>/dev/null
   git -C "$REPO" reset -q --hard
   git -C "$REPO" clean -qfdx
-  rm -f "$WORK/shim-fired"
+  rm -f "$FIRED"
 }
 
 # run_script [ENV=VALUE ...] — the script as CI runs it, from the repo's own scripts/.
@@ -117,11 +156,26 @@ expect_detected() {
   run_script
   rc=$?
   if [ "$rc" -ne 1 ]; then
-    fail "$name: expected exit 1, got $rc"
+    fail "$name" "expected exit 1, got $rc"
   elif ! grep -qF "$why" "$OUT"; then
-    fail "$name: failed, but not with \"$why\""
+    fail "$name" "failed, but not with \"$why\""
   elif grep -qE 'could not be read|git grep exited' "$OUT"; then
-    fail "$name: reported a scan error as well as the finding"
+    fail "$name" "reported a scan error as well as the finding"
+  fi
+  reset_repo
+}
+
+# expect_scan_error NAME WHAT [ENV=VALUE ...] — on the staged tree, with ENV, require exit 1
+# with WHAT in the output, and require that a shim fired.
+expect_scan_error() {
+  local name="$1" what="$2" rc
+  shift 2
+  run_script "$@"
+  rc=$?
+  if [ ! -e "$FIRED" ]; then
+    fail "$name" "the shim never ran — the script changed shape; update the test to match"
+  elif [ "$rc" -ne 1 ] || ! grep -qF "$what" "$OUT"; then
+    fail "$name" "expected exit 1 with \"$what\", got $rc"
   fi
   reset_repo
 }
@@ -132,6 +186,8 @@ pem_file() { cp "$2" "$REPO/$1"; }
 suite() {
   local script="$1" rc
   FAILS=0
+  FAILED_CASES=""
+  fresh_repo
   cp "$script" "$REPO/scripts/verify-secrets.sh"
   chmod +x "$REPO/scripts/verify-secrets.sh"
   git -C "$REPO" add -- README.md api/.env.example scripts/verify-secrets.sh
@@ -147,7 +203,7 @@ suite() {
   run_script
   rc=$?
   if [ "$rc" -ne 0 ] || ! grep -qF "✓ no credentials in tracked files" "$OUT"; then
-    fail "clean tree: expected exit 0 and a pass, got $rc"
+    fail "clean tree" "expected exit 0 and a pass, got $rc"
   fi
   reset_repo
 
@@ -198,35 +254,26 @@ suite() {
   run_script GIT_INDEX_FILE="$WORK/bad-index"
   rc=$?
   if [ "$rc" -ne 1 ] || ! grep -qF "git grep exited" "$OUT"; then
-    fail "unreadable index: expected exit 1 with \"git grep exited\", got $rc"
+    fail "unreadable index" "expected exit 1 with \"git grep exited\", got $rc"
   fi
   reset_repo
-  expect_grep_error "multi-line PEM scan" '-----BEGIN [A-Z ]*PRIVATE KEY-----'
-  expect_grep_error "service-account scan" '"type": *"service_account"'
+  expect_scan_error "multi-line PEM scan error" "git grep exited 128" \
+    PATH="$WORK/shim-git:$PATH" FAIL_GREP_ARG='-----BEGIN [A-Z ]*PRIVATE KEY-----'
+  expect_scan_error "service-account scan error" "git grep exited 128" \
+    PATH="$WORK/shim-git:$PATH" FAIL_GREP_ARG='"type": *"service_account"'
+
+  # A tracked file with a PEM header that awk cannot open: awk exits 2, and that must be
+  # reported, not read as "no key body". Header only, so nothing else can fire.
+  printf -- '-----BEGIN PRIVATE KEY-----\n' > "$REPO/unreadable.pem"
+  git -C "$REPO" add -- unreadable.pem
+  expect_scan_error "unreadable key file" "could not be read" \
+    PATH="$WORK/shim-awk:$PATH" UNREADABLE_FOR_AWK="$REPO/unreadable.pem"
+
+  # A temp file that cannot be written: the redirect would fail with 1, "no matches", so
+  # the script must refuse it up front.
+  expect_scan_error "read-only temp file" "git grep exited 2" PATH="$WORK/shim-mktemp:$PATH"
 
   return "$FAILS"
-}
-
-# expect_grep_error NAME PATTERN — make the git grep for PATTERN alone fail, on a clean tree.
-expect_grep_error() {
-  local rc
-  run_script PATH="$WORK/shim:$PATH" FAIL_GREP_ARG="$2"
-  rc=$?
-  if [ ! -e "$WORK/shim-fired" ]; then
-    fail "$1 error: no git grep was run with that pattern — update the test to match the script"
-  elif [ "$rc" -ne 1 ] || ! grep -qF "git grep exited 128" "$OUT"; then
-    fail "$1 error: expected exit 1 with \"git grep exited 128\", got $rc"
-  fi
-  reset_repo
-}
-
-# Wipe the repo's history between suites so each starts from its own baseline.
-fresh_repo() {
-  rm -rf "$REPO/.git"
-  git -C "$REPO" init -q
-  git -C "$REPO" config user.email test@example.invalid
-  git -C "$REPO" config user.name test
-  git -C "$REPO" config commit.gpgsign false
 }
 
 if [ $# -gt 0 ]; then
@@ -248,34 +295,72 @@ fi
 echo "✓ verify-secrets.sh: every case"
 
 # ─── Mutants ────────────────────────────────────────────────────────────────────────────
-# Each is the script with one safeguard removed. The suite must fail against every one.
-# NAME|perl substitution (on the whole file)
-MUTANTS=(
-  'no -z on git grep|s/git grep -z -lIE/git grep -lIE/'
-  'no ./ before awk'"'"'s file|s{"\./\$1" < /dev/null}{"\$1" < /dev/null}'
-  'no exit-status check in scan()|s/\*\) scan_failed "\$rc" "\$why" ;;/*) ;;/'
-  'no exit-status check on the PEM header scan|s/\*\) scan_failed "\$rc" "\$PEM_WHY" ;;/*) ;;/'
-  'the #306 Postmark bracket|s/\(\[Pp\]ostmark\|POSTMARK\)\.\{0,40\}/(postmark|POSTMARK)[^\\n]{0,40}/'
-)
+# Each is the script with one safeguard removed: a name, the cases (`;`-separated) that
+# must fail against it, and a perl substitution applied to the whole file.
+M_NAME=(); M_CASES=(); M_EXPR=()
+mutant() { M_NAME+=("$1"); M_CASES+=("$2"); M_EXPR+=("$3"); }
+mutant 'no -z on git grep' \
+  'PKCS#8 RSA;file name with a newline;postmark token: <uuid>' \
+  's/git grep -z -lIE/git grep -lIE/'
+mutant "no ./ before awk's file" \
+  'file named a=b' \
+  's{"\./\$1" < /dev/null}{"\$1" < /dev/null}'
+mutant 'awk reads the file from a redirect' \
+  'unreadable key file' \
+  's{"\./\$1" < /dev/null}{< "\$1"}'
+mutant 'no exit-status check in scan()' \
+  'service-account scan error' \
+  's/\*\) scan_failed "\$rc" "\$why" ;;/*) ;;/'
+mutant 'no exit-status check on the PEM header scan' \
+  'multi-line PEM scan error' \
+  's/\*\) scan_failed "\$rc" "\$PEM_WHY" ;;/*) ;;/'
+mutant "awk's failure not reported" \
+  'unreadable key file' \
+  's/\*\) report "\$f" "could not be read[^\n]*;;/*) ;;/'
+mutant 'no temp-file writability guard' \
+  'read-only temp file' \
+  's/\[ -w "\$MATCHES" \] \|\| return 2/:/'
+mutant 'the #306 Postmark bracket' \
+  'postmark token: <uuid>;JSON postmarkToken' \
+  's/\(\[Pp\]ostmark\|POSTMARK\)\.\{0,40\}/(postmark|POSTMARK)[^\\n]{0,40}/'
+
 MUTANT_FAILS=0
 QUIET=1
-for m in "${MUTANTS[@]}"; do
-  name="${m%%|*}"
-  expr="${m#*|}"
-  perl -0pe "$expr" "$SUBJECT" > "$WORK/mutant.sh"
-  if cmp -s "$SUBJECT" "$WORK/mutant.sh"; then
-    echo "✗ mutant \"$name\" no longer applies — the script changed; update the mutation"
-    MUTANT_FAILS=1
-    continue
+MUTANT="$WORK/mutant.sh"
+i=0
+while [ "$i" -lt "${#M_NAME[@]}" ]; do
+  name="${M_NAME[$i]}" cases="${M_CASES[$i]}" expr="${M_EXPR[$i]}"
+  i=$((i + 1))
+
+  # A mutant that was not built as intended would fail every case and look "caught".
+  if ! perl -0pe "$expr" "$SUBJECT" > "$MUTANT"; then
+    echo "✗ mutant \"$name\": perl failed — fix the substitution"
+    MUTANT_FAILS=1; continue
   fi
-  fresh_repo
-  suite "$WORK/mutant.sh"
+  if [ ! -s "$MUTANT" ] || cmp -s "$SUBJECT" "$MUTANT"; then
+    echo "✗ mutant \"$name\": empty or unchanged — the script changed; update the mutation"
+    MUTANT_FAILS=1; continue
+  fi
+  if ! bash -n "$MUTANT" 2>/dev/null; then
+    echo "✗ mutant \"$name\": does not parse — fix the substitution"
+    MUTANT_FAILS=1; continue
+  fi
+
+  suite "$MUTANT"
   n=$?
-  if [ "$n" -eq 0 ]; then
-    echo "✗ mutant \"$name\": every case still passed — the suite does not guard it"
+  missed=""
+  IFS=';' read -r -a want <<< "$cases"
+  for c in "${want[@]}"; do
+    case "$FAILED_CASES" in *"|$c|"*) ;; *) missed="$missed \"$c\"" ;; esac
+  done
+  if [ -n "$missed" ]; then
+    echo "✗ mutant \"$name\": not caught by$missed"
+    MUTANT_FAILS=1
+  elif case "$FAILED_CASES" in *"|clean tree|"*) true ;; *) false ;; esac; then
+    echo "✗ mutant \"$name\": broke the clean tree too — a broken mutant, not a weakened one"
     MUTANT_FAILS=1
   else
-    echo "✓ mutant \"$name\": caught by $n case(s)"
+    echo "✓ mutant \"$name\": caught by ${cases//;/, } ($n case(s) in all)"
   fi
 done
 [ "$MUTANT_FAILS" -ne 0 ] && exit 1
