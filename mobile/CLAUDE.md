@@ -47,8 +47,8 @@ prefix, as above. Same for the other hooks: `SIMCTL_CHILD_EVA_ONBOARDING_STEP=2 
 `GET /me/today` is D3 (#98) and does not exist, and the words it will serve come from a
 `content/` collection that is not seeded until a clinician signs the copy off (#97).
 `EVA_TODAY_CARD` seeds one canvas state so the Home tab can be reviewed and tested anyway.
-It names a key of `EvaTodayCardFixtures.all` (`home_a` … `home_loss`), or `none` for the
-day-with-no-card cold start:
+It names a key of `EvaTodayCardFixtures.all` (`home_a` … `home_loss`, plus `home_setup` —
+`home_d`'s card with meals not set up), or `none` for the day-with-no-card cold start:
 
 ```sh
 SIMCTL_CHILD_EVA_API_BASE_URL=http://localhost:3003 \
@@ -60,6 +60,11 @@ The seeded state also carries the canvas' "Worth reading" rail (#102): the pregn
 under `home_preg`/`home_flag`, the postpartum set under `home_post`, the cycle set under
 every other card, and **no rail under `none`** — the seeded way to see the section absent.
 Their URLs are `https://example.com/eva-fixture/…` placeholders, since the canvas draws none.
+
+It also carries the shortcuts row's facts (#100) as the canvas' state table draws them:
+`home_post` is postpartum (`Log feed`), `home_f` has a running period (`Log period` — the
+canvas' drawing, not a day C11 would answer `true` for), and `mealSetup` decides `Scan meal`
+against `Set up meals` and the setup card. `none` is the row at rest.
 
 `EVA_TODAY_REFRESH=offline` lands the first read and fails every one after it, which is the
 only way to reach the `home_off` bar: a card has to be cached before it can be a *cached*
@@ -101,7 +106,7 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Session/` | `AppSession` (all auth/session state), `KeychainTokenStore` (only token storage) |
 | `Eva/Onboarding/` | `OnboardingModel` state machine, `Steps/`, `Components/` |
 | `Eva/Navigation/` | The tab bar (`EvaTabView`) and `EvaTabRouter` — the tab selection, and the one request a tab makes of another |
-| `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar, and the "Worth reading" banner rail with its `SFSafariViewController` article view (#102) |
+| `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar, the shortcuts row and its meal-setup prompt (#100), and the "Worth reading" banner rail with its `SFSafariViewController` article view (#102) |
 | `Eva/Calendar/` | `CalendarView`, the month grid, the event model and its glyphs, the prediction overlay (#206) and the summary card |
 | `Eva/Calendar/Logging/` | The log picker sheet and its four forms, the write payloads, the date policy |
 | `Eva/Units/` | The units setting (#82): `EvaUnitSystem`, `EvaUnitPreference`, and the conversion boundary — SI in, feet/inches and stones/pounds out |

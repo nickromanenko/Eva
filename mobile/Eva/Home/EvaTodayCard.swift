@@ -48,25 +48,32 @@ struct EvaTodayResponse: Equatable, Sendable {
     /// when the server sent none, sent no key at all, or sent nothing openable; see
     /// `EvaTodayBanner` for what is dropped.
     let banners: [EvaTodayBanner]
+    /// What labels the shortcuts row (D5, #100): the mode, whether her period is running
+    /// today, and whether meal tracking is set up. The resting state — `Log`, `Set up
+    /// meals` — when the server sent none of it; see `EvaTodayShortcuts`.
+    let shortcuts: EvaTodayShortcuts
 
     init(
         date: EvaDay?,
         generatedAt: String? = nil,
         contentVersion: String? = nil,
         card: EvaTodayCard?,
-        banners: [EvaTodayBanner] = []
+        banners: [EvaTodayBanner] = [],
+        shortcuts: EvaTodayShortcuts = .resting
     ) {
         self.date = date
         self.generatedAt = generatedAt
         self.contentVersion = contentVersion
         self.card = card
         self.banners = banners
+        self.shortcuts = shortcuts
     }
 }
 
 extension EvaTodayResponse: Decodable {
     private enum CodingKeys: String, CodingKey {
         case date, generatedAt, contentVersion, card, banners
+        case mode, periodOngoing, nutritionSetUp
     }
 
     init(from decoder: any Decoder) throws {
@@ -79,7 +86,15 @@ extension EvaTodayResponse: Decodable {
             card: try container.decodeIfPresent(EvaTodayCard.self, forKey: .card),
             // Tolerant by construction: a missing key, a `null` or a malformed item never
             // fails the day's document — the card must still draw (#102).
-            banners: EvaTodayBanner.rail(from: container, forKey: .banners)
+            banners: EvaTodayBanner.rail(from: container, forKey: .banners),
+            // Tolerant the same way, for the same reason: a day stored before #100, or an
+            // API older than it, labels the row at rest rather than failing the card.
+            shortcuts: EvaTodayShortcuts(
+                from: container,
+                mode: .mode,
+                periodOngoing: .periodOngoing,
+                nutritionSetUp: .nutritionSetUp
+            )
         )
     }
 }

@@ -203,6 +203,9 @@ interface TodayBody {
   contentVersion: string
   card: Record<string, unknown>
   banners: Record<string, unknown>[]
+  mode: string
+  periodOngoing: boolean | null
+  nutritionSetUp: boolean | null
 }
 interface ErrorBody {
   error: { code: string; message: string }
@@ -796,6 +799,7 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
   test('only a finished setup’s focus areas rank it — and saving one is new data', async () => {
     const plain = await rebuild()
     expect(plain.banners[0]?.id).toBe('cycle_appetite')
+    expect(plain.nutritionSetUp).toBe(false)
 
     // Declared, but setup is not finished: PRD §Nutrition coach, nothing suggested from
     // partial data. The save still regenerates — it is her data — and ranks nothing.
@@ -806,6 +810,8 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
     const partial = await getToday(uid, NO_SESSION, request(), RULES)
     expect(partial.generatedAt).not.toBe(plain.generatedAt)
     expect(partial.banners[0]?.id).toBe('cycle_appetite')
+    // The shortcut reads the same "finished" the rail does (#100): partial is not set up.
+    expect(partial.nutritionSetUp).toBe(false)
 
     // Finished. No `rebuild()`: the stored day must go stale on this write alone.
     await saveNutritionProfile(uid, NO_SESSION, {
@@ -817,6 +823,7 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
     const complete = await getToday(uid, NO_SESSION, request(), RULES)
     expect(complete.generatedAt).not.toBe(partial.generatedAt)
     expect(complete.banners[0]?.id).toBe('cycle_iron')
+    expect(complete.nutritionSetUp).toBe(true)
   })
 
   /**
@@ -855,12 +862,38 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
     expect(served.generatedAt).toBe(built.generatedAt)
   })
 
+  test('a day stored before the shortcuts row existed is read as such, not rebuilt (#100)', async () => {
+    const built = await rebuild()
+    expect(built.mode).toBe('cycle')
+    expect(built.periodOngoing).toBe(false)
+    expect(built.nutritionSetUp).toBe(false)
+    const ref = todayDocs().doc(date())
+    const { mode: _m, periodOngoing: _p, nutritionSetUp: _n, ...legacy } = (await ref.get()).data()!
+    await ref.set(legacy)
+    const served = await getToday(uid, NO_SESSION, request(), RULES)
+    expect(served.generatedAt).toBe(built.generatedAt)
+    // Its mode is known — every card before D10 was built in `cycle` — and the other two are
+    // not, so they are `null` rather than an invented `false`.
+    expect(served.mode).toBe('cycle')
+    expect(served.periodOngoing).toBe(null)
+    expect(served.nutritionSetUp).toBe(null)
+  })
+
   test('GET /me/today carries the rail, each item exactly { id, title, meta, url }', async () => {
     await todayDocs().doc(date()).delete()
     const res = await api('/me/today?timeZone=UTC')
     expect(res.status).toBe(200)
     const body = await json<TodayBody>(res)
-    expect(Object.keys(body)).toEqual(['date', 'generatedAt', 'contentVersion', 'card', 'banners'])
+    expect(Object.keys(body)).toEqual([
+      'date',
+      'generatedAt',
+      'contentVersion',
+      'card',
+      'banners',
+      'mode',
+      'periodOngoing',
+      'nutritionSetUp',
+    ])
     expect(body.banners.length).toBeGreaterThan(0)
     expect(body.banners.length).toBeLessThanOrEqual(3)
     for (const item of body.banners) {
@@ -1220,6 +1253,50 @@ describe.skipIf(!onEmulators)('GET /me/today, over a logged cycle history', () =
     const lapsed = await cardToday()
     expect(lapsed.card.templateId).toBe('phase_energy')
     expect(lapsed.card.kicker).toBe('Cycle day 4 · likely approaching ovulation')
+  })
+
+  /**
+   * D5's contextual shortcut (#100), end to end: her first period ever, logged through the
+   * route. No prediction exists — one period is no cycle — so the card states no phase, and
+   * the flag must come from her own logged flow rather than from the phase. Deleting today's
+   * entry is new data on the next read, and leaves one dry day — still her period (#197).
+   */
+  test('her first period, logged today, is ongoing before any phase can be', async () => {
+    await startFresh()
+    const empty = await cardToday()
+    expect(empty.mode).toBe('cycle')
+    expect(empty.periodOngoing).toBe(false)
+
+    await flowOn(back(1))
+    const todays = await flowOn(back(0))
+    const logging = await cardToday()
+    expect(logging.periodOngoing).toBe(true)
+    // The premise: one period is no counted cycle, so the card is still learning her cycle
+    // and names no phase — the flag above cannot have come from one.
+    expect(logging.card.templateId).toBe('still_learning')
+
+    // Yesterday alone is one dry day: still her period (#197's grace).
+    expect((await api(`/me/events/${todays}`, { method: 'DELETE' })).status).toBe(200)
+    expect((await cardToday()).periodOngoing).toBe(true)
+  })
+
+  /**
+   * The same boundary as the card's phase through the route: the bleeding fixture above,
+   * which the card answers with no ovulation copy, is ongoing; with yesterday deleted — two
+   * dry days, where the card turns to `phase_energy` — it is not.
+   */
+  test('the flag ends where the menstrual phase ends, through the route', async () => {
+    await startFresh()
+    for (const days of [143, 115, 87, 59, 31]) await periodFrom(back(days), 2)
+    await flowOn(back(3))
+    await flowOn(back(2))
+    const yesterday = await flowOn(back(1))
+    expect((await cardToday()).periodOngoing).toBe(true)
+
+    expect((await api(`/me/events/${yesterday}`, { method: 'DELETE' })).status).toBe(200)
+    const lapsed = await cardToday()
+    expect(lapsed.card.templateId).toBe('phase_energy')
+    expect(lapsed.periodOngoing).toBe(false)
   })
 
   /**

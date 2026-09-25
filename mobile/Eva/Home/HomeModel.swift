@@ -130,6 +130,16 @@ final class HomeModel {
     /// in this object until #78's store makes it outlive the process.
     private(set) var banners: [EvaTodayBanner] = []
 
+    /// What labels the shortcuts row (D5, #100), or `nil` until a document has been read.
+    ///
+    /// Part of the same stored document as the card and the rail, so it follows their rules:
+    /// replaced only when it differs, kept when a refresh fails, kept when a same-day response
+    /// arrives without a card. `nil` rather than `.resting` before the first read so the
+    /// screen can tell "the payload says meals are not set up" — which draws the setup card —
+    /// from "nothing has been read yet", which must not flash one at someone who has set them
+    /// up. The row itself is drawn either way, at rest.
+    private(set) var shortcuts: EvaTodayShortcuts?
+
     var card: EvaTodayCard? {
         if case .card(let card) = state { return card }
         return nil
@@ -240,11 +250,19 @@ final class HomeModel {
             if card == nil || isNewDay {
                 set(.noCard)
                 setBanners(response.banners)
+                setShortcuts(response.shortcuts)
             }
             return
         }
         set(.card(incoming))
         setBanners(response.banners)
+        setShortcuts(response.shortcuts)
+    }
+
+    /// The shortcut facts' only writer, with the rail's equality guard.
+    private func setShortcuts(_ new: EvaTodayShortcuts) {
+        guard shortcuts != new else { return }
+        shortcuts = new
     }
 
     /// The rail's only writer. The same equality guard as `set(_:)`, for the same reason:

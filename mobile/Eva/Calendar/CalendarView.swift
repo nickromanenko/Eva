@@ -126,17 +126,28 @@ struct CalendarView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.refreshToday() }
         }
-        // The Today card's `Log now` / `Log period` / `Log test` (#99). It selects this
-        // tab and bumps the counter; this opens the picker on the **selected** day, which
-        // is the same day the FAB opens it on and the same day the picker's header states.
+        // The Today card's `Log now` / `Log period` / `Log test` (#99) and the Dashboard's
+        // first shortcut (#100). Each selects this tab and bumps the counter. The card's
+        // actions open the picker on the **selected** day — the FAB's day, and the one the
+        // picker's header states; the shortcut asks for today, so the grid is paged to it
+        // and it is selected before the picker opens on it.
         //
         // A counter rather than a flag, watched rather than read: this screen is kept
         // alive across tab switches and is never re-initialised, so there is no `init` and
         // no `task` for a request to arrive through.
         .onChange(of: router?.calendarLogRequests) { _, _ in
-            guard router != nil else { return }
+            guard let router else { return }
             model.dismissToast()
-            logging = .picker(model.selectedDay)
+            switch router.calendarLogDay {
+            case .selected:
+                logging = .picker(model.selectedDay)
+            case .today:
+                // Past midnight on a calendar kept alive since yesterday, `today` is stale
+                // until something re-reads it; this is a request *about* today.
+                model.refreshToday()
+                Task { await model.showToday() }
+                logging = .picker(model.today)
+            }
         }
     }
 

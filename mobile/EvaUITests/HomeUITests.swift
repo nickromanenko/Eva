@@ -256,6 +256,108 @@ final class HomeUITests: EvaUITestCase {
             "Open Calendar did not select the Calendar tab"
         )
 
+        // MARK: The shortcuts row (#100)
+        //
+        // Four buttons in the canvas' order, found by the slot's identifier and read back by
+        // label — so the contextual first label is asserted rather than assumed.
+
+        relaunch(app, card: "home_d")
+        let log = app.buttons["home.shortcut.log"]
+        let meals = app.buttons["home.shortcut.meals"]
+        let calendar = app.buttons["home.shortcut.calendar"]
+        let chat = app.buttons["home.shortcut.chat"]
+        XCTAssertTrue(log.waitForExistence(timeout: 20), "home_d drew no shortcuts row")
+        var previousX = -CGFloat.infinity
+        for (name, button) in [("log", log), ("meals", meals), ("calendar", calendar), ("chat", chat)] {
+            XCTAssertTrue(button.exists, "The \(name) shortcut is not drawn")
+            XCTAssertGreaterThan(button.frame.minX, previousX, "The \(name) shortcut is out of the canvas' order")
+            previousX = button.frame.minX
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44, "The \(name) shortcut is under §1's 44pt")
+            XCTAssertGreaterThanOrEqual(button.frame.width, 44, "The \(name) shortcut is under §1's 44pt")
+        }
+        XCTAssertEqual(log.label, "Log", "home_d is cycle mode with no running period")
+        XCTAssertEqual(calendar.label, "Calendar")
+        XCTAssertTrue(log.isEnabled && calendar.isEnabled, "Log and Calendar reach built screens")
+        // Meals set up under `home_d`: the feature, and no prompt.
+        XCTAssertTrue(meals.label.hasPrefix("Scan meal"), "home_d's meals shortcut: \(meals.label)")
+        XCTAssertFalse(
+            app.buttons["home.setupMeals"].exists,
+            "home_d has meals set up and still drew the setup card"
+        )
+        // Drawn and disabled until #25 and Eva Chat exist, and saying why.
+        for (name, button) in [("meals", meals), ("chat", chat)] {
+            XCTAssertFalse(button.isEnabled, "The \(name) shortcut is live — its screen does not exist")
+            XCTAssertTrue(
+                button.label.contains("Not available yet"),
+                "The disabled \(name) shortcut does not say why: \(button.label)"
+            )
+        }
+        XCTAssertTrue(chat.label.hasPrefix("Eva Chat"), "The fourth shortcut: \(chat.label)")
+        capture("shortcuts-home_d")
+
+        // `home_setup`: the prompt changes the meal shortcut's label and adds the card — and
+        // never removes the button (PRD Shortcuts 3).
+        relaunch(app, card: "home_setup")
+        XCTAssertTrue(meals.waitForExistence(timeout: 20), "home_setup removed the meals shortcut")
+        XCTAssertTrue(meals.label.hasPrefix("Set up meals"), "home_setup's meals shortcut: \(meals.label)")
+        XCTAssertFalse(meals.isEnabled, "Set up meals is live — #25's setup does not exist")
+        let setupCard = app.buttons["home.setupMeals"]
+        XCTAssertTrue(setupCard.exists, "home_setup drew no setup card")
+        XCTAssertFalse(setupCard.isEnabled, "The setup card is live — #25's setup does not exist")
+        XCTAssertTrue(
+            setupCard.label.contains("See calories and protein at a glance."),
+            "The setup card does not state the benefit: \(setupCard.label)"
+        )
+        XCTAssertTrue(
+            setupCard.label.contains("Not available yet"),
+            "The disabled setup card does not say why: \(setupCard.label)"
+        )
+        XCTAssertGreaterThan(setupCard.frame.minY, meals.frame.maxY, "The setup card is not below the row")
+        capture("shortcuts-home_setup")
+
+        // The first label, from the payload: a running period, and postpartum.
+        relaunch(app, card: "home_f")
+        XCTAssertTrue(log.waitForExistence(timeout: 20), "home_f drew no shortcuts row")
+        XCTAssertEqual(log.label, "Log period", "home_f's payload says her period is running")
+        relaunch(app, card: "home_post")
+        XCTAssertTrue(log.waitForExistence(timeout: 20), "home_post drew no shortcuts row")
+        XCTAssertEqual(log.label, "Log feed", "home_post is postpartum")
+        capture("shortcuts-home_post")
+
+        // `Calendar` selects the Calendar tab.
+        relaunch(app, card: "home_d")
+        tap(calendar, in: app)
+        XCTAssertTrue(
+            app.otherElements["calendar.grid"].waitForExistence(timeout: 10),
+            "The Calendar shortcut did not select the Calendar tab"
+        )
+
+        // `Log` opens the type picker on **today** — not on the calendar's selected day,
+        // which is where the Today card's `Log now` opens it. The calendar is paged two
+        // months back first, which moves its selection out of this month, so a picker that
+        // followed the selection would name the wrong month here.
+        tap(app.buttons["calendar.previousMonth"], in: app)
+        tap(app.buttons["calendar.previousMonth"], in: app)
+        tap(app.buttons["tab.home"], in: app)
+        tap(log, in: app)
+        XCTAssertTrue(
+            app.buttons["log.type.cycle"].waitForExistence(timeout: 10),
+            "The Log shortcut did not open the calendar's log picker"
+        )
+        let target = app.staticTexts["log.targetDay"]
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "The picker does not state its day")
+        let now = Date()
+        for part in [
+            now.formatted(.dateTime.month(.wide)),
+            now.formatted(.dateTime.year()),
+            now.formatted(.dateTime.day())
+        ] {
+            XCTAssertTrue(
+                target.label.contains(part),
+                "The Log shortcut's picker is not on today (\(part)): \(target.label)"
+            )
+        }
+
         // MARK: A refresh with nothing new leaves the card alone
         //
         // PRD §Dashboard, Other requirements 3 and Edge cases 5. The seeded source answers
@@ -303,6 +405,17 @@ final class HomeUITests: EvaUITestCase {
     }
 
     // MARK: - Helpers
+
+    /// A screenshot for side-by-side review against the canvas — kept only when
+    /// `EVA_UITEST_KEEP_SCREENSHOTS=1`, as the calendar suites do.
+    private func capture(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime =
+            ProcessInfo.processInfo.environment["EVA_UITEST_KEEP_SCREENSHOTS"] == "1"
+            ? .keepAlways : .deleteOnSuccess
+        add(attachment)
+    }
 
     /// Relaunches the same install with the Keychain **kept**, seeding one canvas state.
     ///

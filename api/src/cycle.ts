@@ -863,6 +863,43 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
 // ── The shape D1 consumes ──────────────────────────────────────────────────────────────
 
 /**
+ * Whether today is inside the period run that opened the current cycle — the menstrual
+ * boundary `phaseOn` draws (#197), and the one definition of it.
+ *
+ * Days with nothing logged since the run's last logged day, today included, are counted
+ * exactly as `loggedPeriods` counts them between two logged days, which is why it reads `<`
+ * against the same constant. Negative inside the run, where the answer was never in
+ * question. A run that opens *after* today (an entry on tomorrow's date, which the readers'
+ * one-day lookahead can see) is not today's period.
+ */
+const periodRunOpenOn = (analysis: CycleAnalysis, today: number): boolean => {
+  if (analysis.lastPeriodStart === null || analysis.currentPeriodEnd === null) return false
+  if (today < dayNumber(analysis.lastPeriodStart, 'lastPeriodStart')) return false
+  return (
+    today - dayNumber(analysis.currentPeriodEnd, 'currentPeriodEnd') < analysis.minPeriodGapDays
+  )
+}
+
+/**
+ * Whether her logged period is still running today (#100, D5's contextual "Log period").
+ *
+ * **Observed, never estimated, and therefore not behind the prediction gate.** `phaseOn`
+ * withholds every phase — menstrual included — when there is no prediction, because a phase
+ * is a statement to her about where she is in a cycle. This is not a phase and reaches no
+ * card: it is what the Dashboard's first shortcut is labelled, and its only evidence is flow
+ * she logged herself, carried at most `minPeriodGapDays - 1` dry days past the last one —
+ * the bound #197 set. Gating it would leave a woman in her first three cycles, logging her
+ * period every morning, with a shortcut that never offers to log it.
+ *
+ * The same boundary as the menstrual phase by construction (`periodRunOpenOn`), so the
+ * shortcut and the card cannot disagree about when a period ended whenever both answer.
+ * #75's period-end mark does not end it early, for the reason `loggedPeriods` gives: the mark
+ * is never an end date.
+ */
+export const periodOngoing = (analysis: CycleAnalysis): boolean =>
+  periodRunOpenOn(analysis, dayNumber(analysis.today, 'today'))
+
+/**
  * Today's phase, or `null`.
  *
  * Four codes, and every boundary between them comes from A26's own constants or from what
@@ -897,16 +934,7 @@ export const analyzeCycles = (input: CycleInput, rules: CycleRules | null): Cycl
 const phaseOn = (analysis: CycleAnalysis, today: number): PhaseCode | null => {
   // `today` is `analysis.today` as a day number; the caller has already parsed it once.
   if (analysis.prediction === null || analysis.cycleDay === null) return null
-  const periodEnd = analysis.currentPeriodEnd
-  // Days with nothing logged since the run's last logged day, today included — the same
-  // count `loggedPeriods` takes between two logged days, which is why it reads `<` against
-  // the same constant. Negative inside the run, where the answer was never in question.
-  if (
-    periodEnd !== null &&
-    today - dayNumber(periodEnd, 'currentPeriodEnd') < analysis.minPeriodGapDays
-  ) {
-    return 'menstrual'
-  }
+  if (periodRunOpenOn(analysis, today)) return 'menstrual'
   const window = analysis.prediction.fertileWindow
   if (today < dayNumber(window.from, 'fertileWindow.from')) return 'follicular'
   if (today <= dayNumber(window.to, 'fertileWindow.to')) return 'ovulation'

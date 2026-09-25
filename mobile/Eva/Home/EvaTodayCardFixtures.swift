@@ -48,6 +48,7 @@ enum EvaTodayCardLaunch {
         return SeededTodayCardSource(
             card: requestedState == "none" ? nil : EvaTodayCardFixtures.all[requestedState],
             banners: EvaTodayCardFixtures.banners(forState: requestedState),
+            shortcuts: EvaTodayCardFixtures.shortcuts(forState: requestedState),
             goesOfflineAfterFirstRead: requestedRefresh == "offline"
         )
     }()
@@ -63,16 +64,19 @@ final class SeededTodayCardSource: TodayCardSource {
 
     private let card: EvaTodayCard?
     private let banners: [EvaTodayBanner]
+    private let shortcuts: EvaTodayShortcuts
     private let goesOfflineAfterFirstRead: Bool
     private(set) var reads = 0
 
     init(
         card: EvaTodayCard?,
         banners: [EvaTodayBanner] = [],
+        shortcuts: EvaTodayShortcuts = .resting,
         goesOfflineAfterFirstRead: Bool = false
     ) {
         self.card = card
         self.banners = banners
+        self.shortcuts = shortcuts
         self.goesOfflineAfterFirstRead = goesOfflineAfterFirstRead
     }
 
@@ -84,7 +88,8 @@ final class SeededTodayCardSource: TodayCardSource {
             generatedAt: "seeded",
             contentVersion: "seeded",
             card: card,
-            banners: banners
+            banners: banners,
+            shortcuts: shortcuts
         )
     }
 }
@@ -152,15 +157,53 @@ enum EvaTodayCardFixtures {
         }
     }
 
+    /// The shortcuts row's facts for each state (#100), read off the canvas' own state table
+    /// (`['home_d', …, {card, mealSetup, …}]`) and its `shortcuts` code:
+    ///
+    /// * **mode** — the mode the card is written in: `home_plan` planning, `home_preg` and
+    ///   `home_flag` pregnancy, `home_post` postpartum, `home_loss` loss, everything else cycle.
+    /// * **nutritionSetUp** — the table's `mealSetup`, verbatim.
+    /// * **periodOngoing** — `true` only under `home_f`, the one card the canvas labels `Log
+    ///   period` (`S.card==='F'`). That is the canvas' drawing and not the server's rule:
+    ///   `home_f` is *a period later than predicted*, and C11's `periodOngoing` would answer
+    ///   `false` on such a day. It is seeded as drawn so the state matches its artboard; the
+    ///   rule itself is `EvaTodayShortcuts`' and its unit tests'.
+    ///
+    /// `none` — the day with no card — is at rest: `Log`, `Set up meals`.
+    static func shortcuts(forState state: String) -> EvaTodayShortcuts {
+        let mode: EvaMode = switch state {
+        case "home_plan": .planning
+        case "home_preg", "home_flag": .pregnancy
+        case "home_post": .postpartum
+        case "home_loss": .loss
+        default: .cycle
+        }
+        let mealsSetUp: Set<String> = [
+            "home_d", "home_e", "home_f", "home_h", "home_edu", "home_preg", "home_flag",
+            "home_post", "home_loss"
+        ]
+        return EvaTodayShortcuts(
+            mode: mode,
+            periodOngoing: state == "home_f",
+            nutritionSetUp: mealsSetUp.contains(state)
+        )
+    }
+
+    /// `home_d`'s card, which `home_setup` shares — the canvas draws that state as card `D`
+    /// with meals not set up.
+    private static let dailyBriefing = EvaTodayCard(
+        templateId: "phase_energy", rung: "phase",
+        kicker: "Cycle day 13 · likely approaching ovulation",
+        title: "Many women notice higher energy around now",
+        line2: "This is a tendency across cycles, not a prediction about your day.",
+        line3: "If that matches how you feel, a harder training session may be an option.",
+        actions: [EvaTodayCardAction(label: "View cycle details")]
+    )
+
     static let all: [String: EvaTodayCard] = [
-        "home_d": EvaTodayCard(
-            templateId: "phase_energy", rung: "phase",
-            kicker: "Cycle day 13 · likely approaching ovulation",
-            title: "Many women notice higher energy around now",
-            line2: "This is a tendency across cycles, not a prediction about your day.",
-            line3: "If that matches how you feel, a harder training session may be an option.",
-            actions: [EvaTodayCardAction(label: "View cycle details")]
-        ),
+        "home_d": dailyBriefing,
+        // "Nutrition setup pending" (#100): `home_d`'s card, `Set up meals` and the setup card.
+        "home_setup": dailyBriefing,
         "home_e": EvaTodayCard(
             templateId: "signal_overrides_phase", rung: "pattern",
             kicker: "Cycle day 13",

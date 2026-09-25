@@ -720,6 +720,19 @@ which also makes its row 48pt tall, so the gap between the header and the cards 
 than the artboard's 10px. A tap on a card opens its article in `SFSafariViewController`,
 full screen; the canvas draws no destination.
 
+**The shortcuts row draws two of its four buttons disabled (#100).** `Scan meal` / `Set up
+meals` and the "Set up meal tracking" card lead into the Nutrition coach (#25 S3, S9), and
+`Eva Chat` into a Chat tab this build does not have (three tabs, above) — so all three are
+drawn, dimmed as the log picker's unavailable rows are, and announced "Not available yet."
+PRD Shortcuts 3 forbids hiding them. The canvas routes `Eva Chat` to a toast; `Log` opens the
+calendar's type picker on **today** rather than the selected day, which is where the Today
+card's `Log now` opens it. The tiles take §4's card with the artboard's `.9 → .62` wash at
+150° (the `base` tone's trade), the label is `Font.evaOverline` (the tab bar's 10.5px
+rounding), and the 34pt mark slots are drawn as the canvas draws them — tinted, with no
+glyph, since the canvas draws none. The setup card is §7's empty-state surface (the
+calendar's empty-day row, dashed 4/4) in the artboard's `rgba(201,95,134,.4)`; its title is
+Control and its benefit line Input helper. It has no chevron while it is disabled.
+
 **An unavailable picker row is dimmed lightly, and its title is Secondary rather than the
 disabled ink.** Stacking `evaDisabledText` on the row's own opacity made the sentence
 explaining the refusal the least readable thing on the sheet — which defeats the point of
