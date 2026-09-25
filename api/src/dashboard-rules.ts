@@ -1,4 +1,4 @@
-import type { Confidence, Slot } from './content'
+import type { Banner, Confidence, Slot } from './content'
 
 /**
  * The Today card's rules layer (#96, slice D1 of #10): a day's inputs in, a *subject* out.
@@ -27,7 +27,8 @@ import type { Confidence, Slot } from './content'
  * configuration and this module refuses to answer without them; the ≥3-cycle gate and the
  * irregularity band are C11's constants and arrive as the answers C11 already reached, so
  * no number here can drift from the one the fertile window uses. Nudge eligibility is D6,
- * banner selection D7, and the mode-specific rungs 1 and 3 are D10.
+ * and the mode-specific rungs 1 and 3 are D10. Banner selection (D7, #102) is at the end of
+ * this file, beside the subject it must not repeat — see `selectBanners`.
  */
 
 /** Which mode the Dashboard is in (PRD §Dashboard, Mode variants). Only `cycle` has rules
@@ -843,4 +844,111 @@ export const selectSubject = (input: DashboardInput, rules: DashboardRules): Sub
     if (subject !== null) return subject
   }
   return educationRung()
+}
+
+// ── The banner rail (PRD §Dashboard → Banner area; D7, #102) ───────────────────────────
+
+/** Canvas `banners`: three items per set. A ceiling, never a quota — see `selectBanners`. */
+export const BANNER_LIMIT = 3
+
+/** What the rail is chosen from, beside the rows themselves. Every field is an answer the
+ *  caller already has; nothing here is read or derived. */
+export interface BannerInput {
+  mode: Mode
+  /** The day's card — `Subject.templateId` from `selectSubject`, for the same day. */
+  subject: TemplateId
+  /**
+   * The focus-area codes from a **completed** Nutrition setup, in any order; empty when she
+   * has declared none or has not finished setup. Partial answers are not passed: PRD §Nutrition
+   * coach, "Nothing is calculated, displayed or suggested from partial data", and ranking a
+   * reading list by them is a suggestion.
+   */
+  focusAreas: readonly string[]
+}
+
+/**
+ * Only an absolute `https://` URL is a destination the rail can open in an in-app browser —
+ * and **only when the string stored is already the URL the parser reads**.
+ *
+ * The check and the thing served must be the same string. `new URL` forgives a great deal on
+ * the way in: it trims surrounding whitespace, drops tabs and newlines from anywhere inside,
+ * lower-cases the scheme and host, and resolves `..`. Checking the parsed URL and then serving
+ * the raw one would put a string on the rail this function never judged, and a client parsing
+ * it more strictly could open something else, or nothing. Serving `parsed.href` instead would
+ * put a URL on the rail that no reviewer wrote. So a row whose `url` is not exactly its own
+ * normal form is refused, and the fix is a visible edit in `content/` — the same fail-closed
+ * direction as every other clause here. The cost is that `https://example.org` (no trailing
+ * `/`) is refused where `https://example.org/` is served; an article URL has a path.
+ */
+const opensSomewhere = (url: string): boolean => {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' && parsed.hostname.length > 0 && parsed.href === url
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether a row may appear on this day's rail at all. Every clause is a refusal the PRD or
+ * #102 names, and none of them is a preference:
+ *
+ * - **`status: 'active'`** — the retirement contract (#146): a retired row stays in `content/`
+ *   so a stored rail can still resolve its id, and is never chosen for a new one.
+ * - **Its `mode` is today's, exactly.** `'any'` is *not* a wildcard here, although templates
+ *   use it as one: `toBanner` defaults a missing tag to `'any'`, so honouring it would put a
+ *   row somebody forgot to tag onto every rail — the loss-mode one included, which PRD Mode
+ *   variants requires to carry no pregnancy content at all. An untagged row reaches nobody.
+ * - **It does not repeat the card's subject** (Banner area 3). The comparison is on the id the
+ *   ladder chose, so the card and the rail cannot disagree about what today is about.
+ * - **It has a title, a meta line and an `https://` URL in its normal form** (`opensSomewhere`).
+ *   The rail draws the first two and the tap opens the third (#102); a card missing any of
+ *   them is a broken card, and an item with no article behind it is a link to nothing.
+ */
+const eligible = (item: Banner, input: BannerInput): boolean =>
+  item.status === 'active' &&
+  item.mode === input.mode &&
+  !item.subjects.includes(input.subject) &&
+  item.title.trim().length > 0 &&
+  item.meta.trim().length > 0 &&
+  opensSomewhere(item.url)
+
+/**
+ * The day's banner rail: up to `BANNER_LIMIT` rows, in the order the rail draws them.
+ *
+ * PRD §Dashboard, Banner area 2 — "selected by cycle phase, mode and declared focus areas, so
+ * it is relevant rather than random" — and 3, "never duplicates the subject of the Today
+ * card on the same day".
+ *
+ * **Filter, then rank, then cut — and never pad.** Eligibility is `eligible` above. Among the
+ * eligible rows, one carrying more of her declared focus areas comes first; ties keep the
+ * store's own `order`, then the id, so the answer is a function of its inputs and nothing
+ * else. With fewer than three eligible rows the rail is *shorter*: a row from another mode,
+ * a retired one or one repeating the card is never borrowed to make up the number, because
+ * "relevant rather than random" is exactly the property filler destroys (#102's Risks).
+ *
+ * **What it does not rank by: the cycle phase.** No row carries a within-cycle phase tag —
+ * D2's `phase` field names the canvas set (`cycle`/`pregnancy`/`postpartum`), which `mode`
+ * already filters on — and #102's tone criterion limits a banner's tags to topic, mode and
+ * focus area. Tagging "before your period" to `luteal` is an editorial and clinical call for
+ * the reviewer of `content/`, not something this function may infer from a title. When such
+ * a tag exists, it ranks here, below focus areas; until then the phase is not an input.
+ *
+ * Pure, like the rest of this file: no clock, no Firestore, no randomness. `today.ts` calls
+ * it once when it builds the day's document and stores the answer, so the rail is stable
+ * across opens by the same rule the card is (PRD Other requirements 3).
+ */
+export const selectBanners = (items: readonly Banner[], input: BannerInput): Banner[] => {
+  const focus = new Set(input.focusAreas)
+  const matches = (item: Banner): number =>
+    new Set(item.focusAreas.filter((code) => focus.has(code))).size
+  return items
+    .filter((item) => eligible(item, input))
+    .map((item) => ({ item, matches: matches(item) }))
+    .sort(
+      (a, b) =>
+        b.matches - a.matches || a.item.order - b.item.order || a.item.id.localeCompare(b.item.id),
+    )
+    .slice(0, BANNER_LIMIT)
+    .map(({ item }) => item)
 }

@@ -27,7 +27,8 @@ import { firestore } from './firebase'
  * - **Nothing is deleted, only retired.** A template a cached card points at still has
  *   to resolve, so removal is `retireContent`, never a side effect of re-seeding. Retired
  *   rows stay in `GET /content`, but consumers must not select them for new cards,
- *   banners or nudges; `TemplatePhraser` enforces that rule for today's card.
+ *   banners or nudges; `TemplatePhraser` enforces that rule for today's card and
+ *   `selectBanners` (`dashboard-rules.ts`, #102) for the day's banner rail.
  *
  * What this module deliberately does **not** do: choose a template for a day (D1), fill
  * one (D3), or render one (D4–D8). It holds the words and says who signed them.
@@ -119,20 +120,39 @@ export interface Template {
   order: number
 }
 
-/** A banner item — the educational rail beside the card. */
+/** A banner item — the "Worth reading" rail below the card (D7, #102). */
 export interface Banner {
   id: string
-  /** `cycle` | `pregnancy` | `postpartum`. */
+  /** `cycle` | `pregnancy` | `postpartum` — the canvas set this item was drawn in. Not read
+   *  by selection: `mode` is the tag the rail filters on (#102). */
   phase: string
+  /** The Dashboard mode whose rail may show this item. Selection matches it **exactly**;
+   *  the parser's `'any'` default is never a wildcard for a banner (see `selectBanners`). */
   mode: string
   /** Nutrition, Movement, Recovery, Pregnancy — the canvas' category word. */
   focus: string
   title: string
   meta: string
-  /** Where the article lives. Empty until the article exists; a banner with no URL is
-   *  still servable, because the rail is drawn from this and the link is the last part
-   *  to arrive. */
+  /**
+   * Where the article lives. Empty until the article exists — and **an item with no
+   * `https://` URL is not served on the rail** (#102): the whole card is the tap target, and
+   * a tap that opens nothing is a dead link no verify script sees. `GET /content` still
+   * carries the row; only the rail declines it.
+   */
   url: string
+  /**
+   * The Today-card template ids (`dashboard-rules.ts`'s `TEMPLATE`) whose subject this item
+   * repeats — PRD §Dashboard Banner area 3: "The banner never duplicates the subject of the
+   * Today card on the same day." A topic tag, never a verdict about a phase.
+   */
+  subjects: string[]
+  /**
+   * The Nutrition focus-area codes (`nutrition-profile.ts`'s `FOCUS_AREA_CODES`) this item is
+   * *about*, which rank it first for someone who declared one (#102). Strings here rather than
+   * the code type: this module reaches no other owner, and an unknown code simply matches
+   * nobody.
+   */
+  focusAreas: string[]
   status: ContentStatus
   order: number
 }
@@ -232,6 +252,8 @@ const toBanner = (raw: Record<string, unknown>, index: number): Banner => ({
   title: asString(raw.title),
   meta: asString(raw.meta),
   url: asString(raw.url),
+  subjects: asStringArray(raw.subjects),
+  focusAreas: asStringArray(raw.focusAreas),
   status: asStatus(raw.status),
   order: typeof raw.order === 'number' ? raw.order : index,
 })
@@ -339,7 +361,15 @@ export const reviewProblems = (review: Partial<Review> | undefined): string[] =>
 }
 
 const CACHE_TTL_MS = 60_000
-let cache: { at: number; data: Content } | null = null
+
+/** What one read of the collection yields: the served bundle, and which of its documents
+ *  carry no signature. The second half is never served — see `getSignedContent`. */
+interface Loaded {
+  data: Content
+  unsigned: ReadonlySet<ContentId>
+}
+
+let cache: { at: number; loaded: Loaded } | null = null
 let lastWarnedAt = 0
 
 const invalidate = (): void => {
@@ -375,26 +405,35 @@ const storedContentRows = (id: ContentId, rows: unknown[]): StoredContentRow[] =
   return usable
 }
 
-const loadBundle = async (): Promise<ContentBundle> => {
+const loadBundle = async (): Promise<{ bundle: ContentBundle; unsigned: Set<ContentId> }> => {
   const refs = CONTENT_IDS.map((id) => collection().doc(id))
   const snapshots = await firestore.getAll(...refs)
   const parsed = CONTENT_IDS.map((id, index) => parseItems(id, snapshots[index]?.data()))
+  const unsigned = new Set(
+    CONTENT_IDS.filter(
+      (_, index) => reviewProblems(snapshots[index]?.data() as Partial<Review>).length > 0,
+    ),
+  )
   return {
-    templates: (parsed[0] ?? []) as Template[],
-    banners: (parsed[1] ?? []) as Banner[],
-    nudges: (parsed[2] ?? []) as Nudge[],
+    bundle: {
+      templates: (parsed[0] ?? []) as Template[],
+      banners: (parsed[1] ?? []) as Banner[],
+      nudges: (parsed[2] ?? []) as Nudge[],
+    },
+    unsigned,
   }
 }
 
 const isEmpty = (bundle: ContentBundle): boolean =>
   bundle.templates.length === 0 && bundle.banners.length === 0 && bundle.nudges.length === 0
 
-export const getContent = async (): Promise<Content> => {
+const load = async (): Promise<Loaded> => {
   const now = Date.now()
-  if (cache && now - cache.at < CACHE_TTL_MS) return cache.data
+  if (cache && now - cache.at < CACHE_TTL_MS) return cache.loaded
 
-  const bundle = await loadBundle()
+  const { bundle, unsigned } = await loadBundle()
   const data: Content = { version: contentVersion(bundle), ...bundle }
+  const loaded: Loaded = { data, unsigned }
   // An unseeded collection is an operational state, not a snapshot worth holding onto:
   // caching it would keep an instance blind for a minute after seeding. Unlike `refdata/`,
   // where empty is a brief boot window, empty is the *steady* state here until a clinician
@@ -406,9 +445,36 @@ export const getContent = async (): Promise<Content> => {
       console.warn('content: no documents found — run `bun run seed:content`')
     }
   } else {
-    cache = { at: now, data }
+    cache = { at: now, loaded }
   }
-  return data
+  return loaded
+}
+
+export const getContent = async (): Promise<Content> => (await load()).data
+
+/** The bundle, and the banner rows a rail may actually be drawn from. */
+export interface SignedContent {
+  content: Content
+  /** `content.banners` when the `banners` document carries a signature; empty when it does
+   *  not. Nothing else about the rows is judged here — which ones a day shows is D7's. */
+  signedBanners: Banner[]
+}
+
+/**
+ * The bundle `getContent` serves, plus **the one read-side signature check in this module**
+ * (#102): a banner document with no `reviewedBy`, `reviewedAt` or `source` yields no rail.
+ *
+ * `GET /content` deliberately does not re-check — a signature check there would blank every
+ * device's copy on an operator's typo, and a cached card must keep resolving. The rail is
+ * different in kind: it is *new* selection, every day, of links out of the app, and PRD Other
+ * requirements 4 puts banners under the clinical review requirement by name. So a document
+ * the console wrote without a signature is refused here, where refusing costs a missing rail
+ * rather than a blank Dashboard. One read of the cache for both halves, so the rows judged
+ * signed are the rows the version names.
+ */
+export const getSignedContent = async (): Promise<SignedContent> => {
+  const { data, unsigned } = await load()
+  return { content: data, signedBanners: unsigned.has('banners') ? [] : data.banners }
 }
 
 // ── Editing ────────────────────────────────────────────────────────────────────

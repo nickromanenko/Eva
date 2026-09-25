@@ -12,7 +12,7 @@ import { adminAuth, firestore } from '../src/firebase'
 import { ExportAbortedError, openExport } from '../src/data-export'
 import { exportEvents, type EvaEvent } from '../src/events'
 import type { NutritionProfile } from '../src/nutrition-profile'
-import { exportTodayCards, type TodayDocument } from '../src/today'
+import { exportTodayCards, type TodayBanner, type TodayDocument } from '../src/today'
 import type { User } from '../src/users'
 import { bootApi, type BootedApi } from './support/boot-api'
 import { signUpActivated } from './support/session'
@@ -125,8 +125,9 @@ const sport = (session: Session, localDate: string, note: string) =>
 
 const userDoc = (uid: string) => firestore.collection('users').doc(uid)
 
-/** A stored card as `today.ts` writes one, bookkeeping included. */
-const storeCard = (uid: string, date: string, title: string) =>
+/** A stored day as `today.ts` writes one, bookkeeping included — the card and, since #102,
+ *  the day's banner rail beside it (`[]` unless a case supplies items). */
+const storeCard = (uid: string, date: string, title: string, banners: TodayBanner[] = []) =>
   userDoc(uid)
     .collection('today')
     .doc(date)
@@ -135,9 +136,20 @@ const storeCard = (uid: string, date: string, title: string) =>
       generatedAt: `${date}T08:00:00.000Z`,
       contentVersion: 'test-content-version',
       card: { templateId: 'home_edu', rung: 5, state: 'home_edu', title, actions: [] },
+      banners,
       dataChangedAt: `${date}T07:00:00.000Z`,
       storedAt: new Date(),
     })
+
+/** The rail stored under Alice's newest day — the one exported day whose rail is not empty. */
+const ALICE_RAIL: TodayBanner[] = [
+  {
+    id: 'cycle_iron',
+    title: 'Iron, energy and the days after your period',
+    meta: 'Nutrition · 6 min read',
+    url: 'https://example.org/articles/cycle_iron',
+  },
+]
 
 let aliceEventIds: string[] = []
 let deletedEventId = ''
@@ -206,7 +218,7 @@ beforeAll(async () => {
   // Three stored cards for Alice (two pages), one for Bob.
   await storeCard(alice.uid, day(1), `${aliceMarker} card one`)
   await storeCard(alice.uid, day(2), `${aliceMarker} card two`)
-  await storeCard(alice.uid, day(3), `${aliceMarker} card three`)
+  await storeCard(alice.uid, day(3), `${aliceMarker} card three`, ALICE_RAIL)
   await storeCard(bob.uid, day(1), `${bobMarker} card`)
 
   await sport(bob, day(2), `${bobMarker} note`)
@@ -438,9 +450,25 @@ describe('GET /me/export — the download', () => {
     const body = (await (await exportAs(alice)).json()) as ExportBody
     expect(body.today.map((t) => t.date)).toEqual([day(3), day(2), day(1)])
     for (const card of body.today) {
-      expect(Object.keys(card)).toEqual(['date', 'generatedAt', 'contentVersion', 'card'])
+      expect(Object.keys(card)).toEqual([
+        'date',
+        'generatedAt',
+        'contentVersion',
+        'card',
+        'banners',
+      ])
       expect(card.card.title.startsWith(aliceMarker)).toBe(true)
     }
+  })
+
+  test("a day's banner rail is exported with it, verbatim (#102)", async () => {
+    const body = (await (await exportAs(alice)).json()) as ExportBody
+    const rails = Object.fromEntries(body.today.map((t) => [t.date, t.banners]))
+    expect(rails[day(3)]).toEqual(ALICE_RAIL)
+    expect(rails[day(2)]).toEqual([])
+    // A day stored before the rail existed exports an empty one, not a missing key.
+    const carolBody = (await (await exportAs(carol)).json()) as ExportBody
+    expect(carolBody.today.map((t) => t.banners)).toEqual([[]])
   })
 
   test("never carries another account's data", async () => {

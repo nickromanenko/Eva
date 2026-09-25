@@ -49,6 +49,13 @@ final class HomeUITests: EvaUITestCase {
         ("home_loss", "Pregnancy tracking has ended")
     ]
 
+    /// The canvas' cycle `banners` set, which `EvaTodayCardFixtures` seeds under `home_d`.
+    private static let cycleBanners: [(title: String, meta: String)] = [
+        ("Why appetite can change before your period", "Nutrition · 4 min read"),
+        ("How to adjust training when sleep is low", "Movement · 5 min read"),
+        ("Iron, energy and the days after your period", "Nutrition · 6 min read")
+    ]
+
     func testHomeIsTheLandingTabAndDrawsTheStoredCard() throws {
         let app = launch()
         let email = Self.freshEmail()
@@ -93,6 +100,18 @@ final class HomeUITests: EvaUITestCase {
             app.activityIndicators.firstMatch.exists,
             "A day with no card resolved to a spinner rather than to a screen"
         )
+        // #102: no banners → the "Worth reading" section is absent, not an empty header.
+        // Seeded rather than read off the live API on purpose: what the live route serves
+        // depends on the project's content (today every seeded banner URL is empty, so it
+        // serves none), and an assertion about that would break the day real URLs land.
+        XCTAssertFalse(
+            app.otherElements["home.banners"].exists,
+            "A day with no banners drew the Worth reading section"
+        )
+        XCTAssertFalse(
+            app.staticTexts["home.banners.title"].exists,
+            "A day with no banners drew the Worth reading header"
+        )
 
         // MARK: Every state the canvas draws
 
@@ -114,6 +133,80 @@ final class HomeUITests: EvaUITestCase {
                 "\(state)'s card is not announced as the canvas' aria string: \(card.label)"
             )
         }
+
+        // MARK: The Worth reading rail (#102)
+        //
+        // `home_d` seeds the canvas' cycle set. The rail's words are the server's, so each
+        // card is asserted by the title and meta the fixture carries, in display order.
+
+        relaunch(app, card: "home_d")
+        let rail = app.otherElements["home.banners"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20), "home_d drew no Worth reading rail")
+        XCTAssertTrue(
+            app.staticTexts["home.banners.title"].exists,
+            "The rail has no Worth reading header"
+        )
+        let learn = app.buttons["text.Learn"]
+        XCTAssertTrue(learn.exists, "The rail's Learn link is not drawn")
+        XCTAssertFalse(learn.isEnabled, "Learn is live — the Learn tab does not exist")
+        XCTAssertTrue(
+            learn.label.contains("Not available yet"),
+            "The disabled Learn link does not say why: \(learn.label)"
+        )
+
+        var lastX = -CGFloat.infinity
+        for (index, item) in Self.cycleBanners.enumerated() {
+            let banner = app.buttons["home.banner.fixture_home_d_\(index + 1)"]
+            // Off-screen cards are still in the tree; `exists`, not `isHittable`.
+            XCTAssertTrue(banner.waitForExistence(timeout: 5), "Banner \(index + 1) is not drawn")
+            // VoiceOver reads the title, then the meta (#102) — one element, one label.
+            XCTAssertEqual(
+                banner.label, "\(item.title), \(item.meta)",
+                "Banner \(index + 1) does not read title then meta"
+            )
+            XCTAssertGreaterThanOrEqual(
+                banner.frame.height, 44, "Banner \(index + 1) is under §1's 44pt target"
+            )
+            XCTAssertGreaterThan(
+                banner.frame.minX, lastX, "Banner \(index + 1) is out of display order"
+            )
+            lastX = banner.frame.minX
+        }
+
+        // Tap opens *that card's* article in Safari, in the app; Done comes back to Home.
+        //
+        // The **second** card, and its URL asserted by host: the fixtures give each position
+        // its own reserved domain because Safari's bar shows only the host. Opening a fixed
+        // URL, or always the first banner's, would show example.com and fail here.
+        let second = app.buttons["home.banner.fixture_home_d_2"]
+        tap(second, in: app)
+        let done = app.buttons["Done"]
+        XCTAssertTrue(
+            done.waitForExistence(timeout: 15),
+            "Tapping a banner did not open its article in SFSafariViewController"
+        )
+        let opened = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "example.org", "example.org"
+        )).firstMatch
+        XCTAssertTrue(
+            opened.waitForExistence(timeout: 15),
+            "Tapping the second banner did not open the second banner's URL (example.org)"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any).matching(NSPredicate(
+                format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "example.com", "example.com"
+            )).firstMatch.exists,
+            "Tapping the second banner opened the first banner's URL"
+        )
+        XCTAssertFalse(
+            rail.exists && rail.isHittable,
+            "The article did not cover Home"
+        )
+        done.tap()
+        XCTAssertTrue(
+            rail.waitForExistence(timeout: 10) && app.otherElements["home.card"].exists,
+            "Done did not return to Home"
+        )
 
         // MARK: The actions — two that work, and the rest drawn and disabled
 

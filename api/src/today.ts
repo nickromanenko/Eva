@@ -1,6 +1,12 @@
 import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { config } from './config'
-import { getContent, getSignalVocabulary, type SignalVocabulary, type Template } from './content'
+import {
+  getSignalVocabulary,
+  getSignedContent,
+  type Banner,
+  type SignalVocabulary,
+  type Template,
+} from './content'
 import {
   analyzeCycles,
   toCycleEstimate,
@@ -11,6 +17,7 @@ import {
 import {
   PatternRuleUnsetError,
   observedSignal,
+  selectBanners,
   selectSubject,
   TEMPLATE,
   type DashboardInput,
@@ -23,6 +30,7 @@ import {
 } from './dashboard-rules'
 import { firestore } from './firebase'
 import { lastEventChangeAt, lastLoggedDate, listEvents, type EvaEvent } from './events'
+import { getNutritionProfile, lastNutritionProfileChangeAt } from './nutrition-profile'
 import { getSymptomLabels } from './refdata'
 import { lastUserChangeAt, getUser, type Profile } from './users'
 
@@ -47,7 +55,14 @@ import { lastUserChangeAt, getUser, type Profile } from './users'
  * `events.ts` entries are. `generatedAt` and the stored audit instants are system time.
  * D1 reads no clock at all, so both arrive there as arguments.
  *
- * Never log a card, a slot value or a signal: this is health data (GUARDRAILS rule 12).
+ * **The banner rail is chosen here too, once, with the card (D7, #102).** `selectBanners`
+ * in D1's module decides which rows; this gathers its inputs — the mode, the subject D1 just
+ * chose, and the focus areas of a *finished* Nutrition setup — and stores the answer in the
+ * same document, so the rail follows the card's regeneration rule exactly.
+ *
+ * Never log a card, a slot value, a signal or a banner id: this is health data (GUARDRAILS
+ * rule 12), and which article a user was offered is derived from her subject and her focus
+ * areas.
  */
 
 /**
@@ -72,6 +87,24 @@ export interface TodayCard {
   actions: string[]
 }
 
+/**
+ * One item on the "Worth reading" rail (D7, #102) — exactly what the rail draws and opens.
+ *
+ * A **copy** of the reviewed row, not a reference to it: the day's rail must not change
+ * when `content/` does (the card's rule), and must render offline from the stored document.
+ * The routing tags (`mode`, `subjects`, `focusAreas`) are selection inputs and stay behind;
+ * the client has no use for them, and `focusAreas` would echo her setup answers back.
+ */
+export interface TodayBanner {
+  /** The `content/` banner id — permanent and opaque. */
+  id: string
+  title: string
+  /** Category and reading time, as the reviewed copy writes it: `"Nutrition · 4 min read"`. */
+  meta: string
+  /** An absolute `https://` URL; never empty — a row without one is not selected. */
+  url: string
+}
+
 /** What `GET /me/today` answers with, and what is stored under the day. */
 export interface TodayDocument {
   /** The user's local date, `YYYY-MM-DD`. */
@@ -81,6 +114,9 @@ export interface TodayDocument {
   /** The `content.ts` version the text was filled from (#97). */
   contentVersion: string
   card: TodayCard
+  /** The day's rail, in display order: zero to three items, never padded (#102). Empty —
+   *  never absent — when nothing is eligible, and for a day stored before D7. */
+  banners: TodayBanner[]
 }
 
 /**
@@ -197,6 +233,13 @@ export class TemplatePhraser implements Phraser {
  *  card byte-identical. */
 const defined = <K extends string, V>(key: K, value: V | undefined): Record<K, V> | object =>
   value === undefined ? {} : ({ [key]: value } as Record<K, V>)
+
+const toTodayBanner = (row: Banner): TodayBanner => ({
+  id: row.id,
+  title: row.title,
+  meta: row.meta,
+  url: row.url,
+})
 
 const buildCard = (subject: Subject, text: PhrasedText): TodayCard => ({
   ...text,
@@ -648,16 +691,25 @@ const toDocument = (data: FirebaseFirestore.DocumentData): TodayDocument => ({
       : data.generatedAt,
   contentVersion: data.contentVersion,
   card: data.card,
+  // A day stored before D7 has no rail, and gets none: filling one in on a later open would
+  // change the document on a refresh, which is the thing D3's rule forbids.
+  banners: Array.isArray(data.banners) ? data.banners : [],
 })
 
-/** The newest instant at which anything this card is built from changed — an event
- *  created, edited, deleted or restored, body signals upserted, or the profile saved.
- *  `null` for an account that has neither. */
+/** The newest instant at which anything this document is built from changed — an event
+ *  created, edited, deleted or restored, body signals upserted, the profile saved, or the
+ *  nutrition profile saved (its focus areas rank the rail, #102). `null` for an account that
+ *  has none of them. ISO strings in one format, so the greatest sorts last. */
 const dataChangedAt = async (uid: string): Promise<string | null> => {
-  const [events, user] = await Promise.all([lastEventChangeAt(uid), lastUserChangeAt(uid)])
-  if (events === null) return user
-  if (user === null) return events
-  return events > user ? events : user
+  const instants = await Promise.all([
+    lastEventChangeAt(uid),
+    lastUserChangeAt(uid),
+    lastNutritionProfileChangeAt(uid),
+  ])
+  return instants.reduce<string | null>(
+    (newest, at) => (at !== null && (newest === null || at > newest) ? at : newest),
+    null,
+  )
 }
 
 export interface TodayRequest {
@@ -714,21 +766,31 @@ export const getToday = async (
   const now = new Date().toISOString()
   const input = await gatherInput(uid, request.date, now, request.timeZone, rules)
   const subject = selectSubject(input, rules)
-  const [content, vocabulary, labels] = await Promise.all([
-    getContent(),
+  const [{ content, signedBanners }, vocabulary, labels, nutrition] = await Promise.all([
+    getSignedContent(),
     getSignalVocabulary(),
     getSymptomLabels(),
+    getNutritionProfile(uid),
   ])
   const labelFor = (code: string): string | null => labels?.get(code) ?? null
   const resolved = resolveSignals(subject, input, vocabulary, labelFor)
   const clocked = formatLoggedAt(resolved, request.timeZone)
   const card = buildCard(clocked, phraser.phrase(clocked, content.templates))
+  // After the card, and from D1's subject rather than from the card the phraser returned —
+  // the rail excludes what the ladder chose, whatever the words say. Only a finished setup's
+  // focus areas rank it: `complete` is `completedSetup`'s answer, the one definition.
+  const banners = selectBanners(signedBanners, {
+    mode: input.mode,
+    subject: subject.templateId,
+    focusAreas: nutrition?.complete === true ? nutrition.focusAreas : [],
+  }).map(toTodayBanner)
 
   const document: TodayDocument = {
     date: request.date,
     generatedAt: now,
     contentVersion: content.version,
     card,
+    banners,
   }
   await ref.set({ ...document, dataChangedAt: changedAt, storedAt: FieldValue.serverTimestamp() })
   return document

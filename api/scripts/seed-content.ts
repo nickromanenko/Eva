@@ -411,7 +411,31 @@ export const TEMPLATES: Template[] = [
   },
 ]
 
-/** The nine banner items — the canvas' three sets of three. */
+/**
+ * The nine banner items — the canvas' three sets of three.
+ *
+ * `subjects` and `focusAreas` are **selection metadata, not copy** (#102): no title, meta or
+ * url below changed for them, and none of them is shown. They are topic tags only — which
+ * Today card an item repeats, and which declared focus area it is about — and never a claim
+ * that a phase is good or bad for anything (PRD §Dashboard tone rule 2). Each one, and why:
+ *
+ * - `cycle_iron` repeats `signal_overrides_phase` (`home_e`), whose last line is "Sleep, stress
+ *   and iron affect daily energy more than cycle phase" — the article's subject, on the card.
+ * - `preg_20_week_scan` and `preg_questions` repeat `pregnancy_appointment` (`home_preg`): that
+ *   card *is* the anatomy scan tomorrow, with "Your saved questions are ready to review".
+ * - `post_6_week_check` repeats `postpartum_check` (`home_post`), the 6-week check itself.
+ * - Nothing repeats `educational` (`home_edu`, "Why sleep can affect appetite more than
+ *   willpower"): the canvas draws that card over the whole cycle set, appetite and sleep items
+ *   included, beside `SPEC.home_edu`'s "never repeats the card's subject" — so the drawing
+ *   reads those as different subjects, and this follows the drawing.
+ * - Focus areas (`nutrition-profile.ts` codes): `cycle_appetite` is about PRD Step 2 item 12
+ *   (`pmsCravings`), `cycle_iron` about item 3 (`ironDeficiencyAnaemia`). No other item is
+ *   about a nutrition focus area; item 18 ("Support pregnancy nutrition") has no code yet.
+ *
+ * Every `url` is still empty, so **no item here reaches a rail yet**: the rail serves only
+ * rows with an `https://` article behind them (`selectBanners`). That is the Blog's gap
+ * (PRD §Blog, "not yet specified"), stated rather than papered over with a placeholder link.
+ */
 export const BANNERS: Banner[] = [
   {
     id: 'cycle_appetite',
@@ -421,6 +445,8 @@ export const BANNERS: Banner[] = [
     title: 'Why appetite can change before your period',
     meta: 'Nutrition · 4 min read',
     url: '',
+    subjects: [],
+    focusAreas: ['pmsCravings'],
     status: 'active',
     order: 0,
   },
@@ -432,6 +458,8 @@ export const BANNERS: Banner[] = [
     title: 'How to adjust training when sleep is low',
     meta: 'Movement · 5 min read',
     url: '',
+    subjects: [],
+    focusAreas: [],
     status: 'active',
     order: 1,
   },
@@ -443,6 +471,8 @@ export const BANNERS: Banner[] = [
     title: 'Iron, energy and the days after your period',
     meta: 'Nutrition · 6 min read',
     url: '',
+    subjects: ['signal_overrides_phase'],
+    focusAreas: ['ironDeficiencyAnaemia'],
     status: 'active',
     order: 2,
   },
@@ -454,6 +484,8 @@ export const BANNERS: Banner[] = [
     title: 'What usually happens at the 20-week scan',
     meta: 'Pregnancy · 6 min read',
     url: '',
+    subjects: ['pregnancy_appointment'],
+    focusAreas: [],
     status: 'active',
     order: 3,
   },
@@ -465,6 +497,8 @@ export const BANNERS: Banner[] = [
     title: 'Movement in the second trimester',
     meta: 'Movement · 5 min read',
     url: '',
+    subjects: [],
+    focusAreas: [],
     status: 'active',
     order: 4,
   },
@@ -476,6 +510,8 @@ export const BANNERS: Banner[] = [
     title: 'Questions worth asking at your next appointment',
     meta: 'Pregnancy · 3 min read',
     url: '',
+    subjects: ['pregnancy_appointment'],
+    focusAreas: [],
     status: 'active',
     order: 5,
   },
@@ -487,6 +523,8 @@ export const BANNERS: Banner[] = [
     title: 'What to prepare for your 6-week check',
     meta: 'Recovery · 4 min read',
     url: '',
+    subjects: ['postpartum_check'],
+    focusAreas: [],
     status: 'active',
     order: 6,
   },
@@ -498,6 +536,8 @@ export const BANNERS: Banner[] = [
     title: 'Sleep in fragments: what actually helps',
     meta: 'Recovery · 5 min read',
     url: '',
+    subjects: [],
+    focusAreas: [],
     status: 'active',
     order: 7,
   },
@@ -509,6 +549,8 @@ export const BANNERS: Banner[] = [
     title: 'When your cycle may return',
     meta: 'Recovery · 4 min read',
     url: '',
+    subjects: [],
+    focusAreas: [],
     status: 'active',
     order: 8,
   },

@@ -55,6 +55,11 @@ SIMCTL_CHILD_EVA_TODAY_CARD=home_edu \
   xcrun simctl launch --terminate-running-process $UDID com.evaapp.ios
 ```
 
+The seeded state also carries the canvas' "Worth reading" rail (#102): the pregnancy set
+under `home_preg`/`home_flag`, the postpartum set under `home_post`, the cycle set under
+every other card, and **no rail under `none`** — the seeded way to see the section absent.
+Their URLs are `https://example.com/eva-fixture/…` placeholders, since the canvas draws none.
+
 `EVA_TODAY_REFRESH=offline` lands the first read and fails every one after it, which is the
 only way to reach the `home_off` bar: a card has to be cached before it can be a *cached*
 card, and nothing can take the network away mid-launch. Both hooks seed the **card**, never
@@ -95,7 +100,7 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Session/` | `AppSession` (all auth/session state), `KeychainTokenStore` (only token storage) |
 | `Eva/Onboarding/` | `OnboardingModel` state machine, `Steps/`, `Components/` |
 | `Eva/Navigation/` | The tab bar (`EvaTabView`) and `EvaTabRouter` — the tab selection, and the one request a tab makes of another |
-| `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar |
+| `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar, and the "Worth reading" banner rail with its `SFSafariViewController` article view (#102) |
 | `Eva/Calendar/` | `CalendarView`, the month grid, the event model and its glyphs, the prediction overlay (#206) and the summary card |
 | `Eva/Calendar/Logging/` | The log picker sheet and its four forms, the write payloads, the date policy |
 | `Eva/Units/` | The units setting (#82): `EvaUnitSystem`, `EvaUnitPreference`, and the conversion boundary — SI in, feet/inches and stones/pounds out |
