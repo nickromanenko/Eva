@@ -23,6 +23,7 @@
  * Usage: `EVA_API_URL=http://localhost:3003 PORT=3103 bun run scripts/uitest-mailbox.ts`
  */
 
+import { appendFileSync } from 'node:fs'
 import { issueToken } from '../src/email-tokens'
 import { adminAuth } from '../src/firebase'
 
@@ -36,6 +37,14 @@ if (process.env.NODE_ENV === 'production') {
 
 const apiUrl = (process.env.EVA_API_URL ?? 'http://localhost:3003').replace(/\/+$/, '')
 const port = Number(process.env.PORT ?? 3103)
+
+/**
+ * Where every address this mailbox activates is written down, one per line (#322) — the list
+ * `scripts/verify-mobile.sh` hands `scripts/e2e-cleanup.ts --only`, so a run sweeps the
+ * accounts it made and nobody else's. Activation is the only way a UI test gets an account
+ * (sign-up creates none, #120), so this list is every account the run created.
+ */
+const ledger = process.env.EVA_MAILBOX_LEDGER
 
 /** The pattern `scripts/e2e-cleanup.ts` sweeps. Anything else is somebody's real account. */
 const E2E_ADDRESS = /^e2e\+[^@]+@e2e\.evaapp\.dev$/
@@ -107,6 +116,9 @@ const server = Bun.serve({
     // link — so the token carries the address alone and the route creates the account when
     // it is spent. Asking Firebase for a uid here would 404 on every fresh sign-up.
     const password = typeof body.password === 'string' ? body.password : DEFAULT_PASSWORD
+    // Before the account can exist, not after: a request that creates it and never comes
+    // back must still leave the address where the sweep will find it.
+    if (ledger) appendFileSync(ledger, `${email}\n`)
     const token = await issueToken(null, email, 'activation')
     const activated = await fetch(`${apiUrl}/auth/activate`, {
       method: 'POST',
