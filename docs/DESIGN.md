@@ -431,6 +431,14 @@ means the request was refused before anything happened; nothing the user typed w
 and nothing about the account changed, so the field-error treatment would blame the wrong
 thing. `AuthRateLimitedBanner` uses `EvaInfoBanner`.
 
+**The log-in screen can say why the session ended (#59), which the canvas does not draw.**
+A delete refused because the credential had died signs the app out and takes the delete
+modal with it, so the explanation has to be on the screen the user lands on.
+`AuthSignedOutReasonBanner` is an `EvaInfoBanner` under the hero — Information for the
+reason the rate-limit banner is: the server refused the request before acting on it and
+nothing about the account changed. Its title says the profile was **not** deleted, because
+a silent return to the auth screens is what a deletion that worked looks like.
+
 **The tab bar carries three tabs, not five (#159).** The canvas draws Home · Calendar ·
 Eva Chat · Learn · Profile (A4), and says itself that two of them are undrawn: its own
 handlers answer "Eva Chat is not drawn yet — it is v1 (A1, A5); its own design phase

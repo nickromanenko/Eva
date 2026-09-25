@@ -28,8 +28,25 @@ final class AppSession {
         case unreachable
     }
 
+    /// Why the session ended, when the signed-out screen owes the user an explanation (#59).
+    ///
+    /// Almost every sign-out explains itself — the user tapped Log out, or a deletion
+    /// they confirmed went through — and carries no reason. This exists for the one where
+    /// the screen that would have said what happened is torn down *by* the sign-out.
+    enum SignedOutReason: Equatable {
+        /// `DELETE /me` came back 401: the credential died before the request could act,
+        /// so nothing was deleted. Without saying so, the signed-out screen that follows
+        /// is exactly what a successful deletion looks like.
+        case deletionRefusedSessionEnded
+    }
+
     private(set) var state: State = .loading
     private(set) var user: APIUser?
+    /// Set only by a sign-out that has a `SignedOutReason`, and cleared by the next
+    /// session and by every other sign-out — so it describes the sign-out the user is
+    /// looking at, never an earlier one. In memory only: after a relaunch the context
+    /// that made it worth saying is gone.
+    private(set) var signedOutReason: SignedOutReason?
 
     /// Guards `bootstrap()` against overlapping runs — the retry screen can ask for
     /// another one while the first is still awaiting the network.
@@ -287,9 +304,17 @@ final class AppSession {
     /// including here, because deletion must never be the thing that fails: an account
     /// with no Apple provider has no code to send, and a user who dismisses Apple's sheet
     /// still gets their account deleted.
+    ///
+    /// **A dead credential still signs out here, like everywhere else (#59).** The route
+    /// is not exempt from `authorized(_:)`'s 401 rule; it only hands that rule a reason to
+    /// leave on the signed-out screen. The modal that would have shown the error goes
+    /// with the screen the sign-out replaces, so without one the user would be returned
+    /// to onboarding in silence — which is what a deletion that *worked* looks like.
     func deleteAccount(appleAuthorizationCode: String? = nil) async throws {
         let generation = sessionGeneration
-        let response: DeleteAccountResponse = try await authorized {
+        let response: DeleteAccountResponse = try await authorized(
+            signedOutReason: .deletionRefusedSessionEnded
+        ) {
             if let appleAuthorizationCode {
                 return try await client.delete(
                     "/me",
@@ -539,7 +564,16 @@ final class AppSession {
     /// would strand them in a degraded app to protect them from a token they already have.
     /// The result is deliberately *used* rather than discarded, so the choice is visible to
     /// whoever reads this next instead of being the absence of a line.
+    ///
+    /// Clears any `signedOutReason` left from an earlier sign-out: a log out the user asked
+    /// for explains itself.
     func logOut() {
+        logOut(reason: nil)
+    }
+
+    /// `logOut()`, leaving `reason` for the signed-out screen to show (#59). Private: the
+    /// only sign-out with something to explain is one `authorized(_:)` performs.
+    private func logOut(reason: SignedOutReason?) {
         sessionGeneration += 1
         if !tokenStore.clear() {
             // Nothing to show a user here, and no state to keep: a flag would not survive
@@ -547,6 +581,7 @@ final class AppSession {
             assertionFailureInDebug("Keychain would neither clear nor neutralise the token")
         }
         user = nil
+        signedOutReason = reason
         state = .signedOut
     }
 
@@ -560,7 +595,15 @@ final class AppSession {
     /// result type 'T' cannot be sent from nonisolated context". Every caller already
     /// returns a value type of `Sendable` parts, so this documents what was true rather
     /// than narrowing anything.
-    private func authorized<T: Sendable>(_ work: () async throws -> T) async throws -> T {
+    ///
+    /// `signedOutReason` changes what the signed-out screen says, never whether the
+    /// sign-out happens (#59): the rule is the same for every route, and a route whose
+    /// failure the user could misread passes the words to explain it rather than an
+    /// exemption from it.
+    private func authorized<T: Sendable>(
+        signedOutReason: SignedOutReason? = nil,
+        _ work: () async throws -> T
+    ) async throws -> T {
         // Captured before the await for the same reason `bootstrap()` captures it, and
         // guarding the same hazard one layer down: a request that started under an
         // earlier session must not act on the current one. Without this, a `/me` still
@@ -570,7 +613,9 @@ final class AppSession {
         do {
             return try await work()
         } catch let error as APIError {
-            if case .sessionExpired = error, generation == sessionGeneration { logOut() }
+            if case .sessionExpired = error, generation == sessionGeneration {
+                logOut(reason: signedOutReason)
+            }
             throw error
         }
     }
@@ -590,6 +635,9 @@ final class AppSession {
             assertionFailureInDebug("Keychain refused to store the session token")
         }
         user = response.user
+        // The reason described the sign-out this session replaces. Carried into the next
+        // one, it would be waiting on the signed-out screen the next time she logs out.
+        signedOutReason = nil
         state = Self.state(for: response.user)
     }
 

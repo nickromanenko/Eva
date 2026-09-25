@@ -36,7 +36,11 @@ final class OnboardingModel {
     /// Set when `showActivation(after:)` routes here. Read by `back()` and the screen.
     private(set) var activationOrigin: ActivationOrigin = .signUp
 
-    init() {
+    /// `initialStep` is where the flow opens: `.createAccount` for a first launch or a log out;
+    /// the root passes `.logIn` when the session ended for a reason the user has to act
+    /// on by signing back in (#59) — the account exists, so sign-up is the wrong door.
+    init(startingAt initialStep: OnboardingStep = .createAccount) {
+        step = initialStep
         #if DEBUG
         // Lets tooling (screenshots, previews) jump straight to a step:
         // SIMCTL_CHILD_EVA_ONBOARDING_STEP=2 xcrun simctl launch <udid> com.evaapp.ios

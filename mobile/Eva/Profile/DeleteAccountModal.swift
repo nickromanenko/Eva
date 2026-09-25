@@ -72,13 +72,15 @@ import SwiftUI
 /// allowed to be what stands between them and that. The cost is a token that stays
 /// unrevoked, which is Eva's problem with Apple, not the user's with Eva.
 ///
-/// ## The gap this does not close
+/// ## A dead credential is explained on the next screen, not this one (#59)
 ///
 /// If `deleteAccount()` fails with `APIError.sessionExpired`, `AppSession` signs out
 /// before the error reaches the `catch` here, the root view swaps to onboarding, and
-/// this modal goes with the screen that presented it — so the user sees a signed-out app
-/// for an account that was **not** deleted. Filed separately. What this view guarantees
-/// is only that it never *claims* success in that path: the success branch is reached
+/// this modal goes with the screen that presented it — so its error row is never seen.
+/// The sign-out carries `SignedOutReason.deletionRefusedSessionEnded` instead, and the
+/// flow opens on log in with a banner saying the profile was **not** deleted and to log
+/// in and try again. Without it, a signed-out app is exactly what a deletion that worked
+/// looks like. This view still never *claims* success: the success branch is reached
 /// solely by `deleteAccount()` returning, and it says nothing at all.
 struct DeleteAccountModal: View {
 

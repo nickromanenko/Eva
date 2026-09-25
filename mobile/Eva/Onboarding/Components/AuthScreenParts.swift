@@ -364,6 +364,45 @@ struct AuthRateLimitedBanner: View {
     }
 }
 
+// MARK: - Signed-out reason banner
+
+/// What the log-in screen says when the session ended for a reason the user has to be
+/// told (#59).
+///
+/// The canvas draws no such state, so this takes the nearest one it does draw: the log-in
+/// screen's `rateLimited` banner, §2 Information, which is there for the same kind of
+/// news — the server refused a request before acting on it, and nothing about the
+/// account changed. Not Error: nothing the user typed was wrong, and there is no field
+/// for it to sit under.
+///
+/// **The words are the fix.** A signed-out app on the auth screens is what a successful
+/// deletion looks like, so the title says the opposite outright and the message says the
+/// one thing to do about it. No softening either way (§8): not "something went wrong",
+/// which leaves the question open, and not a reassurance about the data beyond what is
+/// true — this request removed nothing.
+struct AuthSignedOutReasonBanner: View {
+    let reason: AppSession.SignedOutReason
+
+    var body: some View {
+        EvaInfoBanner(title: title, message: message)
+            .accessibilityIdentifier("login.signedOutReason")
+    }
+
+    private var title: String {
+        switch reason {
+        case .deletionRefusedSessionEnded: "Your profile was not deleted"
+        }
+    }
+
+    private var message: String {
+        switch reason {
+        case .deletionRefusedSessionEnded:
+            "Your session had ended, so Eva removed nothing. Log in and delete it again "
+                + "from Profile."
+        }
+    }
+}
+
 /// The sign-up and log-in CTA, held until a `429`'s window has passed (#38).
 ///
 /// The defect this removes: the screen showed "Too many attempts" and left the button
@@ -619,6 +658,7 @@ struct AuthLegalNote: View {
                 message: "The link works for 24 hours. Nothing is saved to your profile until you confirm."
             )
             AuthRateLimitedBanner(identifier: "preview.rateLimited")
+            AuthSignedOutReasonBanner(reason: .deletionRefusedSessionEnded)
             AuthResendButton(
                 title: "Resend email",
                 identifier: "preview.resend",

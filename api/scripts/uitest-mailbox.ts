@@ -9,6 +9,9 @@
  * the real one; only the delivery is short-circuited, which is the one part of the flow a
  * simulator genuinely cannot do.
  *
+ * It answers a second question the same way since #59 — "reset the password at this
+ * address" — through the live `POST /auth/password/reset`; see `reset` below.
+ *
  * It is not part of the API and never ships: nothing in `src/` imports it, it is started
  * by one verify script, and it binds to loopback only. Two more guards, because a service
  * that activates accounts is exactly the kind of thing that must not wander:
@@ -21,6 +24,7 @@
  */
 
 import { issueToken } from '../src/email-tokens'
+import { adminAuth } from '../src/firebase'
 
 /** What the UI suites sign in with afterwards. Kept in step with
  *  `EvaUITestCase.password`; a mismatch would pass activation and fail every sign-in. */
@@ -42,12 +46,53 @@ const json = (body: unknown, status = 200) =>
     headers: { 'content-type': 'application/json' },
   })
 
+/**
+ * Opens a password-reset link for `email` and spends it on the live
+ * `POST /auth/password/reset`, setting the password it already has (#59).
+ *
+ * What the UI tests want from it is the side effect: a reset **ends every other session**
+ * (#76), so the token the app is holding goes dead on the server while the app still
+ * believes it — the one way a simulator can reach a real 401 on a route mid-session. The
+ * account and its password are otherwise untouched, so the test can log straight back in.
+ * Same delivery short-circuit, same address guard, as `/activate`.
+ */
+const reset = async (request: Request): Promise<Response> => {
+  const body = (await request.json().catch(() => ({}))) as { email?: unknown }
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+  if (!E2E_ADDRESS.test(email)) {
+    return json({ error: 'only e2e+*@e2e.evaapp.dev addresses may be reset' }, 400)
+  }
+  // A reset token names the account, unlike an activation token — the forgot route looks
+  // the uid up before issuing one, and so does this.
+  const uid = await adminAuth
+    .getUserByEmail(email)
+    .then((user) => user.uid)
+    .catch(() => null)
+  if (!uid) return json({ error: 'no account holds that address' }, 404)
+
+  const token = await issueToken(uid, email, 'reset')
+  const answered = await fetch(`${apiUrl}/auth/password/reset`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, password: DEFAULT_PASSWORD }),
+  })
+  if (!answered.ok) {
+    const detail = await answered.text().catch(() => '')
+    console.error(`[uitest-mailbox] reset ${answered.status} for ${email}: ${detail}`)
+    return json({ error: `reset answered ${answered.status}` }, 502)
+  }
+  // The response carries a session token; it is not read, returned or logged.
+  console.log(`[uitest-mailbox] reset ${email}`)
+  return json({ reset: true })
+}
+
 const server = Bun.serve({
   hostname: '127.0.0.1',
   port,
   async fetch(request) {
     const url = new URL(request.url)
     if (url.pathname === '/health') return new Response('Eva UI-test mailbox')
+    if (url.pathname === '/reset' && request.method === 'POST') return reset(request)
     if (url.pathname !== '/activate' || request.method !== 'POST') {
       return json({ error: 'not found' }, 404)
     }

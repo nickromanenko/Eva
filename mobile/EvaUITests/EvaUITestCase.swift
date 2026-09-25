@@ -180,12 +180,27 @@ class EvaUITestCase: XCTestCase {
     /// Asks the mailbox to open the activation link for `email`. Synchronous: the test
     /// has nothing to do until the account is through.
     func activate(email: String, file: StaticString = #filePath, line: UInt = #line) {
-        var request = URLRequest(url: URL(string: "\(Self.mailboxURL)/activate")!)
+        askMailbox("activate", email: email, file: file, line: line)
+    }
+
+    /// Resets the password for `email` out of band, to the one it already has (#59).
+    ///
+    /// The point is the side effect: the server ends every session on a reset (#76), so
+    /// the token the running app holds is now dead there while the app still believes it.
+    /// That is the only way to put a real 401 under a route mid-session. The password is
+    /// unchanged, so `signIn` with `Self.password` works afterwards.
+    func endSessionsOutOfBand(email: String, file: StaticString = #filePath, line: UInt = #line) {
+        askMailbox("reset", email: email, file: file, line: line)
+    }
+
+    /// One synchronous request to the mailbox, asserted to have worked.
+    private func askMailbox(_ action: String, email: String, file: StaticString, line: UInt) {
+        var request = URLRequest(url: URL(string: "\(Self.mailboxURL)/\(action)")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["email": email])
 
-        let finished = expectation(description: "mailbox activates \(email)")
+        let finished = expectation(description: "mailbox \(action) \(email)")
         var status = 0
         var failure: String?
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -199,7 +214,7 @@ class EvaUITestCase: XCTestCase {
         XCTAssertEqual(
             status, 200,
             """
-            The UI-test mailbox did not activate \(email): \(failure ?? "no response").
+            The UI-test mailbox could not \(action) \(email): \(failure ?? "no response").
             It is started by scripts/verify-mobile.sh — running xcodebuild directly needs
             it up, or EVA_MAILBOX_URL pointed at one.
             """,

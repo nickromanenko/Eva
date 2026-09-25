@@ -21,6 +21,9 @@ import SwiftUI
 struct LoginStepView: View {
 
     @Bindable var model: OnboardingModel
+    /// Why the last session ended, when that is something the user needs told (#59).
+    /// Shown above everything else on the screen, because it is the reason she is on it.
+    var signedOutReason: AppSession.SignedOutReason? = nil
     let onSubmit: (_ email: String, _ password: String) async throws -> Void
     /// Signs in with an Apple or Google credential (#7). The same closure the sign-up
     /// screen takes, and deliberately so: `/auth/idp` does not distinguish signing up from
@@ -58,6 +61,11 @@ struct LoginStepView: View {
                 subtitle: "Your cycle continued without you. Let's catch up."
             )
             .padding(.top, EvaSpacing.xl)
+
+            if let signedOutReason {
+                AuthSignedOutReasonBanner(reason: signedOutReason)
+                    .padding(.top, EvaSpacing.lg)
+            }
 
             providerButtons
                 .padding(.top, EvaSpacing.lg)
@@ -188,6 +196,20 @@ struct LoginStepView: View {
             }
             isLoading = false
         }
+    }
+}
+
+#Preview("Log in · after a refused delete") {
+    ZStack {
+        EvaScreenBackground().ignoresSafeArea()
+        LoginStepView(
+            model: OnboardingModel(startingAt: .logIn),
+            signedOutReason: .deletionRefusedSessionEnded,
+            onSubmit: { _, _ in },
+            onProviderCredential: { _ in },
+            onGoToSignUp: {},
+            onForgotPassword: {}
+        )
     }
 }
 

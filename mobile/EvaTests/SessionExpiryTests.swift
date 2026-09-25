@@ -238,6 +238,60 @@ struct SessionExpiryTests {
             #expect(error?.isSessionExpired == true)
             #expect(session.state.isSignedOut, "A 401 mid-session left the user on the screen they were on")
             #expect(store.token == nil, "A dead token was left in the Keychain")
+            // #59 gave one route a reason to leave on the signed-out screen. Every other
+            // route signs out exactly as before — with nothing to say — and a reason that
+            // leaked here would tell someone whose calendar read failed that a deletion
+            // they never asked for did not happen.
+            #expect(session.signedOutReason == nil, "An ordinary 401 left a reason on the signed-out screen")
+        }
+
+        /// Issue #59, at the session layer: a delete whose credential died.
+        ///
+        /// The central rule still fires — signed out, Keychain cleared — because #59 is
+        /// explicit that the route must not be exempted from it. What changes is that the
+        /// sign-out carries a reason, since the modal that would have shown the error is
+        /// torn down by the sign-out itself.
+        @Test("A delete refused for a dead credential signs out and says the account survives")
+        func aDeadTokenDeleteSignsOutWithAReason() async {
+            let session = await signedInSession()
+            defer { store.clear() }
+
+            EvaStubURLProtocol.stub(status: 401, body: ClientMapping.deadToken)
+            let error = await thrownAPIError { try await session.deleteAccount() }
+
+            #expect(error?.isSessionExpired == true, "A dead-token delete threw \(String(describing: error))")
+            // The premise, checked: this was the delete route, carrying the token.
+            #expect(EvaStubURLProtocol.lastAuthorization == "Bearer a-live-looking-token")
+            #expect(session.state.isSignedOut, "The 401 rule stopped applying to DELETE /me")
+            #expect(store.token == nil, "A dead token was left in the Keychain")
+            #expect(
+                session.signedOutReason == .deletionRefusedSessionEnded,
+                "The sign-out after a refused delete says nothing, which reads as a deletion that worked"
+            )
+        }
+
+        /// The reason describes one sign-out. A new session clears it, so it cannot be
+        /// waiting on the signed-out screen the next time she logs out on purpose.
+        @Test("Signing in again clears the reason")
+        func signingInClearsTheReason() async throws {
+            let session = await signedInSession()
+            defer { store.clear() }
+
+            EvaStubURLProtocol.stub(status: 401, body: ClientMapping.deadToken)
+            _ = await thrownAPIError { try await session.deleteAccount() }
+            #expect(session.signedOutReason == .deletionRefusedSessionEnded, "No reason to clear — the premise failed")
+
+            EvaStubURLProtocol.stub(
+                status: 200,
+                body: #"{"token":"a-fresh-token","user":{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true}}"#
+            )
+            try await session.signIn(email: "e2e+unit@e2e.evaapp.dev", password: "uitest-pass-1")
+
+            #expect(session.state.isReady)
+            #expect(session.signedOutReason == nil, "A new session kept the last one's sign-out reason")
+
+            session.logOut()
+            #expect(session.signedOutReason == nil, "A plain log out showed the old reason")
         }
 
         /// The other direction, on the route #55 added. A failure that is not a dead
@@ -271,6 +325,8 @@ struct SessionExpiryTests {
 
             #expect(session.state.isSignedOut)
             #expect(store.token == nil, "The token for a deleted account stayed in the Keychain")
+            // #59's banner says the profile was *not* deleted. On this path it was.
+            #expect(session.signedOutReason == nil, "A deletion that worked is reported as refused")
         }
 
         /// The reply is read, not assumed.
