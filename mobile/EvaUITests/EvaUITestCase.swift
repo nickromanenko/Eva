@@ -783,6 +783,12 @@ class EvaUITestCase: XCTestCase {
         line: UInt = #line
     ) {
         scrollIntoView(element, in: app, timeout: timeout, file: file, line: line)
+        // Settled before the touch (#348). Until #343 the harness's first ~1s poll stood in
+        // for this, and without it a tap can land mid-animation: in main's run 36195916665
+        // `delete.confirm`, tapped while the keyboard its gate's Return dismissed was still
+        // leaving, sent no request at all — the API log holds the out-of-band reset and then
+        // the next test's sign-up.
+        stillFrame(of: element)
         element.tap()
     }
 
