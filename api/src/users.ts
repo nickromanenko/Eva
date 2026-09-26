@@ -227,12 +227,34 @@ export interface UserRecord extends Omit<User, 'authProviders'> {
    * answer this: it also lists the random password `claimUnprovenAccount` sets.
    */
   passwordChosen: boolean
+  /**
+   * The nudge ids she has dismissed (D6, #101). **Internal — never served**: `servedUser`
+   * strips it, and `profileNudgeDismissed` on `User` is the one dismissal the client reads,
+   * for the nudge it renders itself (#19). The server reads this to choose the day's nudge.
+   */
+  dismissedNudges: string[]
 }
 
 /** Reads the stored half of `authProviders` (#117). Only `"password"` is looked for;
  *  federated entries in the stored array are dormant and deliberately ignored. */
 const storedPasswordChosen = (data: FirebaseFirestore.DocumentData): boolean =>
   Array.isArray(data.authProviders) && data.authProviders.includes('password')
+
+/** The profile nudge's id in the general dismissal record (D6, #101). Its copy and rendering
+ *  are #19's, but its dismissal rides the same `dismissedNudges` field as every other nudge. */
+const PROFILE_NUDGE_ID = 'profile'
+
+/** The nudge ids she has dismissed, read from the document. The legacy `profileNudgeDismissed`
+ *  boolean is the profile nudge's pre-#101 dismissal, read as the id it would have been — so a
+ *  dismissal made before this field existed still holds, without a write migrating it. */
+const dismissedNudgeIds = (data: FirebaseFirestore.DocumentData): Set<string> => {
+  const ids = new Set<string>()
+  if (data.profileNudgeDismissed === true) ids.add(PROFILE_NUDGE_ID)
+  if (Array.isArray(data.dismissedNudges)) {
+    for (const id of data.dismissedNudges) if (typeof id === 'string') ids.add(id)
+  }
+  return ids
+}
 
 /**
  * The `User` the client receives: the record, plus the federated identities Firebase Auth
@@ -241,7 +263,7 @@ const storedPasswordChosen = (data: FirebaseFirestore.DocumentData): boolean =>
  * client only ever tests membership.
  */
 export const servedUser = (record: UserRecord, federated: readonly string[]): User => {
-  const { passwordChosen, ...user } = record
+  const { passwordChosen, dismissedNudges: _, ...user } = record
   return { ...user, authProviders: [...(passwordChosen ? ['password'] : []), ...federated] }
 }
 
@@ -378,7 +400,8 @@ const toUser = (id: string, data: FirebaseFirestore.DocumentData): UserRecord =>
     consent: storedConsent(data.consent),
     passwordChosen: storedPasswordChosen(data),
     activated: isActivatedData(data),
-    profileNudgeDismissed: data.profileNudgeDismissed ?? false,
+    profileNudgeDismissed: dismissedNudgeIds(data).has(PROFILE_NUDGE_ID),
+    dismissedNudges: [...dismissedNudgeIds(data)],
   }
 }
 
@@ -578,6 +601,7 @@ export const ensureUser = async (
       passwordChosen: provider === 'password',
       activated: false,
       profileNudgeDismissed: false,
+      dismissedNudges: [],
     },
     tokenVersion: 0,
   }
@@ -758,22 +782,46 @@ export const saveQuestionnaire = async (
 }
 
 /**
+ * Marks one nudge dismissed (D6, #101) — the general record behind the slot's dismiss, and
+ * since #101 the home of the profile nudge's dismissal too (`dismissProfileNudge` below is a
+ * thin call to it). Server-side rather than device-side, so a dismissal made on one device
+ * is not asked again on a second. `arrayUnion` makes it idempotent and safe for two devices
+ * dismissing concurrently. Returns `false` for a missing document or a tombstone, the same
+ * "no such account" the other user-facing writers give.
+ */
+export const dismissNudge = async (uid: string, nudgeId: string): Promise<boolean> => {
+  const ref = users().doc(uid)
+  const snapshot = await ref.get()
+  if (!snapshot.exists || isTombstone(snapshot)) return false
+  await ref.update({
+    dismissedNudges: FieldValue.arrayUnion(nudgeId),
+    updatedAt: FieldValue.serverTimestamp(),
+  })
+  return true
+}
+
+/**
  * Marks the "complete your profile" nudge dismissed (#19).
  *
  * Server-side rather than device-side, so a dismissal made on one device is not asked again
- * on a second — the decision recorded on #19. Dismissing never blocks anything: it only
- * flips this flag, and the Profile route and every other write keep working regardless.
- * `null` for a missing document or a tombstone, the same answer `saveQuestionnaire` gives.
+ * on a second — the decision recorded on #19. Since #101 it is one id in the general
+ * `dismissedNudges` record rather than a field of its own, and `profileNudgeDismissed` on the
+ * served user is derived from it. Dismissing never blocks anything: it only adds this id, and
+ * the Profile route and every other write keep working regardless. `null` for a missing
+ * document or a tombstone, the same answer `saveQuestionnaire` gives.
  */
 export const dismissProfileNudge = async (uid: string): Promise<UserRecord | null> => {
   const ref = users().doc(uid)
   const snapshot = await ref.get()
   if (!snapshot.exists || isTombstone(snapshot)) return null
   await ref.update({
-    profileNudgeDismissed: true,
+    dismissedNudges: FieldValue.arrayUnion(PROFILE_NUDGE_ID),
     updatedAt: FieldValue.serverTimestamp(),
   })
-  return toUser(uid, { ...snapshot.data()!, profileNudgeDismissed: true })
+  return toUser(uid, {
+    ...snapshot.data()!,
+    dismissedNudges: [...(snapshot.data()!.dismissedNudges ?? []), PROFILE_NUDGE_ID],
+  })
 }
 
 /**

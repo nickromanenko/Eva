@@ -1,4 +1,4 @@
-import type { Banner, Confidence, Slot } from './content'
+import type { Banner, Confidence, Nudge, Slot } from './content'
 
 /**
  * The Today card's rules layer (#96, slice D1 of #10): a day's inputs in, a *subject* out.
@@ -951,4 +951,76 @@ export const selectBanners = (items: readonly Banner[], input: BannerInput): Ban
     )
     .slice(0, BANNER_LIMIT)
     .map(({ item }) => item)
+}
+
+// ── The nudge slot (D6, #101) ─────────────────────────────────────────────────────────
+
+/**
+ * The nudge slot's inputs (PRD §Dashboard, Nudge slot 2): a period predicted to start within
+ * two days, an appointment tomorrow, a logging gap of three days, a setup step never
+ * completed. Profile incomplete is #19's fifth, and its dismissal rides the same record — but
+ * its copy and rendering are #19's, so it is not selected here.
+ */
+export interface NudgeInput {
+  /** Whole days until the next predicted period start, `null` when there is no prediction. */
+  daysUntilPredictedPeriod: number | null
+  upcomingAppointments: readonly UpcomingAppointment[]
+  /** Days since the last log of any kind, `null` when nothing has ever been logged. */
+  daysSinceLastLog: number | null
+  /** Whether the Nutrition adviser setup is finished (#221). */
+  nutritionSetUp: boolean
+}
+
+/** Whether one nudge's trigger holds against the day's inputs. The parameter (`withinDays`)
+ *  lives on the rule, not here: the PRD gives the number, D2 stores it, and nothing re-decides
+ *  it. A rule whose number is `null` has none. */
+const triggerHolds = (nudge: Nudge, input: NudgeInput): boolean => {
+  switch (nudge.trigger) {
+    case 'periodPredictedWithinDays':
+      return (
+        input.daysUntilPredictedPeriod !== null &&
+        input.daysUntilPredictedPeriod >= 0 &&
+        (nudge.withinDays === null || input.daysUntilPredictedPeriod <= nudge.withinDays)
+      )
+    case 'appointmentTomorrow':
+      return input.upcomingAppointments.some((appointment) => appointment.inDays === 1)
+    case 'noBodySignalsForDays':
+      return (
+        input.daysSinceLastLog !== null &&
+        nudge.withinDays !== null &&
+        input.daysSinceLastLog >= nudge.withinDays
+      )
+    case 'nutritionSetupIncomplete':
+      return !input.nutritionSetUp
+    default:
+      return false
+  }
+}
+
+/**
+ * The day's one nudge, or `null`. At most one per day, chosen from D2's active nudge rules by
+ * D1's inputs, and a dismissed id is never eligible again — dismissal is keyed on the id, so
+ * it outlives the day.
+ *
+ * **Precedence is the store's `order`** (the PRD lists period, appointment, gap, setup, and
+ * D2 seeds them in that order): the plan states it rather than inventing one. Ties break on
+ * the id, so the answer is a function of its inputs and nothing else. The gap is a count of
+ * nothing (`daysSinceLastLog`) — never a streak, and it never reaches the copy as a number:
+ * the reviewed text D2 holds states the gap neutrally.
+ *
+ * Pure: no clock, no Firestore. `today.ts` calls it once when it builds the day's document
+ * and stores the answer with the card, so the same nudge is returned on a second call that
+ * day and the slot stays stable across opens.
+ */
+export const selectNudge = (
+  input: NudgeInput,
+  nudges: readonly Nudge[],
+  dismissed: ReadonlySet<string>,
+): Nudge | null => {
+  const eligible = nudges
+    .filter((nudge) => nudge.status === 'active')
+    .filter((nudge) => !dismissed.has(nudge.id))
+    .filter((nudge) => triggerHolds(nudge, input))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+  return eligible[0] ?? null
 }

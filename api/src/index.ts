@@ -107,6 +107,7 @@ import {
   SessionSupersededError,
   bumpTokenVersion,
   deleteUserDocument,
+  dismissNudge,
   dismissProfileNudge,
   ensureUser,
   getAccount,
@@ -2285,6 +2286,21 @@ app.post('/me/profile-nudge/dismiss', requireAuth, requireAccount, async (c) => 
   ])
   if (!user || !federated) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
   return c.json({ user: servedUser(user, federated) })
+})
+
+/**
+ * Dismisses one nudge (D6, #101) — the general record behind the slot's dismiss. The id is
+ * the content-store nudge id, so a dismissal outlives the day and a reinstall; `dismissedNudges`
+ * on `users/{uid}` is the one field, shared with #19's profile nudge. Idempotent: dismissing
+ * an already-dismissed id is still `200`, and a missing account answers `401` like the other
+ * user-facing writers.
+ */
+app.post('/me/nudges/:id/dismiss', requireAuth, requireAccount, async (c) => {
+  const nudgeId = c.req.param('id')
+  if (!nudgeId) return c.json(error('VALIDATION', 'A nudge id is required'), 400)
+  const dismissed = await dismissNudge(c.get('claims').sub, nudgeId)
+  if (!dismissed) return c.json(error('UNAUTHORIZED', 'User not found'), 401)
+  return c.json({ dismissed: true })
 })
 
 /**

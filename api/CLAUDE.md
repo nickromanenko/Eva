@@ -188,6 +188,10 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   empty, no environment shows a rail today. **The cycle phase is not an input**: no row carries
   a within-cycle phase tag, and #102 limits banner tags to topic, mode and focus area; that tag
   is the content reviewer's to add, and ranks below focus areas when it exists.
+  **It also chooses the nudge (`selectNudge`, #101, D6)**, pure on the same terms: one per day,
+  from D2's active rules and D1's inputs (a period within `withinDays`, an appointment
+  tomorrow, a logging gap, an unfinished Nutrition setup), never a dismissed id, precedence is
+  the store's `order`. The gap is a count of nothing and never reaches the copy as a number.
 - `today.ts` — the only module that touches `users/{uid}/today/`: the Today card, one
   document per the user's local date (#98, slice D3 of #10). It is the *join* between the
   three modules above it — it gathers the ladder's inputs from `events.ts` and `users.ts`,
@@ -213,6 +217,11 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
     before D10) and `null` for the other two — never an invented `false`, which would reach
     her export as a fact about her period. The device picks the label from these; it never
     computes a period from events (#100 Risks).
+  - **The nudge is chosen once with the card too (#101, D6)**: `selectNudge` runs on D1's
+    inputs and D2's active rules, and the winning id's display fields (`{ id, text, sub?,
+    action }`) are stored as `nudge` — `null` when none is eligible. A dismissed id is never
+    eligible again, so the stored day and the record on `users/{uid}` agree. A day stored
+    before D6 reads `nudge: null`, never back-filled on a refresh.
   - **The card's subject is not the phraser's to choose.** `Phraser` returns *text*; the
     stored card's `templateId` and `rung` are copied from D1's `Subject`, so neither this
     phraser nor D9's model one can name a different card (PRD §Dashboard: "the message

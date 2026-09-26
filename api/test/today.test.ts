@@ -891,6 +891,7 @@ describe.skipIf(!onEmulators)('the banner rail', () => {
       'contentVersion',
       'card',
       'banners',
+      'nudge',
       'mode',
       'periodOngoing',
       'nutritionSetUp',

@@ -1167,7 +1167,7 @@ describe('the module reaches nothing', () => {
   test('its only import is a type import, and nothing in it reaches the network', async () => {
     const source = await Bun.file(`${import.meta.dir}/../src/dashboard-rules.ts`).text()
     const imports = source.match(/^import .*$/gm) ?? []
-    expect(imports).toEqual(["import type { Banner, Confidence, Slot } from './content'"])
+    expect(imports).toEqual(["import type { Banner, Confidence, Nudge, Slot } from './content'"])
     // `fetch` and a URL are in this list because the import scan above is **import-time
     // only**: the two cases above spawn the module and watch it load, which a call made
     // inside `selectSubject` never reaches. A `fetch(...)` as the first line of the

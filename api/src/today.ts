@@ -6,6 +6,7 @@ import {
   getSignalVocabulary,
   getSignedContent,
   type Banner,
+  type Nudge,
   type SignalVocabulary,
   type Template,
 } from './content'
@@ -21,11 +22,13 @@ import {
   PatternRuleUnsetError,
   observedSignal,
   selectBanners,
+  selectNudge,
   selectSubject,
   TEMPLATE,
   type DashboardInput,
   type DashboardRules,
   type Mode,
+  type NudgeInput,
   type Rung,
   type SignalEntry,
   type Subject,
@@ -119,6 +122,18 @@ export interface TodayBanner {
   url: string
 }
 
+/**
+ * One nudge for the slot (D6, #101) — what the client draws and dismisses. A **copy** of the
+ * reviewed row, like the rail: the trigger and the `withinDays` parameter are selection
+ * inputs and stay behind, so the stored day is stable and renders offline.
+ */
+export interface TodayNudge {
+  id: string
+  text: string
+  sub?: string
+  action: string
+}
+
 /** What `GET /me/today` answers with, and what is stored under the day. */
 export interface TodayDocument {
   /** The user's local date, `YYYY-MM-DD`. */
@@ -131,6 +146,10 @@ export interface TodayDocument {
   /** The day's rail, in display order: zero to three items, never padded (#102). Empty —
    *  never absent — when nothing is eligible, and for a day stored before D7. */
   banners: TodayBanner[]
+  /** The day's nudge for the slot below the glance row (D6, #101), or `null` when none is
+   *  eligible. Chosen once with the card and stable across the day; `null` on a day stored
+   *  before D6. */
+  nudge: TodayNudge | null
   /**
    * The mode the card was built in — the one D1 was handed, so the shortcuts row (#100, D5)
    * and the card cannot be in two different modes. `cycle` for every account today: nothing
@@ -273,6 +292,14 @@ const toTodayBanner = (row: Banner): TodayBanner => ({
   title: row.title,
   meta: row.meta,
   url: row.url,
+})
+
+/** The slot's copy of a nudge: the display fields, the trigger and parameter left behind. */
+const toTodayNudge = (row: Nudge): TodayNudge => ({
+  id: row.id,
+  text: row.text,
+  ...(row.sub !== undefined ? { sub: row.sub } : {}),
+  action: row.action,
 })
 
 const buildCard = (subject: Subject, text: PhrasedText): Omit<TodayCard, 'phraser'> => ({
@@ -579,11 +606,23 @@ const cycleToday = (
   today: string,
   profile: Profile | null,
   rules: CycleRules | null,
-): { estimate: DashboardInput['cycle']; periodOngoing: boolean } => {
-  // One analysis, two projections: the card's estimate and the shortcut's period flag (#100)
-  // are read off the same answer, so they cannot be measured against two different histories.
+): {
+  estimate: DashboardInput['cycle']
+  periodOngoing: boolean
+  daysUntilPredictedPeriod: number | null
+} => {
+  // One analysis, three projections: the card's estimate, the shortcut's period flag (#100),
+  // and the nudge slot's "period within N days" (D6, #101) are all read off the same answer,
+  // so they cannot be measured against two different histories.
   const analysis = analyzeCycles({ days, today, profile }, rules)
-  return { estimate: toCycleEstimate(analysis), periodOngoing: periodOngoing(analysis) }
+  return {
+    estimate: toCycleEstimate(analysis),
+    periodOngoing: periodOngoing(analysis),
+    daysUntilPredictedPeriod:
+      analysis.prediction === null
+        ? null
+        : wholeDaysBetween(today, analysis.prediction.nextPeriodStart),
+  }
 }
 
 /**
@@ -637,10 +676,13 @@ export const cycleAnalysisFor = async (uid: string, today: string): Promise<Cycl
   return analyzeCycles({ days, today, profile: user?.profile ?? null }, rules)
 }
 
-/** D1's inputs, and the one C11 answer the day's document carries beside the card (#100). */
+/** D1's inputs, and the C11 answer plus the nudge slot's inputs the day's document carries
+ *  beside the card (#100, #101). */
 interface Gathered {
   input: DashboardInput
   periodOngoing: boolean
+  nudgeInput: NudgeInput
+  dismissedNudges: string[]
 }
 
 const gatherInput = async (
@@ -705,7 +747,17 @@ const gatherInput = async (
     todayTotals: null,
     daysSinceLastLog: lastLogged === null ? null : wholeDaysBetween(lastLogged, today),
   }
-  return { input, periodOngoing: cycle.periodOngoing }
+  return {
+    input,
+    periodOngoing: cycle.periodOngoing,
+    nudgeInput: {
+      daysUntilPredictedPeriod: cycle.daysUntilPredictedPeriod,
+      upcomingAppointments,
+      daysSinceLastLog: input.daysSinceLastLog,
+      nutritionSetUp: input.nutritionSetUp,
+    },
+    dismissedNudges: user?.dismissedNudges ?? [],
+  }
 }
 
 // ── The day's document ─────────────────────────────────────────────────────────────────
@@ -747,6 +799,12 @@ const toDocument = (data: FirebaseFirestore.DocumentData): TodayDocument => ({
   // A day stored before D7 has no rail, and gets none: filling one in on a later open would
   // change the document on a refresh, which is the thing D3's rule forbids.
   banners: Array.isArray(data.banners) ? data.banners : [],
+  // A day stored before D6 (#101) has no nudge, and gets none — `null`, never a back-filled
+  // one, for the same reason.
+  nudge:
+    data.nudge !== null && typeof data.nudge === 'object' && typeof data.nudge.id === 'string'
+      ? (data.nudge as TodayNudge)
+      : null,
   // A day stored before D5 (#100) is read, never rebuilt, for the same reason. Its mode is
   // known — every card before D10 was built in `cycle` — and the other two are not: `null`
   // says so, where `false` would put an invented fact about her period in her export.
@@ -833,7 +891,7 @@ export const getToday = async (
   }
 
   const now = new Date().toISOString()
-  const { input, periodOngoing } = await gatherInput(
+  const { input, periodOngoing, nudgeInput, dismissedNudges } = await gatherInput(
     uid,
     request.date,
     now,
@@ -870,6 +928,10 @@ export const getToday = async (
     subject: subject.templateId,
     focusAreas: nutrition?.complete === true ? nutrition.focusAreas : [],
   }).map(toTodayBanner)
+  // D6 (#101): one nudge, chosen once with the card from D2's active rules and D1's inputs.
+  // A dismissed id is never eligible again; with none eligible the slot is empty, not padded.
+  const chosen = selectNudge(nudgeInput, content.nudges, new Set(dismissedNudges))
+  const nudge: TodayNudge | null = chosen === null ? null : toTodayNudge(chosen)
 
   const document: TodayDocument = {
     date: request.date,
@@ -877,6 +939,7 @@ export const getToday = async (
     contentVersion: content.version,
     card,
     banners,
+    nudge,
     // The shortcuts row's three facts (#100, D5), stored with the card so they follow its
     // regeneration rule exactly: every input is already one `dataChangedAt` watches — the
     // events the cycle maths read, and the nutrition profile (#102).
