@@ -15,12 +15,14 @@ final class EvaStore {
     let container: ModelContainer
     private let uid: String
 
-    init(uid: String) throws {
+    init(uid: String, inMemory: Bool = false) throws {
         self.uid = uid
         let schema = Schema([LocalEvent.self, PendingOperation.self])
-        let configuration = ModelConfiguration(schema: schema, url: Self.url(for: uid))
+        let configuration = inMemory
+            ? ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+            : ModelConfiguration(schema: schema, url: Self.url(for: uid))
         container = try ModelContainer(for: schema, configurations: [configuration])
-        Self.harden(Self.url(for: uid))
+        if !inMemory { Self.harden(Self.url(for: uid)) }
     }
 
     /// The one store file, keyed to the uid so a second account on the same device starts
@@ -79,5 +81,77 @@ final class EvaStore {
         for file in files where file.lastPathComponent.hasPrefix("eva-") && file.pathExtension == "store" {
             try? FileManager.default.removeItem(at: file)
         }
+    }
+
+    // MARK: - Reads
+
+    /// The local events in a `localDate` range, excluding soft-deleted rows — the same
+    /// predicate the API's range read applies (§8.3). Returns them unsorted; the caller
+    /// orders by `loggedAt`, as the server does.
+    func localEvents(from: EvaDay, through to: EvaDay) -> [LocalEvent] {
+        let fromISO = from.isoDate
+        let toISO = to.isoDate
+        let descriptor = FetchDescriptor<LocalEvent>(
+            predicate: #Predicate {
+                $0.localDate >= fromISO && $0.localDate <= toISO && $0.deletedAt == nil
+            }
+        )
+        return (try? container.mainContext.fetch(descriptor)) ?? []
+    }
+
+    // MARK: - Writes (write-through + queue)
+
+    /// The next FIFO sequence number, drawn from the highest one already in the queue.
+    func nextSequence() -> Int {
+        let descriptor = FetchDescriptor<PendingOperation>(sortBy: [SortDescriptor(\.sequence, order: .reverse)])
+        let highest = (try? container.mainContext.fetch(descriptor).first?.sequence) ?? 0
+        return highest + 1
+    }
+
+    /// Appends one operation to the queue, then persists. The caller has already written the
+    /// store row it depends on — the queue is the *second* half of "write the store first".
+    func enqueue(
+        _ kind: OperationKind,
+        clientId: String,
+        serverId: String? = nil,
+        payloadData: Data? = nil
+    ) {
+        let operation = PendingOperation(
+            sequence: nextSequence(),
+            kind: kind,
+            clientId: clientId,
+            serverId: serverId,
+            payloadData: payloadData
+        )
+        container.mainContext.insert(operation)
+        try? container.mainContext.save()
+    }
+
+    /// Inserts (or re-inserts) one event in `pendingCreate` state and queues its create — the
+    /// "log an entry" path (§8.4). Returns the row, so the caller can read the `clientId` that
+    /// is also the `idempotencyKey`.
+    func upsertPendingCreate(
+        clientId: String,
+        localDate: String,
+        loggedAt: String,
+        type: String,
+        payloadData: Data,
+        note: String?,
+        source: String
+    ) -> LocalEvent {
+        let event = LocalEvent(
+            clientId: clientId,
+            localDate: localDate,
+            loggedAt: loggedAt,
+            type: type,
+            payloadData: payloadData,
+            note: note,
+            source: source,
+            syncState: .pendingCreate
+        )
+        container.mainContext.insert(event)
+        try? container.mainContext.save()
+        enqueue(.create, clientId: clientId, payloadData: payloadData)
+        return event
     }
 }
