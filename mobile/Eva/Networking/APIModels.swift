@@ -387,3 +387,122 @@ struct DeviceRegisteredResponse: Decodable {
 struct DeviceRemovedResponse: Decodable {
     let removed: Bool
 }
+
+// MARK: Nutrition (S1/S2, #221/#222; the setup flow S3, #223)
+
+/// The goal code (PRD Step 1), the engine's own `NutritionGoal` — one vocabulary for the
+/// answer and the arithmetic, so the app hands the stored code to `GET /me/nutrition/plan`
+/// untranslated.
+enum APINutritionGoal: String, Codable, CaseIterable, Sendable {
+    case lose
+    case gain
+    case buildMuscle
+    case maintain
+    case eatBetter
+}
+
+/// Meals per day (PRD Step 3 item 1): `2 / 3 / 4 / 5` — values, not labels.
+struct APIMealPattern: Codable, Sendable {
+    let mealsPerDay: Int
+    let snacks: Bool
+    let mealTimes: [String]?
+}
+
+/// The Nutrition coach's setup answers and progress, as `GET /me/nutrition/profile` serves
+/// them. `step` is a code so the flow can resume where she left off, and `complete` is the
+/// API's own derived answer — never trusted to a client-side flag.
+struct APINutritionProfile: Decodable, Sendable {
+    let goal: APINutritionGoal?
+    let focusAreas: [String]
+    let mealPattern: APIMealPattern?
+    let targetWeightKg: Double?
+    let hideNumbers: Bool?
+    let step: String
+    let complete: Bool
+}
+
+/// `GET /me/nutrition/profile` and `PATCH /me/nutrition/profile` both answer `{ nutritionProfile }`.
+struct NutritionProfileResponse: Decodable, Sendable {
+    let nutritionProfile: APINutritionProfile
+}
+
+/// The body `PATCH /me/nutrition/profile` takes: an absent key is left as it was, so each
+/// screen sends only its own answer.
+struct APINutritionProfilePatch: Encodable, Sendable {
+    var goal: APINutritionGoal?
+    var focusAreas: [String]?
+    var mealPattern: APIMealPattern?
+    var targetWeightKg: Double?
+    var hideNumbers: Bool?
+    var step: String?
+
+    init(
+        goal: APINutritionGoal? = nil,
+        focusAreas: [String]? = nil,
+        mealPattern: APIMealPattern? = nil,
+        targetWeightKg: Double? = nil,
+        hideNumbers: Bool? = nil,
+        step: String? = nil
+    ) {
+        self.goal = goal
+        self.focusAreas = focusAreas
+        self.mealPattern = mealPattern
+        self.targetWeightKg = targetWeightKg
+        self.hideNumbers = hideNumbers
+        self.step = step
+    }
+}
+
+/// `GET /me/nutrition/plan`'s body. `planDailyTargets`' own answer: the targets, or a refusal
+/// with the lowest weight the guards will accept — one shape the summary and the guard cards
+/// both render.
+struct APINutritionPlanResponse: Decodable, Sendable {
+    let plan: APINutritionPlan
+}
+
+enum APINutritionPlan: Decodable, Sendable {
+    case refused(APINutritionRefusal)
+    case targets(APINutritionTargets)
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, refusal, targets
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(String.self, forKey: .kind) {
+        case "refused":
+            self = .refused(try container.decode(APINutritionRefusal.self, forKey: .refusal))
+        default:
+            self = .targets(try container.decode(APINutritionTargets.self, forKey: .targets))
+        }
+    }
+}
+
+/// Why a target weight was not accepted, and the value to offer instead (canvas `sGuard` /
+/// `sCap` — a message and an offered value, never a lock).
+struct APINutritionRefusal: Decodable, Sendable {
+    let reason: String
+    let lowestSupportedWeightKg: Double
+}
+
+struct APINutritionTargets: Decodable, Sendable {
+    let bmrKcal: Double
+    let tdeeKcal: Double
+    let calorieTargetKcal: Double
+    let macros: APIMacroTargets
+    let weightPlan: APIWeightPlan?
+
+    struct APIMacroTargets: Decodable, Sendable {
+        let proteinG: Double
+        let fatG: Double
+        let carbG: Double
+        let fibreG: Double
+    }
+
+    struct APIWeightPlan: Decodable, Sendable {
+        let targetWeightKg: Double
+        let timelineWeeks: Int?
+        let paceKgPerWeek: Double
+    }
+}
