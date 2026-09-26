@@ -1,5 +1,7 @@
 import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { config } from './config'
+import { llm } from './llm'
+import { ModelPhraser } from './model-phraser'
 import {
   getSignalVocabulary,
   getSignedContent,
@@ -93,6 +95,10 @@ export interface TodayCard {
   line3?: string
   meta?: string
   actions: string[]
+  /** Which phraser produced the text — `template` (D3's deterministic fill, or a model
+   *  answer that failed the rules and fell back) or `model` (D9's rewrite). Recorded so a
+   *  model's words are never mistaken for the reviewed copy, and so the export says which. */
+  phraser: 'template' | 'model'
 }
 
 /**
@@ -269,7 +275,7 @@ const toTodayBanner = (row: Banner): TodayBanner => ({
   url: row.url,
 })
 
-const buildCard = (subject: Subject, text: PhrasedText): TodayCard => ({
+const buildCard = (subject: Subject, text: PhrasedText): Omit<TodayCard, 'phraser'> => ({
   ...text,
   // **Last, so the subject wins.** From the subject, never from the phraser or the template
   // — see `PhrasedText`. Spread first and a phraser carrying these keys would name its own
@@ -732,7 +738,12 @@ const toDocument = (data: FirebaseFirestore.DocumentData): TodayDocument => ({
       ? data.generatedAt.toDate().toISOString()
       : data.generatedAt,
   contentVersion: data.contentVersion,
-  card: data.card,
+  card: {
+    ...data.card,
+    // A day stored before D9 (#104) was phrased deterministically, and is read, never
+    // rebuilt — `template` is what it was.
+    phraser: data.card?.phraser === 'model' ? 'model' : 'template',
+  },
   // A day stored before D7 has no rail, and gets none: filling one in on a later open would
   // change the document on a refresh, which is the thing D3's rule forbids.
   banners: Array.isArray(data.banners) ? data.banners : [],
@@ -839,7 +850,18 @@ export const getToday = async (
   const labelFor = (code: string): string | null => labels?.get(code) ?? null
   const resolved = resolveSignals(subject, input, vocabulary, labelFor)
   const clocked = formatLoggedAt(resolved, request.timeZone)
-  const card = buildCard(clocked, phraser.phrase(clocked, content.templates))
+  const filled = phraser.phrase(clocked, content.templates)
+  // D9 (#104): the model phraser, when the vendor is provisioned, rewrites the deterministic
+  // fill within the rules; on any failure it falls back to `filled`. The card records which
+  // one won. Unprovisioned (`apiKey` null) is the whole model path skipped, not a failure.
+  let text = filled
+  let source: TodayCard['phraser'] = 'template'
+  if (config.llm.apiKey !== null) {
+    const result = await new ModelPhraser(llm).rewrite(clocked, filled)
+    text = result.text
+    source = result.source
+  }
+  const card: TodayCard = { ...buildCard(clocked, text), phraser: source }
   // After the card, and from D1's subject rather than from the card the phraser returned —
   // the rail excludes what the ladder chose, whatever the words say. Only a finished setup's
   // focus areas rank it: `complete` is `completedSetup`'s answer, the one definition.
