@@ -158,6 +158,21 @@ merged.
 - Changing an existing API error `code` (breaks the iOS client)
 - Anything the issue didn't ask for
 
+## Human-reviewed console settings
+
+Two Firebase console settings are load-bearing for security and are deliberately **not**
+asserted at deploy (each would need an Identity Platform admin grant, which is IAM and
+therefore the Always-human list above): *email-enumeration protection*
+(`enableImprovedEmailPrivacy`, #141) and *user account linking* ("Link accounts that use
+the same email"). Both are recorded with their values and what depends on them in
+ARCHITECTURE §3. Their only mechanical tripwire is a real-project `bun run verify` case
+(`account-deletion.test.ts` asserts the enumeration-protection refusal; the account-linking
+choice is asserted where `/auth/idp`'s merge behaviour is tested). This is a decision — the
+gap is chosen, not inherited — and it is revocable by adding a deploy-time check if a
+service account is ever granted Identity Platform admin read. The cost of the gap is what
+#141 names: a project recreated from the repo (disaster recovery, staging, a second region)
+may come up with a setting off, and nothing in the repository carries it across.
+
 ## Maker / checker
 
 The agent that writes a change never reviews it. Implementation and review are

@@ -384,12 +384,15 @@ export const deleteAuthAccount = async (uid: string): Promise<void> => {
  *
  * Firebase Auth, never `users/{uid}.email`. The document's copy is written once at creation
  * and `ensureUser` never rewrites it, while an idToken holder can move their own Auth
- * address with `accounts:update` — the web API key is public. The routes that send links
- * already refuse to trust that mirror for the same reason (#121); trusting it here is worse
- * still, because it deletes rather than sends: an attacker who reserves an address, signs in
- * once to have the document written, then moves their Auth address away, leaves a document
- * permanently claiming a victim's address, and every `DELETE /me` on it would wipe the
- * victim's live activation and reset tokens.
+ * address with `accounts:update` — the web API key is public. **Not currently true of this
+ * project** (see `proven` below): that move is refused with `400 OPERATION_NOT_ALLOWED`
+ * because email-enumeration protection is on (#141), a console setting rather than a
+ * property of this code — so the sentence above is what to assume if anyone turns it off.
+ * The routes that send links already refuse to trust that mirror for the same reason (#121);
+ * trusting it here is worse still, because it deletes rather than sends: an attacker who
+ * reserves an address, signs in once to have the document written, then moves their Auth
+ * address away, leaves a document permanently claiming a victim's address, and every
+ * `DELETE /me` on it would wipe the victim's live activation and reset tokens.
  *
  * `null` on a resumed delete whose Auth user is already gone. The caller skips the address
  * half rather than guessing; the TTL policy on `expiresAt` is the backstop, and a stranded
@@ -403,8 +406,8 @@ export const deleteAuthAccount = async (uid: string): Promise<void> => {
  * email-enumeration protection is on. It is a console setting, not a property of this code,
  * so the sentence above is what to assume if anyone turns it off; `account-deletion.test.ts`
  * asserts the refusal under `bun run verify` so that change cannot pass unnoticed. The
- * paragraph on `addressOfAuthAccount` above states the movability as fact and has the same
- * caveat.
+ * paragraph on `addressOfAuthAccount` above carries the same caveat now, and the setting's
+ * value and what depends on it are recorded in ARCHITECTURE §3 (#141).
  * So a caller that is about to act on *other people's* state keyed by this address — rather
  * than on this account's own rows — asks for `proven` and does nothing when it is false.
  * Fails closed: an unproven address is skipped, never guessed at.
