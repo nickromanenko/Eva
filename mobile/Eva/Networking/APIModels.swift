@@ -369,3 +369,21 @@ enum ProviderCredential: Encodable, Sendable {
 struct DeleteAccountRequest: Encodable {
     let appleAuthorizationCode: String
 }
+
+/// `PUT /me/devices/{deviceId}`'s body (#79): the APNs device token, which APNs environment
+/// it belongs to, and the device's own IANA time zone — stored on `users/{uid}/devices/` so
+/// the sender job can resolve a wall-clock reminder in the zone it was set for. The token is
+/// an identifier that reaches Apple; it is a credential, never logged and never shown.
+struct DeviceRegistration: Encodable {
+    let token: String
+    let environment: String
+    let timeZone: String
+}
+
+struct DeviceRegisteredResponse: Decodable {
+    let registered: Bool
+}
+
+struct DeviceRemovedResponse: Decodable {
+    let removed: Bool
+}

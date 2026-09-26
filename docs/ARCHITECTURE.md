@@ -2415,7 +2415,11 @@ test together: a mutation that no longer applies, or no longer parses, fails the
   `gcloud firestore databases restore --source-backup=<backup-id> --destination-database=<scratch-db>`,
   always to a **new** database, never over production. Until the schedule is actually
   created the gap below is still open; this states what it becomes once it exists.
-- No local store on iOS and no push transport — designed in §8 and §9, not built.
+- No local store on iOS — designed in §8, not built. The push transport (§9) is built: the
+  device registry, the APNs sender and the notification queue are in the API (#79, #355), and
+  the app registers its token after bootstrap. What remains for push is the notification
+  catalogue and centre (their own slice), the permission-prompt timing (§9.4, still open), and
+  the human infra — the Secret Manager `eva-apns-key` and the Cloud Run job + Scheduler tick.
 - The production API base URL is out of the source (§5) but still baked in at build
   time: changing it means a new build and a new release, and there is still no staging
   configuration to point at — `Release` is the only non-local one.

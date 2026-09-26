@@ -2,6 +2,9 @@ import SwiftUI
 
 @main
 struct EvaApp: App {
+    /// Registers for a remote-notification token at launch (#79); the token lands in the
+    /// Keychain and `AppSession` sends it to the API after a successful bootstrap.
+    @UIApplicationDelegateAdaptor(NotificationRegistrationDelegate.self) private var notifications
     @State private var session = AppSession()
     /// Metric or imperial, from the device locale until Settings overrides it (#82).
     @State private var units = EvaUnitPreference.shared

@@ -49,14 +49,17 @@ import Security
 final class KeychainTokenStore: Sendable {
     static let shared = KeychainTokenStore()
 
-    /// Identifies the one item. No `kSecAttrAccessible` here — see the note above.
-    private var query: [String: Any] {
+    /// Identifies one item by its account under the one service. No `kSecAttrAccessible`
+    /// here — see the note above the class.
+    private func query(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "com.evaapp.ios",
-            kSecAttrAccount as String: "api-jwt",
+            kSecAttrAccount as String: account,
         ]
     }
+
+    private var query: [String: Any] { query(account: "api-jwt") }
 
     /// The stored JWT, or `nil` if there is none — which includes an item `clear()` could
     /// only neutralise. An empty value is not a credential, and treating it as one would
@@ -101,5 +104,56 @@ final class KeychainTokenStore: Sendable {
             [kSecValueData as String: Data()] as CFDictionary
         )
         return emptied == errSecSuccess
+    }
+
+    // MARK: Device registry (#79)
+
+    /// A stable id for this install, minted once and kept for the app's life — the `deviceId`
+    /// the push-token route is keyed on, so a token rotation replaces a row rather than adds
+    /// one (ARCHITECTURE §9.2). Not a secret; it identifies a device to our own API and
+    /// nothing else. Written with the same device-only accessibility as the JWT.
+    var deviceId: String {
+        if let existing = read(account: "device-id") { return existing }
+        let fresh = UUID().uuidString
+        _ = write(fresh, account: "device-id")
+        return fresh
+    }
+
+    /// The APNs device token this install last received, as a hex string — an identifier that
+    /// reaches Apple, so it is handled like a credential: never logged, never echoed.
+    var deviceToken: String? { read(account: "device-token") }
+
+    @discardableResult
+    func saveDeviceToken(_ token: String) -> Bool { write(token, account: "device-token") }
+
+    /// The token last *sent* to `PUT /me/devices/{deviceId}`, so an unchanged token is not
+    /// re-registered on every launch.
+    var registeredDeviceToken: String? { read(account: "device-token-registered") }
+
+    @discardableResult
+    func markDeviceTokenRegistered(_ token: String) -> Bool {
+        write(token, account: "device-token-registered")
+    }
+
+    private func read(account: String) -> String? {
+        var item = query(account: account)
+        item[kSecReturnData as String] = true
+        item[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: AnyObject?
+        guard SecItemCopyMatching(item as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let value = String(data: data, encoding: .utf8),
+              !value.isEmpty
+        else { return nil }
+        return value
+    }
+
+    @discardableResult
+    private func write(_ value: String, account: String) -> Bool {
+        SecItemDelete(query(account: account) as CFDictionary)
+        var item = query(account: account)
+        item[kSecValueData as String] = Data(value.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 }

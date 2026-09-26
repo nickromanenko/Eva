@@ -103,7 +103,7 @@ Adding a token or a component means adding it to the specimen too.
 | Folder | Owns |
 |---|---|
 | `Eva/Networking/` | `APIClient` (async JSON), `APIError`, `APIModels` (wire types) |
-| `Eva/Session/` | `AppSession` (all auth/session state), `KeychainTokenStore` (only token storage) |
+| `Eva/Session/` | `AppSession` (all auth/session state), `KeychainTokenStore` (token + device id + device token), `NotificationRegistrationDelegate` (APNs token → Keychain, #79) |
 | `Eva/Onboarding/` | `OnboardingModel` state machine, `Steps/`, `Components/` |
 | `Eva/Navigation/` | The tab bar (`EvaTabView`) and `EvaTabRouter` — the tab selection, and the one request a tab makes of another |
 | `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar, the shortcuts row and its meal-setup prompt (#100), and the "Worth reading" banner rail with its `SFSafariViewController` article view (#102) |

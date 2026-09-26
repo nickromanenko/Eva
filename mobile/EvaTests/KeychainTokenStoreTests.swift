@@ -119,4 +119,56 @@ struct KeychainTokenStoreTests {
         // the first time anyone saw it.
         #expect(store.clear())
     }
+
+    // MARK: Device registry (#79)
+
+    @Test("the device id is minted once and stable across reads")
+    func deviceIdIsStable() {
+        defer { SecItemDelete(deviceIdQuery as CFDictionary) }
+
+        let first = store.deviceId
+        let second = store.deviceId
+
+        #expect(first == second, "deviceId must not change between reads")
+        #expect(first.contains("-"), "a UUID, not an accidental stable empty string")
+    }
+
+    @Test("the device token round-trips and the registered marker tracks it")
+    func deviceTokenRoundTrip() {
+        defer {
+            SecItemDelete(deviceTokenQuery as CFDictionary)
+            SecItemDelete(registeredDeviceTokenQuery as CFDictionary)
+        }
+
+        #expect(store.deviceToken == nil)
+        #expect(store.saveDeviceToken("abc123"))
+        #expect(store.deviceToken == "abc123")
+
+        #expect(store.markDeviceTokenRegistered("abc123"))
+        #expect(store.registeredDeviceToken == "abc123")
+    }
+
+    private var deviceIdQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.evaapp.ios",
+            kSecAttrAccount as String: "device-id",
+        ]
+    }
+
+    private var deviceTokenQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.evaapp.ios",
+            kSecAttrAccount as String: "device-token",
+        ]
+    }
+
+    private var registeredDeviceTokenQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.evaapp.ios",
+            kSecAttrAccount as String: "device-token-registered",
+        ]
+    }
 }
