@@ -60,6 +60,11 @@ import {
   planDailyTargets,
   type NutritionInput,
 } from './nutrition'
+import {
+  NutritionAdjustmentUnsetError,
+  adjustNutritionPlan,
+  type ServedNutritionPlan,
+} from './nutrition-adjustment'
 import { ProviderError, exchangeGoogleAuthCode, revokeAppleToken } from './providers'
 import { recordRoute, withRequestLog } from './request-log'
 import { REQUEST_TIMEOUT_MS, withRequestTimeout } from './request-timeout'
@@ -103,6 +108,7 @@ import {
   deleteAllUserToday,
   exportTodayCards,
   getToday,
+  toCycleEstimate,
   type CycleAnalysis,
   type EstimateWithheld,
 } from './today'
@@ -2076,7 +2082,11 @@ app.get('/me/nutrition/profile', requireAuth, requireAccount, async (c) => {
 app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
   const uid = c.get('claims').sub
   try {
-    const [nutritionProfile, user] = await Promise.all([getNutritionProfile(uid), getUser(uid)])
+    const [nutritionProfile, user, analysis] = await Promise.all([
+      getNutritionProfile(uid),
+      getUser(uid),
+      cycleAnalysisFor(uid, new Date().toISOString().slice(0, 10)),
+    ])
     if (!nutritionProfile?.complete) {
       return c.json(error('VALIDATION', 'Complete your Nutrition setup first'), 400)
     }
@@ -2099,9 +2109,19 @@ app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
       setup.goal === 'lose' || setup.goal === 'gain' || setup.goal === 'buildMuscle'
         ? { ...body, goal: setup.goal, targetWeightKg: setup.targetWeightKg }
         : { ...body, goal: setup.goal }
-    return c.json({ plan: planDailyTargets(input, config.nutrition) })
+    // S12 (#224): the cycle-phase and mode adjustment, applied on top of the engine's answer
+    // and never inside it. `mode` is `cycle` until D10 stores one; the phase is the estimate
+    // the Today card already projected, so nothing here re-reads events.
+    const plan: ServedNutritionPlan = adjustNutritionPlan(
+      planDailyTargets(input, config.nutrition),
+      toCycleEstimate(analysis).phase,
+      'cycle',
+      config.nutritionAdjustment?.lutealPercent ?? null,
+    )
+    return c.json({ plan })
   } catch (err) {
     if (err instanceof NutritionRulesUnsetError) return nutritionUnavailable(c)
+    if (err instanceof NutritionAdjustmentUnsetError) return nutritionUnavailable(c)
     if (err instanceof ImpossibleBodyMetricError) {
       return c.json(error('VALIDATION', 'Your body metrics are out of range'), 400)
     }
