@@ -95,12 +95,13 @@ final class ConsentUITests: EvaUITestCase {
         // still in the tree behind it with the same label, and the plain query matches
         // both.
         tap(app.sheets.buttons["Withdraw"], in: app)
-        XCTAssertTrue(
-            app.staticTexts["privacy.collect.state"].waitForExistence(timeout: 10)
+        // Waited on the label, not the element: the row already exists reading "On", and
+        // the change lands only after the request does. An existence wait followed by a
+        // read races that request, and loses whenever nothing else pads the gap.
+        let paused = expectation(
+            for: NSPredicate(format: "label == %@", "Paused · Consent 2026-08-30"),
+            evaluatedWith: app.staticTexts["privacy.collect.state"]
         )
-        XCTAssertEqual(
-            app.staticTexts["privacy.collect.state"].label,
-            "Paused · Consent 2026-08-30"
-        )
+        wait(for: [paused], timeout: 10)
     }
 }
