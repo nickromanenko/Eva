@@ -466,8 +466,16 @@ export const findAuthUidByEmail = async (email: string): Promise<string | null> 
   try {
     return (await adminAuth.getUserByEmail(email)).uid
   } catch (err) {
-    if ((err as { code?: string }).code === USER_NOT_FOUND) return null
-    throw err
+    const code = (err as { code?: string }).code ?? ''
+    if (code === USER_NOT_FOUND) return null
+    // #32's guarantee, carried to the Admin SDK exactly as `createAccountWithPassword`
+    // carries it: an upstream problem is an outage, not a bare 500. The lookup has no
+    // `email-exists` arm — "taken" is not an error for `getUserByEmail` — and an invalid
+    // address is the caller's fault, which the route edge has already refused.
+    if (code === 'auth/invalid-email') {
+      throw new IdentityToolkitError(code, null, 'rejected')
+    }
+    throw new IdentityToolkitError(code || 'ADMIN_SDK_FAILURE', null, 'unavailable')
   }
 }
 

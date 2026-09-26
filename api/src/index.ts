@@ -707,7 +707,17 @@ app.post('/auth/signup', async (c) => {
   // exists on an address nobody has confirmed.
   //
   // What this route still does is refuse an address that already belongs to somebody.
-  const existingUid = await findAuthUidByEmail(email)
+  let existingUid: string | null
+  try {
+    existingUid = await findAuthUidByEmail(email)
+  } catch (err) {
+    // #32: an outage during the lookup is a shaped 503, not a bare 500 — the guarantee
+    // signin and activate already carry, which this route's lookup alone lacked. A lookup
+    // failure is never a verdict about the address, and `rejected` cannot occur here (the
+    // edge has already normalised the address), so both kinds take the retryable answer.
+    if (err instanceof IdentityToolkitError) return upstreamUnavailable(c, 'signup', err)
+    throw err
+  }
   if (existingUid) {
     const existing = await readUser(existingUid)
     // Activated means proven, and proven means taken. Answered plainly, as it always

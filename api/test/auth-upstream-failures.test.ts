@@ -77,6 +77,10 @@ let upstream: (() => never) | null = null
  *  Reset in `beforeEach`, so a test that sets it and returns early cannot leak it. */
 let hideAccountOnce = false
 
+/** Makes every `findAuthUidByEmail` throw until cleared, staging the sign-up lookup's
+ *  outage (#346). Reset in `beforeEach`. */
+let failFindAuthUid: (() => never) | null = null
+
 const noUpstreamSet = (): never => {
   throw new Error('test reached Identity Toolkit without setting `upstream`')
 }
@@ -100,6 +104,7 @@ mock.module('../src/identity-toolkit', () => ({
   // creating the account in between) and cannot be produced on demand, so it is staged
   // here, one call deep, with the second answer left genuine.
   findAuthUidByEmail: async (value: string): Promise<string | null> => {
+    if (failFindAuthUid) return failFindAuthUid()
     if (hideAccountOnce) {
       hideAccountOnce = false
       return null
@@ -247,6 +252,7 @@ beforeEach(() => {
   resetAuthRateLimits()
   upstream = null
   hideAccountOnce = false
+  failFindAuthUid = null
 })
 afterAll(async () => {
   // Hand the module back exactly as it was found before any live cleanup can fail or time
@@ -373,6 +379,32 @@ describe('creating the account: an upstream failure that is not EMAIL_EXISTS', (
     // un-mocked — with no timeout of its own, and the `afterAll` sweeps Auth and
     // Firestore.
   }, 20_000)
+})
+
+/**
+ * The one auth route whose lookup was unguarded (#346): `POST /auth/signup` asks
+ * `findAuthUidByEmail` to learn whether an address is already taken, and before this
+ * rethrew the raw Admin SDK error — an Identity Toolkit outage surfaced as a bare 500
+ * `unhandled_error` rather than the shaped 503 every other auth route gives it.
+ */
+describe('signup: an outage during the address lookup', () => {
+  test('is a shaped 503, not a bare 500', async () => {
+    failFindAuthUid = isDown
+    const answer = await signup(UNKNOWN)
+
+    expect(answer.status).toBe(503)
+    expectStandardShape(answer, 'SERVICE_UNAVAILABLE')
+    expect(answer.retryAfter).toBe('30')
+    expectNoLeak(`${answer.text} ${answer.headers}`)
+  })
+
+  test('the request never landing is the same 503', async () => {
+    failFindAuthUid = unreachable
+    const answer = await signup(UNKNOWN)
+
+    expect(answer.status).toBe(503)
+    expectStandardShape(answer, 'SERVICE_UNAVAILABLE')
+  })
 })
 
 /**
@@ -827,6 +859,52 @@ describe("createAccountWithPassword classifies the Admin SDK's own failures", ()
       expect(err).toBeInstanceOf(IdentityToolkitError)
       // The distinction the whole file is about: retryable, not the caller's fault.
       expect(err!.kind).toBe('unavailable')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+/**
+ * The same classifier, for the lookup the sign-up route performs (#346).
+ *
+ * `createAccountWithPassword` classified the Admin SDK's failures since #120; the address
+ * lookup it runs *first* did not, so an outage there escaped as a raw error and a bare 500.
+ * Driven for real against a stubbed `getUserByEmail`, so this pins the classification and
+ * not just the route's mapping of a hand-built `IdentityToolkitError`.
+ */
+describe("findAuthUidByEmail classifies the Admin SDK's own failures", () => {
+  test('a lookup outage is unavailable', async () => {
+    const spy = spyOn(adminAuth, 'getUserByEmail').mockImplementation(() => {
+      throw Object.assign(new Error('backend unavailable'), {
+        code: 'auth/internal-error',
+      })
+    })
+    try {
+      const err = (await realFindAuthUid('e2e+lookup@e2e.evaapp.dev').then(
+        () => null,
+        (e: unknown) => e,
+      )) as InstanceType<typeof IdentityToolkitError> | null
+
+      expect(err).toBeInstanceOf(IdentityToolkitError)
+      expect(err!.kind).toBe('unavailable')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test('a missing address is still null, not an error', async () => {
+    // The lookup's whole job at sign-up is telling "taken" from "free"; a miss is the
+    // normal free-address answer and must stay `null`, not become an outage.
+    const spy = spyOn(adminAuth, 'getUserByEmail').mockImplementation(() => {
+      throw Object.assign(new Error('no such user'), { code: 'auth/user-not-found' })
+    })
+    try {
+      const answer = await realFindAuthUid('e2e+lookup@e2e.evaapp.dev').then(
+        (v) => v,
+        (e: unknown) => e,
+      )
+      expect(answer).toBeNull()
     } finally {
       spy.mockRestore()
     }
