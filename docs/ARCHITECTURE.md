@@ -478,6 +478,23 @@ has a password account logs into that account, which is what the PRD's edge case
 asked for. The rule lives in one place; a second copy here is how two copies come to
 disagree, invisibly.
 
+**Email-enumeration protection is a second console setting this code's safety depends on,**
+and until #141 it was recorded nowhere. `Authentication → Settings → Email enumeration
+protection` (Identity Platform's `emailPrivacyConfig.enableImprovedEmailPrivacy`), **on**
+for this project (default-on for projects created since late 2023). With it on, a
+self-service `accounts:update` that would repoint an idToken holder's Auth account at
+someone else's address is refused — `400 OPERATION_NOT_ALLOWED : Please verify the new
+email before changing email` — because a move has to prove the new inbox first. That
+refusal is what makes #139 (the `authTokens/` sweep keyed by a movable address) and #140
+(a link proving one address overwriting another's) unreachable today; both are also fixed
+in the code, and neither relies on this setting alone — it is defence in depth. The one
+mechanical tripwire is `account-deletion.test.ts`, which asserts the refusal under the
+real-project `bun run verify`; there is deliberately no deploy-time assertion, by the
+decision recorded in `docs/AUTONOMY.md` (a deploy check needs an Identity Platform admin
+grant, which is IAM and always-human). The real hazard is that a project recreated from
+the repo — disaster recovery, staging, a second region — may come up with the setting off,
+and nothing in the repository carries it across.
+
 **Hide My Email is the case that setting cannot help.** Apple's relay address matches
 nothing, so those users get a new account regardless. `POST /me/auth/providers` — deliberate,
 authenticated, from Profile — is their only route into an existing one, which is why it is
