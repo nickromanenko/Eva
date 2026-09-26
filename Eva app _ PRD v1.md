@@ -1095,10 +1095,21 @@ Decided 2026-08-30 (review §8 A5). Eva Chat is the feature the product is named
 3. The tone and framing rules of §Dashboard apply to every answer.  
 4. The regulatory line in §Calendar, Other requirements stands: symptom interpretation may be a medical device, and the scope above holds until #26 says otherwise.
 
+#### Decided
+
+1. **LLM vendor, cost, and processor (A5, #267 — decided 2026-09-26): Google Gemini Flash,
+   Google as data processor.** A model-phrasing prompt carries only the filled card's subject
+   and inputs (cycle day, phase, logged signals) and the tone rules — **never** raw events,
+   the profile, sex events or the uid (GUARDRAILS 12 applies to the prompt as to logs). The
+   cost is bounded by one call per user per day (D3's once-daily cache) at a small fraction
+   of a cent per call — a per-day figure of **≤ $0.001 per active user**, not "TBD". Google
+   acts under a data-processing agreement; a processor without a signed DPA is a refusal,
+   not a default. The key is read in one module only, declared in `api/src/config.ts` and
+   `api/.env.example` (GUARDRAILS 2).
+
 #### Open
 
-1. LLM vendor, cost, and who acts as data processor for a prompt that carries health data (#25 Q12) — now a product-wide question, not a nutrition one.  
-2. History and memory; safety and refusal rules beyond the ones above.
+1. History and memory; safety and refusal rules beyond the ones above.
 
 Not yet specified — needs a /explore
 
