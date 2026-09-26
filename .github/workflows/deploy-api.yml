@@ -79,15 +79,22 @@ jobs:
           # threshold should change in a reviewed diff, not in a settings page nobody diffs.
           CYCLE_ENV="CYCLE_MIN_LENGTH_DAYS=21,CYCLE_MAX_LENGTH_DAYS=45,CYCLE_HISTORY_CYCLES=6,CYCLE_MIN_CYCLES_FOR_ESTIMATE=3,CYCLE_NARROW_BAND_MIN_CYCLES=6,CYCLE_LUTEAL_PHASE_DAYS=14,CYCLE_FERTILE_DAYS_BEFORE_OVULATION=5,CYCLE_FERTILE_DAYS_AFTER_OVULATION=1,CYCLE_PEAK_DAYS_BEFORE_OVULATION=2,CYCLE_MIN_PERIOD_GAP_DAYS=2,CYCLE_IRREGULAR_YOUNG_MAX_AGE=25,CYCLE_IRREGULAR_MID_MAX_AGE=41,CYCLE_IRREGULAR_YOUNG_VARIATION_DAYS=9,CYCLE_IRREGULAR_MID_VARIATION_DAYS=7,CYCLE_IRREGULAR_OLDER_VARIATION_DAYS=9"
           PATTERN_ENV="DASHBOARD_PATTERN_LOW_SIGNAL_DAYS=3,DASHBOARD_PATTERN_LOW_AT_OR_BELOW=2,DASHBOARD_PATTERN_SEVERE_SYMPTOM_DAYS=3"
+          # The nutrition targets engine's constants (S2, #222), first served by
+          # GET /me/nutrition/plan (#223) and adjusted by S12 (#224). Same reasoning as the
+          # cycle group above: all-or-nothing at boot, values from api/.env.example.
+          NUTRITION_ENV="NUTRITION_BMR_PER_KG=10,NUTRITION_BMR_PER_CM=6.25,NUTRITION_BMR_PER_YEAR=5,NUTRITION_BMR_OFFSET=161,NUTRITION_ACTIVITY_FACTOR_MOSTLY_SITTING=1.2,NUTRITION_ACTIVITY_FACTOR_LIGHTLY_ACTIVE=1.375,NUTRITION_ACTIVITY_FACTOR_ACTIVE=1.55,NUTRITION_ACTIVITY_FACTOR_VERY_ACTIVE=1.725,NUTRITION_ADJUST_LOSE=-0.15,NUTRITION_ADJUST_GAIN=0.15,NUTRITION_ADJUST_BUILD_MUSCLE=0.1,NUTRITION_PROTEIN_LOSE_G_PER_KG=1.6,NUTRITION_PROTEIN_BUILD_MUSCLE_G_PER_KG=1.8,NUTRITION_PROTEIN_OTHER_G_PER_KG=1.2,NUTRITION_FAT_MIN_FRACTION=0.2,NUTRITION_FIBRE_G=25,NUTRITION_FIBRE_RAISED_G=30,NUTRITION_MIN_BMI=18.5,NUTRITION_MAX_PLAN_LOSS_FRACTION=0.15,NUTRITION_MAX_LOSS_KG_PER_WEEK=0.5,NUTRITION_MAX_LOSS_FRACTION_PER_WEEK=0.01,NUTRITION_MIN_CALORIE_KCAL=1200,NUTRITION_KCAL_PER_KG_BODY_MASS=7700"
+          # The luteal adjustment (S12, #224), its own value rather than part of the group.
+          LUTEAL_ADJUSTMENT_PERCENT=5
 
           # Drift check. GUARDRAILS 2 requires every var to be declared in api/.env.example,
           # so that file is the surface to compare against: a fifteenth CYCLE_* added to
           # config.ts and declared there, but not set here, makes the group partial and the
           # container fail to start. Catching it at deploy says which variable, while someone
           # is watching, instead of in a crash loop.
-          for group in CYCLE DASHBOARD_PATTERN; do
+          for group in CYCLE DASHBOARD_PATTERN NUTRITION; do
             case "$group" in
               CYCLE) set_here=$(echo "$CYCLE_ENV" | tr ',' '\n' | cut -d= -f1 | sort) ;;
+              NUTRITION) set_here=$(echo "$NUTRITION_ENV" | tr ',' '\n' | cut -d= -f1 | sort) ;;
               *)     set_here=$(echo "$PATTERN_ENV" | tr ',' '\n' | cut -d= -f1 | sort) ;;
             esac
             declared=$(grep -oE "^${group}_[A-Z_]+" api/.env.example | sort)
@@ -113,7 +120,7 @@ jobs:
             --project ${{ vars.GCP_PROJECT_ID }} \
             --region ${{ vars.GCP_REGION }} \
             --allow-unauthenticated \
-            --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }},EMAIL_TRANSPORT=postmark,POSTMARK_FROM=$POSTMARK_FROM,PUBLIC_WEB_URL=$PUBLIC_WEB_URL,GOOGLE_IOS_CLIENT_ID=$GOOGLE_IOS_CLIENT_ID,APPLE_CLIENT_ID=$APPLE_CLIENT_ID,APPLE_TEAM_ID=$APPLE_TEAM_ID,APPLE_KEY_ID=$APPLE_KEY_ID,$CYCLE_ENV,$PATTERN_ENV" \
+            --set-env-vars "FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},FIREBASE_WEB_API_KEY=${{ vars.GCP_FIREBASE_WEB_API_KEY }},EMAIL_TRANSPORT=postmark,POSTMARK_FROM=$POSTMARK_FROM,PUBLIC_WEB_URL=$PUBLIC_WEB_URL,GOOGLE_IOS_CLIENT_ID=$GOOGLE_IOS_CLIENT_ID,APPLE_CLIENT_ID=$APPLE_CLIENT_ID,APPLE_TEAM_ID=$APPLE_TEAM_ID,APPLE_KEY_ID=$APPLE_KEY_ID,$CYCLE_ENV,$PATTERN_ENV,$NUTRITION_ENV,LUTEAL_ADJUSTMENT_PERCENT=$LUTEAL_ADJUSTMENT_PERCENT" \
             --set-secrets "JWT_SECRET=eva-jwt-secret:latest,POSTMARK_API_KEY=eva-postmark-key:latest,APPLE_SIGNIN_KEY=eva-apple-signin-key:latest"
 
       # The purge job runs the same image as the service with the entrypoint overridden

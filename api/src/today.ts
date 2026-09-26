@@ -1022,7 +1022,7 @@ export const deleteAllUserToday = async (uid: string): Promise<number> => {
  * this module and this module knows the two below it.
  */
 export { PatternRuleUnsetError }
-export { CycleRulesUnsetError } from './cycle'
+export { CycleRulesUnsetError, toCycleEstimate } from './cycle'
 
 /**
  * Whole years from a date of birth to a date (#81), re-exported for the same reason the

@@ -138,6 +138,9 @@ export NUTRITION_MAX_LOSS_KG_PER_WEEK=0.5
 export NUTRITION_MAX_LOSS_FRACTION_PER_WEEK=0.01
 export NUTRITION_MIN_CALORIE_KCAL=1200
 export NUTRITION_KCAL_PER_KG_BODY_MASS=7700
+# The luteal adjustment (S12, #224): +5% in the luteal phase. Its own value, not part of the
+# engine's all-or-none group; unset means the adjustment refuses (503) rather than defaulting.
+export LUTEAL_ADJUSTMENT_PERCENT=5
 
 # api_ensure_up REUSES any healthy Eva API it finds, and `api_health` can tell that
 # something is an Eva API but not which project it points at. Reusing a stray dev server

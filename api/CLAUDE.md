@@ -374,6 +374,14 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   offered value that satisfies both rules, because an offer the guard would refuse is a second
   refusal. Goals 4 and 5 carry no `targetWeightKg` *in the type*. Writes no log line: a goal or
   a target weight in one is a health fact about a named request.
+- `nutrition-adjustment.ts` — the cycle-phase and mode adjustment (S12, #224), the wrapper the
+  engine never grows into. Takes `planDailyTargets`' answer, the phase the cycle maths already
+  projected (`toCycleEstimate`'s, null exactly when C11 withheld the prediction), and the mode;
+  applies the luteal +5% (`LUTEAL_ADJUSTMENT_PERCENT`, A30) **on top** of the calorie target,
+  returns A28's `{ kind: 'qualitative' }` (no number) for Pregnancy Mode and the first six
+  postpartum weeks, and carries the phase's confidence class beside the adjusted number
+  (GUARDRAILS 35) plus a reason id the copy store resolves — never a generated sentence. Pure:
+  `import type` only. `NutritionAdjustmentUnsetError` is the refusal the route maps to 503.
 - `firebase.ts` — Admin SDK singleton. Never initialize a second app.
 - `config.ts` — required env vars, fail-fast. It carries two imports that point *up* this
   list — `cycleRulesProblem` from `cycle.ts` and `nutritionRulesProblem` from `nutrition.ts` —

@@ -444,6 +444,21 @@ const nutritionRules = (): NutritionRules | null => {
   return rules
 }
 
+/** The luteal adjustment's percentage (A30, #224): `5` means the calorie target is raised by
+ *  5% in the luteal phase. `null` until set, and the adjustment refuses rather than
+ *  defaulting. A percentage, so a bare "5" is read as 5%, not as a 500% factor. */
+const nutritionAdjustmentRules = (): { lutealPercent: number } | null => {
+  const raw = optionalString('LUTEAL_ADJUSTMENT_PERCENT')
+  if (raw === null) return null
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value < 0 || value > 20) {
+    throw new Error(
+      'Invalid env var LUTEAL_ADJUSTMENT_PERCENT: expected a percentage from 0 to 20',
+    )
+  }
+  return { lutealPercent: value }
+}
+
 /**
  * The Firebase emulators, used by CI (#67) and by nothing in production.
  *
@@ -724,6 +739,15 @@ export const config = {
    * `nutritionRules` above for why there is no default.
    */
   nutrition: nutritionRules(),
+  /**
+   * The cycle-phase adjustment (S12, #224): the luteal +5% (A30, PRD line 799), applied on
+   * top of the engine's output, never inside it. Its own value rather than part of the
+   * engine's all-or-none group, because it is the S12 wrapper's constant, not the S2 maths'.
+   * `null` until set, and the adjustment refuses rather than defaulting — a plausible
+   * default here would be a clinical constant nobody recorded choosing (the same discipline
+   * `cycleRules` and `nutritionRules` have).
+   */
+  nutritionAdjustment: nutritionAdjustmentRules(),
   /** The one origin allowed to call the two routes the website's pages use (CORS). */
   publicWebOrigin: publicWebUrl.origin,
 }
