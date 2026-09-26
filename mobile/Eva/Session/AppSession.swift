@@ -270,6 +270,48 @@ final class AppSession {
         user = response.user
     }
 
+    // MARK: Nutrition coach (S1/S2/S3, #221/#222/#223)
+
+    /// The Nutrition coach's setup answers, or `nil` before setup has started — the absence
+    /// of the thing named, which is what the route's `404` means. Read so setup can resume
+    /// where she left off (PRD Edge case 1).
+    func nutritionProfile() async throws -> APINutritionProfile? {
+        try await authorized {
+            do {
+                let response: NutritionProfileResponse = try await client.get(
+                    "/me/nutrition/profile", authorized: true
+                )
+                return response.nutritionProfile
+            } catch APIError.server(code: "NOT_FOUND", _, _) {
+                return nil
+            }
+        }
+    }
+
+    /// Saves one step's answers (#221). An absent key is left as it was, so each screen
+    /// sends only its own answer — and a client that never mentions `hideNumbers` can never
+    /// turn the numbers back on (#212).
+    func saveNutritionProfile(_ patch: APINutritionProfilePatch) async throws -> APINutritionProfile {
+        try await authorized {
+            let response: NutritionProfileResponse = try await client.patch(
+                "/me/nutrition/profile", body: patch, authorized: true
+            )
+            return response.nutritionProfile
+        }
+    }
+
+    /// The day's plan for a finished setup (#222), served by `GET /me/nutrition/plan`. A
+    /// `503` (the `NUTRITION_*` constants unconfigured) reaches the caller as an ordinary
+    /// `APIError.server`, and the summary draws no target for it.
+    func nutritionPlan() async throws -> APINutritionPlan {
+        try await authorized {
+            let response: APINutritionPlanResponse = try await client.get(
+                "/me/nutrition/plan", authorized: true
+            )
+            return response.plan
+        }
+    }
+
     // MARK: Device registry (#79)
 
     /// The APNs environment this build belongs to: Debug uses Apple's sandbox push service,

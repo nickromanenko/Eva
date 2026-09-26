@@ -40,6 +40,9 @@ struct HomeShortcutsRow: View {
     let showsSetupCard: Bool
     /// The log shortcut: the calendar's type picker, on today.
     let log: () -> Void
+    /// The meal shortcut: the Nutrition coach's setup (S3, #223) once it is built, the scan
+    /// (S9) later. `nil` until then, and the shortcut is drawn disabled.
+    var meals: (() -> Void)? = nil
     /// The Calendar shortcut: the Calendar tab.
     let openCalendar: () -> Void
 
@@ -80,8 +83,8 @@ struct HomeShortcutsRow: View {
         [
             // `rgba(233,130,165,.22)`.
             Item(id: "log", label: shortcuts.logLabel, tint: .evaPrimaryPink.opacity(0.22), action: log),
-            // `rgba(205,231,157,.45)`. #25's scanner and setup do not exist yet.
-            Item(id: "meals", label: shortcuts.mealsLabel, tint: .evaPistachio.opacity(0.45), action: nil),
+            // `rgba(205,231,157,.45)`. #25's setup is built (S3, #223); the scanner is not.
+            Item(id: "meals", label: shortcuts.mealsLabel, tint: .evaPistachio.opacity(0.45), action: meals),
             // `rgba(249,220,230,.75)`.
             Item(id: "calendar", label: "Calendar", tint: .evaSoftBlush.opacity(0.75), action: openCalendar),
             // `rgba(90,123,160,.16)`. No Chat tab in this build.
