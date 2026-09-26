@@ -56,6 +56,14 @@ import { ProviderError, exchangeGoogleAuthCode, revokeAppleToken } from './provi
 import { recordRoute, withRequestLog } from './request-log'
 import { REQUEST_TIMEOUT_MS, withRequestTimeout } from './request-timeout'
 import {
+  deleteAllUserDevices,
+  registerDevice,
+  removeDevice,
+  type DeviceEnvironment,
+  type DeviceRegistration,
+} from './devices'
+import { cancelQueuedNotifications, deleteAllUserNotifications } from './notifications'
+import {
   RETENTION_DAYS,
   createEvent,
   deleteAllUserEvents,
@@ -1927,6 +1935,11 @@ app.delete('/me', requireAuth, async (c) => {
   // Her nutrition setup answers (#221) — a goal and a target weight are health facts, and the
   // subcollection outlives the document if it is left for later.
   await deleteNutritionProfile(sub)
+  // The device registry and the notification queue (#79, A9) — a device token is an
+  // identifier for a user, and a queued notification is intent about her, so both go with
+  // the account rather than outliving it. Subcollections outlive the document, so before it.
+  await deleteAllUserDevices(sub)
+  await deleteAllUserNotifications(sub)
   await deleteUserDocument(sub)
   // The address's own throttle counters go with it (#56). In-memory and per-instance, so
   // this is a small courtesy rather than a guarantee — but being refused a fresh sign-up
@@ -2072,6 +2085,63 @@ app.patch(
     return c.json({ nutritionProfile: saved.profile })
   },
 )
+
+/**
+ * Registers or replaces a device's push token (#79, A9). The device id is a UUID the app
+ * mints once per install, so a token rotation is a replace rather than a second row;
+ * `environment` says which APNs environment the token belongs to, and `timeZone` is the
+ * device's own IANA zone, stored so the sender job resolves a wall-clock reminder in it.
+ */
+app.put('/me/devices/:deviceId', requireAuth, requireAccount, async (c) => {
+  const deviceId = c.req.param('deviceId')
+  if (!deviceId) return c.json(error('VALIDATION', 'A device id is required'), 400)
+  const parsed = parseDeviceRegistration(await readBody(c))
+  if (!parsed.ok) return c.json(error(parsed.code, parsed.message), 400)
+  await registerDevice(
+    c.get('claims').sub,
+    tokenVersionOf(c.get('claims')),
+    deviceId,
+    parsed.value,
+  )
+  return c.json({ registered: true })
+})
+
+/**
+ * Removes one device — the app's half of sign-out, so a signed-out install stops receiving.
+ * A row already gone is a no-op, so a retried sign-out never answers 404.
+ */
+app.delete('/me/devices/:deviceId', requireAuth, requireAccount, async (c) => {
+  const deviceId = c.req.param('deviceId')
+  if (!deviceId) return c.json(error('VALIDATION', 'A device id is required'), 400)
+  await removeDevice(c.get('claims').sub, tokenVersionOf(c.get('claims')), deviceId)
+  return c.json({ removed: true })
+})
+
+/**
+ * A device-registration body, validated at the edge. `environment` is a closed set; the
+ * token is an opaque string (its format is APNs' to change, not ours to parse); the time
+ * zone is checked the way `resolveClock` checks one, so a nonsense zone is refused rather
+ * than stored and later misresolving a reminder.
+ */
+const parseDeviceRegistration = (body: Record<string, unknown>): Parsed<DeviceRegistration> => {
+  if (typeof body.token !== 'string' || body.token.length === 0 || body.token.length > 4096) {
+    return bad('token must be a non-empty string')
+  }
+  if (body.environment !== 'sandbox' && body.environment !== 'production') {
+    return bad('environment must be "sandbox" or "production"')
+  }
+  if (typeof body.timeZone !== 'string') return bad('timeZone must be an IANA time zone name')
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: body.timeZone }).format(new Date())
+  } catch {
+    return bad('timeZone must be an IANA time zone name')
+  }
+  return good({
+    token: body.token,
+    environment: body.environment as DeviceEnvironment,
+    timeZone: body.timeZone,
+  })
+}
 
 /** The keys a nutrition-profile PATCH may carry — the setup answers and nothing else. */
 const NUTRITION_PROFILE_KEYS: readonly string[] = [

@@ -8,6 +8,7 @@
     "seed:refdata": "bun run scripts/seed-refdata.ts",
     "retire:refdata": "bun run scripts/retire-refdata.ts",
     "purge:events": "bun run scripts/purge-events.ts",
+    "send-notifications": "bun run scripts/send-notifications.ts",
     "verify": "bash ../scripts/verify-api.sh",
     "seed:content": "bun run scripts/seed-content.ts"
   },

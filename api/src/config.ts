@@ -670,6 +670,22 @@ export const config = {
     },
   },
   /**
+   * Push notifications (A9, #79): APNs sent directly from the API. Read only in `apns.ts`
+   * (one reader, GUARDRAILS 4). Every value is **optional**: unprovisioned means the push
+   * capability is unavailable — the sender job finds no credentials and exits — never a boot
+   * failure. All four or none, like `providers.apple`: a half-configured group is a token
+   * Apple rejects, not an outage to retry.
+   */
+  apns: {
+    /** The `.p8` contents, from Secret Manager (`eva-apns-key:latest`). `\n` restored as for
+     *  Apple's signing key above. */
+    key: optionalString('APNS_KEY')?.replace(/\\n/g, '\n') ?? null,
+    keyId: optionalString('APNS_KEY_ID'),
+    teamId: optionalString('APNS_TEAM_ID'),
+    /** The app's bundle id (`com.evaapp.ios`); APNs derives it from the token if unset. */
+    topic: optionalString('APNS_TOPIC'),
+  },
+  /**
    * The LLM vendor (A5, #267): Google Gemini Flash, Google as data processor. Read only
    * in `llm.ts` (one reader, GUARDRAILS 4). `apiKey` is unset until provisioned, and
    * unprovisioned is a *capability* — D9's model phraser answers with the deterministic
