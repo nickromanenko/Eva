@@ -108,6 +108,9 @@ final class AppSession {
             guard generation == sessionGeneration else { return }
             user = response.user
             state = Self.state(for: response.user)
+            // The device token is registered only once a session is proven (#79): before this
+            // there is nothing to authorize the request with.
+            await registerStoredDeviceToken()
         } catch APIError.sessionExpired {
             // Dead today, and deliberately so. `authorized(_:)` has already cleared the
             // token and signed out, and `logOut()` bumps the generation — so the guard
@@ -265,6 +268,51 @@ final class AppSession {
         }
         guard generation == sessionGeneration else { return }
         user = response.user
+    }
+
+    // MARK: Device registry (#79)
+
+    /// The APNs environment this build belongs to: Debug uses Apple's sandbox push service,
+    /// Release the production one. Sent with the token so the server fans out to the right
+    /// endpoint.
+    private var pushEnvironment: String {
+        #if DEBUG
+        return "sandbox"
+        #else
+        return "production"
+        #endif
+    }
+
+    /// Registers this device's push token with the API (#79, A9) — the app's half of "the iOS
+    /// app talks only to the Eva API". The device id is minted once per install in the
+    /// Keychain, so a token rotation is a replace, never a second row. An unchanged token is
+    /// not sent twice. Best-effort: a failure here must not disturb the session it rides
+    /// behind, and the next bootstrap retries.
+    func registerDevice(token: String, timeZone: TimeZone = .current) async {
+        guard tokenStore.registeredDeviceToken != token else { return }
+        do {
+            let response: DeviceRegisteredResponse = try await client.put(
+                "/me/devices/\(tokenStore.deviceId)",
+                body: DeviceRegistration(
+                    token: token,
+                    environment: pushEnvironment,
+                    timeZone: timeZone.identifier
+                ),
+                authorized: true
+            )
+            if response.registered { _ = tokenStore.markDeviceTokenRegistered(token) }
+        } catch {
+            // Deliberately swallowed: the session is what matters, and the sender job drops a
+            // dead token on its own once one is registered.
+        }
+    }
+
+    /// Registers the token the system last delivered, if it has not been sent already. Called
+    /// after a successful `bootstrap()`, which is the moment §9.4 names ("after any successful
+    /// bootstrap") rather than at launch, so the request always has a live session.
+    private func registerStoredDeviceToken() async {
+        guard let token = tokenStore.deviceToken else { return }
+        await registerDevice(token: token)
     }
 
     /// Records or withdraws one consent kind (#86). The consent screen sends both of its
@@ -575,6 +623,10 @@ final class AppSession {
     /// only sign-out with something to explain is one `authorized(_:)` performs.
     private func logOut(reason: SignedOutReason?) {
         sessionGeneration += 1
+        // Captured before the token is cleared: the removal request below carries it, and
+        // once the Keychain is empty there is nothing to authorize with.
+        let deviceId = tokenStore.deviceId
+        let token = tokenStore.token
         if !tokenStore.clear() {
             // Nothing to show a user here, and no state to keep: a flag would not survive
             // the relaunch that is the only moment it could matter.
@@ -583,6 +635,18 @@ final class AppSession {
         user = nil
         signedOutReason = reason
         state = .signedOut
+        // Best-effort removal of the push token (#79): the app's half of "sign out", fired
+        // after the state has flipped, with the token captured above so the cleared Keychain
+        // does not matter. A failure leaves a row the sender job drops when APNs answers 410.
+        if let token {
+            Task { [client] in
+                var removalClient = client
+                removalClient.token = { token }
+                let _: DeviceRemovedResponse? = try? await removalClient.delete(
+                    "/me/devices/\(deviceId)", authorized: true
+                )
+            }
+        }
     }
 
     /// Runs an authorized request and signs out if the credential it sent came back
