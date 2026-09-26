@@ -227,6 +227,7 @@ itself, which the default leaves alone.
 | `GET /me/nutrition/profile` | Bearer | `{ nutritionProfile }` — the Nutrition coach's setup answers and progress (#221), with a derived `complete` flag; `404 NOT_FOUND` until setup is started |
 | `PATCH /me/nutrition/profile` | Bearer | `{ nutritionProfile }` — any subset of `goal`, `focusAreas`, `mealPattern`, `targetWeightKg`, `hideNumbers`, `step`; an absent key is left as it was. Creates the document on the first write. `400 VALIDATION` for an unknown key, a fourth focus area (refused, never truncated), `step: "done"` with a required answer missing, or a target weight for a goal that has none; behind `requireCollectConsent` (#86) |
 | `POST /me/profile-nudge/dismiss` | Bearer | `{ user }` — marks the "complete your profile" nudge dismissed (#19); server-side, survives reinstall |
+| `POST /me/nudges/{id}/dismiss` | Bearer | `{ dismissed: true }` — dismisses one nudge (D6, #101); the id never appears in the day's `nudge` again, on any later date; `dismissedNudges` on `users/{uid}` is the one record, shared with #19's profile nudge |
 | `PUT /me/consent/{kind}` | Bearer | `{ user }` — records or withdraws one consent (#86). `kind` is `collect` or `share`; `{ granted: true, version }` records the consent with the version of the text the client showed, `{ granted: false }` withdraws — the freeze: the record keeps its version and `at`, and gains `withdrawnAt`. `share` governs nothing today; it is recorded because the screen offers it. Withdrawing a never-granted consent is a no-op |
 | `GET /me/events?from=&to=` | Bearer | `{ events }` — inclusive `localDate` range, soft-deleted excluded |
 | `POST /me/events` | Bearer | `201 { event }` — behind `requireCollectConsent` (#86) |
@@ -1096,7 +1097,8 @@ questionnaireCompleted boolean
 profile                Profile | null  // see api/src/users.ts
 consent                Consent         // #86 (A21): { collect, share } records. ABSENT = never asked
 nutritionQualitativeOnly boolean       // DORMANT (#283): #252's hide-numbers flag. Never read, never written
-profileNudgeDismissed  boolean         // #19: "complete your profile" nudge dismissed. ABSENT = false
+dismissedNudges        string[]        // #101 (D6): nudge ids dismissed, server-side, never served
+profileNudgeDismissed  boolean         // LEGACY (#19): the profile nudge's pre-#101 dismissal, read as the `profile` id in `dismissedNudges`; not written since #101
 activatedAt            Timestamp | null  // #6; null = unconfirmed, ABSENT = pre-#6 = confirmed
 tokenVersion           number          // #76; the session generation. ABSENT = 0 = never bumped
 deletedAt              Timestamp       // absent until a delete starts; see below

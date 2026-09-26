@@ -457,6 +457,7 @@ describe('GET /me/export — the download', () => {
         'contentVersion',
         'card',
         'banners',
+        'nudge',
         'mode',
         'periodOngoing',
         'nutritionSetUp',
