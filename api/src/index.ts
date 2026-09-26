@@ -41,10 +41,12 @@ import {
 } from './identity-toolkit'
 import {
   FOCUS_AREA_CODES,
+  FOCUS_AREA_PRD_ITEM,
   MAX_FOCUS_AREAS,
   MEALS_PER_DAY,
   NUTRITION_GOAL_CODES,
   SETUP_STEP_CODES,
+  completedSetup,
   deleteNutritionProfile,
   getNutritionProfile,
   saveNutritionProfile,
@@ -52,6 +54,12 @@ import {
   type MealPattern,
   type NutritionProfilePatch,
 } from './nutrition-profile'
+import {
+  ImpossibleBodyMetricError,
+  NutritionRulesUnsetError,
+  planDailyTargets,
+  type NutritionInput,
+} from './nutrition'
 import { ProviderError, exchangeGoogleAuthCode, revokeAppleToken } from './providers'
 import { recordRoute, withRequestLog } from './request-log'
 import { REQUEST_TIMEOUT_MS, withRequestTimeout } from './request-timeout'
@@ -2053,6 +2061,54 @@ app.get('/me/nutrition/profile', requireAuth, requireAccount, async (c) => {
 })
 
 /**
+ * The day's targets for a finished setup (S2 of #25, #222 — the first route to serve one).
+ *
+ * PRD line 677: "Nothing is calculated, displayed or suggested from partial data." So a
+ * profile that is not complete answers `400 VALIDATION` rather than a plan, and the summary
+ * the app draws is gated on `complete` exactly as the route is. The plan is `planDailyTargets`'
+ * own answer — the target and the macros, or `{ kind: 'refused' }` with the lowest weight the
+ * guards will accept — so the guard cards and the plan summary render one shape rather than
+ * two. A `503` while the `NUTRITION_*` constants are unconfigured (#222's refusal, mapped
+ * here before anything can throw it), and `400` for a profile missing the body metrics the
+ * maths needs (an unanswered activity band).
+ */
+app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
+  const uid = c.get('claims').sub
+  try {
+    const [nutritionProfile, user] = await Promise.all([getNutritionProfile(uid), getUser(uid)])
+    if (!nutritionProfile?.complete) {
+      return c.json(error('VALIDATION', 'Complete your Nutrition setup first'), 400)
+    }
+    const profile = user?.profile
+    if (!profile || profile.lifestyle === null) {
+      return c.json(error('VALIDATION', 'Your body metrics are not complete'), 400)
+    }
+    const setup = completedSetup(nutritionProfile)!
+    const body = {
+      weightKg: profile.weightKg,
+      heightCm: profile.heightCm,
+      ageYears: ageYearsOn(profile.dateOfBirth, new Date().toISOString().slice(0, 10)),
+      activityBand: profile.lifestyle,
+      focusAreas: setup.focusAreas.map((code) => FOCUS_AREA_PRD_ITEM[code]),
+    }
+    // Built as the two union arms, so the goal's weight target is present exactly when the
+    // goal has one — `completedSetup` already paired them, and the literal comparison
+    // narrows rather than re-tests (PRD line 745: goals 4 and 5 have none).
+    const input: NutritionInput =
+      setup.goal === 'lose' || setup.goal === 'gain' || setup.goal === 'buildMuscle'
+        ? { ...body, goal: setup.goal, targetWeightKg: setup.targetWeightKg }
+        : { ...body, goal: setup.goal }
+    return c.json({ plan: planDailyTargets(input, config.nutrition) })
+  } catch (err) {
+    if (err instanceof NutritionRulesUnsetError) return nutritionUnavailable(c)
+    if (err instanceof ImpossibleBodyMetricError) {
+      return c.json(error('VALIDATION', 'Your body metrics are out of range'), 400)
+    }
+    throw err
+  }
+})
+
+/**
  * Saves one step's worth of setup answers (#221). A key that is absent is left as it was, so
  * each screen sends only its own answers — and a client that does not mention `hideNumbers`
  * can never turn the numbers back on (#212). Behind the collect consent (#86): a goal and a
@@ -3274,6 +3330,20 @@ const dashboardUnavailable = (c: Context, reason: string) => {
     error(
       'SERVICE_UNAVAILABLE',
       "Your Today card isn't available right now. Please try again later.",
+    ),
+    503,
+  )
+}
+
+/** The Nutrition targets engine's refusal (#222): the `NUTRITION_*` group is unset, so there
+ *  is no target to serve. The same shape as `dashboardUnavailable`, its own event so an
+ *  operator can tell the two apart. */
+const nutritionUnavailable = (c: Context) => {
+  console.warn(JSON.stringify({ event: 'nutrition_unavailable' }))
+  return c.json(
+    error(
+      'SERVICE_UNAVAILABLE',
+      "Your nutrition plan isn't available right now. Please try again later.",
     ),
     503,
   )

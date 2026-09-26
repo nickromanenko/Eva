@@ -790,3 +790,72 @@ describe('hideNumbers is never inferred (A31, #212, #283)', () => {
     }
   })
 })
+
+// ── The plan route (S3, #223) ─────────────────────────────────────────────────────────
+
+/** A finished setup, written through the route one step at a time, against a profile that
+ *  carries the body metrics the maths needs. */
+const finishSetup = async (token: string, targetWeightKg: number) => {
+  await patch(token, { goal: 'lose', step: 'goal' })
+  await patch(token, { mealPattern: MEALS, step: 'mealPattern' })
+  await patch(token, { targetWeightKg, hideNumbers: false, step: 'done' })
+}
+
+describe('GET /me/nutrition/plan', () => {
+  test('a finished setup returns the targets, with a plan for the goal', async () => {
+    const { token } = await account({ profile: questionnaire('mostlySitting') })
+    await finishSetup(token, 60)
+
+    const res = await call(token, 'GET', '/me/nutrition/plan')
+    expect(res.status).toBe(200)
+    expect(res.body.plan.kind).toBe('targets')
+    expect(typeof res.body.plan.targets.calorieTargetKcal).toBe('number')
+    expect(res.body.plan.targets.weightPlan.targetWeightKg).toBe(60)
+    expect(res.body.plan.targets.macros.proteinG).toBeGreaterThan(0)
+  })
+
+  test('a target below the per-plan cap is refused with the value to offer', async () => {
+    // 40 kg from 64 kg is more than the 15% cap A29 allows in one plan; the guard refuses and
+    // offers the lowest weight it will accept, rather than a plan.
+    const { token } = await account({ profile: questionnaire('mostlySitting') })
+    await finishSetup(token, 40)
+
+    const res = await call(token, 'GET', '/me/nutrition/plan')
+    expect(res.status).toBe(200)
+    expect(res.body.plan.kind).toBe('refused')
+    expect(res.body.plan.refusal.reason).toBe('below-plan-cap')
+    expect(res.body.plan.refusal.lowestSupportedWeightKg).toBeGreaterThan(40)
+  })
+
+  test('a target below the BMI floor is refused with the value to offer', async () => {
+    // 50 kg at 168 cm is BMI ~17.7, under the 18.5 floor; at 55 kg the per-plan cap sits
+    // *below* the floor, so the floor is the guard that binds and the one the refusal names.
+    const profile = { ...questionnaire('mostlySitting'), weightKg: 55 }
+    const { token } = await account({ profile })
+    await finishSetup(token, 50)
+
+    const res = await call(token, 'GET', '/me/nutrition/plan')
+    expect(res.status).toBe(200)
+    expect(res.body.plan.kind).toBe('refused')
+    expect(res.body.plan.refusal.reason).toBe('below-bmi-floor')
+    expect(res.body.plan.refusal.lowestSupportedWeightKg).toBeGreaterThan(50)
+  })
+
+  test('an unfinished setup answers 400, never a plan from partial data', async () => {
+    const { token } = await account({ profile: questionnaire('mostlySitting') })
+    await patch(token, { goal: 'lose', step: 'goal' })
+
+    const res = await call(token, 'GET', '/me/nutrition/plan')
+    expect(res.status).toBe(400)
+  })
+
+  test('a profile with no activity band answers 400', async () => {
+    // `lifestyle: null` is the unanswered band: the maths has no factor for it, and the
+    // setup's Step 4 asks rather than the plan guessing.
+    const { token } = await account({ profile: questionnaire(null) })
+    await finishSetup(token, 60)
+
+    const res = await call(token, 'GET', '/me/nutrition/plan')
+    expect(res.status).toBe(400)
+  })
+})
