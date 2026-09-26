@@ -35,10 +35,13 @@ it is required).
 ```
 index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.ts · users.ts
          ──► events.ts · today.ts · nutrition-profile.ts · refdata.ts · email.ts · email-tokens.ts
+         ──► devices.ts · notifications.ts
          ──► firebase.ts · config.ts
          ──► data-export.ts (leaf; `import type` only)
 
 today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts · dashboard-rules.ts · cycle.ts
+devices.ts · notifications.ts ──► users.ts (`assertAccountLive` only, #286)
+notifications.ts · scripts/send-notifications.ts ──► apns.ts · devices.ts
 events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, #286)
 ```
 
@@ -380,6 +383,22 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   can carry a uid — and hands the real one to the route's `onAbort`, which logs its class
   name only. What the export leaves out (session generation, cache bookkeeping, link-token
   hashes) is listed in ARCHITECTURE §4 "Data export".
+- `apns.ts` — the APNs transport (A9, #79): token-based auth (a short-lived ES256 JWT, `kid`
+  in the header, signed with WebCrypto — no JWT library, the same way `providers.ts` signs
+  Apple's client secret) to `api.push.apple.com` / `api.sandbox.push.apple.com`. The one
+  reader of `config.apns` (GUARDRAILS 4). `buildPushPayload` is the fixed preview — title
+  `Eva`, body `Eva has an update`, a `kind`, the notification id — never a symptom, a flow
+  level, a date or a name (GUARDRAILS 12, §9.3). `send` reduces APNs' answer to
+  `sent | bad-token | retryable`; it logs nothing.
+- `devices.ts` — the only module that touches `users/{uid}/devices/` (GUARDRAILS 10): one row
+  per installed app, keyed by a device id the app mints once per install. `registerDevice` /
+  `removeDevice` are transactions that also read the account (#286). `listDevices` feeds the
+  sender job. A device token is an identifier that reaches Apple; it is never logged.
+- `notifications.ts` — the only module that touches `users/{uid}/notifications/` (GUARDRAILS
+  10): the intents, what was sent, what was cancelled. At-most-once by construction —
+  `markSent` claims a row in a transaction before the APNs call. `cancelQueuedNotifications`
+  is the server half of the pregnancy-loss stop. `deleteAllUserNotifications` is `DELETE
+  /me`'s sweep. The catalogue of `kind`s is a later slice; here it is an opaque string.
 - `request-timeout.ts` — the per-request timeout that names a hung request in the log before
   Bun's `idleTimeout` kills the connection (#225). Wraps the handler in a timer, reads no
   clock and no Firestore, and logs `{ event: 'request_timeout', method, route }` to stderr —

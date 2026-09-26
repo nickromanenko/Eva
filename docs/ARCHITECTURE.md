@@ -238,6 +238,8 @@ itself, which the default leaves alone.
 | `GET /me/today?timeZone=` | Bearer | `{ date, generatedAt, contentVersion, card, banners, mode, periodOngoing, nutritionSetUp }` — the day's card, and its "Worth reading" rail (#102): `banners` is `[{ id, title, meta, url }]`, zero to three items in display order, always present (empty rather than absent), stored with the card and stable across the day; `url` is always an absolute `https://` article. The last three drive the shortcuts row (#100): `mode` is the Dashboard mode the card was built in (`cycle` \| `planning` \| `pregnancy` \| `postpartum` \| `loss`; always `cycle` until D10), `periodOngoing` whether her logged period is still running today, `nutritionSetUp` whether the Nutrition coach setup is finished — each `boolean`, or `null` on a day stored before #100. Same regeneration rule as the card. `timeZone` decides which local day, optional with the same UTC fallback events use. `503 SERVICE_UNAVAILABLE` while the pattern rung is unconfigured (#26), the cycle maths' constants are unconfigured (#176), or `content/` is unseeded (#97) |
 | `GET /refdata?version=` | Bearer | `{ version, catalogues }` — `304` when `version` (or `If-None-Match`) already matches |
 | `GET /content?version=` | Bearer | `{ version, templates, banners, nudges }` — same `304` handshake |
+| `PUT /me/devices/{deviceId}` | Bearer | `{ registered: true }` — registers or replaces one device's push token (#79, §9): `{ token, environment: "sandbox"\|"production", timeZone }`. The device id is a UUID the app mints once per install, so a token rotation is a replace, not a second row. `400 VALIDATION` for a bad environment or time zone |
+| `DELETE /me/devices/{deviceId}` | Bearer | `{ removed: true }` — removes one device on sign-out; a row already gone is a no-op |
 
 **Health writes sit behind the collect consent (#86, A21).** `requireCollectConsent`
 guards the routes that create or change health data — events (write, patch, restore),
@@ -1942,27 +1944,26 @@ is **dormant**: nothing reads it, nothing writes it, and nothing deletes it — 
 stored user data is a human call (AUTONOMY) — so it leaves only with `DELETE /me`. Do not
 read it as a fallback for an unanswered `hideNumbers`; `null` means "not yet asked".
 
-**Planned (A3, A9 — §8 and §9 below; not yet in code):**
+**Devices and notifications (#79, A9 — built; §9):**
 
 ```
-users/{uid}/devices/{deviceId}         // §9 — one per installed device
-  apnsToken      string                // rotated by iOS; replaced in place
+users/{uid}/devices/{deviceId}         // one per installed device
+  token          string                // the APNs device token; rotated by iOS, replaced in place
   environment    'sandbox' | 'production'
   timeZone       string                // IANA; the device's, for scheduling
   updatedAt      serverTimestamp
 
-users/{uid}/notifications/{id}         // §9 — what was, or will be, delivered
-  kind           'appointment' | 'meal' | 'cycle' | 'wellbeing' | 'education' | 'update'
+users/{uid}/notifications/{id}         // what will be, or was, delivered
+  kind           string                // opaque until the catalogue lands (its own slice)
   dueAt          Timestamp             // instant, derived from a local wall-clock time
-  sentAt         Timestamp | null
-  readAt         Timestamp | null      // the notification centre marks it
-  ref            { type, id } | null   // what it points at; never its content
-  createdAt      serverTimestamp
+  sentAt         Timestamp | null      // set in the same write that claims the row (at-most-once)
+  cancelledAt    Timestamp | null      // the pregnancy-loss stop marks queued sends
+  // readAt and ref arrive with the notification centre, not this slice
 ```
 
-Both are keyed under the uid so **account deletion (§4 above) must enumerate them too** —
-`DELETE /me` fans out over `events/` today and nothing else; adding a subcollection without
-adding it to the delete is the way health-adjacent identifiers outlive their owner.
+Both are keyed under the uid and **account deletion enumerates them too** — `DELETE /me` now
+sweeps `devices/` and `notifications/` beside `events/`, `today/` and `nutrition/`, because a
+device token is an identifier for a user and a queued notification is intent about her.
 
 ## 5. iOS app structure (`mobile/Eva/`)
 
