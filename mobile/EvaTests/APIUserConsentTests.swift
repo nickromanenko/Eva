@@ -16,7 +16,7 @@ struct APIUserConsentTests {
 
     /// The version this build's screen displays — `ConsentPolicy.version` spelled out, so
     /// a copy change that forgets to bump it fails here as well as in the UI suite.
-    private static let version = "2026-08-30"
+    private static let version = "2026-09-26"
 
     private static func user(_ consentJSON: String) throws -> APIUser {
         try JSONDecoder().decode(
@@ -85,7 +85,7 @@ struct APIUserConsentTests {
         let consent = try Self.user(
             #"{"collect":\#(Self.record(version: Self.version, withdrawnAt: "2026-09-19T12:00:00.000Z")),"share":null}"#
         ).consent
-        #expect(consent?.collect?.version == "2026-08-30")
+        #expect(consent?.collect?.version == "2026-09-26")
         #expect(consent?.collect?.at == "2026-09-19T08:00:00.000Z")
         #expect(consent?.collect?.withdrawnAt == "2026-09-19T12:00:00.000Z")
         #expect(consent?.share == nil)

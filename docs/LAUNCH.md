@@ -183,7 +183,7 @@ it is what Eva can and cannot hand over:
 | Rights mechanism: access + export (#58), deletion (#8 ✓), withdraw consent, 45-day SLA | api + Settings | #58 |
 | Breach-response runbook with the 60-day / 72-hour clocks and contact lists — **drafted (#90)**: `docs/INCIDENT-RESPONSE.md`, placeholders for people and counsel | `docs/` | L8; names wait on L1, L3 |
 | Data map and DPIA | `docs/` | — |
-| DPAs: Google Cloud, Postmark (#6), the LLM vendor (A5), the food-database vendor (#25 Q10), the photo-recognition vendor (#25 Q11), Apple | legal | vendor choices |
+| DPAs: Google Cloud, Postmark (#6), Google — the LLM vendor (A5, #267: Gemini Flash), the food-database vendor (#25 Q10), the photo-recognition vendor (#25 Q11), Apple | legal | vendor choices |
 | EU and UK Article 27 representatives | legal | L1 |
 | Law-enforcement request policy + transparency page — **exists** (#91): `docs/REQUESTS.md`, `/transparency` | website + `docs/` | L4; entity name and address for service wait on L1 |
 
