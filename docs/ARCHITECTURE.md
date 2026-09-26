@@ -2395,11 +2395,18 @@ test together: a mutation that no longer applies, or no longer parses, fails the
   when AUTONOMY's Deploy row moved to `AI`; what gates it now is `needs: test` and
   `everyAllowIsDenied()` (GUARDRAILS 6a), not who presses the button.
 - Firebase iOS SDK is not linked (commented out in `project.yml`).
-- **One region, and no backups.** Everything lives in `us-central1`; the Firestore
-  location is immutable, so serving another region later is a migration, not a setting.
-  Nothing schedules a Firestore backup — a daily schedule with a stated retention is a
-  one-time human act (`docs/LAUNCH.md` §7, A23). Until it exists, a bad deploy or a bad
-  purge is unrecoverable.
+- **One region.** Everything lives in `us-central1`; the Firestore location is immutable,
+  so serving another region later is a migration, not a setting.
+- **Backups (A23, decided 2026-09-26): daily, 30-day retention, single region.** The
+  schedule is created on the production database by a human (`#89`):
+  `gcloud firestore backups schedules create --database='(default)' --recurrence=daily --retention=30d`
+  (`gcloud firestore backups schedules list --database='(default)'` shows it). 30 days
+  matches the event soft-delete window, so a deleted account's data persists in backups for
+  up to 30 days after `DELETE /me` — the privacy policy must say so (LAUNCH §2.4 item 2).
+  A backup that has never been restored is not a backup: the drill is
+  `gcloud firestore databases restore --source-backup=<backup-id> --destination-database=<scratch-db>`,
+  always to a **new** database, never over production. Until the schedule is actually
+  created the gap below is still open; this states what it becomes once it exists.
 - No local store on iOS and no push transport — designed in §8 and §9, not built.
 - The production API base URL is out of the source (§5) but still baked in at build
   time: changing it means a new build and a new release, and there is still no staging
