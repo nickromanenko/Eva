@@ -7,7 +7,7 @@ import SwiftUI
 /// which text she agreed to. A change to the copy on this screen is a change to this
 /// string, in the same PR, and re-prompts every account.
 enum ConsentPolicy {
-    static let version = "2026-08-30"
+    static let version = "2026-09-26"
 }
 
 /// The consent screen (A21, #86) — the canvas' `consent` artboard, drawn between
@@ -27,10 +27,11 @@ enum ConsentPolicy {
 ///   "Eva needs the first choice to work. The second is yours either way." — that toast
 ///   text is kept verbatim, drawn as an inline message rather than a `EvaToast`, because
 ///   §7 reserves the toast for what *has* happened and this says what will not.
-/// * **The processors list omits the canvas' two `[pending]` vendors.** A shipped screen
-///   cannot show "assistant vendor — pending" as if it were a fact; the list grows when
-///   the vendors do, alongside the privacy policy they are named in (L3, still with
-///   counsel).
+/// * **The processors list omits the canvas' still-pending vendors.** The LLM vendor is now
+///   named (Google Gemini, A5 #267) and listed; the food-database and photo-recognition
+///   vendors remain `[pending]` and are omitted until chosen. A shipped screen cannot show
+///   "assistant vendor — pending" as if it were a fact; the list grows when the vendors do,
+///   alongside the privacy policy they are named in (L3, still with counsel).
 /// * **"Read the health-data privacy policy" is plain text.** The site has no configured
 ///   public URL for the app to open — the same limit the sign-up screen's footer lives
 ///   with — so the sentence is stated without promising a link it cannot open.
@@ -105,8 +106,9 @@ struct ConsentView: View {
 
                         if processorsOpen {
                             Text(
-                                "Google Cloud (hosting, US) · Postmark (email) · Apple "
-                                    + "(purchases). Each under a data-processing agreement."
+                                "Google Cloud (hosting, US) · Google (Gemini, AI phrasing) · "
+                                    + "Postmark (email) · Apple (purchases). Each under a "
+                                    + "data-processing agreement."
                             )
                             .evaTextStyle(.caption)
                             .foregroundStyle(Color.evaInformationInk)

@@ -67,12 +67,12 @@ final class ConsentUITests: EvaUITestCase {
             app.staticTexts["privacy.collect.state"].waitForExistence(timeout: 5),
             "Privacy drew no state for the collect consent"
         )
-        // "2026-08-30" is ConsentPolicy.version, spelled out: the UI-test target cannot
+        // "2026-09-26" is ConsentPolicy.version, spelled out: the UI-test target cannot
         // see app internals, and pinning the string is the point — a copy change that
         // forgets to bump the version shows up here.
         XCTAssertEqual(
             app.staticTexts["privacy.collect.state"].label,
-            "On · Consent 2026-08-30"
+            "On · Consent 2026-09-26"
         )
 
         // Both rows can be in the same state at once (the helper granted the share
@@ -99,7 +99,7 @@ final class ConsentUITests: EvaUITestCase {
         // the change lands only after the request does. An existence wait followed by a
         // read races that request, and loses whenever nothing else pads the gap.
         let paused = expectation(
-            for: NSPredicate(format: "label == %@", "Paused · Consent 2026-08-30"),
+            for: NSPredicate(format: "label == %@", "Paused · Consent 2026-09-26"),
             evaluatedWith: app.staticTexts["privacy.collect.state"]
         )
         wait(for: [paused], timeout: 10)

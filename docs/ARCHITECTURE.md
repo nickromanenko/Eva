@@ -2190,6 +2190,13 @@ variable while `JWT_SECRET` comes from Secret Manager.
 The `RATE_LIMIT_*` knobs (§3) are optional in both environments — unset means the
 defaults in `api/src/config.ts`, and they are configuration, not secrets.
 
+**The LLM vendor (A5, #267) is Google Gemini Flash, Google as data processor.** The key is
+read in one module only and declared in `api/src/config.ts` + `api/.env.example` (GUARDRAILS
+2); unprovisioned means the model-phrasing path (D9, #104) answers with the deterministic
+template fill rather than a 500. The prompt carries the filled card's subject and inputs and
+the tone rules, never raw events, the profile, sex events or the uid (GUARDRAILS 12 applies
+to the prompt as to logs). A processor without a signed DPA is a refusal, not a default.
+
 The website has one build-time value, `PUBLIC_API_BASE_URL`: the API origin that the
 email-link pages (`/activate`, `/reset`) call. Locally it comes from `website/.env`
 (see `website/.env.example`); in CI from the `API_BASE_URL` repo variable, and the
