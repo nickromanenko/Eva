@@ -73,6 +73,9 @@ final class AppSession {
         // bug rather than a harness bug.
         if ProcessInfo.processInfo.environment["EVA_UITEST_RESET"] == "1" {
             tokenStore.clear()
+            // The local store wipes too (§8.5): the hook's contract is a fresh install, and a
+            // fresh install has no store.
+            EvaStore.wipeAll()
         }
         #endif
     }
