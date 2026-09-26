@@ -37,6 +37,8 @@ struct HomeView: View {
     /// The banner whose article is open, or `nil`. Keyed by the banner rather than a bare
     /// URL so a second tap on a different card is a different presentation.
     @State private var article: EvaTodayBanner?
+    /// Whether the Nutrition coach's setup is presented (#223, S3).
+    @State private var showsNutritionSetup = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(session: AppSession, router: EvaTabRouter, country: EvaCountrySetting) {
@@ -82,6 +84,7 @@ struct HomeView: View {
                         shortcuts: model.shortcuts ?? .resting,
                         showsSetupCard: model.shortcuts?.showsMealSetupCard == true,
                         log: { router.openCalendarLogPicker(on: .today) },
+                        meals: { showsNutritionSetup = true },
                         openCalendar: { router.show(.calendar) }
                     )
                     // `margin-top:20px` over the column's 16.
@@ -127,6 +130,9 @@ struct HomeView: View {
         .fullScreenCover(item: $article) { banner in
             ArticleSafariView(url: banner.url) { article = nil }
                 .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showsNutritionSetup) {
+            NutritionSetupView(session: session)
         }
         .task { await model.start() }
         // Coming back to the app asks again. D3 answers a byte-identical document when
