@@ -711,6 +711,7 @@ describe.skipIf(!onEmulators)('the daily cache', () => {
       'line3',
       'meta',
       'actions',
+      'phraser',
     ]
     expect(Object.keys(card).filter((key) => !allowed.includes(key))).toEqual([])
     // The ratings she logged are not on the card; only the words the reviewed copy

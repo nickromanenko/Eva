@@ -38,7 +38,8 @@ index.ts ──► auth.ts · identity-toolkit.ts · providers.ts · rate-limit.
          ──► firebase.ts · config.ts
          ──► data-export.ts (leaf; `import type` only)
 
-today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts · dashboard-rules.ts · cycle.ts
+today.ts ──► events.ts · users.ts · nutrition-profile.ts · content.ts · dashboard-rules.ts · cycle.ts · llm.ts · model-phraser.ts
+model-phraser.ts ──► llm.ts (value) · today.ts · dashboard-rules.ts (`import type` only)
 events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, #286)
 ```
 
@@ -380,6 +381,18 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   can carry a uid — and hands the real one to the route's `onAbort`, which logs its class
   name only. What the export leaves out (session generation, cache bookkeeping, link-token
   hashes) is listed in ARCHITECTURE §4 "Data export".
+- `llm.ts` — the LLM vendor (A5, #267): Google Gemini Flash, Google as data processor,
+  reached over HTTPS from this one module (GUARDRAILS 32). The only reader of `config.llm`;
+  the only thing it sends is the prompt the caller hands it, and it logs nothing. `complete`
+  throws `LLMUnavailableError` on unprovisioned, timeout, network failure or a body with no
+  text — the model phraser's answer to that is the deterministic fill, never a 500.
+- `model-phraser.ts` — D9 (#104): the model phraser behind D3's `TemplatePhraser`. Handed the
+  *filled* card and the subject, it may only rewrite the text lines; every rule (unexpected
+  keys, no new number, no score/streak/comparison/capability vocabulary, no asserted phase at
+  `hedged` confidence, a title, ≤ three lines) is enforced after the model answers, and any
+  failure falls back to the template text. Rung 1 (`flag`) never reaches the model. The prompt
+  carries the filled card and the tone rules, never raw events, the profile, sex events or the
+  uid (GUARDRAILS 12). Pure apart from the stubbed `LLM` it is given.
 - `request-timeout.ts` — the per-request timeout that names a hung request in the log before
   Bun's `idleTimeout` kills the connection (#225). Wraps the handler in a timer, reads no
   clock and no Firestore, and logs `{ event: 'request_timeout', method, route }` to stderr —

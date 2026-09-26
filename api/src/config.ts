@@ -670,6 +670,17 @@ export const config = {
     },
   },
   /**
+   * The LLM vendor (A5, #267): Google Gemini Flash, Google as data processor. Read only
+   * in `llm.ts` (one reader, GUARDRAILS 4). `apiKey` is unset until provisioned, and
+   * unprovisioned is a *capability* — D9's model phraser answers with the deterministic
+   * template fill, never a boot failure or a 500. The prompt carries the filled card and
+   * the tone rules, never raw events, the profile, sex events or the uid (GUARDRAILS 12).
+   */
+  llm: {
+    apiKey: optionalString('GEMINI_API_KEY'),
+    model: optionalString('GEMINI_MODEL') ?? 'gemini-2.0-flash',
+  },
+  /**
    * The Today card's rules layer (#96/#98). Read only in `today.ts`, which hands it to
    * `dashboard-rules.ts` — the ladder takes its configuration as an argument and reads no
    * environment of its own.
