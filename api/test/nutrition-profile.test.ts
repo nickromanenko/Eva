@@ -1095,6 +1095,54 @@ describe('GET /me/nutrition/plan: her local day decides the phase (#365)', () =>
     expect(logged).toEqual([])
   })
 
+  /**
+   * Her age is measured on the same local day as her phase. The birthday falls on the UTC
+   * day and not on hers, so at 23:30 in `ZONE` she is still a year younger than UTC says —
+   * and the basal rate moves with age (A29's per-year term), so the target says which day
+   * was used. 28 years back keeps a 29 February a real date.
+   */
+  test('23:30 local, the next day in UTC: her age is the local day’s, not the UTC day’s', async () => {
+    const instant = lateEvening()
+    const utcDay = instant.toISOString().slice(0, 10)
+    const dateOfBirth = `${Number(utcDay.slice(0, 4)) - 28}${utcDay.slice(4)}`
+
+    const { uid, token } = await account({
+      profile: { ...questionnaire('mostlySitting'), dateOfBirth },
+    })
+    await finishSetup(token, 60)
+
+    // What the engine answers at each age, for the body the account carries — two different
+    // numbers, or the case below could not tell the days apart.
+    const targetAt = (ageYears: number) => {
+      const plan = nutritionModule.planDailyTargets(
+        {
+          weightKg: 64,
+          heightCm: 168,
+          ageYears,
+          activityBand: 'mostlySitting',
+          focusAreas: [],
+          goal: 'lose',
+          targetWeightKg: 60,
+        },
+        config.nutrition,
+      )
+      if (plan.kind !== 'targets') throw new Error(`expected targets, got ${plan.kind}`)
+      return plan.targets.calorieTargetKcal
+    }
+    expect(targetAt(27)).not.toBe(targetAt(28))
+
+    const [local, utc] = await at(instant, uid, async (session) => [
+      await call(session, 'GET', `/me/nutrition/plan?timeZone=${ZONE}`),
+      await call(session, 'GET', '/me/nutrition/plan?timeZone=UTC'),
+    ])
+    expect(local.status).toBe(200)
+    expect(utc.status).toBe(200)
+    // The day before her 28th birthday where she is; the birthday itself in UTC.
+    expect(local.body.plan.targets.calorieTargetKcal).toBe(targetAt(27))
+    expect(utc.body.plan.targets.calorieTargetKcal).toBe(targetAt(28))
+    expect(logged).toEqual([])
+  })
+
   test('a time zone that is not one is refused exactly as GET /me/today refuses it', async () => {
     // No setup on this account: the zone is checked first, as `/me/today` checks it first,
     // so the answer is the zone's refusal and not "complete your setup".
