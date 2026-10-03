@@ -178,7 +178,9 @@ Content card, settings rows (52 min-height, chevron, destructive row in `#A9524A
 info banner, toast (dark `rgba(40,33,38,.92)` with a pink Undo — `EvaToast`, built in
 #160), alert dialog, bottom sheet (grabber, 30px top radius, L3 glass, 26px safe-area
 bottom padding), empty state (dashed border), skeleton loading, and an error card with a
-Retry action.
+Retry action (`EvaErrorCard`, built in #78 for "Couldn't sync your last entry": §2's Error
+tint and border, which are one step from the artboard's `.06`/`.24`, and the row-level
+destructive button as its `Retry now`).
 
 **Calendar cells** — every event carries a fixed position *and* shape as well as a
 colour: sex = bottom-left circle, body signals = bottom-centre square, sport =

@@ -119,11 +119,21 @@ final class CalendarModel {
     /// either request can fail without the other.
     private(set) var overlay = EvaPredictionOverlay()
 
-    private var eventsByDay: [EvaDay: [EvaEvent]] = [:]
+    /// The entries, from the local store (§8.1: screens read the store). Rebuilt when the
+    /// store's revision moves, read through `eventsByDay`.
+    @ObservationIgnored private var cachedEvents: [EvaDay: [EvaEvent]] = [:]
+    @ObservationIgnored private var cachedRevision = -1
     private var loadedMonths: Set<EvaMonth> = []
     private var toastTask: Task<Void, Never>?
 
     private let source: any CalendarEventSource
+    /// Where the entries live and where writes go (#78). Shared with `AppSession` in the
+    /// app, so the queue outlives this screen; in-memory in previews and tests.
+    let sync: EventSync
+
+    /// The follow-up work an acknowledgement or a drained queue starts, kept so a test can
+    /// await it rather than guess when it has run.
+    @ObservationIgnored private var followUps: [Task<Void, Never>] = []
 
     /// True from the first request of a run until the last one lands — including the
     /// reloads queued behind it. It is what makes `fetch` single-flight.
@@ -137,19 +147,63 @@ final class CalendarModel {
     /// month the user paged through on the way there is not on screen any more.
     private var reloadRequested = false
 
-    init(source: any CalendarEventSource, today: EvaDay = .today()) {
+    init(source: any CalendarEventSource, today: EvaDay = .today(), sync: EventSync? = nil) {
         self.source = source
+        self.sync = sync ?? .inMemory(remote: source)
         self.today = today
         self.visibleMonth = today.evaMonth
         self.selectedDay = today
+        self.sync.onAcknowledged = { [weak self] type in
+            // A25 item 5: the estimate is derived from her logged periods on the server, so
+            // it moves when a cycle entry *reaches* the server — not when it is tapped in.
+            guard let self, type == .cycle else { return }
+            followUps.append(Task { await self.cycleDataChanged() })
+        }
+        self.sync.onDrained = { [weak self] in
+            // §8.3: after the queue drains, re-read the visible range, so what the server
+            // made of her writes (its `loggedAt`, an edit from another device) is on screen.
+            guard let self else { return }
+            followUps.append(Task { await self.reloadVisibleRange() })
+        }
     }
 
     // MARK: - Reading
 
     var grid: EvaMonthGrid { EvaMonthGrid(month: visibleMonth) }
 
-    /// The entries logged on a day, in the order the API returned them (by `loggedAt`).
+    /// The entries logged on a day, ordered by `loggedAt` as the API orders them.
     func events(on day: EvaDay) -> [EvaEvent] { eventsByDay[day] ?? [] }
+
+    /// Every entry in the store, by day. Reading `sync.revision` is what makes a view that
+    /// draws these redraw when the store changes.
+    private var eventsByDay: [EvaDay: [EvaEvent]] {
+        let revision = sync.revision
+        if revision != cachedRevision {
+            cachedEvents = sync.eventsByDay()
+            cachedRevision = revision
+        }
+        return cachedEvents
+    }
+
+    /// How many entries the server has refused — the "Couldn't sync" card's subject (§8.4).
+    var failedSyncCount: Int { sync.failedCount }
+
+    /// "Retry now" on that card.
+    func retryFailedSync() {
+        sync.retryFailed()
+    }
+
+    /// Drains the queue now and waits for everything that follows from it — foreground, and
+    /// the tests. A screen never awaits this on the way to drawing.
+    func synchronize() async {
+        await sync.drain()
+        while !followUps.isEmpty {
+            let running = followUps
+            followUps = []
+            for task in running { await task.value }
+            await sync.drain()
+        }
+    }
 
     /// The corner marks a day cell draws, at most one per type, in a fixed order so the
     /// same day never redraws its marks in a different sequence.
@@ -188,9 +242,10 @@ final class CalendarModel {
         return CalendarSummary(answer: answer, predictedDays: overlay.days)
     }
 
-    /// Whether the empty state should be on screen: the account has no history *and* the
-    /// question has been answered.
-    var showsEmptyState: Bool { hasHistory == false }
+    /// Whether the empty state should be on screen: the account has no history, the
+    /// question has been answered, and the store is still empty — the first-run empty state
+    /// is the empty store (§8.3), so an entry logged offline clears it at once.
+    var showsEmptyState: Bool { hasHistory == false && eventsByDay.isEmpty }
 
     /// The day's existing entry of a one-per-day type, if it has one.
     ///
@@ -204,61 +259,44 @@ final class CalendarModel {
 
     // MARK: - Writing
 
-    /// Creates or edits one entry and puts the server's answer on the grid.
+    /// Logs or edits one entry: into the store and onto the queue, on the grid at once
+    /// (§8.4). The server hears about it when the queue drains — now if there is a
+    /// connection, later if there is not — and nothing here waits for that.
     ///
-    /// `editing` is the id of the entry being replaced, or `nil` for a new one. The route
-    /// differs three ways and the caller should not have to know which: an edit is a
-    /// `PATCH`, a new body-signals entry is the day-addressed upsert, and everything else
-    /// is a create.
+    /// `editing` is the id of the entry being replaced, or `nil` for a new one. Which route
+    /// the queue takes for it — the create, the day-addressed body-signals upsert, or an
+    /// edit's `PATCH` — is `EventSync`'s to decide; the caller does not have to know.
     ///
-    /// Throws whatever the API threw. Nothing is written to the cache on a failure, so a
-    /// sheet that shows the error is showing it about a calendar that has not changed.
+    /// Still `throws`, so the sheet keeps one shape for a save; the local write itself does
+    /// not fail. A server that later refuses the entry marks it, and the "Couldn't sync"
+    /// card says so (§8.4).
     @discardableResult
     func save(_ write: EvaEventWrite, editing id: String? = nil) async throws -> EvaEvent {
-        let saved: EvaEvent
-        if let id {
-            saved = try await source.updateEvent(id: id, write)
-        } else if case .bodySignals(let payload) = write.payload {
-            saved = try await source.upsertBodySignals(EvaBodySignalsWrite(
-                payload: payload,
-                localDate: write.localDate,
-                note: write.note,
-                idempotencyKey: write.idempotencyKey,
-                timeZone: write.timeZone
-            ))
-        } else {
-            saved = try await source.createEvent(write)
-        }
-        absorb(saved)
+        let saved = sync.save(write, editing: id)
+        // The account demonstrably has history now, whatever the first range said. Without
+        // this the first entry a brand-new user logs would appear on a grid still telling
+        // her to log her first period.
+        hasHistory = true
+        // The day detail follows what was just written, so the entry is on screen the
+        // moment the sheet closes. The month is deliberately left alone: everything is
+        // logged to the selected day, the selection always follows the page, and adjacent
+        // months' cells are not tappable — so a write can never land outside the month
+        // being drawn.
+        selectedDay = saved.localDate
         show(toast: Toast(message: Self.savedMessage(for: saved)))
-        if saved.type == .cycle { await cycleDataChanged() }
         return saved
     }
 
     /// Soft-deletes one entry and offers Undo for as long as Undo is true.
     ///
-    /// Reports through the toast rather than by throwing, unlike `save`: the sheet that
-    /// saves is still open and still holding what the user typed, so an error belongs on
-    /// it — a delete is one tap on a row that is already gone from under the finger, and
-    /// the toast is the only surface left.
+    /// Off the grid at once and the `DELETE` queued (§8.4). Nothing to report on the way:
+    /// a delete the server later refuses is the "Couldn't sync" card's to tell.
     func delete(_ event: EvaEvent) async {
-        do {
-            try await source.deleteEvent(id: event.id)
-            remove(event.id, on: event.localDate)
-            show(toast: Toast(
-                message: "\(CalendarEntryPresentation.typeName(for: event.type)) deleted",
-                restorable: event
-            ))
-            // A25 item 5: deleting the entry the prediction is anchored on moves the
-            // prediction, and the route recomputes on read — so the overlay has to re-ask
-            // rather than keep drawing an estimate the deleted period was the reason for.
-            if event.type == .cycle { await cycleDataChanged() }
-        } catch let error as APIError {
-            if case .sessionExpired = error { return }
-            show(toast: Toast(message: error.localizedDescription))
-        } catch {
-            show(toast: Toast(message: APIError.decoding.localizedDescription))
-        }
+        sync.delete(event)
+        show(toast: Toast(
+            message: "\(CalendarEntryPresentation.typeName(for: event.type)) deleted",
+            restorable: event
+        ))
     }
 
     /// Whether Undo may still be offered for a soft-deleted entry (#50).
@@ -289,18 +327,13 @@ final class CalendarModel {
     /// that appeared to do nothing.
     func undoDelete() async {
         guard let event = toast?.restorable else { return }
-        do {
-            absorb(try await source.restoreEvent(id: event.id))
-            show(toast: Toast(
-                message: "\(CalendarEntryPresentation.typeName(for: event.type)) restored"
-            ))
-            if event.type == .cycle { await cycleDataChanged() }
-        } catch let error as APIError {
-            if case .sessionExpired = error { return }
-            show(toast: Toast(message: error.localizedDescription))
-        } catch {
-            show(toast: Toast(message: APIError.decoding.localizedDescription))
-        }
+        // A delete still in the queue is withdrawn from it; one already sent is restored
+        // (§8.4). The server can still refuse the restore — another device retook the day —
+        // and then the entry is marked and the "Couldn't sync" card says so.
+        sync.restore(event)
+        show(toast: Toast(
+            message: "\(CalendarEntryPresentation.typeName(for: event.type)) restored"
+        ))
     }
 
     func dismissToast() {
@@ -331,42 +364,6 @@ final class CalendarModel {
             EvaDay.formatStyle.day().month(.wide)
         )
         return "\(CalendarEntryPresentation.typeName(for: event.type)) saved to \(day)"
-    }
-
-    /// Files a server-returned entry into the day index, replacing whatever it supersedes.
-    ///
-    /// Three things are replaced, and each is a real case rather than a precaution:
-    /// the same id anywhere (an edit, which for a sport or an appointment may also have
-    /// moved the day); the day's existing entry of a one-per-day type (a re-log, which the
-    /// server has already overwritten at rest); and nothing else. The day is then re-sorted
-    /// by `loggedAt`, so the list reads in the order a fresh `GET /me/events` would return.
-    private func absorb(_ event: EvaEvent) {
-        for (day, entries) in eventsByDay where entries.contains(where: { $0.id == event.id }) {
-            eventsByDay[day] = entries.filter { $0.id != event.id }
-        }
-        var day = eventsByDay[event.localDate] ?? []
-        if event.type.isOnePerDay {
-            day.removeAll { $0.type == event.type }
-        }
-        day.append(event)
-        eventsByDay[event.localDate] = day.sorted {
-            ($0.loggedAt, $0.id) < ($1.loggedAt, $1.id)
-        }
-
-        // The account demonstrably has history now, whatever the first range said. Without
-        // this the first entry a brand-new user logs would appear on a grid still telling
-        // her to log her first period.
-        hasHistory = true
-        // The day detail follows what was just written, so the entry is on screen the
-        // moment the sheet closes. The month is deliberately left alone: everything is
-        // logged to the selected day, the selection always follows the page, and adjacent
-        // months' cells are not tappable — so a write can never land outside the month
-        // being drawn, and paging here would only be able to page somewhere unloaded.
-        selectedDay = event.localDate
-    }
-
-    private func remove(_ id: String, on day: EvaDay) {
-        eventsByDay[day] = (eventsByDay[day] ?? []).filter { $0.id != id }
     }
 
     // MARK: - Navigation
@@ -468,6 +465,15 @@ final class CalendarModel {
         await fetch(from: range.from, to: range.to, answersHistory: false)
     }
 
+    /// Forgets that the visible range was read and reads it again — after the queue drains
+    /// and on foreground (§8.3), when what the server holds may have moved under the store.
+    func reloadVisibleRange() async {
+        for month in [visibleMonth.previous, visibleMonth, visibleMonth.next] {
+            loadedMonths.remove(month)
+        }
+        await loadVisibleRange()
+    }
+
     /// Single-flight, and it **finishes what was asked for while it was in flight**.
     ///
     /// Two concurrent fetches would race to write the same days, so only one runs at a
@@ -520,11 +526,13 @@ final class CalendarModel {
 
     private func loadEvents(from: EvaDay, to: EvaDay, answersHistory: Bool) async {
         do {
-            let events = try await source.events(from: from, through: to)
-            apply(events, coveringFrom: from, to: to)
+            // The read goes through the store: the sync engine reconciles the server's
+            // answer into it (§8.3) and the grid redraws from the store.
+            let count = try await sync.refresh(from: from, through: to)
+            markLoaded(from: from, to: to)
             if answersHistory {
-                hasHistory = !events.isEmpty
-            } else if !events.isEmpty {
+                hasHistory = count > 0 || !eventsByDay.isEmpty
+            } else if count > 0 {
                 // A narrow range may only ever *prove* history, never disprove it.
                 hasHistory = true
             }
@@ -540,8 +548,12 @@ final class CalendarModel {
                 loadState = .idle
                 return
             }
+            // What the store already holds is still hers and still drawn (§8.3: a screen
+            // never blocks on the network); the banner says only that the refresh failed.
+            if !eventsByDay.isEmpty { hasHistory = true }
             loadState = .failed(error.localizedDescription)
         } catch {
+            if !eventsByDay.isEmpty { hasHistory = true }
             loadState = .failed(APIError.decoding.localizedDescription)
         }
     }
@@ -582,16 +594,9 @@ final class CalendarModel {
         await loadPrediction(from: visibleMonth.previous.firstDay, to: visibleMonth.next.lastDay)
     }
 
-    /// Replaces everything in the fetched range, rather than merging into it.
-    ///
-    /// Replacing is what makes a re-fetch able to *remove* an entry: a merge would leave
-    /// a deleted event on the grid forever, because the response that no longer contains
-    /// it says nothing about it. The range is the authority for the days inside it.
-    private func apply(_ events: [EvaEvent], coveringFrom from: EvaDay, to: EvaDay) {
-        eventsByDay = eventsByDay.filter { $0.key < from || $0.key > to }
-        for event in events {
-            eventsByDay[event.localDate, default: []].append(event)
-        }
+    /// Records which months the range covered. The replacing itself — what lets a re-fetch
+    /// *remove* an entry deleted elsewhere — is the reconcile's (`EventSync.reconcile`).
+    private func markLoaded(from: EvaDay, to: EvaDay) {
         // A month only counts as cached when the range held all of it. The first load's
         // window starts mid-month, and caching that month as complete would leave the
         // days before the cut permanently blank.

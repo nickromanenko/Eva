@@ -101,6 +101,11 @@ final class EvaStubURLProtocol: URLProtocol {
     private struct Record: Sendable {
         var count = 0
         var lastAuthorization: String?
+        /// Every body sent on the route, in order (#78: a retried create must carry the
+        /// same `idempotencyKey` both times, which only the bodies can show).
+        var bodies: [Data] = []
+        /// The query string of every request on the route, in order (#78: `?version=`).
+        var queries: [String?] = []
     }
 
     /// The routing table a `route { … }` block builds.
@@ -230,6 +235,33 @@ final class EvaStubURLProtocol: URLProtocol {
 
     /// How many requests have been intercepted since the last arming.
     /// A rule that signs the user out must not also retry.
+    /// The bodies sent on one route, oldest first.
+    static func bodies(for route: Route) -> [Data] {
+        state.withLock { $0.records[route]?.bodies ?? [] }
+    }
+
+    /// The query strings sent on one route, oldest first.
+    static func queries(for route: Route) -> [String?] {
+        state.withLock { $0.records[route]?.queries ?? [] }
+    }
+
+    /// A request's body. `URLSession` hands a protocol the body as a stream, not as
+    /// `httpBody`, so it is read off the stream when that is where it is.
+    private static func body(of request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
+
     static var requestCount: Int {
         state.withLock { $0.totalCount }
     }
@@ -306,12 +338,16 @@ final class EvaStubURLProtocol: URLProtocol {
             path: request.url?.path() ?? ""
         )
         let authorization = request.value(forHTTPHeaderField: "Authorization")
+        let body = Self.body(of: request)
+        let query = request.url?.query()
 
         let rule = Self.state.withLock { state -> Rule? in
             state.totalCount += 1
             state.lastAuthorization = authorization
             state.records[route, default: Record()].count += 1
             state.records[route]?.lastAuthorization = authorization
+            if let body { state.records[route]?.bodies.append(body) }
+            state.records[route]?.queries.append(query)
             guard let rule = state.rules[route] ?? state.catchAll else {
                 state.unrouted.append(route)
                 return nil

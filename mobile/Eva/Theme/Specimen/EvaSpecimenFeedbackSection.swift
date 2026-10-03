@@ -38,6 +38,22 @@ struct EvaSpecimenFeedbackSection: View {
             EvaToast(message: "Body signals saved to 12 August")
                 .accessibilityIdentifier("specimen.toast.plain")
 
+            EvaSpecimenGroupLabel(title: "Error card")
+            EvaSpecimenNote(
+                text: "Error tint and border, radius \(EvaSpecimenNumber.string(EvaRadius.card)), "
+                    + "a ! mark beside the title, and the outlined row button. Built for "
+                    + "\"Couldn't sync your last entry\" (#78): something did go wrong, so "
+                    + "it is red where the information banner is blue."
+            )
+
+            EvaErrorCard(
+                title: "Couldn't sync your last entry",
+                message: EvaSyncCopy.failedMessage
+            ) {
+                DestructiveButton(title: "Retry now", kind: .row) {}
+            }
+            .accessibilityIdentifier("specimen.errorCard")
+
             EvaSpecimenGroupLabel(title: "Five-point scale")
             EvaSpecimenNote(
                 text: "Five \(EvaSpecimenNumber.string(54))-high cells, a word per point, "

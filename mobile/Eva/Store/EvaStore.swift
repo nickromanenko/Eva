@@ -9,27 +9,36 @@ import SwiftData
 /// (§8.2, the same rule the Keychain token follows). The file sits in Application Support
 /// with `NSFileProtectionCompleteUntilFirstUserAuthentication` (background sync must be able
 /// to open it after a reboot-and-unlock) and is excluded from iCloud and iTunes backup.
+///
+/// This type is the store's vocabulary — rows and the queue. What a *write* means (which
+/// operation it queues, what an acknowledgement does to the row) is `EventSync`'s.
 @MainActor
 final class EvaStore {
 
     let container: ModelContainer
-    private let uid: String
+    let uid: String
 
-    init(uid: String) throws {
+    private var context: ModelContext { container.mainContext }
+
+    init(uid: String, inMemory: Bool = false) throws {
         self.uid = uid
-        let schema = Schema([LocalEvent.self, PendingOperation.self])
-        let configuration = ModelConfiguration(schema: schema, url: Self.url(for: uid))
+        let schema = Schema([LocalEvent.self, PendingOperation.self, LocalRefdata.self])
+        let configuration = inMemory
+            ? ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+            : ModelConfiguration(schema: schema, url: Self.url(for: uid))
         container = try ModelContainer(for: schema, configurations: [configuration])
-        Self.harden(Self.url(for: uid))
+        if !inMemory { Self.harden(Self.url(for: uid)) }
+    }
+
+    /// The directory every store file lives in.
+    private static var directory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     }
 
     /// The one store file, keyed to the uid so a second account on the same device starts
     /// empty rather than reading the previous account's events.
-    private static func url(for uid: String) -> URL {
-        let directory = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        )[0]
-        return directory.appendingPathComponent("eva-\(uid).store")
+    static func url(for uid: String) -> URL {
+        directory.appendingPathComponent("eva-\(uid).store")
     }
 
     /// File protection and backup exclusion, applied to the store file and its supporting
@@ -55,29 +64,197 @@ final class EvaStore {
         }
     }
 
-    /// Wipes the store — the log-out, account-deletion and `EVA_UITEST_RESET` path (§8.5).
+    /// Empties the store — every row and the whole queue — without closing it.
     func reset() {
-        let context = container.mainContext
         try? context.delete(model: LocalEvent.self)
         try? context.delete(model: PendingOperation.self)
+        try? context.delete(model: LocalRefdata.self)
         try? context.save()
     }
 
-    /// A new account on the same device starts empty: the store is keyed to the uid, so a
-    /// store file for a different uid is the caller's signal to wipe before switching.
+    /// Whether this store is the given account's (§8.5: a mismatch wipes).
     func belongsTo(_ other: String) -> Bool { uid == other }
 
-    /// Wipes every store file, whatever account it belonged to — the `EVA_UITEST_RESET`
-    /// path (§8.5), whose contract is "a fresh install", and a fresh install has no store.
-    static func wipeAll() {
-        let directory = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        )[0]
+    /// Removes every store file on the device — whatever account it belonged to — except
+    /// `keeping`'s. The `EVA_UITEST_RESET` path wipes them all (§8.5: the hook's contract is
+    /// "a fresh install", and a fresh install has no store); opening an account's store
+    /// wipes every *other* account's, so a second account on this device starts empty and
+    /// the first account's health data does not linger beside it.
+    ///
+    /// SQLite's `-wal` and `-shm` companions go too. Removing only `.store` would leave a
+    /// write-ahead log behind for the next file at the same path to replay.
+    static func wipeAll(keeping: String? = nil) {
         let files = (
             try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         ) ?? []
-        for file in files where file.lastPathComponent.hasPrefix("eva-") && file.pathExtension == "store" {
+        let kept = keeping.map { url(for: $0).lastPathComponent }
+        for file in files {
+            let name = file.lastPathComponent
+            guard name.hasPrefix("eva-"), name.contains(".store") else { continue }
+            if let kept, name.hasPrefix(kept) { continue }
             try? FileManager.default.removeItem(at: file)
         }
+    }
+
+    /// Whether any store file exists for `uid` — what the reset tests read.
+    static func fileExists(for uid: String) -> Bool {
+        FileManager.default.fileExists(atPath: url(for: uid).path)
+    }
+
+    func save() { try? context.save() }
+
+    // MARK: - Reads
+
+    /// The local events in a `localDate` range, excluding soft-deleted rows — the same
+    /// predicate the API's range read applies (§8.3). Returns them unsorted; the caller
+    /// orders by `loggedAt`, as the server does.
+    func localEvents(from: EvaDay, through to: EvaDay) -> [LocalEvent] {
+        rows(from: from, through: to).filter { $0.deletedAt == nil }
+    }
+
+    /// Every row in a range, soft-deleted ones included — what a reconcile compares against.
+    func rows(from: EvaDay, through to: EvaDay) -> [LocalEvent] {
+        let fromISO = from.isoDate
+        let toISO = to.isoDate
+        let descriptor = FetchDescriptor<LocalEvent>(
+            predicate: #Predicate { $0.localDate >= fromISO && $0.localDate <= toISO }
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Every live (not soft-deleted) row.
+    func liveEvents() -> [LocalEvent] {
+        let descriptor = FetchDescriptor<LocalEvent>(predicate: #Predicate { $0.deletedAt == nil })
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// The rows the "Couldn't sync" card is about.
+    func failedEvents() -> [LocalEvent] {
+        let failed = SyncState.failed.rawValue
+        let descriptor = FetchDescriptor<LocalEvent>(predicate: #Predicate { $0.syncState == failed })
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    func row(clientId: String) -> LocalEvent? {
+        var descriptor = FetchDescriptor<LocalEvent>(predicate: #Predicate { $0.clientId == clientId })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    func rows(serverId: String) -> [LocalEvent] {
+        let descriptor = FetchDescriptor<LocalEvent>(
+            predicate: #Predicate { $0.serverId == serverId }
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// The row a screen means by an `EvaEvent.id` — a `clientId` for an entry logged here,
+    /// the server's id for one that arrived from it (`LocalEvent.displayId`).
+    func row(forID id: String) -> LocalEvent? {
+        if let row = row(clientId: id), row.displayId == id { return row }
+        let byServer = rows(serverId: id)
+        return byServer.first { $0.deletedAt == nil } ?? byServer.first ?? row(clientId: id)
+    }
+
+    func insert(_ event: LocalEvent) { context.insert(event) }
+
+    func delete(_ event: LocalEvent) { context.delete(event) }
+
+    // MARK: - The queue
+
+    /// Every queued operation, in FIFO order.
+    func operations() -> [PendingOperation] {
+        let descriptor = FetchDescriptor<PendingOperation>(sortBy: [SortDescriptor(\.sequence)])
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// The queued operations for one entry, in FIFO order.
+    func operations(for clientId: String) -> [PendingOperation] {
+        let descriptor = FetchDescriptor<PendingOperation>(
+            predicate: #Predicate { $0.clientId == clientId },
+            sortBy: [SortDescriptor(\.sequence)]
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    func remove(_ operation: PendingOperation) { context.delete(operation) }
+
+    /// The next FIFO sequence number, drawn from the highest one already in the queue.
+    func nextSequence() -> Int {
+        var descriptor = FetchDescriptor<PendingOperation>(
+            sortBy: [SortDescriptor(\.sequence, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        let highest = (try? context.fetch(descriptor).first?.sequence) ?? 0
+        return highest + 1
+    }
+
+    /// Appends one operation to the queue, then persists. The caller has already written the
+    /// store row it depends on — the queue is the *second* half of "write the store first".
+    func enqueue(
+        _ kind: OperationKind,
+        clientId: String,
+        serverId: String? = nil,
+        payloadData: Data? = nil,
+        timeZone: String? = nil
+    ) {
+        let operation = PendingOperation(
+            sequence: nextSequence(),
+            kind: kind,
+            clientId: clientId,
+            serverId: serverId,
+            payloadData: payloadData,
+            timeZone: timeZone
+        )
+        context.insert(operation)
+        try? context.save()
+    }
+
+    /// Inserts one event in `pendingCreate` state and queues its create — the "log an
+    /// entry" path (§8.4) at its most basic. Returns the row, so the caller can read the
+    /// `clientId` that is also the `idempotencyKey`.
+    func upsertPendingCreate(
+        clientId: String,
+        localDate: String,
+        loggedAt: String,
+        type: String,
+        payloadData: Data,
+        note: String?,
+        source: String
+    ) -> LocalEvent {
+        let event = LocalEvent(
+            clientId: clientId,
+            localDate: localDate,
+            loggedAt: loggedAt,
+            type: type,
+            payloadData: payloadData,
+            note: note,
+            source: source,
+            syncState: .pendingCreate
+        )
+        context.insert(event)
+        try? context.save()
+        enqueue(.create, clientId: clientId)
+        return event
+    }
+
+    // MARK: - Reference data (§8.3)
+
+    /// The cached `/refdata` document, if there is one.
+    func refdata() -> LocalRefdata? {
+        var descriptor = FetchDescriptor<LocalRefdata>()
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    /// Replaces the cached `/refdata` document.
+    func saveRefdata(version: String, data: Data) {
+        if let existing = refdata() {
+            existing.version = version
+            existing.data = data
+        } else {
+            context.insert(LocalRefdata(version: version, data: data))
+        }
+        try? context.save()
     }
 }

@@ -1979,6 +1979,7 @@ device token is an identifier for a user and a queued notification is intent abo
 | `Profile/` | `ProfileView` (identity, connected accounts, log out, danger zone) and `DeleteAccountModal` |
 | `Navigation/` | `EvaTabView` and `EvaTabBar` — the signed-in shell — and `EvaTabRouter`, which holds the tab selection and the one request a tab makes of another |
 | `Home/` | The Dashboard's Home tab (#99, D4): `HomeModel` and its `TodayCardSource`, `EvaTodayCard` (the `GET /me/today` wire types), `TodayCardView` in its four tones, the header and the offline bar |
+| `Store/` | The local store and the sync queue (§8, #78): `LocalEvent`, `PendingOperation` and `LocalRefdata` (SwiftData), `EvaStore` (the uid-keyed container), `EventSync` (writes, the reconcile, and the drain schedule) and `SyncEngine` + `SyncOutcome` (one FIFO pass and its failure semantics) |
 | `Calendar/` | `CalendarModel` and its `CalendarEventSource`, the month grid and its marks, and the prediction overlay (#206): `EvaCyclePredictions` (the `GET /me/cycle/predictions` wire types) with `EvaPredictionOverlay`, the dashed-and-patterned `EvaPredictionMark`, and the summary card |
 | `Units/` | The units setting (#82): `EvaUnitSystem`, `EvaUnitPreference`, and the conversion boundary — `EvaBodyUnits`, `EvaBodyRange`, `EvaMassInput`, `EvaHeightInput` |
 | `Theme/` | Colors, gradients, `PrimaryButton`, progress style — see [DESIGN.md](DESIGN.md) |
@@ -1989,8 +1990,10 @@ engine talks to the API" — with `AppSession` standing in as its only implement
 #78 builds the store. `LocalTodayCard` (§8.2) is what replaces it, and nothing in
 `HomeModel` changes when it does. The same shape `CalendarEventSource` has.
 
-`AppSession.State` (`loading → signedOut | ready | unreachable`) drives the root view.
-**The server is the source of truth for `questionnaireCompleted`** — never reintroduce a
+`AppSession.State` (`loading → signedOut | ready | unreachable | offline`) drives the root
+view. `offline` (#78) is `unreachable` after **Continue offline**: the same tabs over the
+local store, the token kept and unvalidated, and the first request that gets through
+re-runs `bootstrap()`. **The server is the source of truth for `questionnaireCompleted`** — never reintroduce a
 local `@AppStorage` flag for it. #19 removed the post-auth questionnaire gate: a new user
 lands in the app and completes the profile from Profile.
 
@@ -2137,7 +2140,12 @@ adding a case and wiring both transitions — there is no implicit ordering.
 
 Escape hatches used by tooling — keep them working:
 - `EVA_ONBOARDING_STEP=<rawValue>` jumps straight to a step. DEBUG-only.
-- `EVA_UITEST_RESET=1` clears the Keychain at launch. DEBUG-only.
+- `EVA_UITEST_RESET=1` clears the Keychain **and wipes the local store** at launch (§8.5).
+  DEBUG-only.
+- `EVA_SYNC_DROP_ACKS=1` (#78) sends every queued operation and discards the server's
+  answer, as a connection that drops after the write would — so the entry stays queued and
+  is replayed. `OfflineSyncUITests` uses it to prove a replayed create is one document.
+  DEBUG-only.
 - `EVA_API_BASE_URL` repoints the client (used by `scripts/e2e.sh` and, via
   `TEST_RUNNER_EVA_API_BASE_URL`, by `scripts/verify-mobile.sh`). Compiled into **every**
   configuration, not just DEBUG, so a Release build can be pointed at a test API.
@@ -2418,10 +2426,11 @@ test together: a mutation that no longer applies, or no longer parses, fails the
   `gcloud firestore databases restore --source-backup=<backup-id> --destination-database=<scratch-db>`,
   always to a **new** database, never over production. Until the schedule is actually
   created the gap below is still open; this states what it becomes once it exists.
-- The local store (§8, #78) is built at its core — the SwiftData models (`LocalEvent`,
-  `PendingOperation`), the uid-keyed container with file protection and backup exclusion, and
-  the sync queue's drain semantics — but the Calendar and Home do not read from it yet: the
-  "screens read the store" rewiring is the remaining half of #78. The push transport (§9) is
+- The local store (§8, #78) is built for the calendar's entries and the `/refdata`
+  catalogues: the Calendar reads `LocalEvent` and writes through the queue, and Continue
+  offline runs the app from the store. Not yet behind it: the Today card (`LocalTodayCard`,
+  §8.2) — Home still reads `GET /me/today` through `AppSession`, with its in-memory
+  `home_off` fallback — and `/content`, which no client reads yet. The push transport (§9) is
   built: the device registry, the APNs sender and the notification queue are in the API (#79,
   #355), and the app registers its token after bootstrap. What remains for push is the
   notification catalogue and centre (their own slice), the permission-prompt timing (§9.4,
@@ -2572,6 +2581,41 @@ entry on the server. `scripts/e2e.sh` gains that flow against the real API.
   `EVA_UITEST_RESET`.
 - The `events` composite index (#27) is deployed, and `listEvents` filters `deletedAt` in
   the query — the sync engine's first reconcile is that read.
+
+### 8.8 As built (#78)
+
+What the implementation added to the design above, each because the design left it open:
+
+- **Continue offline.** A launch with no network lands on `.unreachable` (§5, #61); the
+  `unreachable` artboard's **Continue offline** moves to `AppSession.State.offline` and runs
+  the tabs from the store. With no `/me`, the store is opened by the token's `sub` claim,
+  read on the device and trusted for nothing but which file to open. A request that gets
+  through re-runs `bootstrap()`.
+- **One id per row on screen.** An entry logged on this device keeps its `clientId` as its
+  on-screen id after the server acknowledges it (`LocalEvent.displayId`), so a row does not
+  re-identify a second after Save; an entry that arrived from the server uses the server's
+  id. Every lookup accepts either.
+- **The reconcile also matches by `idempotencyKey`.** A create whose acknowledgement was
+  lost is on the server under her key; listing it as "absent locally" would draw it twice.
+  The row learns its `serverId` and its queued create is answered with the same document.
+  A one-per-day day she has a pending entry for is not overwritten by the server's older
+  copy, and a row she deleted here is kept (invisible) so Undo can still name it.
+- **Queued writes are built at send time** from the row as it then stands, with the zone
+  recorded when she logged it (`PendingOperation.timeZone`) — two offline edits go out as
+  their latest content, and a Lisbon entry sent from New York is still judged by Lisbon's
+  today.
+- **A 401 sign-out does not wipe.** Log out and account deletion wipe (§8.5); a 401 closes
+  the store and keeps the queue (§8.4: nothing is discarded), so the same account signing
+  back in sends it. A different account wipes it on open.
+- **The "Couldn't sync" card** (`EvaErrorCard`, DESIGN.md §7) appears on the calendar when
+  any entry is `failed`; **Retry now** queues every refused entry again. Its second sentence
+  departs from the artboard's "Eva will retry automatically", which is not true of a 4xx.
+- **Log out asks first when entries are unsynced** — the platform confirmation dialog, with
+  §8.5's sentence; the canvas draws no log-out confirmation.
+
+The rule → test map is in PR #78's description; the unit tests are `EventSyncTests`,
+`OfflineSessionTests`, `SyncEngineTests` and `EvaStoreTests`, and the UI tests
+`OfflineSyncUITests`.
 
 ## 9. Push notifications (A9)
 

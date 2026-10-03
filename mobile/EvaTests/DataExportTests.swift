@@ -50,7 +50,7 @@ extension SessionExpiryTests {
         @MainActor
         func fallsBackWithoutAName() async throws {
             EvaStubURLProtocol.stub(status: 200, body: exportBody)
-            let session = AppSession(client: Self.client(), tokenStore: .shared)
+            let session = AppSession(client: Self.client(), tokenStore: .shared, inMemoryStore: true)
 
             let export = try await session.exportData()
 
@@ -71,7 +71,7 @@ extension SessionExpiryTests {
                 body: truncated,
                 headers: ["Content-Disposition": #"attachment; filename="\#(serverFilename)""#]
             )
-            let session = AppSession(client: Self.client(), tokenStore: .shared)
+            let session = AppSession(client: Self.client(), tokenStore: .shared, inMemoryStore: true)
 
             do {
                 let export = try await session.exportData()
@@ -102,7 +102,8 @@ extension SessionExpiryTests {
                     token: { KeychainTokenStore.shared.token },
                     session: EvaStubURLProtocol.session
                 ),
-                tokenStore: store
+                tokenStore: store,
+                inMemoryStore: true
             )
             EvaStubURLProtocol.stub(status: 200, body: ClientMapping.user)
             await session.bootstrap()

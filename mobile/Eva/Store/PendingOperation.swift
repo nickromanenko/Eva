@@ -20,6 +20,10 @@ final class PendingOperation {
     var payloadData: Data?
     /// The number of consecutive failed attempts, for the backoff.
     var attempts: Int
+    /// The zone the entry was logged in, sent as the write's `timeZone` (§8.4 Dates): the
+    /// server's "is this in the future" check is about the moment she logged it, so an entry
+    /// queued in Lisbon and sent from New York is still judged by Lisbon's today.
+    var timeZone: String?
 
     init(
         sequence: Int,
@@ -27,7 +31,8 @@ final class PendingOperation {
         clientId: String,
         serverId: String? = nil,
         payloadData: Data? = nil,
-        attempts: Int = 0
+        attempts: Int = 0,
+        timeZone: String? = nil
     ) {
         self.sequence = sequence
         self.kind = kind.rawValue
@@ -35,7 +40,10 @@ final class PendingOperation {
         self.serverId = serverId
         self.payloadData = payloadData
         self.attempts = attempts
+        self.timeZone = timeZone
     }
+
+    var operationKind: OperationKind? { OperationKind(rawValue: kind) }
 }
 
 enum OperationKind: String {

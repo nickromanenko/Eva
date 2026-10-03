@@ -137,9 +137,11 @@ struct APIClient: Sendable {
     /// branch differs, and the reason it cannot share `send`'s is that decoding the body
     /// would be both pointless and wrong — the app does not read an export, it hands it
     /// to the user.
-    func download(_ path: String, authorized: Bool = false) async throws -> APIDownload {
+    func download(
+        _ path: String, query: [URLQueryItem] = [], authorized: Bool = false
+    ) async throws -> APIDownload {
         let (data, response) = try await perform(
-            path: path, method: "GET", body: nil as Never?, authorized: authorized
+            path: path, method: "GET", query: query, body: nil as Never?, authorized: authorized
         )
         let disposition = response.value(forHTTPHeaderField: "Content-Disposition")
         return APIDownload(data: data, filename: Self.filename(fromContentDisposition: disposition))

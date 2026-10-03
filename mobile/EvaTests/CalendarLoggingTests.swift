@@ -485,15 +485,32 @@ struct CalendarWriteTests {
         return model
     }
 
+    /// A fresh key per draft, as `LogDraft` mints one — two writes sharing a key are one
+    /// entry to the server (#78's idempotency contract), so a test that means two entries
+    /// must not reuse one.
     static func write(_ payload: EvaEventPayload, on day: EvaDay = today) -> EvaEventWrite {
-        EvaEventWrite(payload: payload, localDate: day, idempotencyKey: "key")
+        EvaEventWrite(payload: payload, localDate: day, idempotencyKey: UUID().uuidString)
     }
 
-    @Test("A saved entry is on the grid before anything is re-fetched")
-    func savingLandsOnTheGridWithoutAReload() async throws {
+    /// The one entry the calendar holds for a day.
+    static func only(_ model: CalendarModel, on day: EvaDay = today) throws -> EvaEvent {
+        try #require(model.events(on: day).first)
+    }
+
+    /// The id the server gave the one entry it holds — which the calendar does not show:
+    /// an entry logged on this device keeps its device id on screen (`LocalEvent.displayId`).
+    static func serverId(_ source: RecordingCalendarSource) throws -> String {
+        try #require(source.events.first?.id)
+    }
+
+    /// §8.4: the store first, the screen from the store, the network later. Asserted with
+    /// the network *failing*, which is the case the rule exists for.
+    @Test("A saved entry is on the grid before the server has answered it")
+    func savingLandsOnTheGridWithoutTheNetwork() async throws {
         let source = RecordingCalendarSource()
         let model = await Self.model(source)
         #expect(model.showsEmptyState)
+        source.writeFailure = APIError.network
 
         try await model.save(Self.write(.cycle(.flow(.medium))))
 
@@ -510,12 +527,14 @@ struct CalendarWriteTests {
         let model = await Self.model(source)
 
         try await model.save(Self.write(.bodySignals(EvaBodySignalsPayload(energy: 2))))
+        await model.synchronize()
         #expect(source.bodySignalWrites.count == 1)
         #expect(source.bodySignalWrites.first?.localDate == Self.today)
 
         try await model.save(Self.write(.sport(EvaSportPayload(
             activity: "yoga", durationMin: 30, intensity: .light
         ))))
+        await model.synchronize()
         #expect(source.bodySignalWrites.count == 1, "A sport entry went to /me/body-signals")
     }
 
@@ -523,11 +542,16 @@ struct CalendarWriteTests {
     func editingPatches() async throws {
         let source = RecordingCalendarSource()
         let model = await Self.model(source)
-        let created = try await model.save(Self.write(.cycle(.flow(.light))))
+        try await model.save(Self.write(.cycle(.flow(.light))))
+        await model.synchronize()
+        let created = try Self.only(model)
+
+        let serverId = try Self.serverId(source)
 
         try await model.save(Self.write(.cycle(.flow(.heavy))), editing: created.id)
+        await model.synchronize()
 
-        #expect(source.patchedIds == [created.id])
+        #expect(source.patchedIds == [serverId])
         #expect(model.events(on: Self.today).count == 1)
         #expect(model.cycleMark(on: Self.today) == .flow(.heavy))
     }
@@ -557,19 +581,24 @@ struct CalendarWriteTests {
     func deleteOffersUndo() async throws {
         let source = RecordingCalendarSource()
         let model = await Self.model(source)
-        let logged = try await model.save(Self.write(.cycle(.flow(.light))))
-        source.restorable[logged.id] = logged
+        try await model.save(Self.write(.cycle(.flow(.light))))
+        await model.synchronize()
+        let logged = try Self.only(model)
+        let serverId = try Self.serverId(source)
+        source.restorable[serverId] = source.events.first
 
         await model.delete(logged)
 
         #expect(model.events(on: Self.today).isEmpty)
-        #expect(source.deletedIds == [logged.id])
         #expect(model.offersUndo)
         #expect(model.toast?.message == "Menstrual cycle deleted")
+        await model.synchronize()
+        #expect(source.deletedIds == [serverId])
 
         await model.undoDelete()
+        await model.synchronize()
 
-        #expect(source.restoredIds == [logged.id])
+        #expect(source.restoredIds == [serverId])
         #expect(model.events(on: Self.today).count == 1)
         #expect(!model.offersUndo, "Undo was still on offer after it had been taken")
     }
@@ -647,14 +676,18 @@ struct CalendarWriteTests {
     }
 
     /// The race the button cannot close: another device retakes the day between the toast
-    /// appearing and the tap, and the server refuses. The user is told, rather than left
-    /// with a button that appeared to do nothing.
-    @Test("A 409 from restore is reported, not swallowed")
+    /// appearing and the tap, and the server refuses the restore with a 409. The entry is
+    /// back on this device, and the "Couldn't sync" card says the server did not take it
+    /// (§8.4) rather than leaving a restore that silently never happened.
+    @Test("A 409 from restore marks the entry, and the card says so")
     func restoreConflictIsShown() async throws {
         let source = RecordingCalendarSource()
         let model = await Self.model(source)
-        let logged = try await model.save(Self.write(.cycle(.flow(.light))))
+        try await model.save(Self.write(.cycle(.flow(.light))))
+        await model.synchronize()
+        let logged = try Self.only(model)
         await model.delete(logged)
+        await model.synchronize()
 
         source.writeFailure = APIError.server(
             code: "DAY_ALREADY_LOGGED",
@@ -662,36 +695,88 @@ struct CalendarWriteTests {
             status: 409
         )
         await model.undoDelete()
+        await model.synchronize()
 
-        #expect(model.toast?.message.contains("already has an entry") == true)
+        #expect(model.failedSyncCount == 1)
         #expect(!model.offersUndo)
     }
 
-    @Test("A failed save changes nothing and is thrown to the sheet")
-    func aFailedSaveLeavesTheCalendarAlone() async {
+    /// §8.4's whole point, at the model: no connection is not a failed save. The entry is on
+    /// the grid at once, stays there while the queue backs off, and reaches the server once
+    /// — with the key the device minted — when the connection is back.
+    @Test("A save with no connection is kept, queued, and sent once when it returns")
+    func anOfflineSaveIsQueuedNotFailed() async throws {
         let source = RecordingCalendarSource()
         let model = await Self.model(source)
         source.writeFailure = APIError.network
 
-        await #expect(throws: APIError.self) {
-            try await model.save(Self.write(.cycle(.flow(.light))))
-        }
-        #expect(model.events(on: Self.today).isEmpty)
-        #expect(model.toast == nil, "A failed save announced itself as a success")
+        let draft = Self.write(.sport(EvaSportPayload(activity: "run", durationMin: 20, intensity: .medium)))
+        try await model.save(draft)
+        await model.synchronize()
+
+        #expect(model.events(on: Self.today).count == 1, "The entry left the grid when the send failed")
+        #expect(model.failedSyncCount == 0, "A dropped connection was drawn as a refused entry")
+        #expect(model.sync.unsyncedCount == 1)
+
+        source.writeFailure = nil
+        await model.synchronize()
+
+        let created = source.writes.filter { $0.idempotencyKey == draft.idempotencyKey }
+        #expect(source.events.count == 1, "The queued entry did not land exactly once")
+        #expect(!created.isEmpty, "The entry was sent without the key the device minted")
+        #expect(model.sync.unsyncedCount == 0)
+        #expect(model.events(on: Self.today).count == 1)
     }
 
-    @Test("A failed delete says so and leaves the entry where it is")
-    func aFailedDeleteKeepsTheEntry() async throws {
+    @Test("A delete with no connection leaves the grid at once and is sent later")
+    func anOfflineDeleteIsQueued() async throws {
         let source = RecordingCalendarSource()
         let model = await Self.model(source)
-        let logged = try await model.save(Self.write(.cycle(.flow(.light))))
+        try await model.save(Self.write(.cycle(.flow(.light))))
+        await model.synchronize()
+        let logged = try Self.only(model)
+        let serverId = try Self.serverId(source)
         source.writeFailure = APIError.network
 
         await model.delete(logged)
+        await model.synchronize()
 
-        #expect(model.events(on: Self.today).count == 1)
-        #expect(model.toast?.message == APIError.network.localizedDescription)
-        #expect(!model.offersUndo)
+        #expect(model.events(on: Self.today).isEmpty)
+        #expect(model.offersUndo)
+        #expect(source.events.count == 1, "The server lost the entry before the delete was sent")
+
+        source.writeFailure = nil
+        await model.synchronize()
+        // Two attempts at the same id — the one the dropped connection ate, and the one
+        // that landed — and no other entry touched.
+        #expect(Set(source.deletedIds) == [serverId])
+        #expect(source.events.isEmpty)
+    }
+
+    /// A 4xx is never retried and never blocks the queue (§8.4): the refused entry is
+    /// marked for the card, and the entry queued behind it still goes.
+    @Test("A refused entry is marked and the queue moves on")
+    func aRefusedEntryDoesNotBlockTheQueue() async throws {
+        let source = RecordingCalendarSource()
+        let model = await Self.model(source)
+        source.writeFailure = APIError.server(code: "VALIDATION", message: "x", status: 400)
+        try await model.save(Self.write(.cycle(.flow(.light))))
+        await model.synchronize()
+        #expect(model.failedSyncCount == 1)
+        #expect(model.events(on: Self.today).count == 1, "A refused entry vanished from her calendar")
+
+        source.writeFailure = nil
+        try await model.save(Self.write(.sport(EvaSportPayload(
+            activity: "yoga", durationMin: 30, intensity: .light
+        ))))
+        await model.synchronize()
+        #expect(source.events.map(\.type) == [.sport], "The entry behind a refused one never went")
+
+        // Retry now sends the refused one again.
+        model.retryFailedSync()
+        await model.synchronize()
+        #expect(model.failedSyncCount == 0)
+        #expect(Set(source.events.map(\.type)) == [.sport, .cycle])
     }
 
     @Test("The picker opens an existing one-per-day entry instead of a second")

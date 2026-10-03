@@ -16,6 +16,8 @@ struct EvaRootView: View {
     /// Settings screen where it is changed.
     let country: EvaCountrySetting
 
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some View {
         Group {
             switch session.state {
@@ -27,13 +29,19 @@ struct EvaRootView: View {
                 OnboardingFlowView(session: session)
             case .needsConsent:
                 ConsentView(session: session)
-            case .ready:
+            // `.offline` is the app running from the local store after **Continue
+            // offline** (#78) — the same tabs, reading the same store.
+            case .ready, .offline:
                 EvaTabView(session: session, units: units, country: country)
             case .unreachable:
                 UnreachableView(session: session)
             }
         }
         .task { await session.bootstrap() }
+        // The queue drains on foreground (§8.4), and an offline session tries to validate.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { session.foregrounded() }
+        }
     }
 }
 

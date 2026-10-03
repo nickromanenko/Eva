@@ -23,7 +23,12 @@ import SwiftUI
 ///   `AuthScreenLayout` gives sign-up and log-in, which are the other screens a launch
 ///   can land on.
 ///
-/// The last line of the body copy is the load-bearing one. "You're still signed in" is
+/// **Since #78 the canvas does draw it** — the `unreachable` artboard in "Eva App.dc.html":
+/// Retry, Continue offline and Log out, over the sentence the body now uses. This change
+/// adds Continue offline and that sentence, which A3 is the reason for; the title and the
+/// button labels have drifted from the artboard and are left for their own change.
+///
+/// The first line of the body copy is the load-bearing one. "You're still signed in" is
 /// only true because `AppSession.bootstrap()` no longer clears the Keychain on a failure
 /// that never reached the server; it is a description of what the app did, not
 /// reassurance (DESIGN.md §8). If that behaviour ever changes, this sentence goes with
@@ -46,7 +51,12 @@ struct UnreachableView: View {
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("unreachable.title")
 
-                Text("Check your connection and try again. You're still signed in.")
+                // The canvas' sentence (`unreachable` artboard), since #78 made its second
+                // half true: Continue offline runs the app from the local store.
+                Text(
+                    "You're still signed in. Anything you log now is saved on this device "
+                        + "and syncs when the connection is back."
+                )
                     .evaTextStyle(.body)
                     .foregroundStyle(Color.evaSecondaryText)
                     .accessibilityIdentifier("unreachable.body")
@@ -60,6 +70,10 @@ struct UnreachableView: View {
 
             VStack(spacing: EvaSpacing.xxs) {
                 PrimaryButton(title: "Try again", isLoading: isRetrying, action: retry)
+
+                // A3 (#78): the canvas' second action. The app runs from the local store
+                // with the token kept and unvalidated; entries queue and sync later.
+                SecondaryButton(title: "Continue offline", action: session.continueOffline)
 
                 // The escape hatch, and the reason it is here: before #61 *every* launch
                 // failure signed the user out, so being stuck was impossible — you were
