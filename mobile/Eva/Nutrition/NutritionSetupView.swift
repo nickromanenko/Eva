@@ -16,8 +16,16 @@ import SwiftUI
 struct NutritionSetupView: View {
     @State private var model: NutritionSetupModel
 
-    init(session: AppSession) {
-        _model = State(initialValue: NutritionSetupModel(session: session))
+    /// `units` defaults to the app's own setting — Step 4 confirms her metrics in it and
+    /// Step 5 takes the target in it (#82).
+    init(session: AppSession, units: EvaUnitPreference = .shared) {
+        #if DEBUG
+        // `EVA_NUTRITION_PLAN` seeds the plan only; answers still go to the API.
+        let source: any NutritionSource = EvaNutritionPlanLaunch.source(wrapping: session) ?? session
+        #else
+        let source: any NutritionSource = session
+        #endif
+        _model = State(initialValue: NutritionSetupModel(source: source, units: units))
     }
 
     var body: some View {
@@ -32,12 +40,23 @@ struct NutritionSetupView: View {
                     case .editing:
                         stepHeader
                         stepContent
+                        if let error = model.errorMessage {
+                            Text(error)
+                                .evaTextStyle(.error)
+                                .foregroundStyle(Color.evaErrorInk)
+                                .accessibilityIdentifier("nutrition.error")
+                        }
                     case .summary:
                         summary
                     }
                 }
                 .padding(EvaSpacing.lg)
             }
+            // A number pad has no return key; scrolling is how the keyboard gets out of the
+            // way of "See my plan".
+            .scrollDismissesKeyboard(.immediately)
+            // The flow is a sheet over Home, whose column is a scroll view too.
+            .accessibilityIdentifier("nutrition.scroll")
             .background(Color.evaWarmBackground)
             .navigationBarBackButtonHidden(true)
             .toolbar {
@@ -102,9 +121,7 @@ struct NutritionSetupView: View {
                 ) {
                     Task { await model.choose(goal) }
                 }
-            }
-            if let error = model.errorMessage {
-                Text(error).evaTextStyle(.error).foregroundStyle(Color.evaErrorInk)
+                .accessibilityIdentifier("nutrition.goal.\(goal.rawValue)")
             }
         }
     }
@@ -128,7 +145,14 @@ struct NutritionSetupView: View {
                 ) {
                     model.toggleFocusArea(area.code)
                 }
+                // By code, so a test survives the labels' review (`REVIEW` below).
+                .accessibilityIdentifier("nutrition.focus.\(area.code)")
             }
+            // Optional (PRD Step 2): Continue with none chosen is an answer too.
+            PrimaryButton(title: "Continue") {
+                Task { await model.advance() }
+            }
+            .accessibilityIdentifier("nutrition.focus.continue")
         }
     }
 
@@ -148,6 +172,7 @@ struct NutritionSetupView: View {
                 ) {
                     Task { await model.chooseMeals(count) }
                 }
+                .accessibilityIdentifier("nutrition.meals.\(count)")
             }
         }
     }
@@ -165,9 +190,15 @@ struct NutritionSetupView: View {
             )
             .evaTextStyle(.body)
             .foregroundStyle(Color.evaSecondaryText)
+            .accessibilityIdentifier("nutrition.body.metrics")
+            // Goals 4 and 5 end here (Step 5 is skipped), so the preference is asked here.
+            if model.isFinalStep {
+                hideNumbersToggle
+            }
             PrimaryButton(title: "That's me") {
                 Task { await model.advance() }
             }
+            .accessibilityIdentifier("nutrition.body.confirm")
             TextButton(title: "Edit in Profile") {
                 model.editInProfile()
             }
@@ -182,10 +213,17 @@ struct NutritionSetupView: View {
                 .evaTextStyle(.h3)
                 .foregroundStyle(Color.evaPrimaryText)
                 .accessibilityIdentifier("nutrition.target.title")
-            EvaInputField(label: "Target weight (kg)", placeholder: "e.g. 62") { prompt in
-                TextField("Target weight", text: $model.targetWeightText, prompt: prompt)
-                    .keyboardType(.decimalPad)
-                    .accessibilityIdentifier("nutrition.target.input")
+            if let current = model.currentWeightText {
+                Text("Current: \(current)")
+                    .evaTextStyle(.caption)
+                    .foregroundStyle(Color.evaSecondaryText)
+                    .accessibilityIdentifier("nutrition.target.current")
+            }
+            // One field per unit the setting asks for — stones *and* pounds are two (#82).
+            HStack(alignment: .top, spacing: EvaSpacing.xs) {
+                ForEach(model.targetEntry.rows, id: \.self) { row in
+                    targetField(row)
+                }
             }
             if let refusal = model.refusal {
                 guardCard(refusal)
@@ -193,9 +231,25 @@ struct NutritionSetupView: View {
             PrimaryButton(title: "See my plan", showsArrow: true) {
                 Task { await model.finish() }
             }
-            .disabled(model.targetWeightValue == nil)
+            .disabled(!model.canFinish)
+            .accessibilityIdentifier("nutrition.target.finish")
             // The hide-numbers preference is asked on the path, not only in Settings (#212).
             hideNumbersToggle
+        }
+    }
+
+    /// One entry field of the target, in its row's unit. Whole units for pounds and stones,
+    /// as the Profile editor takes them; a decimal for kilograms, the canonical unit.
+    private func targetField(_ row: EvaMassInput.Row) -> some View {
+        let text: Binding<String> = switch row {
+        case .kilograms: $model.targetEntry.kilogramsText
+        case .stones: $model.targetEntry.stonesText
+        case .pounds: $model.targetEntry.poundsText
+        }
+        return EvaInputField(label: "Target weight (\(row.unit))", placeholder: row == .kilograms ? "e.g. 62" : "") { prompt in
+            TextField("Target weight, \(row.spokenUnit)", text: text, prompt: prompt)
+                .keyboardType(row == .kilograms ? .decimalPad : .numberPad)
+                .accessibilityIdentifier("nutrition.target.\(row.rawValue)")
         }
     }
 
@@ -209,23 +263,24 @@ struct NutritionSetupView: View {
             Text(refusal.message)
                 .evaTextStyle(.caption)
                 .foregroundStyle(Color.evaInformationInk)
+                .accessibilityIdentifier("nutrition.guard.message")
             Spacer(minLength: 0)
-            Button("Use \(refusal.lowestSupportedWeightKg, specifier: "%.1f") kg") {
-                model.targetWeightText = String(format: "%.1f", refusal.lowestSupportedWeightKg)
+            // The offered value in her units, rounded so it clears the guard (#82).
+            Button("Use \(model.offeredText(refusal))") {
+                model.useOffered(refusal)
             }
             .buttonStyle(EvaTextButtonStyle())
+            .accessibilityIdentifier("nutrition.guard.offer")
         }
         .padding(EvaSpacing.sm)
         .background(Color.evaInformationTint, in: .rect(cornerRadius: EvaRadius.control))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("nutrition.guard")
     }
 
     private var hideNumbersToggle: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Toggle(isOn: Binding(
-                get: { model.hideNumbers },
-                set: { model.hideNumbers = $0 }
-            )) {
+            Toggle(isOn: $model.hideNumbers) {
                 Text("Would you rather not see calorie numbers?")
                     .evaTextStyle(.control)
                     .foregroundStyle(Color.evaPrimaryText)
@@ -266,6 +321,8 @@ struct NutritionSetupView: View {
                             .foregroundStyle(Color.evaSecondaryText)
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("nutrition.summary.numbers")
             case .qualitative(let qualitative):
                 VStack(alignment: .leading, spacing: EvaSpacing.xs) {
                     Text(qualitative.goal.title)
@@ -277,6 +334,8 @@ struct NutritionSetupView: View {
                             .foregroundStyle(Color.evaSecondaryText)
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("nutrition.summary.qualitative")
             }
 
             Button("How this is calculated") {

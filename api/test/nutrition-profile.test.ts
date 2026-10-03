@@ -775,6 +775,50 @@ describe('hideNumbers is never inferred (A31, #212, #283)', () => {
     }
   })
 
+  /**
+   * The behavioural half, as #223 asks for it: *"a test logs the pattern a heuristic would
+   * fire on — successive low-calorie days, a falling weight — and asserts the preference is
+   * unchanged."* The scans above say no module *could* write it; this says nothing *did*,
+   * after feeding every route a heuristic would hang off the pattern it would key on.
+   *
+   * What can be logged today is logged: a weight falling across successive questionnaire
+   * saves, a run of depleted-energy days, and a plan read at each step — the plan is where a
+   * low target would show. Meal logging (S4) does not exist yet, so "low-calorie days" are
+   * the plan's own low targets rather than meals; when S4 lands, its route belongs here.
+   */
+  test('logging a falling weight and depleted days leaves hideNumbers where she put it', async () => {
+    const { token } = await account({ auth: true, profile: questionnaire('mostlySitting') })
+    await finishSetup(token, 52)
+    expect((await read(token)).body.nutritionProfile.hideNumbers).toBe(false)
+
+    const today = new Date()
+    for (const [day, weightKg] of [72, 69, 66, 63, 60].entries()) {
+      const saved = await call(token, 'PUT', '/me/questionnaire', {
+        ...questionnaire('mostlySitting'),
+        weightKg,
+      })
+      expect(saved.status).toBe(200)
+      const date = new Date(today.getTime() - (4 - day) * 86_400_000).toISOString().slice(0, 10)
+      const signals = await call(token, 'PUT', `/me/body-signals/${date}`, {
+        timeZone: 'UTC',
+        energy: 1,
+        symptoms: [],
+      })
+      expect(signals.status).toBe(200)
+      // Every read a heuristic could hang off, between every entry.
+      // 200: a read that failed could not have fed a heuristic, and the test would prove
+      // nothing about one.
+      expect((await call(token, 'GET', '/me/nutrition/plan')).status).toBe(200)
+      await call(token, 'GET', '/me/today?timeZone=UTC')
+      await call(token, 'GET', '/me')
+      expect((await read(token)).body.nutritionProfile.hideNumbers).toBe(false)
+    }
+
+    // The control: her own act is the one thing that changes it.
+    await patch(token, { hideNumbers: true })
+    expect((await read(token)).body.nutritionProfile.hideNumbers).toBe(true)
+  })
+
   test('the scans would see each shape they name, and pass the reads', () => {
     for (const wrong of [
       'await saveNutritionProfile(uid, { hideNumbers: true })',
