@@ -982,9 +982,9 @@ describe('GET /me/nutrition/plan refuses rather than failing', () => {
     return Object.fromEntries(names.map((name) => [name, '']))
   }
 
-  const refusedWith = async (env: Record<string, string>) => {
+  const refusedWith = async (env: Record<string, string>, targetWeightKg = 60) => {
     const { token } = await account({ profile: questionnaire('mostlySitting') })
-    await finishSetup(token, 60)
+    await finishSetup(token, targetWeightKg)
     const server = await bootApi({ env, range: [4300, 4399], label: 'nutrition-profile.test.ts' })
     try {
       const res = await fetch(`${server.base}/me/nutrition/plan`, {
@@ -1005,6 +1005,12 @@ describe('GET /me/nutrition/plan refuses rather than failing', () => {
 
   test('503 while LUTEAL_ADJUSTMENT_PERCENT is unset — a refusal, not a default', async () => {
     await refusedWith({ LUTEAL_ADJUSTMENT_PERCENT: '' })
+  }, 60_000)
+
+  test('503 with the percentage unset even for a plan the guards refuse — never a 200', async () => {
+    // 40 kg from 64 kg is past the per-plan cap, so the engine answers `refused`; an
+    // unconfigured adjustment must still refuse rather than serve that plan.
+    await refusedWith({ LUTEAL_ADJUSTMENT_PERCENT: '' }, 40)
   }, 60_000)
 
   test("503 while the cycle maths' constants are unset", async () => {
@@ -1069,15 +1075,20 @@ describe('the luteal constant at boot', () => {
   }
 
   test('a value that is not a percentage from 0 to 20 is refused at boot', async () => {
-    for (const value of ['five', '-1', '25']) {
+    for (const value of ['five', '-1', '-0.01', '20.01', '21', '25']) {
       const { code, stderr } = await bootConfig({ LUTEAL_ADJUSTMENT_PERCENT: value })
       expect({ value, code: code === 0 }).toEqual({ value, code: false })
       expect(stderr).toContain('LUTEAL_ADJUSTMENT_PERCENT')
     }
   }, 30_000)
 
-  test('A30’s 5, and unset, both boot — unset is refused per request, not at boot', async () => {
-    expect((await bootConfig({ LUTEAL_ADJUSTMENT_PERCENT: '5' })).code).toBe(0)
+  test('A30’s 5, both edges of the range, and unset all boot — unset is refused per request', async () => {
+    for (const value of ['0', '5', '20']) {
+      expect({ value, code: (await bootConfig({ LUTEAL_ADJUSTMENT_PERCENT: value })).code }).toEqual({
+        value,
+        code: 0,
+      })
+    }
     expect((await bootConfig({})).code).toBe(0)
   }, 30_000)
 })

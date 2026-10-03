@@ -130,6 +130,20 @@ describe('adjustNutritionPlan', () => {
       NutritionAdjustmentUnsetError,
     )
   })
+
+  test('unset is a refusal on every arm — a guard-refused plan included, never a 200', () => {
+    // The check sits before the `refused` early return: an unconfigured deployment answers
+    // 503 whatever the plan, rather than 200 for the plans that happen not to need the number.
+    const refused: NutritionPlan = {
+      kind: 'refused',
+      refusal: { reason: 'below-plan-cap', lowestSupportedWeightKg: 55 },
+    }
+    for (const mode of ['cycle', 'pregnancy'] as const) {
+      expect(() => adjustNutritionPlan(refused, null, mode, null)).toThrow(
+        NutritionAdjustmentUnsetError,
+      )
+    }
+  })
 })
 
 /**
@@ -234,11 +248,17 @@ describe('recalculationReason', () => {
   })
 
   test('a phase change that moves no number is not a cause', () => {
-    // follicular → ovulation adjusts nothing (only luteal does), so it is not news to her.
-    expect(isAdjustingPhase(phase('follicular', 'narrow'))).toBe(false)
-    expect(isAdjustingPhase(phase('ovulation', 'narrow'))).toBe(false)
-    expect(isAdjustingPhase(null)).toBe(false)
-    expect(isAdjustingPhase(phase('luteal', 'wide'))).toBe(true)
+    // follicular → ovulation adjusts nothing (only luteal does), so it is not news to her —
+    // through `recalculationReason`, from bases built off the real phases.
+    const on = (p: PhaseEstimate | null): PlanBasis => ({ ...BASIS, adjustingPhase: isAdjustingPhase(p) })
+    expect(recalculationReason(on(phase('follicular', 'narrow')), on(phase('ovulation', 'narrow')))).toBeNull()
+    expect(recalculationReason(on(phase('menstrual', 'narrow')), on(phase('follicular', 'narrow')))).toBeNull()
+    expect(recalculationReason(on(null), on(phase('follicular', 'wide')))).toBeNull()
+    // …and one that does move it is.
+    expect(recalculationReason(on(phase('ovulation', 'narrow')), on(phase('luteal', 'narrow')))).toBe(
+      'cycle_phase_changed',
+    )
+    expect(recalculationReason(on(phase('luteal', 'wide')), on(null))).toBe('cycle_phase_changed')
   })
 
   test('several causes at once still yield one reason, in the PRD order', () => {
@@ -246,6 +266,11 @@ describe('recalculationReason', () => {
       'weight_updated',
     )
     expect(after({ activityBand: 'active', adjustingPhase: true })).toBe('cycle_phase_changed')
+    // Each adjacent pair, so swapping any two in the order fails here.
+    expect(after({ weightKg: 63, targetWeightKg: 58 })).toBe('weight_updated')
+    expect(after({ targetWeightKg: 58, adjustingPhase: true })).toBe('goal_changed')
+    expect(after({ adjustingPhase: true, mode: 'planning' })).toBe('cycle_phase_changed')
+    expect(after({ mode: 'planning', activityBand: 'active' })).toBe('calendar_mode_changed')
   })
 
   test('there are exactly five reasons, one per PRD trigger', () => {
