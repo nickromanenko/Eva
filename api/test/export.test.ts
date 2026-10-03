@@ -11,6 +11,7 @@ import {
 import { adminAuth, firestore } from '../src/firebase'
 import { ExportAbortedError, openExport } from '../src/data-export'
 import { exportEvents, type EvaEvent } from '../src/events'
+import type { PlanBasis } from '../src/nutrition-adjustment'
 import type { NutritionProfile } from '../src/nutrition-profile'
 import { exportTodayCards, type TodayBanner, type TodayDocument } from '../src/today'
 import type { User } from '../src/users'
@@ -103,6 +104,7 @@ interface ExportBody {
   exportedAt: string
   account: User
   nutritionProfile: NutritionProfile | null
+  lastPlanInputs: PlanBasis | null
   events: EvaEvent[]
   today: TodayDocument[]
 }
@@ -336,6 +338,7 @@ describe('GET /me/export — the download', () => {
       'exportedAt',
       'account',
       'nutritionProfile',
+      'lastPlanInputs',
       'events',
       'today',
     ])
@@ -503,6 +506,57 @@ describe('GET /me/export — the download', () => {
     expect(bobBody.today.map((t) => t.date)).toEqual([day(1)])
   })
 
+  test('lastPlanInputs is the stored basis of her last plan, exactly — no target (#366)', async () => {
+    // Through the routes the app uses: a questionnaire with a band, a finished setup, one
+    // plan read — which is what writes the document.
+    const email = newEmail()
+    const session = await signUpActivated(main.base, email, password)
+    created.push(session.uid)
+    const send = async (method: string, path: string, body?: unknown) => {
+      const res = await call(main.base, path, session.token, {
+        method,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+      if (res.status !== 200) throw new Error(`${method} ${path} answered ${res.status}`)
+    }
+    await send('PUT', '/me/questionnaire', {
+      dateOfBirth: '1994-03-02',
+      weightKg: 63,
+      heightCm: 166,
+      goals: ['Energy'],
+      conditions: ['noneOfThese'],
+      medications: 'none',
+      lifestyle: 'lightlyActive',
+      sports: [],
+      timeZone: 'UTC',
+    })
+    await send('PATCH', '/me/nutrition/profile', {
+      goal: 'eatBetter',
+      mealPattern: { mealsPerDay: 3, snacks: false, mealTimes: null },
+      hideNumbers: true,
+      step: 'done',
+    })
+    const before = (await (await exportAs({ email, ...session })).json()) as ExportBody
+    // Present and null before her first plan, like `nutritionProfile` before setup.
+    expect('lastPlanInputs' in before).toBe(true)
+    expect(before.lastPlanInputs).toBe(null)
+
+    await send('GET', '/me/nutrition/plan')
+    const stored = (
+      await userDoc(session.uid).collection('nutrition').doc('lastPlanInputs').get()
+    ).data()
+    const exported = (await (await exportAs({ email, ...session })).json()) as ExportBody
+    expect(exported.lastPlanInputs).toEqual({
+      weightKg: 63,
+      goal: 'eatBetter',
+      targetWeightKg: null,
+      adjustingPhase: false,
+      mode: 'cycle',
+      activityBand: 'lightlyActive',
+    })
+    expect(exported.lastPlanInputs).toEqual(stored as PlanBasis)
+  })
+
   test('a document lacking the fields another ordering would use is still exported', async () => {
     const body = (await (await exportAs(carol)).json()) as ExportBody
     const ids = body.events.map((e) => e.id)
@@ -573,6 +627,14 @@ async function* pages<T>(list: T[][], failAt = -1): AsyncGenerator<T[], void, un
 
 const account = { id: 'u1', email: 'x@example.com' } as unknown as User
 const profile = { goal: 'maintain', complete: false } as unknown as NutritionProfile
+const BASIS: PlanBasis = {
+  weightKg: 64,
+  goal: 'maintain',
+  targetWeightKg: null,
+  adjustingPhase: false,
+  mode: 'cycle',
+  activityBand: 'active',
+}
 const ev = (id: string) => ({ id, deletedAt: null }) as unknown as EvaEvent
 const card = (date: string) => ({ date }) as unknown as TodayDocument
 
@@ -609,6 +671,7 @@ describe('openExport', () => {
       exportedAt: '2026-09-24T10:00:00.000Z',
       account,
       nutritionProfile: profile,
+      lastPlanInputs: BASIS,
       events: pages([[ev('a'), ev('b')], [ev('c')], []]),
       today: pages([[card('2026-09-01')], [card('2026-09-02')]]),
       onAbort: () => {
@@ -624,10 +687,12 @@ describe('openExport', () => {
       'exportedAt',
       'account',
       'nutritionProfile',
+      'lastPlanInputs',
       'events',
       'today',
     ])
     expect(body.nutritionProfile).toEqual(profile)
+    expect(body.lastPlanInputs).toEqual(BASIS)
     expect(body.events.map((e: EvaEvent) => e.id)).toEqual(['a', 'b', 'c'])
     expect(body.today.map((t: TodayDocument) => t.date)).toEqual(['2026-09-01', '2026-09-02'])
   })
@@ -637,12 +702,14 @@ describe('openExport', () => {
       exportedAt: '2026-09-24T10:00:00.000Z',
       account,
       nutritionProfile: null,
+      lastPlanInputs: null,
       events: pages([]),
       today: pages([]),
       onAbort: () => {},
     })
     const body = JSON.parse((await drain(stream)).text)
     expect(body.nutritionProfile).toBe(null)
+    expect(body.lastPlanInputs).toBe(null)
     expect(body.events).toEqual([])
     expect(body.today).toEqual([])
   })
@@ -654,6 +721,7 @@ describe('openExport', () => {
         exportedAt: '2026-09-24T10:00:00.000Z',
         account,
         nutritionProfile: null,
+        lastPlanInputs: null,
         events: pages([[ev('a')]], 0),
         today: pages([]),
         onAbort: () => {
@@ -674,6 +742,7 @@ describe('openExport', () => {
         exportedAt: '2026-09-24T10:00:00.000Z',
         account,
         nutritionProfile: null,
+        lastPlanInputs: null,
         events,
         today,
         onAbort: (err) => seen.push(err),

@@ -106,16 +106,24 @@ const call = async (token: string, method: string, path: string, body?: unknown)
 const patch = (token: string, body: unknown) => call(token, 'PATCH', '/me/nutrition/profile', body)
 const read = (token: string) => call(token, 'GET', '/me/nutrition/profile')
 
+/** In parallel across accounts (#339's shape): one at a time, the accounts #366's cases add
+ *  took this sweep past the 20s hook ceiling against the real project, which is reported
+ *  against an unrelated case and leaves the rest of the sweep undone (#31). Nothing here
+ *  depends on order — each account's documents go before its own user document. */
 afterAll(async () => {
-  for (const uid of createdUids) {
-    for (const doc of await userDoc(uid).collection('nutrition').listDocuments()) {
-      await doc.delete().catch(() => {})
-    }
-    await userDoc(uid)
-      .delete()
-      .catch(() => {})
-    await adminAuth.deleteUser(uid).catch(() => {})
-  }
+  await Promise.all(
+    createdUids.map(async (uid) => {
+      const docs = await userDoc(uid)
+        .collection('nutrition')
+        .listDocuments()
+        .catch(() => [])
+      await Promise.all(docs.map((doc) => doc.delete().catch(() => {})))
+      await userDoc(uid)
+        .delete()
+        .catch(() => {})
+      await adminAuth.deleteUser(uid).catch(() => {})
+    }),
+  )
 })
 
 /** Every console line written while a case runs. GUARDRAILS 12: a goal, a focus area or a
@@ -1009,6 +1017,179 @@ describe('GET /me/nutrition/plan: no phase, no adjustment', () => {
   })
 })
 
+// ── Why the target changed: the last plan's inputs (#366) ────────────────────────────────
+
+const planInputsDoc = (uid: string) => userDoc(uid).collection('nutrition').doc('lastPlanInputs')
+
+/**
+ * The recalculation reason through the route (#366, PRD lines 815–825). Each trigger is moved
+ * the way she would move it — the questionnaire for her weight and activity band, the setup
+ * PATCH for her goal and target weight, logged flow for the phase — between two plan reads,
+ * and the second read must name exactly that one cause; a third, with nothing moved, names
+ * none. Two sources do not exist yet and are stated rather than simulated: the calendar mode
+ * is `cycle` until D10 stores one, so that trigger is reached by seeding a stored basis in
+ * another mode; and the band moves only through the questionnaire until four weeks of logged
+ * activity can shift it.
+ */
+describe('GET /me/nutrition/plan: the recalculation reason (#366)', () => {
+  const eventUids: string[] = []
+  afterAll(async () => {
+    for (const uid of eventUids) {
+      const docs = await userDoc(uid).collection('events').listDocuments()
+      await Promise.all(docs.map((doc) => doc.delete().catch(() => {})))
+    }
+  })
+
+  const plan = async (token: string) => {
+    const res = await call(token, 'GET', '/me/nutrition/plan')
+    expect(res.status).toBe(200)
+    return res.body as { plan: Record<string, unknown>; recalculationReason: string | null }
+  }
+
+  /** A finished setup on a questionnaire with a band, read once — the first plan. */
+  const planned = async () => {
+    const { uid, token } = await account({ auth: true, profile: questionnaire('mostlySitting') })
+    await finishSetup(token, 60)
+    expect((await plan(token)).recalculationReason).toBeNull()
+    return { uid, token }
+  }
+
+  /** The second read names `reason`, and a third — nothing moved — names none. */
+  const namesOnce = async (token: string, reason: string) => {
+    expect((await plan(token)).recalculationReason).toBe(reason)
+    expect((await plan(token)).recalculationReason).toBeNull()
+  }
+
+  test('the first plan names no reason, and stores exactly the inputs — no target', async () => {
+    const { uid, token } = await account({ profile: questionnaire('mostlySitting') })
+    await finishSetup(token, 60)
+    expect((await planInputsDoc(uid).get()).exists).toBe(false)
+
+    const first = await plan(token)
+    expect(first.recalculationReason).toBeNull()
+    expect('recalculationReason' in first).toBe(true)
+    // The decision on #366: the fields `recalculationReason` compares, and nothing derived.
+    expect((await planInputsDoc(uid).get()).data()).toEqual({
+      weightKg: 64,
+      goal: 'lose',
+      targetWeightKg: 60,
+      adjustingPhase: false,
+      mode: 'cycle',
+      activityBand: 'mostlySitting',
+    })
+    expect(logged).toEqual([])
+  })
+
+  test('an unchanged read names no reason and writes nothing', async () => {
+    const { uid, token } = await planned()
+    const before = await planInputsDoc(uid).get()
+    expect((await plan(token)).recalculationReason).toBeNull()
+    const after = await planInputsDoc(uid).get()
+    // The same write time: an unchanged basis is not rewritten.
+    expect(after.updateTime!.isEqual(before.updateTime!)).toBe(true)
+  })
+
+  test('trigger 1 — her weight is updated: weight_updated, once', async () => {
+    const { token } = await planned()
+    const res = await call(token, 'PUT', '/me/questionnaire', {
+      ...questionnaire('mostlySitting'),
+      weightKg: 66,
+    })
+    expect(res.status).toBe(200)
+    await namesOnce(token, 'weight_updated')
+  })
+
+  test('trigger 2 — her goal changes: goal_changed, once', async () => {
+    const { token } = await planned()
+    // `maintain` carries no target weight, so the stored one is cleared with it.
+    expect((await patch(token, { goal: 'maintain' })).status).toBe(200)
+    await namesOnce(token, 'goal_changed')
+  })
+
+  test('trigger 2 — her target weight changes, same goal: goal_changed, once', async () => {
+    const { token } = await planned()
+    expect((await patch(token, { targetWeightKg: 58 })).status).toBe(200)
+    await namesOnce(token, 'goal_changed')
+  })
+
+  test('trigger 3 — the phase starts moving the number: cycle_phase_changed, once', async () => {
+    // First plan with nothing logged (no phase, no adjustment); then a regular history whose
+    // last period opened 22 days ago, so today is luteal and the number moves.
+    const { uid, token } = await planned()
+    eventUids.push(uid)
+    await periodsFrom(uid, REGULAR_LUTEAL)
+    const second = await plan(token)
+    expect(second.recalculationReason).toBe('cycle_phase_changed')
+    expect((second.plan.adjustment as { reasonId: string | null }).reasonId).toBe(LUTEAL_REASON)
+    expect((await plan(token)).recalculationReason).toBeNull()
+  })
+
+  test('trigger 4 — the calendar mode changes: calendar_mode_changed, once (seeded: D10 stores none yet)', async () => {
+    // No route stores a mode until D10, so the route always plans in `cycle`. The stored
+    // basis is moved to another mode instead — everything else as the route wrote it — and
+    // the route's own comparison is what is under test.
+    const { uid, token } = await planned()
+    await planInputsDoc(uid).update({ mode: 'pregnancy' })
+    await namesOnce(token, 'calendar_mode_changed')
+    expect((await planInputsDoc(uid).get()).get('mode')).toBe('cycle')
+  })
+
+  test('trigger 5 — her activity band changes: activity_band_changed, once', async () => {
+    const { token } = await planned()
+    const res = await call(token, 'PUT', '/me/questionnaire', questionnaire('active'))
+    expect(res.status).toBe(200)
+    await namesOnce(token, 'activity_band_changed')
+  })
+
+  test('two causes between the same reads name one reason, in the PRD’s order', async () => {
+    const { token } = await planned()
+    await call(token, 'PUT', '/me/questionnaire', { ...questionnaire('active'), weightKg: 66 })
+    await namesOnce(token, 'weight_updated')
+  })
+
+  test('a refused plan stores nothing: the next plan is compared with the last one served', async () => {
+    const { uid, token } = await account({ profile: questionnaire('mostlySitting') })
+    await patch(token, { goal: 'lose', step: 'goal' })
+    expect((await call(token, 'GET', '/me/nutrition/plan')).status).toBe(400)
+    expect((await planInputsDoc(uid).get()).exists).toBe(false)
+  })
+
+  test('an unreadable stored basis is no previous plan — no reason, and it is replaced', async () => {
+    const { uid, token } = await planned()
+    await planInputsDoc(uid).update({ mode: 'not-a-mode', weightKg: 1 })
+    expect((await plan(token)).recalculationReason).toBeNull()
+    expect((await planInputsDoc(uid).get()).data()).toMatchObject({ mode: 'cycle', weightKg: 64 })
+  })
+
+  test('two racing reads after a change report it once', async () => {
+    const { token } = await planned()
+    await call(token, 'PUT', '/me/questionnaire', {
+      ...questionnaire('mostlySitting'),
+      weightKg: 66,
+    })
+    const reasons = (await Promise.all([plan(token), plan(token)])).map(
+      (r) => r.recalculationReason,
+    )
+    expect(reasons.sort()).toEqual([null, 'weight_updated'])
+  })
+
+  test('nothing about her reaches a log line', async () => {
+    const { token } = await planned()
+    await call(token, 'PUT', '/me/questionnaire', { ...questionnaire('active'), weightKg: 66 })
+    await plan(token)
+    expect(logged).toEqual([])
+  })
+
+  test('DELETE /me takes the stored inputs with the account', async () => {
+    const { uid, token } = await planned()
+    expect((await planInputsDoc(uid).get()).exists).toBe(true)
+    expect((await call(token, 'DELETE', '/me')).status).toBe(200)
+    // Ids, never the references (see the profile's own deletion case above).
+    const left = (await userDoc(uid).collection('nutrition').listDocuments()).map((d) => d.id)
+    expect(left).toEqual([])
+  })
+})
+
 // ── Her day, not the server's (#365) ─────────────────────────────────────────────────────
 
 /** `YYYY-MM-DD` shifted by whole days — a calendar label, as everywhere else here. */
@@ -1134,8 +1315,16 @@ describe('GET /me/nutrition/plan: her local day decides the phase (#365)', () =>
       confidence: 'narrow',
     })
 
-    // Absent is what `GET /me/today` does when it is absent: UTC.
-    expect(absent).toEqual(utc)
+    // Absent is what `GET /me/today` does when it is absent: UTC. The plan, not the whole
+    // body: since #366 the body also says what changed since the *previous* read, so the
+    // three reads in order are a first plan, the phase moving the number, and nothing moved.
+    expect(absent.status).toBe(utc.status)
+    expect(absent.body.plan).toEqual(utc.body.plan)
+    expect([local, utc, absent].map((res) => res.body.recalculationReason)).toEqual([
+      null,
+      'cycle_phase_changed',
+      null,
+    ])
     expect(logged).toEqual([])
   })
 
