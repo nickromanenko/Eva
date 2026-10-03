@@ -378,9 +378,14 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   engine never grows into. Takes `planDailyTargets`' answer, the phase the cycle maths already
   projected (`toCycleEstimate`'s, null exactly when C11 withheld the prediction), and the mode;
   applies the luteal +5% (`LUTEAL_ADJUSTMENT_PERCENT`, A30) **on top** of the calorie target,
-  returns A28's `{ kind: 'qualitative' }` (no number) for Pregnancy Mode and the first six
-  postpartum weeks, and carries the phase's confidence class beside the adjusted number
-  (GUARDRAILS 35) plus a reason id the copy store resolves — never a generated sentence. Pure:
+  returns A28's `{ kind: 'qualitative' }` (no number) for Pregnancy Mode and for the first six
+  weeks after a delivery (`postpartum`) or a pregnancy loss (`loss`, #367) — one window,
+  `QUALITATIVE_WINDOW_DAYS` (42), counted from `daysSinceModeEvent`; a `null` day (every user
+  until D10 stores the date), or one that is not a whole day count, keeps it closed, so a
+  missing date never serves a number; and it is applied before a guard refusal is passed
+  through, so no `lowestSupportedWeightKg` reaches a no-numbers mode. After
+  it, numbers return and her `hideNumbers` decides display as in any mode. It carries the
+  phase's confidence class beside the adjusted number (GUARDRAILS 35) plus a reason id the copy store resolves — never a generated sentence. Pure:
   `import type` only. `NutritionAdjustmentUnsetError` is the refusal the route maps to 503 —
   as are the engine's and C11's (`CycleRulesUnsetError`, reached through `cycleAnalysisFor`),
   each pinned by a booted server in `nutrition-profile.test.ts`.

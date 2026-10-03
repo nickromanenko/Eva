@@ -810,6 +810,12 @@ This is the part that distinguishes Eva from a generic calorie tracker and it mu
 > sign it off (A24). The luteal adjustment (item 1) is unaffected. Planning mode keeps
 > numbers.
 
+> **Extended (2026-10-03, #367).** The same treatment applies after a pregnancy loss: for the
+> first six weeks after the loss the coach shows no calorie or macronutrient numbers, only
+> qualitative guidance. After six weeks numbers return, unless she has turned hide-numbers on
+> (item 8). The six weeks count from the date of the loss, as the postpartum six weeks count
+> from the delivery; while that date is not stored (D10), no number is shown.
+
 The intent is that a woman eating more in her luteal phase sees her target move to meet her, rather than seeing herself fail against a flat number. This single behaviour is the strongest argument for the feature existing.
 
 ##### Recalculation triggers

@@ -36,8 +36,8 @@ export interface NutritionAdjustment {
   confidence: PhaseConfidence | null
 }
 
-/** The plan as the route serves it: the engine's answer, plus the adjustment — or, under A28,
- *  no numbers at all. */
+/** The plan as the route serves it: the engine's answer, plus the adjustment — or, under A28
+ *  (Pregnancy Mode, and six weeks after a delivery or a loss), no numbers at all. */
 export type ServedNutritionPlan =
   | { kind: 'refused'; refusal: TargetRefusal }
   | { kind: 'qualitative' }
@@ -57,6 +57,30 @@ export class NutritionAdjustmentUnsetError extends Error {
  *  "earned", "allowed" or "burn it off"). */
 export const LUTEAL_REASON = 'luteal_adjustment' as const
 
+/** A28's "first six weeks", in days: the window after the event that began the mode — the
+ *  delivery for `postpartum`, the loss for `loss` (#367) — during which no number is served.
+ *  One constant for both, so the two windows cannot drift apart. Day 0 is the day of the
+ *  event; day 41 is the window's last day, and numbers return on day 42. */
+export const QUALITATIVE_WINDOW_DAYS = 42
+
+/**
+ * Whether the mode withholds every number (A28). Pregnancy Mode always does. `postpartum`
+ * and `loss` do for the window after the event that began them — and when that day is not
+ * known (`null`), or is not a whole day count (`NaN`, `Infinity`, `41.5`), they do too: a
+ * number is withheld until a whole day proves the window is over, never served because the
+ * day is missing or malformed. That is today's case
+ * for every user, since nothing stores a delivery or loss date until D10 (#107).
+ */
+const withholdsNumbers = (mode: Mode, daysSinceModeEvent: number | null): boolean => {
+  if (mode === 'pregnancy') return true
+  if (mode !== 'postpartum' && mode !== 'loss') return false
+  return !(
+    daysSinceModeEvent !== null &&
+    Number.isInteger(daysSinceModeEvent) &&
+    daysSinceModeEvent >= QUALITATIVE_WINDOW_DAYS
+  )
+}
+
 /**
  * Applies the cycle-phase and mode adjustment to the engine's plan.
  *
@@ -65,21 +89,30 @@ export const LUTEAL_REASON = 'luteal_adjustment' as const
  * contract. A null phase is not "no luteal"; it is "no number may be adjusted", so the target
  * is served unadjusted and the reason carries none.
  *
- * **A28.** While Pregnancy Mode is on, and for the first six weeks postpartum, the output
- * carries no calorie and no macronutrient number at all — only S3's qualitative projection.
- * The "first six weeks" boundary is D10's (nothing stores a delivery date yet), so any
- * `postpartum` mode is qualitative here; Planning keeps numbers, and the luteal adjustment is
- * unaffected.
+ * **A28.** While Pregnancy Mode is on, and for the first six weeks postpartum — and, by the
+ * owner's decision on #367 (2026-10-03), for the first six weeks after a pregnancy loss — the
+ * output carries no calorie and no macronutrient number at all, only S3's qualitative
+ * projection. `daysSinceModeEvent` is whole local days since the delivery or the loss; it is
+ * read only for those two modes, and `null` keeps the window closed (`withholdsNumbers`).
+ * After the window numbers return, and her own `hideNumbers` still decides whether the
+ * client shows them, exactly as in every other mode. Planning keeps numbers, and the luteal
+ * adjustment is unaffected.
+ *
+ * **Qualitative before refused.** A guard-refused plan carries `lowestSupportedWeightKg` — a
+ * weight figure — and the qualitative mode shows no weight target either (#223), so A28 is
+ * applied before the refusal is passed through. The unset-constant check stays first (#364):
+ * an unconfigured deployment is a 503 on every arm.
  */
 export const adjustNutritionPlan = (
   plan: NutritionPlan,
   phase: PhaseEstimate | null,
   mode: Mode,
+  daysSinceModeEvent: number | null,
   lutealPercent: number | null,
 ): ServedNutritionPlan => {
   if (lutealPercent === null) throw new NutritionAdjustmentUnsetError()
+  if (withholdsNumbers(mode, daysSinceModeEvent)) return { kind: 'qualitative' }
   if (plan.kind === 'refused') return plan
-  if (mode === 'pregnancy' || mode === 'postpartum') return { kind: 'qualitative' }
 
   const targets = plan.targets
   if (phase?.code === 'luteal') {
