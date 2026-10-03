@@ -7,6 +7,15 @@
         { "fieldPath": "deletedAt", "order": "ASCENDING" },
         { "fieldPath": "localDate", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sentAt", "order": "ASCENDING" },
+        { "fieldPath": "cancelledAt", "order": "ASCENDING" },
+        { "fieldPath": "dueAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
