@@ -50,7 +50,8 @@ final class EventSync {
     }
 
     /// An in-memory store around `remote` — previews, and every test that builds a
-    /// `CalendarModel` without saying which store it reads.
+    /// `CalendarModel` without saying which store it reads. (A session whose store file will
+    /// not open builds its own in-memory `EvaStore` instead, so that it owns and closes it.)
     static func inMemory(remote: any CalendarEventSource, uid: String = "in-memory") -> EventSync {
         // An in-memory SwiftData container cannot fail to open short of the schema itself
         // being invalid, which every test would catch at once.

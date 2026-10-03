@@ -137,6 +137,37 @@ final class OfflineLaunchUITests: EvaUITestCase {
         )
     }
 
+    /// #382 / #371 review 3: **Continue offline** is offered only to an account that has
+    /// passed the consent gate on this device. With no `/me` there is no consent record to
+    /// read, and the app must not start collecting from someone who has not agreed (#86).
+    ///
+    /// The account here is signed in and still on the consent screen — a real token whose
+    /// uid was never marked — so the retry screen it reaches is the one that has to hide the
+    /// button. The unit test proves `canContinueOffline` is false; this proves the screen
+    /// reads it. Left signed in and alive, for `scripts/e2e-cleanup.ts` to sweep (§16).
+    func testContinueOfflineIsHiddenBeforeTheConsentGateIsPassed() throws {
+        let app = launch()
+        signUpAndActivate(app, email: Self.freshEmail(), consent: false)
+        XCTAssertTrue(
+            app.switches["consent.store"].waitForExistence(timeout: 20),
+            "Signing in a new account did not reach the consent screen"
+        )
+
+        relaunch(app, api: Self.deadAPI)
+        XCTAssertTrue(
+            app.staticTexts["unreachable.title"].waitForExistence(timeout: 20),
+            "A launch that could not reach the API showed no retry screen"
+        )
+        // The screen's other actions are drawn, so the absence below is the button's and
+        // not a screen still rendering.
+        XCTAssertTrue(app.buttons["primary.Try again"].exists)
+        XCTAssertTrue(app.buttons["text.Log out"].exists)
+        XCTAssertFalse(
+            app.buttons["secondary.Continue offline"].waitForExistence(timeout: 2),
+            "Continue offline was offered to an account that has not passed the consent gate here"
+        )
+    }
+
     /// Relaunches the same install with `EVA_UITEST_RESET` **removed**, pointed at
     /// `apiBaseURL`.
     ///

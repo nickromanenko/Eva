@@ -265,6 +265,33 @@ struct EventSyncTests {
         #expect(sync.trouble == nil, "The card stayed up after the entry synced")
     }
 
+    /// #382: the live card reads `EventSync.trouble`, not `SyncTrouble.init(_:)` — which has
+    /// no caller in the app. A 5xx and a 429 are each a temporary failure *there*, through
+    /// the engine's backoff, and neither marks the entry refused.
+    @Test("a 5xx shows the temporary card through EventSync.trouble",
+          arguments: [500, 502, 503])
+    func aServerErrorIsTemporaryTrouble(status: Int) async {
+        source.writeFailure = APIError.server(code: "INTERNAL", message: "x", status: status)
+        sync.save(Self.write())
+        await sync.drain()
+
+        #expect(sync.trouble == .temporary)
+        #expect(sync.failedCount == 0, "A \(status) marked the entry refused")
+        #expect(sync.trouble?.message == "It's saved on this device. Eva will retry automatically.")
+    }
+
+    @Test("a 429 shows the temporary card through EventSync.trouble")
+    func aRateLimitIsTemporaryTrouble() async {
+        // A minute out, so the retry the engine schedules does not fire inside the test.
+        source.writeFailure = APIError.rateLimited(message: "x", retryAt: Date().addingTimeInterval(60))
+        sync.save(Self.write())
+        await sync.drain()
+
+        #expect(sync.trouble == .temporary)
+        #expect(sync.failedCount == 0, "A 429 marked the entry refused")
+        #expect(sync.store.operations().count == 1)
+    }
+
     // MARK: - §8.4 · Dates
 
     @Test("§8.4 · a queued entry is sent with the zone it was logged in")
@@ -474,6 +501,30 @@ struct EvaStoreFileTests {
             atPath: EvaStore.url(for: first).deletingLastPathComponent().path
         ).filter { $0.hasPrefix("eva-\(first)") }
         #expect(leftovers.isEmpty, "The previous account's store survived: \(leftovers)")
+    }
+
+    /// Security review follow-up 3 (#378): the first #78 builds wrote into Application
+    /// Support itself. A file there is a leftover whoever it belonged to — the signed-in
+    /// account's included, since its live store is the one in `EvaStore/`.
+    @Test("§8.5 · a #371-era store file at the old location goes, even the kept account's")
+    func theOldLocationIsSweptRegardless() throws {
+        let uid = "file-\(UUID().uuidString)"
+        defer { EvaStore.wipeAll(keeping: nil) }
+        let legacy = EvaStore.directory.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        let names = ["eva-\(uid).store", "eva-\(uid).store-wal", "eva-\(uid).store-shm"]
+        for name in names {
+            try Data("x".utf8).write(to: legacy.appendingPathComponent(name))
+        }
+        _ = try EvaStore(uid: uid)
+
+        EvaStore.wipeAll(keeping: uid)
+
+        let leftovers = names.filter {
+            FileManager.default.fileExists(atPath: legacy.appendingPathComponent($0).path)
+        }
+        #expect(leftovers.isEmpty, "The kept account's old-location files survived: \(leftovers)")
+        #expect(EvaStore.fileExists(for: uid), "The kept account's live store was swept with them")
     }
 
     @Test("§8.5 · EVA_UITEST_RESET's wipe removes every store file")

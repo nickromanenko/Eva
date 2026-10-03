@@ -129,6 +129,10 @@ final class CalendarModel {
     private let source: any CalendarEventSource
     /// Where the entries live and where writes go (#78). Shared with `AppSession` in the
     /// app, so the queue outlives this screen; in-memory in previews and tests.
+    ///
+    /// The in-memory store `init` builds when it is handed none is for previews and tests
+    /// only. A signed-in session always has a store — its own fallback, when the file will
+    /// not open — because one built here is closed by nothing (#378 security review).
     let sync: EventSync
 
     /// The follow-up work an acknowledgement or a drained queue starts, kept so a test can

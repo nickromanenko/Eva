@@ -111,18 +111,21 @@ final class EvaStore {
     /// SQLite's `-wal` and `-shm` companions go too. Removing only `.store` would leave a
     /// write-ahead log behind for the next file at the same path to replay.
     static func wipeAll(keeping: String? = nil) {
-        // The first builds of #78 wrote straight into Application Support; their files are
-        // swept from there too.
+        // The first builds of #78 wrote straight into Application Support. Nothing opens a
+        // file there any more, so every one goes — `keeping`'s too: the account's live store
+        // is the one in `EvaStore/`, and its old copy is a leftover (#378 security review).
         let legacy = directory.deletingLastPathComponent()
-        let files = [directory, legacy].flatMap {
-            (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? []
-        }
         let kept = keeping.map { url(for: $0).lastPathComponent }
-        for file in files {
-            let name = file.lastPathComponent
-            guard name.hasPrefix("eva-"), name.contains(".store") else { continue }
-            if let kept, name.hasPrefix(kept) { continue }
-            try? FileManager.default.removeItem(at: file)
+        for folder in [directory, legacy] {
+            let files = (
+                try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            ) ?? []
+            for file in files {
+                let name = file.lastPathComponent
+                guard name.hasPrefix("eva-"), name.contains(".store") else { continue }
+                if folder == directory, let kept, name.hasPrefix(kept) { continue }
+                try? FileManager.default.removeItem(at: file)
+            }
         }
     }
 
