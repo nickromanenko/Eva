@@ -2120,12 +2120,15 @@ app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
         ? { ...body, goal: setup.goal, targetWeightKg: setup.targetWeightKg }
         : { ...body, goal: setup.goal }
     // S12 (#224): the cycle-phase and mode adjustment, applied on top of the engine's answer
-    // and never inside it. `mode` is `cycle` until D10 stores one; the phase is the estimate
-    // the Today card already projected, so nothing here re-reads events.
+    // and never inside it. `mode` is `cycle` until D10 stores one, and with it the delivery
+    // or loss date A28's six-week window counts from — `null` here, which the module reads
+    // as "window still open"; the phase is the estimate the Today card already projected, so
+    // nothing here re-reads events.
     const plan: ServedNutritionPlan = adjustNutritionPlan(
       planDailyTargets(input, config.nutrition),
       toCycleEstimate(analysis).phase,
       'cycle',
+      null,
       config.nutritionAdjustment?.lutealPercent ?? null,
     )
     return c.json({ plan })

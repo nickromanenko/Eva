@@ -10,6 +10,7 @@ import {
 import {
   LUTEAL_REASON,
   NutritionAdjustmentUnsetError,
+  QUALITATIVE_WINDOW_DAYS,
   RECALCULATION_REASONS,
   adjustNutritionPlan,
   isAdjustingPhase,
@@ -24,7 +25,7 @@ import {
 
 /**
  * The cycle-phase and mode adjustment (S12, #224): the luteal +5% applied on top of #222's
- * engine, A28's no-numbers-in-pregnancy/postpartum, the confidence that travels with the
+ * engine, A28's no-numbers-in-pregnancy/postpartum (and, #367, after a loss), the confidence that travels with the
  * number, the five recalculation triggers, and the iron ordering. Pure — the engine's answer
  * and the phase are fixtures, so this file makes no round trip and sets no timeout. The
  * route-level half (the irregular fixture through to the plan, the 503s, the log silence)
@@ -60,7 +61,7 @@ const numbersOf = (served: ServedNutritionPlan) => {
 
 describe('adjustNutritionPlan', () => {
   test('the luteal phase raises the calorie target by the configured percentage', () => {
-    const result = numbersOf(adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'cycle', 5))
+    const result = numbersOf(adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'cycle', null, 5))
     expect(result.adjustment.calorieTargetKcal).toBe(2100)
     expect(result.adjustment.reasonId).toBe(LUTEAL_REASON)
     expect(result.targets.calorieTargetKcal).toBe(2000) // the engine's answer is untouched
@@ -69,7 +70,7 @@ describe('adjustNutritionPlan', () => {
   test('the confidence class travels with the adjustment', () => {
     for (const confidence of ['wide', 'narrow'] as const) {
       const result = numbersOf(
-        adjustNutritionPlan(plan(2000), phase('luteal', confidence), 'cycle', 5),
+        adjustNutritionPlan(plan(2000), phase('luteal', confidence), 'cycle', null, 5),
       )
       expect(result.adjustment.confidence).toBe(confidence)
     }
@@ -77,7 +78,7 @@ describe('adjustNutritionPlan', () => {
 
   test('a phase other than luteal leaves the target unadjusted and the reason empty', () => {
     for (const code of ['menstrual', 'follicular', 'ovulation'] as const) {
-      const result = numbersOf(adjustNutritionPlan(plan(2000), phase(code, 'narrow'), 'cycle', 5))
+      const result = numbersOf(adjustNutritionPlan(plan(2000), phase(code, 'narrow'), 'cycle', null, 5))
       expect(result.adjustment).toEqual({ calorieTargetKcal: 2000, reasonId: null, confidence: null })
     }
   })
@@ -85,20 +86,79 @@ describe('adjustNutritionPlan', () => {
   test('no phase is no adjustment — the target is served unadjusted', () => {
     // `toCycleEstimate`'s `phase` is null exactly when C11 withheld the prediction; a null
     // phase is not "no luteal", it is "no number may be adjusted".
-    const result = numbersOf(adjustNutritionPlan(plan(2000), null, 'cycle', 5))
+    const result = numbersOf(adjustNutritionPlan(plan(2000), null, 'cycle', null, 5))
     expect(result.adjustment).toEqual({ calorieTargetKcal: 2000, reasonId: null, confidence: null })
   })
 
   test('A28: pregnancy carries no calorie or macronutrient number', () => {
-    expect(adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'pregnancy', 5)).toEqual({
+    expect(adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'pregnancy', null, 5)).toEqual({
       kind: 'qualitative',
     })
   })
 
-  test('A28: the first six postpartum weeks carry none either', () => {
-    expect(adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'postpartum', 5)).toEqual({
+  test('A28: postpartum with no delivery date carries none either — the window stays closed', () => {
+    // Nothing stores a delivery date until D10, so this is every postpartum user today.
+    expect(adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'postpartum', null, 5)).toEqual({
       kind: 'qualitative',
     })
+  })
+
+  test('the window is six weeks, in days', () => {
+    expect(QUALITATIVE_WINDOW_DAYS).toBe(42)
+  })
+
+  test('#367: the first six weeks after a loss carry no number — day 0 through day 41', () => {
+    for (const day of [0, 1, 41]) {
+      expect(adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'loss', day, 5)).toEqual({
+        kind: 'qualitative',
+      })
+    }
+  })
+
+  test('#367: from day 42 after a loss the numbers return, luteal adjustment included', () => {
+    for (const day of [42, 43, 365]) {
+      const result = numbersOf(adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'loss', day, 5))
+      expect(result.targets.calorieTargetKcal).toBe(2000)
+      expect(result.adjustment).toEqual({
+        calorieTargetKcal: 2100,
+        reasonId: LUTEAL_REASON,
+        confidence: 'wide',
+      })
+    }
+  })
+
+  test('#367: a loss with no date, or a day that is not one, withholds rather than serves', () => {
+    // A missing day never opens the window: the number waits until a day proves it is over.
+    for (const day of [null, Number.NaN, -1]) {
+      expect(adjustNutritionPlan(plan(2000), null, 'loss', day, 5)).toEqual({ kind: 'qualitative' })
+    }
+  })
+
+  test('postpartum and loss share one window — the same day, the same arm', () => {
+    for (const day of [0, 41, 42, 100]) {
+      const postpartum = adjustNutritionPlan(plan(2000), null, 'postpartum', day, 5)
+      const loss = adjustNutritionPlan(plan(2000), null, 'loss', day, 5)
+      expect(loss).toEqual(postpartum)
+      expect(loss.kind).toBe(day < QUALITATIVE_WINDOW_DAYS ? 'qualitative' : 'targets')
+    }
+  })
+
+  test('the day is read only for postpartum and loss — pregnancy never shows a number', () => {
+    for (const day of [null, 0, 42, 400]) {
+      expect(adjustNutritionPlan(plan(2000), null, 'pregnancy', day, 5)).toEqual({
+        kind: 'qualitative',
+      })
+      // …and cycle and planning keep theirs whatever the day says.
+      for (const mode of ['cycle', 'planning'] as const) {
+        expect(adjustNutritionPlan(plan(2000), null, mode, day, 5).kind).toBe('targets')
+      }
+    }
+  })
+
+  test('the qualitative arm served for a loss has no field beyond its kind', () => {
+    const served = adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'loss', 0, 5)
+    expect(Object.keys(served)).toEqual(['kind'])
+    expect(JSON.stringify(served)).not.toMatch(/\d/)
   })
 
   test('A28, by the type: the qualitative arm has no field a number could be in', () => {
@@ -111,7 +171,7 @@ describe('adjustNutritionPlan', () => {
 
   test('Planning mode keeps numbers, and the luteal adjustment is unaffected by A28', () => {
     const result = numbersOf(
-      adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'planning', 5),
+      adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'planning', null, 5),
     )
     expect(result.adjustment.calorieTargetKcal).toBe(2100)
     expect(result.adjustment.reasonId).toBe(LUTEAL_REASON)
@@ -122,11 +182,11 @@ describe('adjustNutritionPlan', () => {
       kind: 'refused',
       refusal: { reason: 'below-bmi-floor', lowestSupportedWeightKg: 52.2 },
     }
-    expect(adjustNutritionPlan(refused, phase('luteal', 'wide'), 'cycle', 5)).toEqual(refused)
+    expect(adjustNutritionPlan(refused, phase('luteal', 'wide'), 'cycle', null, 5)).toEqual(refused)
   })
 
   test('an unset luteal percentage is a refusal, not a default', () => {
-    expect(() => adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'cycle', null)).toThrow(
+    expect(() => adjustNutritionPlan(plan(2000), phase('luteal', 'wide'), 'cycle', null, null)).toThrow(
       NutritionAdjustmentUnsetError,
     )
   })
@@ -138,8 +198,8 @@ describe('adjustNutritionPlan', () => {
       kind: 'refused',
       refusal: { reason: 'below-plan-cap', lowestSupportedWeightKg: 55 },
     }
-    for (const mode of ['cycle', 'pregnancy'] as const) {
-      expect(() => adjustNutritionPlan(refused, null, mode, null)).toThrow(
+    for (const mode of ['cycle', 'pregnancy', 'loss'] as const) {
+      expect(() => adjustNutritionPlan(refused, null, mode, null, null)).toThrow(
         NutritionAdjustmentUnsetError,
       )
     }
@@ -182,7 +242,7 @@ describe('the engine stays cycle-agnostic', () => {
     if (engine.kind !== 'targets') throw new Error('fixture should plan')
     for (const p of [null, phase('luteal', 'wide'), phase('follicular', 'narrow')]) {
       for (const mode of ['cycle', 'planning'] as const) {
-        const served = numbersOf(adjustNutritionPlan(planDailyTargets(HER, RULES), p, mode, 5))
+        const served = numbersOf(adjustNutritionPlan(planDailyTargets(HER, RULES), p, mode, null, 5))
         expect(served.targets).toEqual(engine.targets)
       }
     }
