@@ -17,6 +17,31 @@ enum SyncOutcome: Equatable {
     case paused
 }
 
+/// What the "Couldn't sync" card says, by the class of failure behind it (owner decision,
+/// 2026-10-03). A temporary failure — no connection, a 5xx, a 429 — is retried on its own;
+/// a rejected entry (a 4xx) never is, and she has to look at it.
+enum SyncTrouble: Equatable {
+    case temporary
+    case rejected
+
+    /// The card for an outcome, or `nil` when there is nothing to say: an acknowledged
+    /// operation, or a paused queue — which is the session's business, not the entry's.
+    init?(_ outcome: SyncOutcome) {
+        switch outcome {
+        case .retry: self = .temporary
+        case .failed: self = .rejected
+        case .acknowledged, .paused: return nil
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .temporary: "It's saved on this device. Eva will retry automatically."
+        case .rejected: "This entry couldn't be saved. Check it and try again."
+        }
+    }
+}
+
 /// Classifies one failure into what the engine should do. Pure — no store, and the clock is
 /// `now`, so the `Retry-After` wait is exact under test rather than a few microseconds short.
 func syncOutcome(for error: APIError, now: Date = Date()) -> SyncOutcome {

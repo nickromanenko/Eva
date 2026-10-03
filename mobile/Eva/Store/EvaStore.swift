@@ -20,19 +20,46 @@ final class EvaStore {
 
     private var context: ModelContext { container.mainContext }
 
+    /// A uid that is not a plain identifier is refused before it becomes part of a path.
+    struct InvalidUID: Error {}
+
     init(uid: String, inMemory: Bool = false) throws {
+        guard Self.isValid(uid: uid) else { throw InvalidUID() }
         self.uid = uid
         let schema = Schema([LocalEvent.self, PendingOperation.self, LocalRefdata.self])
         let configuration = inMemory
             ? ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
             : ModelConfiguration(schema: schema, url: Self.url(for: uid))
+        if !inMemory { Self.prepareDirectory() }
         container = try ModelContainer(for: schema, configurations: [configuration])
         if !inMemory { Self.harden(Self.url(for: uid)) }
     }
 
-    /// The directory every store file lives in.
-    private static var directory: URL {
+    /// `[A-Za-z0-9_-]+` — what a Firebase uid is, and nothing that could walk a path.
+    nonisolated static func isValid(uid: String) -> Bool {
+        !uid.isEmpty && uid.unicodeScalars.allSatisfy {
+            CharacterSet.alphanumerics.contains($0) && $0.isASCII || $0 == "_" || $0 == "-"
+        }
+    }
+
+    /// `Application Support/EvaStore/` — a directory of its own, so backup exclusion is set
+    /// once on the directory and covers every file SQLite creates in it later (`-wal`,
+    /// `-shm`), not only the ones that existed when the store was opened.
+    static var directory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("EvaStore", isDirectory: true)
+    }
+
+    private static func prepareDirectory() {
+        var directory = Self.directory
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? directory.setResourceValues(values)
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: directory.path
+        )
     }
 
     /// The one store file, keyed to the uid so a second account on the same device starts
@@ -84,9 +111,12 @@ final class EvaStore {
     /// SQLite's `-wal` and `-shm` companions go too. Removing only `.store` would leave a
     /// write-ahead log behind for the next file at the same path to replay.
     static func wipeAll(keeping: String? = nil) {
-        let files = (
-            try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        ) ?? []
+        // The first builds of #78 wrote straight into Application Support; their files are
+        // swept from there too.
+        let legacy = directory.deletingLastPathComponent()
+        let files = [directory, legacy].flatMap {
+            (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? []
+        }
         let kept = keeping.map { url(for: $0).lastPathComponent }
         for file in files {
             let name = file.lastPathComponent

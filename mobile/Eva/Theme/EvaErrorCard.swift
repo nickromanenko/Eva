@@ -72,23 +72,17 @@ struct EvaErrorCard<Action: View>: View {
     }
 }
 
-/// The sync card's words, in one place so the calendar and the specimen cannot drift.
-///
-/// The title is the artboard's. The message is not: the artboard's second sentence, "Eva
-/// will retry automatically", is true of a dropped connection but not of what this card is
-/// for — an entry the server *refused* (a 4xx), which ARCHITECTURE §8.4 says is never
-/// retried on its own. Saying it would be the false reassurance DESIGN.md §8 rules out.
+/// The sync card's title — the artboard's. Its message depends on the failure
+/// (`SyncTrouble.message`).
 enum EvaSyncCopy {
     static let failedTitle = "Couldn't sync your last entry"
-    static let failedMessage = "It's saved on this device. Eva's servers didn't accept it, "
-        + "so it won't be sent again until you retry."
 }
 
 #Preview("Error card") {
     VStack(spacing: EvaSpacing.lg) {
         EvaErrorCard(
             title: "Couldn't sync your last entry",
-            message: EvaSyncCopy.failedMessage
+            message: SyncTrouble.rejected.message
         ) {
             DestructiveButton(title: "Retry now", kind: .row) {}
         }

@@ -23,6 +23,9 @@ final class EventSync {
     /// the store, so one write is one redraw.
     private(set) var revision = 0
 
+    /// Whether the queue is backing off after a temporary failure (no connection, 5xx, 429).
+    private(set) var isBackingOff = false
+
     /// Called after an entry's operation is acknowledged, with its type — the calendar
     /// re-asks for its prediction overlay when a cycle entry reaches the server.
     @ObservationIgnored var onAcknowledged: (@MainActor (EvaEventType) -> Void)?
@@ -77,6 +80,13 @@ final class EventSync {
 
     /// The entries whose last operation the server refused — what "Couldn't sync your last
     /// entry" is about.
+    /// What the "Couldn't sync" card should say, if anything. A rejected entry outranks a
+    /// temporary failure: it is the one that will not fix itself.
+    var trouble: SyncTrouble? {
+        if failedCount > 0 { return .rejected }
+        return isBackingOff && unsyncedCount > 0 ? .temporary : nil
+    }
+
     var failedCount: Int {
         _ = revision
         return store.failedEvents().count
@@ -205,6 +215,7 @@ final class EventSync {
     /// Returns how many entries the server listed — the first load's history question.
     @discardableResult
     func refresh(from: EvaDay, through to: EvaDay) async throws -> Int {
+        try ensureOpen()
         let events = try await remote.events(from: from, through: to)
         guard !isClosed else { return events.count }
         reconcile(events, from: from, through: to)
@@ -296,17 +307,20 @@ final class EventSync {
             guard !isClosed else { return }
             switch drain.pass {
             case .drained:
+                isBackingOff = false
                 // Only a pass that had something to send ends in `onDrained`: an empty
                 // queue "draining" on every foreground would re-read the range for nothing,
                 // and a re-read that drains would loop.
                 if drain.sent { onDrained?() }
             case .blocked where drainAgain:
+                isBackingOff = true
                 // Something asked for a drain while this pass was failing — a new entry,
                 // or the app coming back to the foreground. That ask is worth one attempt
                 // now rather than at the end of the backoff.
                 drainAgain = false
                 kick()
             case .blocked(let wait):
+                isBackingOff = true
                 scheduleRetry(after: wait)
             case .paused:
                 break
@@ -350,10 +364,32 @@ final class EventSync {
 
     /// Stops the queue without discarding anything — a 401 sign-out, after which the same
     /// account signing back in picks the queue up where it stopped (§8.4).
+    ///
+    /// **Nothing queued here is sent after this returns.** A pass already in flight is
+    /// cancelled, and `send` re-checks before and after every request: a request that
+    /// started under this account must not be followed by one that would go out with
+    /// whatever token is in the Keychain next — another account's, if she signs in as
+    /// someone else before the pass notices (#371 review).
     func close() {
         isClosed = true
         retryTask?.cancel()
         retryTask = nil
+        drainTask?.cancel()
+    }
+
+    /// Picks a closed store's queue back up — the same account signing in again after a
+    /// 401 (§8.4: nothing was discarded).
+    func reopen() {
+        isClosed = false
+        kick()
+    }
+
+    /// Throws the session's own "paused" error once this store is closed, so the engine
+    /// stops where it is and keeps the operation.
+    private func ensureOpen() throws {
+        if isClosed || Task.isCancelled {
+            throw APIError.sessionExpired(message: "The store's session has ended.")
+        }
     }
 
     // MARK: - Sending
@@ -382,12 +418,14 @@ final class EventSync {
         switch kind {
         case .create:
             guard let write = row.write(timeZone: timeZone) else { return }
+            try ensureOpen()
             let event = try await remote.createEvent(write)
             try acknowledge(clientId, with: event)
         case .bodySignals:
             guard let write = row.write(timeZone: timeZone),
                   case .bodySignals(let payload) = write.payload
             else { return }
+            try ensureOpen()
             let event = try await remote.upsertBodySignals(EvaBodySignalsWrite(
                 payload: payload,
                 localDate: write.localDate,
@@ -400,6 +438,7 @@ final class EventSync {
             // No id means its create never landed — refused, and already on the card.
             guard let serverId = row.serverId, let write = row.write(timeZone: timeZone)
             else { return }
+            try ensureOpen()
             let event = try await remote.updateEvent(id: serverId, write)
             try acknowledge(clientId, with: event)
         case .delete:
@@ -409,10 +448,12 @@ final class EventSync {
                 changed()
                 return
             }
+            try ensureOpen()
             try await remote.deleteEvent(id: serverId)
             try acknowledge(clientId, with: nil)
         case .restore:
             guard let serverId = row.serverId else { return }
+            try ensureOpen()
             let event = try await remote.restoreEvent(id: serverId)
             try acknowledge(clientId, with: event)
         }
@@ -426,7 +467,11 @@ final class EventSync {
         #if DEBUG
         if Self.dropsAcknowledgements { throw APIError.network }
         #endif
-        guard !isClosed, let row = store.row(clientId: clientId) else { return }
+        // Closed while the request was out: the operation stays queued (it is replayed,
+        // idempotently, when this account is back) and the pass stops here rather than
+        // moving on to the next operation.
+        try ensureOpen()
+        guard let row = store.row(clientId: clientId) else { return }
         if let event {
             let later = store.operations(for: clientId).count > 1
             if later {

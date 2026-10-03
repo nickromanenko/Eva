@@ -52,7 +52,7 @@ final class SyncEngine {
 
     /// Sends operations until the queue is empty, one blocks, or the session pauses.
     func drain() async -> Pass {
-        while let operation = head() {
+        while !Task.isCancelled, let operation = head() {
             do {
                 try await perform(operation)
                 // `perform` may have removed the operation itself (a wipe mid-flight).
@@ -79,6 +79,6 @@ final class SyncEngine {
                 }
             }
         }
-        return .drained
+        return Task.isCancelled ? .paused : .drained
     }
 }

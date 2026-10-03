@@ -8,7 +8,8 @@ import Foundation
 /// token on every request the queue sends. Nothing here is trusted as identity.
 enum EvaSessionToken {
 
-    /// The `sub` claim of a JWT, or `nil` if the token is not one.
+    /// The `sub` claim of a JWT, or `nil` if the token is not one — or if the claim is not a
+    /// plain identifier, since it becomes a file name (`EvaStore.isValid(uid:)`).
     static func subject(of token: String) -> String? {
         let parts = token.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 3 else { return nil }
@@ -18,7 +19,7 @@ enum EvaSessionToken {
         base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
         guard let data = Data(base64Encoded: base64),
               let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let sub = claims["sub"] as? String, !sub.isEmpty
+              let sub = claims["sub"] as? String, EvaStore.isValid(uid: sub)
         else { return nil }
         return sub
     }

@@ -2604,18 +2604,47 @@ What the implementation added to the design above, each because the design left 
   recorded when she logged it (`PendingOperation.timeZone`) — two offline edits go out as
   their latest content, and a Lisbon entry sent from New York is still judged by Lisbon's
   today.
-- **A 401 sign-out does not wipe.** Log out and account deletion wipe (§8.5); a 401 closes
-  the store and keeps the queue (§8.4: nothing is discarded), so the same account signing
-  back in sends it. A different account wipes it on open.
-- **The "Couldn't sync" card** (`EvaErrorCard`, DESIGN.md §7) appears on the calendar when
-  any entry is `failed`; **Retry now** queues every refused entry again. Its second sentence
-  departs from the artboard's "Eva will retry automatically", which is not true of a 4xx.
+- **A 401 sign-out closes, it does not wipe — until something else happens.** Log out and
+  account deletion wipe (§8.5). A 401 closes the store and keeps the queue (§8.4: nothing
+  is discarded) so the same account signing back in, in the same run, resumes it. Anything
+  else wipes it: another account signing in, or a launch that finds no token — which is
+  also what an account deleted on another device looks like from here (#371 review).
+- **A closed store sends nothing.** Closing cancels the pass in flight, and `EventSync`
+  re-checks before and after every request, throwing the session's own "paused" error. Without
+  that, a request in flight when A's session ended was followed by A's *next* operation,
+  sent with whatever token the Keychain then held — B's, if B had signed in (#371 review;
+  `SessionExpiryTests.OfflineSession.noCrossAccountSend`).
+- **Continue offline needs the consent gate passed on this device.** With no `/me` there is
+  no consent record to read, so the button is offered only for a uid that has reached
+  `.ready` here before (a non-health mark in `UserDefaults`, cleared on log out and
+  whenever the server sends her to the consent screen).
+- **Files.** The stores live in `Application Support/EvaStore/`, excluded from backup at
+  the directory, so SQLite's later `-wal`/`-shm` files are covered too; a uid becomes a file
+  name only if it is `[A-Za-z0-9_-]+`.
+- **The calendar's Log button (#372).** Its first tap in UI tests did nothing, on `main` as
+  well (3/3 after a session-keeping relaunch). XCUITest's hit point for `calendar.log` was
+  (324, 706) — the tile's top-left corner, outside its rounded hit shape — because the
+  button's own `plus` glyph was a separate accessibility element over its centre, and
+  XCUITest taps the first point of an element nothing else covers. The glyph is now hidden
+  from accessibility (the button carries "Log an event") and the whole 60pt tile takes the
+  touch; the hit point is the centre and the first tap opens the picker 3/3.
+  Hiding the *inactive tabs'* content inside their scroll views was tried as well and
+  reverted: an `.accessibilityHidden(false)` on the active tab exposed every button's label
+  as a child element and moved Profile's Delete button's hit point to its corner the same
+  way. That the inactive tabs stay in the accessibility tree is a separate, pre-existing
+  defect.
+- **The "Couldn't sync" card** (`EvaErrorCard`, DESIGN.md §7) has two variants, chosen by
+  the failure class (`SyncTrouble`, owner decision 2026-10-03): while the queue backs off
+  after a temporary failure (no connection, 5xx, 429) it says "Eva will retry
+  automatically."; when an entry was rejected (a 4xx) it says "This entry couldn't be saved.
+  Check it and try again." A rejection outranks a backoff. **Retry now** queues refused
+  entries again, or cuts the backoff short.
 - **Log out asks first when entries are unsynced** — the platform confirmation dialog, with
-  §8.5's sentence; the canvas draws no log-out confirmation.
+  §8.5's sentence (kept by owner decision, 2026-10-03; the canvas draws none).
 
-The rule → test map is in PR #78's description; the unit tests are `EventSyncTests`,
-`OfflineSessionTests`, `SyncEngineTests` and `EvaStoreTests`, and the UI tests
-`OfflineSyncUITests`.
+The rule → test map is in PR #371's description; the unit tests are `EventSyncTests`,
+`SessionExpiryTests.OfflineSession` (`OfflineSessionTests.swift`), `SyncEngineTests` and
+`EvaStoreTests`, and the UI tests `OfflineSyncUITests`.
 
 ## 9. Push notifications (A9)
 

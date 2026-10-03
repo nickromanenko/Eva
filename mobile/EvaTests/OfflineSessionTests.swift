@@ -34,7 +34,17 @@ extension SessionExpiryTests {
             )
         }
 
+        /// A JWT for a second account, `u2`. `{"alg":"HS256","typ":"JWT"}.{"sub":"u2"}`
+        static let tokenB = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1MiJ9.sig"
+        static let signedInAsB =
+            #"{"token":"\#(tokenB)","user":{"id":"u2","email":"e2e+b@e2e.evaapp.dev","questionnaireCompleted":true}}"#
+        static let signedInAsA =
+            #"{"token":"\#(token)","user":{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true}}"#
+
         let store = KeychainTokenStore.shared
+        /// This test's own defaults, so the consent-gate marks do not leak between tests or
+        /// into the app's.
+        let defaults = UserDefaults(suiteName: "eva-offline-session-\(UUID().uuidString)")!
 
         func session() -> AppSession {
             store.clear()
@@ -46,8 +56,15 @@ extension SessionExpiryTests {
                     session: EvaStubURLProtocol.session
                 ),
                 tokenStore: store,
-                inMemoryStore: true
+                inMemoryStore: true,
+                defaults: defaults
             )
+        }
+
+        /// Marks `u1` as having passed the consent gate here, as an earlier `.ready` launch
+        /// would have.
+        func markConsentPassed() {
+            defaults.set(["u1"], forKey: AppSession.consentGateKey)
         }
 
         /// A session that has launched and been validated.
@@ -113,6 +130,7 @@ extension SessionExpiryTests {
             #expect(session.unsyncedEntryCount == 1)
 
             session.logOut()
+            await session.deviceRemoval?.value
 
             #expect(session.eventSync == nil)
             #expect(sync.eventsByDay().isEmpty)
@@ -129,6 +147,7 @@ extension SessionExpiryTests {
             }
             sync.save(Self.write())
             await sync.drain()
+            await session.deviceRemoval?.value
 
             #expect(session.state.isSignedOut)
             #expect(sync.store.operations().count == 1, "A 401 discarded the queued entry")
@@ -149,6 +168,7 @@ extension SessionExpiryTests {
             let attempts = EvaStubURLProtocol.requestCount(for: .post("/me/events"))
 
             try await session.deleteAccount()
+            await session.deviceRemoval?.value
             await sync.drain()
 
             #expect(session.eventSync == nil)
@@ -162,6 +182,7 @@ extension SessionExpiryTests {
         @Test("Continue offline opens the token's account's store and logs to it")
         func continueOffline() async throws {
             let session = session()
+            markConsentPassed()
             defer { store.clear() }
             EvaStubURLProtocol.route { $0.fails(.get("/me")) }
             await session.bootstrap()
@@ -184,6 +205,7 @@ extension SessionExpiryTests {
         @Test("an offline session revalidates when a request gets through")
         func offlineRevalidates() async throws {
             let session = session()
+            markConsentPassed()
             defer { store.clear() }
             EvaStubURLProtocol.route { $0.fails(.get("/me")) }
             await session.bootstrap()
@@ -208,6 +230,122 @@ extension SessionExpiryTests {
 
             #expect(session.state.isReady, "The session stayed offline after the API answered")
             #expect(session.user?.id == "u1")
+        }
+
+        // MARK: Review fixes (#371)
+
+        /// Security review 1: a 401 closes A's store while one of A's creates is on the
+        /// wire; B signs in before it answers. Nothing of A's may go out after that — least
+        /// of all with B's token, which is what the Keychain would hand the next request.
+        @Test("a store closed by a 401 sends nothing more, even after another account signs in")
+        func noCrossAccountSend() async throws {
+            let (session, sync) = try await readySession()
+            defer { store.clear() }
+            let first = Self.write()
+            EvaStubURLProtocol.route {
+                $0.held(.post("/me/events"), status: 201, body: Self.created(key: first.idempotencyKey))
+                $0.responds(.get("/refdata"), status: 401, body: ClientMapping.deadToken)
+                $0.responds(.post("/auth/signin"), status: 200, body: Self.signedInAsB)
+                $0.responds(deviceRoute, status: 200, body: #"{"removed":true}"#)
+            }
+            sync.save(first)
+            sync.save(Self.write())
+            await EvaStubURLProtocol.waitForRequestInFlight(.post("/me/events"))
+
+            _ = try? await session.refData()      // A's token is refused: 401, signed out
+            await session.deviceRemoval?.value
+            try await session.signIn(email: "e2e+b@e2e.evaapp.dev", password: "uitest-pass-1")
+            #expect(session.eventSync?.store.belongsTo("u2") == true)
+            EvaStubURLProtocol.releaseHeldRequest(.post("/me/events"))
+            await sync.drain()
+            for _ in 0..<50 { await Task.yield() }
+
+            #expect(EvaStubURLProtocol.requestCount(for: .post("/me/events")) == 1,
+                    "A's queue kept sending after its session ended")
+            #expect(EvaStubURLProtocol.lastAuthorization(for: .post("/me/events")) == "Bearer \(Self.token)")
+            #expect(sync.store.operations().isEmpty, "A's queue survived B signing in on this device")
+            #expect(EvaStubURLProtocol.unroutedRequests.isEmpty)
+        }
+
+        /// Security review 2: after a 401 nothing is discarded — but a launch with no token
+        /// (the account was deleted elsewhere, or she never signed back in) wipes it.
+        @Test("a store a 401 closed is wiped when the next launch finds no token")
+        func a401StoreIsWipedWithNoToken() async throws {
+            let (session, sync) = try await readySession()
+            defer { store.clear() }
+            EvaStubURLProtocol.route {
+                $0.responds(.post("/me/events"), status: 401, body: ClientMapping.deadToken)
+                $0.responds(deviceRoute, status: 200, body: #"{"removed":true}"#)
+            }
+            sync.save(Self.write())
+            await sync.drain()
+            await session.deviceRemoval?.value
+            #expect(sync.store.operations().count == 1)
+
+            await session.bootstrap()
+
+            #expect(sync.store.operations().isEmpty, "An orphaned queue outlived the account's token")
+            #expect(sync.eventsByDay().isEmpty)
+        }
+
+        @Test("the same account signing back in after a 401 resumes its queue")
+        func theSameAccountResumes() async throws {
+            let (session, sync) = try await readySession()
+            defer { store.clear() }
+            let draft = Self.write()
+            EvaStubURLProtocol.route {
+                $0.responds(.post("/me/events"), status: 401, body: ClientMapping.deadToken)
+                $0.responds(deviceRoute, status: 200, body: #"{"removed":true}"#)
+            }
+            sync.save(draft)
+            await sync.drain()
+            await session.deviceRemoval?.value
+
+            EvaStubURLProtocol.route {
+                $0.responds(.post("/auth/signin"), status: 200, body: Self.signedInAsA)
+                $0.responds(.post("/me/events"), status: 201, body: Self.created(key: draft.idempotencyKey))
+            }
+            try await session.signIn(email: "e2e+unit@e2e.evaapp.dev", password: "uitest-pass-1")
+            await sync.drain()
+
+            #expect(session.eventSync === sync)
+            #expect(sync.store.operations().isEmpty)
+            #expect(sync.store.row(clientId: draft.idempotencyKey)?.serverId == "srv1")
+        }
+
+        /// Security review 3: Continue offline must not skip the consent gate.
+        @Test("Continue offline is offered only to an account that has passed the consent gate here")
+        func continueOfflineNeedsConsent() async throws {
+            let session = session()
+            defer { store.clear() }
+            EvaStubURLProtocol.route { $0.fails(.get("/me")) }
+            await session.bootstrap()
+
+            #expect(!session.canContinueOffline)
+            session.continueOffline()
+            guard case .unreachable = session.state else {
+                Issue.record("Continue offline went through without a consent mark (\(session.state))")
+                return
+            }
+
+            // A validated launch that lands in the app records the mark…
+            EvaStubURLProtocol.route { $0.responds(.get("/me"), status: 200, body: ClientMapping.user) }
+            await session.bootstrap()
+            EvaStubURLProtocol.route { $0.fails(.get("/me")) }
+            let offline = self.session()
+            await offline.bootstrap()
+            #expect(offline.canContinueOffline)
+
+            // …and log out removes it.
+            EvaStubURLProtocol.route {
+                $0.responds(.get("/me"), status: 200, body: ClientMapping.user)
+                $0.responds(deviceRoute, status: 200, body: #"{"removed":true}"#)
+            }
+            await offline.bootstrap()
+            offline.logOut()
+            await offline.deviceRemoval?.value
+            store.save(Self.token)
+            #expect(!offline.canContinueOffline)
         }
 
         // MARK: §8.3 · refdata's version handshake

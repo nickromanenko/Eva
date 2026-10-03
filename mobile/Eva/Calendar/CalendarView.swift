@@ -85,8 +85,8 @@ struct CalendarView: View {
                         CalendarSummaryCard(summary: summary)
                     }
 
-                    if model.failedSyncCount > 0 {
-                        syncFailureCard
+                    if let trouble = model.syncTrouble {
+                        syncFailureCard(trouble)
                     }
 
                     if case .failed(let message) = model.loadState {
@@ -261,8 +261,8 @@ struct CalendarView: View {
 
     /// An entry the server refused (§8.4): it is still on the grid — it is saved on this
     /// device — and this says it has not reached the server, and offers to send it again.
-    private var syncFailureCard: some View {
-        EvaErrorCard(title: EvaSyncCopy.failedTitle, message: EvaSyncCopy.failedMessage) {
+    private func syncFailureCard(_ trouble: SyncTrouble) -> some View {
+        EvaErrorCard(title: EvaSyncCopy.failedTitle, message: trouble.message) {
             DestructiveButton(title: "Retry now", kind: .row) {
                 model.retryFailedSync()
             }
@@ -326,6 +326,12 @@ struct CalendarView: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.evaH2)
+                    // The button says what it does ("Log an event"); the glyph is not a
+                    // second element. Exposed, it sat over the button's centre as an
+                    // "Add" image, and XCUITest — which taps the first point of an element
+                    // nothing else covers — tapped the button's top-left corner instead,
+                    // outside its rounded hit shape, and nothing happened (#372).
+                    .accessibilityHidden(true)
                     // §5's disabled primary, with §9a's label colour: the artboard keeps
                     // the label white on the 28% fill, which measures 1.45:1. Drawn here
                     // rather than left to `.disabled(_:)`, whose dimming does not reach a
@@ -337,6 +343,9 @@ struct CalendarView: View {
                         isLogEnabled ? Color.evaActionPinkSolid : Color.evaPrimaryButtonDisabled,
                         in: .rect(cornerRadius: EvaCalendarMetrics.fabRadius, style: .continuous)
                     )
+                    // The whole 60pt square takes the touch, corners included: a tap on the
+                    // tile's edge is a tap on the tile.
+                    .contentShape(.rect)
             }
             .buttonStyle(.evaUndimmed)
             .disabled(!isLogEnabled)

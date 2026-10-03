@@ -234,6 +234,37 @@ struct EventSyncTests {
         #expect(syncBackoff(attempts: 0) == 1 && syncBackoff(attempts: 1) == 2)
     }
 
+    // MARK: - The "Couldn't sync" card's two variants (owner decision, 2026-10-03)
+
+    @Test("the card's wording follows the failure class")
+    func troubleFollowsTheFailureClass() {
+        #expect(SyncTrouble(syncOutcome(for: .network)) == .temporary)
+        #expect(SyncTrouble(syncOutcome(for: .server(code: "INTERNAL", message: "x", status: 503))) == .temporary)
+        #expect(SyncTrouble(syncOutcome(for: .rateLimited(message: "x", retryAt: nil))) == .temporary)
+        #expect(SyncTrouble(syncOutcome(for: .server(code: "VALIDATION", message: "x", status: 400))) == .rejected)
+        #expect(SyncTrouble(syncOutcome(for: .sessionExpired(message: "x"))) == nil)
+        #expect(SyncTrouble.temporary.message.contains("Eva will retry automatically."))
+        #expect(SyncTrouble.rejected.message == "This entry couldn't be saved. Check it and try again.")
+    }
+
+    @Test("a queue backing off shows the temporary card; a refused entry shows the rejected one")
+    func troubleFollowsTheQueue() async {
+        #expect(sync.trouble == nil)
+        source.writeFailure = APIError.network
+        sync.save(Self.write())
+        await sync.drain()
+        #expect(sync.trouble == .temporary)
+
+        source.writeFailure = APIError.server(code: "VALIDATION", message: "x", status: 400)
+        await sync.drain()
+        #expect(sync.trouble == .rejected)
+
+        source.writeFailure = nil
+        sync.retryFailed()
+        await sync.drain()
+        #expect(sync.trouble == nil, "The card stayed up after the entry synced")
+    }
+
     // MARK: - §8.4 · Dates
 
     @Test("§8.4 · a queued entry is sent with the zone it was logged in")
@@ -405,9 +436,22 @@ struct EvaStoreFileTests {
 
         let values = try EvaStore.url(for: uid).resourceValues(forKeys: [.isExcludedFromBackupKey])
         #expect(values.isExcludedFromBackup == true)
-        let attributes = try FileManager.default.attributesOfItem(atPath: EvaStore.url(for: uid).path)
-        if let protection = attributes[.protectionKey] as? FileProtectionType {
-            #expect(protection == .completeUntilFirstUserAuthentication)
+        // The directory carries the exclusion too, so a `-wal` SQLite creates later is
+        // covered without anyone re-applying it.
+        let directory = try EvaStore.directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(directory.isExcludedFromBackup == true)
+        #expect(EvaStore.url(for: uid).deletingLastPathComponent().lastPathComponent == "EvaStore")
+        // File protection is not asserted: the simulator reports no protection class at
+        // all, so a check here would never run where this suite runs. The attribute is
+        // set in `EvaStore.harden`/`prepareDirectory` and is a device-only property.
+    }
+
+    @Test("a uid that is not a plain identifier never becomes a file name")
+    func refusesPathLikeUIDs() {
+        #expect(EvaStore.isValid(uid: "AbC_12-xy"))
+        for bad in ["", "../x", "a/b", "a.b", "a b", "é"] {
+            #expect(!EvaStore.isValid(uid: bad), "accepted \(bad)")
+            #expect(throws: EvaStore.InvalidUID.self) { try EvaStore(uid: bad, inMemory: true) }
         }
     }
 
@@ -454,6 +498,13 @@ struct EvaSessionTokenTests {
         // {"alg":"HS256","typ":"JWT"} . {"sub":"uid-123","iat":1}
         let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1aWQtMTIzIiwiaWF0IjoxfQ.sig"
         #expect(EvaSessionToken.subject(of: token) == "uid-123")
+    }
+
+    @Test("a sub that is not a plain identifier is refused")
+    func refusesPathLikeSub() {
+        // {"sub":"../x"}
+        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIuLi94In0.sig"
+        #expect(EvaSessionToken.subject(of: token) == nil)
     }
 
     @Test("anything that is not a JWT has no subject")
