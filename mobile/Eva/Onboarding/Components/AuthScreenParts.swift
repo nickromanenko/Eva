@@ -49,8 +49,8 @@ private extension EvaTextStyle {
         textStyle: .largeTitle
     )
 
-    /// The centred title of the two "check your email" screens — `font:400 30px/1.15` on
-    /// both **Check your inbox** and **Reset link sent**.
+    /// The centred title of the auth status screens — `font:400 30px/1.15` on **Check
+    /// your inbox**, **Reset link sent** and **unreachable**.
     ///
     /// No line height, for the reason `authHero` gives: 1.15 works out at 34.5, under
     /// Montserrat's 36.6pt natural box at this size.
@@ -252,6 +252,68 @@ struct AuthStatusHero: View {
                 .padding(.top, EvaSpacing.sm)
         }
         .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Notice hero
+
+/// The centred opening of an auth screen that reports a state rather than a sent email —
+/// a tinted tile holding a §2 mark, the title, then a line of body copy. The canvas draws
+/// it on **unreachable** (an `i`, Information) and **linkExpired** (a `!`, Warning); only
+/// the first is built.
+///
+/// The artboard's tile is `88 × 88, radius 30`, `rgba(90,123,160,.12)` with a
+/// `rgba(90,123,160,.3)` hairline. It takes the §2 Information tint and border (`.09`,
+/// `.26`) rather than those values — the design system is the authority for a semantic
+/// tint, the call `AuthSuccessNote` makes too — and the radius is a third of the edge, the
+/// rule `AuthStatusHero` keeps. The canvas' `i` is a Montserrat 700/26 letter; it is the
+/// `info` SF Symbol at the same footprint, so no off-scale text row is needed for a glyph.
+///
+/// The title and body carry `<identifier>.title` and `<identifier>.body`, which the UI
+/// tests wait on.
+struct AuthNoticeHero: View {
+    let title: String
+    let subtitle: String
+    let identifier: String
+
+    /// The artboard's tile edge.
+    private static let tileSize: CGFloat = 88
+    /// The `i` is 26pt on the 88pt tile.
+    private static let glyphSize: CGFloat = tileSize * 0.3
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "info")
+                .font(.system(size: Self.glyphSize, weight: .bold))
+                .foregroundStyle(Color.evaInformationInk)
+                .frame(width: Self.tileSize, height: Self.tileSize)
+                .background(
+                    Color.evaInformationTint,
+                    in: .rect(cornerRadius: Self.tileSize / 3, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: Self.tileSize / 3, style: .continuous)
+                        .strokeBorder(Color.evaInformationBorder, lineWidth: 1)
+                }
+                .accessibilityHidden(true)
+
+            Text(title)
+                .evaTextStyle(.authStatusTitle)
+                .foregroundStyle(Color.evaPrimaryText)
+                .padding(.top, EvaSpacing.lg)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("\(identifier).title")
+
+            Text(subtitle)
+                .evaTextStyle(.body)
+                .foregroundStyle(Color.evaSecondaryText)
+                .padding(.top, EvaSpacing.sm)
+                .accessibilityIdentifier("\(identifier).body")
+        }
+        .multilineTextAlignment(.center)
+        // Both strings wrap; without this the stack measures them at one line and clips.
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity)
     }
@@ -653,6 +715,11 @@ struct AuthLegalNote: View {
                 subtitle: "We sent an activation link to",
                 tileSize: 96,
                 envelopeColor: .evaDeepPink
+            )
+            AuthNoticeHero(
+                title: "Eva can't reach its servers",
+                subtitle: "You're still signed in.",
+                identifier: "preview.notice"
             )
             AuthSuccessNote(
                 message: "The link works for 24 hours. Nothing is saved to your profile until you confirm."

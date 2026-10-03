@@ -4,35 +4,21 @@ import SwiftUI
 /// captive portal, a 5xx — and therefore **kept** it (`AppSession.State.unreachable`,
 /// #61).
 ///
-/// ## This screen is a decision, not a transcription
+/// The `unreachable` artboard in "Eva App.dc.html", built as drawn since #375: the
+/// auth frame with the `eva.` wordmark, an Information `i` tile, "Eva can't reach its
+/// servers" over the canvas' sentence, then Retry, Continue offline and a text-button Log
+/// out in destructive ink, pinned to the bottom edge.
 ///
-/// The canvas draws no launch-blocked state. "Eva App.dc.html" has an offline home
-/// (`home_off`), but that screen exists because there is cached content to show; here
-/// there is nothing yet — the session has not resolved — so there is no artboard to
-/// build from and the layout below is a choice.
-///
-/// Two smaller choices inside it, both worth contesting on review:
-///
-/// * **Not the §7 error card.** The design system draws a retry affordance
-///   ("Couldn't sync your last entry" / "Retry now"), but it is an inline card in the
-///   error red, sized to sit inside a screen that is otherwise working. Nothing here is
-///   wrong with the user's data and nothing is destructive; borrowing that treatment
-///   would make bad signal look like a fault.
-/// * **The frame is the auth screens' frame.** Message centred on
-///   `EvaScreenBackground`, single call to action against the bottom edge — the shape
-///   `AuthScreenLayout` gives sign-up and log-in, which are the other screens a launch
-///   can land on.
-///
-/// **Since #78 the canvas does draw it** — the `unreachable` artboard in "Eva App.dc.html":
-/// Retry, Continue offline and Log out, over the sentence the body now uses. This change
-/// adds Continue offline and that sentence, which A3 is the reason for; the title and the
-/// button labels have drifted from the artboard and are left for their own change.
+/// **Information, not the §7 error card.** Nothing is wrong with the user's data and
+/// nothing is destructive; the error treatment would make bad signal look like a fault.
+/// The artboard draws the same call.
 ///
 /// The first line of the body copy is the load-bearing one. "You're still signed in" is
 /// only true because `AppSession.bootstrap()` no longer clears the Keychain on a failure
 /// that never reached the server; it is a description of what the app did, not
 /// reassurance (DESIGN.md §8). If that behaviour ever changes, this sentence goes with
-/// it.
+/// it. The second half is true because Continue offline runs the app from the local
+/// store (#78).
 struct UnreachableView: View {
     let session: AppSession
 
@@ -41,35 +27,21 @@ struct UnreachableView: View {
     @State private var isRetrying = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
+        AuthScreenLayout {
+            AuthWordmark()
 
-            VStack(spacing: EvaSpacing.sm) {
-                Text("Can't reach Eva")
-                    .evaTextStyle(.h1)
-                    .foregroundStyle(Color.evaPrimaryText)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("unreachable.title")
-
-                // The canvas' sentence (`unreachable` artboard), since #78 made its second
-                // half true: Continue offline runs the app from the local store.
-                Text(
-                    "You're still signed in. Anything you log now is saved on this device "
-                        + "and syncs when the connection is back."
-                )
-                    .evaTextStyle(.body)
-                    .foregroundStyle(Color.evaSecondaryText)
-                    .accessibilityIdentifier("unreachable.body")
-            }
-            .multilineTextAlignment(.center)
-            // Both strings wrap; without this the stack measures them at one line and
-            // clips the second.
-            .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: EvaSpacing.xl)
-
-            VStack(spacing: EvaSpacing.xxs) {
-                PrimaryButton(title: "Try again", isLoading: isRetrying, action: retry)
+            AuthNoticeHero(
+                title: "Eva can't reach its servers",
+                subtitle: "You're still signed in. Anything you log now is saved on this "
+                    + "device and syncs when the connection is back.",
+                identifier: "unreachable"
+            )
+            // The artboard's 70pt from the wordmark to the tile; 72 is the nearest the
+            // §4 scale reaches.
+            .padding(.top, EvaSpacing.xxl + EvaSpacing.xl)
+        } footer: {
+            VStack(spacing: EvaSpacing.xs) {
+                PrimaryButton(title: "Retry", isLoading: isRetrying, action: retry)
 
                 // A3 (#78): the canvas' second action. The app runs from the local store
                 // with the token kept and unvalidated; entries queue and sync later.
@@ -87,20 +59,18 @@ struct UnreachableView: View {
                 // a screen whose only button never works, with no way to reach sign-in
                 // and nothing to do but delete the app.
                 //
-                // It is a text button, not a second primary: retrying is the expected
-                // action and this is the way out, not a competing choice.
+                // A text button, not a second primary: retrying is the expected action and
+                // this is the way out. Destructive ink because the artboard draws it so —
+                // logging out wipes the local store (ARCHITECTURE §8.5).
                 // Deliberately NOT disabled while a retry runs. A connection that is
                 // accepted and then never answered — a captive portal, one of the cases
                 // this screen exists for — hangs on URLSession's 60s default, and an
                 // escape hatch that is unavailable for a minute at exactly the moment
                 // it is wanted is not an escape hatch. `logOut()` bumps the session
                 // generation, so the in-flight bootstrap cannot land on top of it.
-                TextButton(title: "Log out", action: session.logOut)
+                TextButton(title: "Log out", role: .destructive, action: session.logOut)
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, EvaSpacing.lg)
-        .padding(.bottom, EvaSpacing.md)
         .background {
             EvaScreenBackground().ignoresSafeArea()
         }

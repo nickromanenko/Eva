@@ -73,12 +73,12 @@ final class OfflineLaunchUITests: EvaUITestCase {
             "The launch resolved to a spinner rather than to a screen"
         )
 
-        // Tapping Try again while the API is still down. It cannot succeed, so what is
+        // Tapping Retry while the API is still down. It cannot succeed, so what is
         // asserted here is only that failing again neither ejects the user nor leaves the
         // screen. What makes the tap worth making is the section below: `retry()` is
         // `bootstrap()` again, so a retry that damaged the session would show up as the
         // *next* launch landing on onboarding.
-        tap(app.buttons["primary.Try again"], in: app)
+        tap(app.buttons["primary.Retry"], in: app)
         XCTAssertTrue(
             app.staticTexts["unreachable.title"].waitForExistence(timeout: 20),
             "Retrying against an API that is still down left the retry screen"
@@ -160,7 +160,7 @@ final class OfflineLaunchUITests: EvaUITestCase {
         )
         // The screen's other actions are drawn, so the absence below is the button's and
         // not a screen still rendering.
-        XCTAssertTrue(app.buttons["primary.Try again"].exists)
+        XCTAssertTrue(app.buttons["primary.Retry"].exists)
         XCTAssertTrue(app.buttons["text.Log out"].exists)
         XCTAssertFalse(
             app.buttons["secondary.Continue offline"].waitForExistence(timeout: 2),
@@ -179,7 +179,7 @@ final class OfflineLaunchUITests: EvaUITestCase {
     /// launches in the target that see what the previous one left behind.
     ///
     /// The reset used to live inside `bootstrap()`, where it also fired on every tap of
-    /// **Try again**. It is once per process now, which narrows the trap but does not
+    /// **Retry**. It is once per process now, which narrows the trap but does not
     /// remove it: this helper is still the only thing standing between these launches and
     /// an empty Keychain, and the mutation that deletes the line below still fails.
     ///

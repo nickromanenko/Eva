@@ -135,7 +135,7 @@ draws it pink; we render it neutral, and the reason is how it composites, not wh
 | Primary · focused | 3px `rgba(40,33,38,.6)` ring |
 | Primary · disabled | `rgba(201,95,134,.28)` fill, white text |
 | **Secondary glass** | `rgba(255,255,255,.7)`, 1px `rgba(40,33,38,.1)`, blur 18 |
-| Text button | min-height 48, radius 14, label 14/600 (colour: see §9a) |
+| Text button | min-height 48, radius 14, label 14/600 (colour: see §9a); `role: .destructive` takes `#A9524A` (`evaDestructiveInk`) — the `unreachable` artboard's Log out (#375) |
 | **Destructive** | Outlined `rgba(184,82,72,.5)` / text `#A9524A`; solid `#B85248` **in modals only**, disabled at 50% opacity; row-level variant at height 44, radius 13, label 13/600 |
 | **Auth · Apple** | Solid `#1C1A1B`, white |
 | **Auth · Google** | Glass `rgba(255,255,255,.85)` with hairline border |
