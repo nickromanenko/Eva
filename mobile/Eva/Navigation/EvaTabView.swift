@@ -38,11 +38,16 @@ struct EvaTabView: View {
             // three of these. A view at `opacity(0)` is still hit-testable and still in the
             // accessibility tree, so the topmost tab would swallow every tap meant for the
             // one on screen and VoiceOver would read three screens at once.
+            //
+            // `.accessibilityHidden` here does not reach a page a `NavigationStack` hosts
+            // (#379), so the tab's active state also travels down the environment for
+            // `evaTabPage()` to apply on each page. See there.
             ForEach(EvaTab.allCases, id: \.self) { tab in
                 screen(tab)
                     .opacity(router.selection == tab ? 1 : 0)
                     .allowsHitTesting(router.selection == tab)
                     .accessibilityHidden(router.selection != tab)
+                    .environment(\.evaTabIsActive, router.selection == tab)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -62,7 +67,10 @@ struct EvaTabView: View {
         case .profile:
             // A stack of its own, so #19's settings detail screens push inside the tab
             // the way the canvas draws them.
-            NavigationStack { ProfileView(session: session, units: units, country: country) }
+            NavigationStack {
+                ProfileView(session: session, units: units, country: country)
+                    .evaTabPage()
+            }
         }
     }
 }
@@ -178,6 +186,42 @@ struct EvaTabBar: View {
         .accessibilityIdentifier("tab.\(tab.rawValue)")
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+// MARK: - Hiding an inactive tab's navigation pages (#379)
+
+extension EnvironmentValues {
+    /// Whether the tab this view belongs to is the one on screen. `true` outside the tab
+    /// bar — a preview, the screenshot harness.
+    @Entry var evaTabIsActive: Bool = true
+}
+
+extension View {
+    /// Hides this navigation page from accessibility while its tab is not on screen.
+    ///
+    /// **Apply it to every page of a tab's `NavigationStack` — its root and each pushed
+    /// destination — and nowhere else.** `EvaTabView` hides an inactive tab with
+    /// `.accessibilityHidden`, and that reaches into the tab's scroll views but not into a
+    /// `NavigationStack`: the stack hosts each page in a UIKit controller of its own, so
+    /// Profile's rows stayed in the tree while Home was on screen (#379) — VoiceOver could
+    /// move onto them, and XCUITest could judge a visible button covered by them (#372).
+    ///
+    /// Never inside a page's `ScrollView`. #378 applied the same hiding on these pages
+    /// *and* inside the scroll views, and the active tab's buttons began exposing their
+    /// labels as separate child elements, which moved Profile's Delete button's hit point
+    /// to its corner (77a1d33). Without the scroll-view placements, Delete's tap works
+    /// (`ProviderSignInUITests`, `DeleteAccountUITests`).
+    func evaTabPage() -> some View {
+        modifier(EvaTabPageAccessibility())
+    }
+}
+
+private struct EvaTabPageAccessibility: ViewModifier {
+    @Environment(\.evaTabIsActive) private var isActive
+
+    func body(content: Content) -> some View {
+        content.accessibilityHidden(!isActive)
     }
 }
 

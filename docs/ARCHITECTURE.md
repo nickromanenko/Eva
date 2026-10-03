@@ -2684,8 +2684,16 @@ What the implementation added to the design above, each because the design left 
   Hiding the *inactive tabs'* content inside their scroll views was tried as well and
   reverted: an `.accessibilityHidden(false)` on the active tab exposed every button's label
   as a child element and moved Profile's Delete button's hit point to its corner the same
-  way. That the inactive tabs stay in the accessibility tree is a separate, pre-existing
-  defect.
+  way. The inactive tabs staying in the accessibility tree was fixed separately (#379).
+- **Only the tab on screen is in the accessibility tree (#379).** `EvaTabView`'s
+  `.accessibilityHidden` reaches into a tab's scroll views but not into a
+  `NavigationStack`, which hosts each page in its own UIKit controller: Profile's rows stayed
+  in the tree on Home and Calendar. Every page of Profile's stack — the root and each
+  `ProfileSettingsRow` destination — now applies `evaTabPage()`, which hides it while
+  `evaTabIsActive` (set per tab by `EvaTabView`) is false. #378 had the same page-level
+  placements plus more inside the scroll views; leaving out the scroll-view ones is the
+  difference, and Delete's tap works again (`ProviderSignInUITests`). `TabAccessibilityUITests` asserts each tab's identifiers are absent from the
+  tree on the other two, including a pushed page left open behind Home.
 - **The "Couldn't sync" card** (`EvaErrorCard`, DESIGN.md §7) has two variants, chosen by
   the failure class (`SyncTrouble`, owner decision 2026-10-03): while the queue backs off
   after a temporary failure (no connection, 5xx, 429) it says "Eva will retry
