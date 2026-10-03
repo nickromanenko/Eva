@@ -13,6 +13,9 @@ import XCTest
 /// a different `EVA_TODAY_CARD`, and every assertion in that loop names the state it was
 /// drawing so one failure out of eleven is still legible.
 ///
+/// The shortcuts row (#100) is the one exception: it has its own test and its own account
+/// (#363), so a failure in it no longer stops the refresh and offline assertions running.
+///
 /// Relaunching without `EVA_UITEST_RESET` is what keeps the session — see
 /// `OfflineLaunchUITests.relaunch`, which is where that trick and its trap are documented.
 ///
@@ -256,10 +259,67 @@ final class HomeUITests: EvaUITestCase {
             "Open Calendar did not select the Calendar tab"
         )
 
-        // MARK: The shortcuts row (#100)
+        // MARK: A refresh with nothing new leaves the card alone
         //
-        // Four buttons in the canvas' order, found by the slot's identifier and read back by
-        // label — so the contextual first label is asserted rather than assumed.
+        // PRD §Dashboard, Other requirements 3 and Edge cases 5. The seeded source answers
+        // the identical card every time, which is what D3 promises for a day whose data has
+        // not changed — so this is the real case rather than a simulation of one.
+
+        relaunch(app, card: "home_d")
+        let card = app.otherElements["home.card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "home_d drew no card")
+        let before = card.label
+        pullToRefresh(app)
+        XCTAssertEqual(
+            card.label, before,
+            "Pull-to-refresh rewrote the card. It updates on new data, not on refresh."
+        )
+
+        // MARK: Offline over a cached card
+        //
+        // `EVA_TODAY_REFRESH=offline` lands the first read and fails every one after it —
+        // the only way to reach `home_off` from a test, since a card has to *be* cached
+        // before it can be a cached card and a test cannot take the network away mid-launch.
+
+        relaunch(app, card: "home_d", refresh: "offline")
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "The first read did not land a card")
+        let cached = card.label
+        pullToRefresh(app)
+
+        // A `staticText`: the bar combines its dot and its sentence into one element, and a
+        // combined element resolves as text rather than as a container.
+        let bar = app.staticTexts["home.offline"]
+        XCTAssertTrue(
+            bar.waitForExistence(timeout: 10),
+            "A refresh with no network showed no offline bar"
+        )
+        XCTAssertTrue(
+            bar.label.hasPrefix("Offline · showing your cached briefing from "),
+            "The offline bar carries no sync timestamp: \(bar.label)"
+        )
+        XCTAssertTrue(card.exists, "Going offline blanked the cached card")
+        XCTAssertEqual(cached, card.label, "Going offline rewrote the cached card")
+        XCTAssertFalse(
+            app.activityIndicators.firstMatch.exists,
+            "Going offline replaced the cached card with a spinner"
+        )
+    }
+
+    /// Issue #100's shortcuts row, on its own account. Split from the landing test (#363) so
+    /// a shortcut failure cannot hide the refresh and offline assertions behind it — at the
+    /// price of one more sign-up, which is the trade the issue asks for.
+    ///
+    /// Four buttons in the canvas' order, found by the slot's identifier and read back by
+    /// label — so the contextual first label is asserted rather than assumed.
+    func testTheShortcutsRow() throws {
+        let app = launch()
+        signUpAndActivate(app, email: Self.freshEmail())
+        XCTAssertTrue(
+            app.buttons["tab.home"].waitForExistence(timeout: 15),
+            "Entering the app did not reach the tab bar"
+        )
+
+        // MARK: The row, in order, at home_d
 
         relaunch(app, card: "home_d")
         let log = app.buttons["home.shortcut.log"]
@@ -361,62 +421,14 @@ final class HomeUITests: EvaUITestCase {
         )
         let target = app.staticTexts["log.targetDay"]
         XCTAssertTrue(target.waitForExistence(timeout: 5), "The picker does not state its day")
-        let now = Date()
-        for part in [
-            now.formatted(.dateTime.month(.wide)),
-            now.formatted(.dateTime.year()),
-            now.formatted(.dateTime.day())
-        ] {
-            XCTAssertTrue(
-                target.label.contains(part),
-                "The Log shortcut's picker is not on today (\(part)): \(target.label)"
-            )
-        }
-
-        // MARK: A refresh with nothing new leaves the card alone
-        //
-        // PRD §Dashboard, Other requirements 3 and Edge cases 5. The seeded source answers
-        // the identical card every time, which is what D3 promises for a day whose data has
-        // not changed — so this is the real case rather than a simulation of one.
-
-        relaunch(app, card: "home_d")
-        let card = app.otherElements["home.card"]
-        XCTAssertTrue(card.waitForExistence(timeout: 20), "home_d drew no card")
-        let before = card.label
-        pullToRefresh(app)
-        XCTAssertEqual(
-            card.label, before,
-            "Pull-to-refresh rewrote the card. It updates on new data, not on refresh."
+        // The whole label, not its parts: "2" is in "2026", so a day matched by substring
+        // passes on the wrong day (#363). Built the way `EvaDay.longLabel` builds it, in the
+        // simulator's locale and zone, which the app shares.
+        let today = Date().formatted(
+            Date.FormatStyle(locale: .autoupdatingCurrent, timeZone: .current)
+                .weekday(.abbreviated).day().month(.wide).year()
         )
-
-        // MARK: Offline over a cached card
-        //
-        // `EVA_TODAY_REFRESH=offline` lands the first read and fails every one after it —
-        // the only way to reach `home_off` from a test, since a card has to *be* cached
-        // before it can be a cached card and a test cannot take the network away mid-launch.
-
-        relaunch(app, card: "home_d", refresh: "offline")
-        XCTAssertTrue(card.waitForExistence(timeout: 20), "The first read did not land a card")
-        let cached = card.label
-        pullToRefresh(app)
-
-        // A `staticText`: the bar combines its dot and its sentence into one element, and a
-        // combined element resolves as text rather than as a container.
-        let bar = app.staticTexts["home.offline"]
-        XCTAssertTrue(
-            bar.waitForExistence(timeout: 10),
-            "A refresh with no network showed no offline bar"
-        )
-        XCTAssertTrue(
-            bar.label.hasPrefix("Offline · showing your cached briefing from "),
-            "The offline bar carries no sync timestamp: \(bar.label)"
-        )
-        XCTAssertTrue(card.exists, "Going offline blanked the cached card")
-        XCTAssertEqual(cached, card.label, "Going offline rewrote the cached card")
-        XCTAssertFalse(
-            app.activityIndicators.firstMatch.exists,
-            "Going offline replaced the cached card with a spinner"
-        )
+        XCTAssertEqual(target.label, today, "The Log shortcut's picker is not on today")
     }
 
     // MARK: - Helpers
