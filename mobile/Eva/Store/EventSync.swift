@@ -107,8 +107,11 @@ final class EventSync {
     /// `editing` is the id of the entry being replaced, `nil` for a new one. A one-per-day
     /// type logged again on a day that already has one updates that row, as the server
     /// will update that document — the day never shows two.
+    ///
+    /// `nil`, and nothing written, once the store is closed (`acceptsWrites`).
     @discardableResult
-    func save(_ write: EvaEventWrite, editing id: String? = nil) -> EvaEvent {
+    func save(_ write: EvaEventWrite, editing id: String? = nil) -> EvaEvent? {
+        guard acceptsWrites else { return nil }
         let payloadData = LocalEvent.payloadData(for: write.payload)
         let row: LocalEvent
         let kind: OperationKind
@@ -149,7 +152,7 @@ final class EventSync {
 
     /// Soft-deletes one entry: off the screen now, `DELETE` queued.
     func delete(_ event: EvaEvent) {
-        guard let row = store.row(forID: event.id) else { return }
+        guard acceptsWrites, let row = store.row(forID: event.id) else { return }
         row.deletedAt = Date()
         store.enqueue(.delete, clientId: row.clientId)
         refreshState(of: row)
@@ -161,6 +164,7 @@ final class EventSync {
     /// if it has, a restore is queued instead.
     @discardableResult
     func restore(_ event: EvaEvent) -> EvaEvent? {
+        guard acceptsWrites else { return nil }
         let row: LocalEvent
         if let existing = store.row(forID: event.id) {
             row = existing
@@ -190,6 +194,7 @@ final class EventSync {
 
     /// "Retry now" on the "Couldn't sync" card: every refused entry is queued again.
     func retryFailed() {
+        guard acceptsWrites else { return }
         for row in store.failedEvents() {
             row.lastError = nil
             let kind: OperationKind
@@ -377,6 +382,13 @@ final class EventSync {
         retryTask = nil
         drainTask?.cancel()
     }
+
+    /// Whether a write is taken: not once the store is closed. Closing stops the queue, and
+    /// it must stop collection too — a 401, or a `CONSENT_REQUIRED` that ends an offline
+    /// session (#389), leaves a screen or a sheet still holding this object for a moment,
+    /// and an entry written then would sit on the device for a session the server has
+    /// already ended, or from someone whose consent it says is gone.
+    var acceptsWrites: Bool { !isClosed }
 
     /// Picks a closed store's queue back up — the same account signing in again after a
     /// 401 (§8.4: nothing was discarded).

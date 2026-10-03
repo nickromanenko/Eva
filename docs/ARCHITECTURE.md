@@ -2680,6 +2680,15 @@ What the implementation added to the design above, each because the design left 
   withdrawn, and when any request comes back `403 CONSENT_REQUIRED`). Consent withdrawn on
   another device is therefore seen at the next validated launch or the first queued write the
   server refuses — not before: until then this device can still offer the button (#378 review).
+  A refusal that arrives while the session is already `.offline` also ends the collection:
+  the session goes back to `.unreachable` (where the button is now hidden) and its store is
+  paused like a 401's — kept, resumed by a validated return of the same account. Validating
+  again was not enough on its own, because a `/me` that fails leaves `.offline` as it is
+  (#389; `SessionExpiryTests.OfflineSession.consentRequiredEndsOfflineCollection`).
+- **A closed store accepts no write.** `EventSync.save` returns `nil` (and `delete`, `restore`,
+  `retryFailed` do nothing) once the store is closed, so a sheet still holding it when the
+  session ends leaves nothing behind on the device; `CalendarModel.save` throws the session's
+  "ended" error, which the log sheet already reads as the root view switching away (#389).
 - **Files.** The stores live in `Application Support/EvaStore/`, excluded from backup at
   the directory, so SQLite's later `-wal`/`-shm` files are covered too; a uid becomes a file
   name only if it is `[A-Za-z0-9_-]+`. Files the first #78 builds wrote into Application

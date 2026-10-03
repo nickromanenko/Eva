@@ -30,7 +30,8 @@ final class AppSession {
         /// unvalidated and kept, and the app runs from the local store. Anything she logs
         /// is written there and queued, and syncs when the API answers again — the first
         /// request that gets through re-runs `bootstrap()`, which moves this to `.ready`.
-        /// A 401 still ends it like any other session.
+        /// A 401 still ends it like any other session, and a write refused with
+        /// `CONSENT_REQUIRED` sends it back to `.unreachable` (#389).
         case offline
     }
 
@@ -288,6 +289,18 @@ final class AppSession {
         let sync = EventSync(store: store, remote: self)
         eventSync = sync
         sync.kick()
+    }
+
+    /// Closes the open store without discarding it, and keeps it as `pausedSync` until the
+    /// next session decides between resuming it (the same account, validated) and wiping it.
+    /// A closed store sends nothing and accepts no write (`EventSync.acceptsWrites`).
+    private func pauseStore() {
+        if let sync = eventSync {
+            sync.close()
+            discardPausedStore()
+            pausedSync = sync
+        }
+        eventSync = nil
     }
 
     /// Wipes the store a 401 closed, if there is one.
@@ -878,14 +891,8 @@ final class AppSession {
             // the relaunch that is the only moment it could matter.
             assertionFailureInDebug("Keychain would neither clear nor neutralise the token")
         }
-        // Closed, not wiped, when this is a 401: see `logOut()`. Kept as `pausedSync` until
-        // the next session decides between resuming it and wiping it.
-        if let sync = eventSync {
-            sync.close()
-            discardPausedStore()
-            pausedSync = sync
-        }
-        eventSync = nil
+        // Closed, not wiped, when this is a 401: see `logOut()`.
+        pauseStore()
         user = nil
         signedOutReason = reason
         state = .signedOut
@@ -946,9 +953,29 @@ final class AppSession {
             if case .server(let code, _, _) = error, code == "CONSENT_REQUIRED",
                generation == sessionGeneration {
                 forgetConsentGate(for: user?.id ?? tokenUid)
+                if state == .offline { endOfflineCollection() }
             }
             throw error
         }
+    }
+
+    /// The server refused an offline session's write for want of consent (#389): stop
+    /// collecting on this device now, not at the next launch.
+    ///
+    /// `.offline` exists only on the strength of the consent-gate mark, and that mark has
+    /// just gone, so the session goes back to the state it came from — `.unreachable`, a
+    /// kept and unvalidated token — where Continue offline is no longer offered. Validating
+    /// again instead would not be enough on its own: a `/me` that fails leaves an offline
+    /// session offline (`bootstrap()`), still collecting. **Try again** is the validation,
+    /// and a success lands wherever the server's consent record says (the freeze, or the
+    /// consent screen).
+    ///
+    /// The store is paused, not wiped: nothing she logged is discarded (§8.4), and a
+    /// validated return of the same account resumes it. Paused, it accepts no write — the
+    /// root view has switched away, and a sheet still holding the store gets `nil` back.
+    private func endOfflineCollection() {
+        pauseStore()
+        state = .unreachable
     }
 
     private func apply(_ response: AuthResponse) {

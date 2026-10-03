@@ -274,12 +274,16 @@ final class CalendarModel {
     /// the queue takes for it — the create, the day-addressed body-signals upsert, or an
     /// edit's `PATCH` — is `EventSync`'s to decide; the caller does not have to know.
     ///
-    /// Still `throws`, so the sheet keeps one shape for a save; the local write itself does
-    /// not fail. A server that later refuses the entry marks it, and the "Couldn't sync"
-    /// card says so (§8.4).
+    /// Throws only when the store has closed under the sheet — the session ended, by a 401
+    /// or by a refusal for want of consent (#389) — and then as the session's own "ended"
+    /// error, which the sheet already treats as the root view switching away. Otherwise the
+    /// local write does not fail: a server that later refuses the entry marks it, and the
+    /// "Couldn't sync" card says so (§8.4).
     @discardableResult
     func save(_ write: EvaEventWrite, editing id: String? = nil) async throws -> EvaEvent {
-        let saved = sync.save(write, editing: id)
+        guard let saved = sync.save(write, editing: id) else {
+            throw APIError.sessionExpired(message: "The store's session has ended.")
+        }
         // The account demonstrably has history now, whatever the first range said. Without
         // this the first entry a brand-new user logs would appear on a grid still telling
         // her to log her first period.
