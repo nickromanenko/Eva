@@ -1,6 +1,13 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
+import type { Mode } from './dashboard-rules'
 import { firestore } from './firebase'
-import type { NutritionGoal, SteadyGoal, WeightChangeGoal } from './nutrition'
+import {
+  ACTIVITY_BANDS,
+  type NutritionGoal,
+  type SteadyGoal,
+  type WeightChangeGoal,
+} from './nutrition'
+import type { PlanBasis } from './nutrition-adjustment'
 import { assertAccountLive, type WriteSession } from './users'
 
 /**
@@ -25,6 +32,10 @@ import { assertAccountLive, type WriteSession } from './users'
  * is saved and the user resumes where she left off."* The two are one field apart, so
  * completeness has exactly one definition — `completedSetup` — and the served `complete` flag
  * is that function's answer rather than a stored boolean anything could set.
+ *
+ * **A second document, `lastPlanInputs` (#366)**, holds what the last served plan was
+ * computed from — the inputs `recalculationReason` compares and nothing derived — so the
+ * plan route can say why a target changed. See `recordPlanInputs`.
  *
  * Never log the document, a goal, a focus area or a target weight: each is a health fact
  * about a named request (GUARDRAILS 12). This module writes no log line at all.
@@ -406,13 +417,125 @@ export const saveNutritionProfile = async (
   })
 }
 
+// ── The last plan's inputs (#366) ──────────────────────────────────────────────────────
+
+/**
+ * `users/{uid}/nutrition/lastPlanInputs`: what the last plan she was served was computed
+ * from, so the next one can say *why* it changed (PRD lines 815–825). Decided on #366
+ * (2026-10-03): **inputs only** — exactly the fields `recalculationReason` compares, and no
+ * derived target, because a stored target would be a second copy of the engine's answer that
+ * could drift from the engine, and a number nobody asked to keep.
+ */
+const PLAN_INPUTS_DOC = 'lastPlanInputs'
+
+/** The modes a stored basis may name — `dashboard-rules.ts`' `Mode`, which has no value list
+ *  of its own. `satisfies` refuses a code `Mode` does not have; `UnlistedPlanMode` refuses a
+ *  mode added there and not here. */
+const PLAN_MODES = [
+  'cycle',
+  'planning',
+  'pregnancy',
+  'postpartum',
+  'loss',
+] as const satisfies readonly Mode[]
+export type UnlistedPlanMode = Unlisted<Exclude<Mode, (typeof PLAN_MODES)[number]>>
+
+/** Every field of `PlanBasis`, as a `Record` over its keys — so a field added to the basis
+ *  and not here is a compile error, and the equality below cannot quietly skip it. */
+const PLAN_BASIS_FIELDS: Readonly<Record<keyof PlanBasis, true>> = {
+  weightKg: true,
+  goal: true,
+  targetWeightKg: true,
+  adjustingPhase: true,
+  mode: true,
+  activityBand: true,
+}
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
+/**
+ * A stored basis read as this schema, or `null`. **Whole or nothing**, unlike `toProfile`:
+ * a field that is not in its vocabulary makes the whole basis unreadable, because a basis
+ * with one field guessed is a comparison that can name a cause that did not happen — and an
+ * unreadable one reads as "no previous plan", which names none. Keys beyond the list are
+ * ignored.
+ */
+const toPlanBasis = (data: FirebaseFirestore.DocumentData): PlanBasis | null => {
+  const { weightKg, goal, targetWeightKg, adjustingPhase, mode, activityBand } = data
+  if (!isFiniteNumber(weightKg)) return null
+  if (!isOneOf(goal, NUTRITION_GOAL_CODES)) return null
+  if (targetWeightKg !== null && !isFiniteNumber(targetWeightKg)) return null
+  if (typeof adjustingPhase !== 'boolean') return null
+  if (!isOneOf(mode, PLAN_MODES)) return null
+  if (!isOneOf(activityBand, ACTIVITY_BANDS)) return null
+  return { weightKg, goal, targetWeightKg, adjustingPhase, mode, activityBand }
+}
+
+const sameBasis = (a: PlanBasis, b: PlanBasis): boolean =>
+  (Object.keys(PLAN_BASIS_FIELDS) as (keyof PlanBasis)[]).every((field) => a[field] === b[field])
+
+/** The inputs of the last plan she was served, or `null` before the first — for
+ *  `GET /me/export`, which serves the stored basis as it is. */
+export const getLastPlanInputs = async (uid: string): Promise<PlanBasis | null> => {
+  const snapshot = await documents(uid).doc(PLAN_INPUTS_DOC).get()
+  return snapshot.exists ? toPlanBasis(snapshot.data()!) : null
+}
+
+/**
+ * Records `current` as the inputs of the plan just served, and returns the inputs it
+ * replaces (`null` on her first plan, or when the stored basis is unreadable).
+ *
+ * **One transaction: read, compare, write.** Two plan reads racing each other are serialized
+ * by it, so a change between them is reported by exactly one — the first commits the new
+ * basis, the second reads it and finds nothing moved. The caller compares the returned basis
+ * with `current` (`recalculationReason`, a pure function of the two); what it compares
+ * against is the snapshot of the attempt that committed, so the answer is the transaction's
+ * even though the rule is not imported here. The trigger rule stays in
+ * `nutrition-adjustment.ts` and this module stays storage.
+ *
+ * **Nothing is written when nothing moved.** An unchanged basis leaves the document — and
+ * its update time — exactly as it was, so a plan read costs a write only when one of its
+ * inputs changed.
+ *
+ * **The account is read in the same transaction** (#286, #294): `GET /me/nutrition/plan` is
+ * a read that writes, the way `GET /me/today` caches its card, and a basis written after
+ * `DELETE /me` swept this collection would be her weight and goal under a deleted account.
+ * So `assertAccountLive` refuses a tombstone or a superseded `session` here exactly as it
+ * does for the PATCH.
+ */
+export const recordPlanInputs = async (
+  uid: string,
+  session: WriteSession,
+  current: PlanBasis,
+): Promise<PlanBasis | null> => {
+  const ref = documents(uid).doc(PLAN_INPUTS_DOC)
+  return firestore.runTransaction(async (tx) => {
+    const [snapshot] = await assertAccountLive(tx, uid, session, ref)
+    const previous = snapshot.exists ? toPlanBasis(snapshot.data()!) : null
+    if (previous === null || !sameBasis(previous, current)) {
+      // `set` without merge: the document is exactly the basis, and nothing else survives on it.
+      const stored: PlanBasis = {
+        weightKg: current.weightKg,
+        goal: current.goal,
+        targetWeightKg: current.targetWeightKg,
+        adjustingPhase: current.adjustingPhase,
+        mode: current.mode,
+        activityBand: current.activityBand,
+      }
+      tx.set(ref, stored)
+    }
+    return previous
+  })
+}
+
 /** Firestore's ceiling on a batched write, as `events.ts` and `today.ts` use it. */
 const DELETE_BATCH = 500
 
 /**
  * Hard-deletes her nutrition profile — its half of account deletion (#8). Every document in
- * the subcollection, not only `profile`, so a document a later slice adds here cannot be
- * the one thing that outlives the account. Before the user document goes, for the reason
+ * the subcollection, not only `profile` — `lastPlanInputs` (#366) goes by the same sweep —
+ * so a document a later slice adds here cannot be the one thing that outlives the account. Before the user document goes, for the reason
  * `DELETE /me` gives: a subcollection outlives its parent in Firestore.
  */
 export const deleteNutritionProfile = async (uid: string): Promise<number> => {

@@ -14,7 +14,11 @@ import {
 } from '../src/events'
 import { firestore } from '../src/firebase'
 import { default as server } from '../src/index'
-import { deleteNutritionProfile, saveNutritionProfile } from '../src/nutrition-profile'
+import {
+  deleteNutritionProfile,
+  recordPlanInputs,
+  saveNutritionProfile,
+} from '../src/nutrition-profile'
 import { deleteAllUserToday, getToday, type Phraser } from '../src/today'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -291,6 +295,47 @@ const withBuildableCard = async (
  *  has to match exactly (no new code). */
 const DEAD_TOKEN = { error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } }
 
+/** An account `GET /me/nutrition/plan` serves a plan to: a questionnaire with an activity
+ *  band and a finished setup, written before any seam is installed — so the only transaction
+ *  on the route is the one that records the plan's inputs (#366). */
+const plannable = async (): Promise<{ uid: string; token: string }> => {
+  const { uid, token } = await account()
+  await userDoc(uid).update({
+    questionnaireCompleted: true,
+    profile: {
+      dateOfBirth: '1995-06-15',
+      weightKg: 64,
+      heightCm: 168,
+      goals: ['Energy'],
+      conditions: ['noneOfThese'],
+      medications: 'none',
+      lifestyle: 'mostlySitting',
+      sports: [],
+    },
+  })
+  const saved = await saveNutritionProfile(uid, SESSION, {
+    goal: 'lose',
+    mealPattern: { mealsPerDay: 3, snacks: false, mealTimes: null },
+    targetWeightKg: 60,
+    hideNumbers: false,
+    step: 'done',
+  })
+  expect(saved.ok).toBe(true)
+  return { uid, token }
+}
+
+const planInputs = (uid: string) => nutritionDocs(uid).doc('lastPlanInputs')
+
+/** What `recordPlanInputs` is handed for `plannable`'s account. */
+const BASIS = {
+  weightKg: 64,
+  goal: 'lose',
+  targetWeightKg: 60,
+  adjustingPhase: false,
+  mode: 'cycle',
+  activityBand: 'mostlySitting',
+} as const
+
 // ── Through the routes: the acceptance criterion ──────────────────────────────────────
 
 describe('a write racing DELETE /me through the route', () => {
@@ -332,6 +377,19 @@ describe('a write racing DELETE /me through the route', () => {
         targetWeightKg: 58,
         step: 'focusAreas',
       })
+      expect(race).toHaveBeenCalledTimes(1)
+      expect(res).toEqual({ status: 401, body: DEAD_TOKEN })
+    })
+    expect((await nutritionDocs(uid).get()).size).toBe(0)
+    expect(logged).toEqual([])
+  })
+
+  test('GET /me/nutrition/plan: recording its inputs refused answers 401, nothing survives (#366)', async () => {
+    const { uid, token } = await plannable()
+    const logged = await capturingLogs(async () => {
+      const race = deleteBeforeNextTransaction(uid)
+      const res = await call(token, 'GET', '/me/nutrition/plan?timeZone=UTC')
+      // The plan was computed and the gate long passed: the refusal is the write's.
       expect(race).toHaveBeenCalledTimes(1)
       expect(res).toEqual({ status: 401, body: DEAD_TOKEN })
     })
@@ -482,6 +540,13 @@ describe('every per-user subcollection writer refuses a tombstoned account in it
     await expect(saveNutritionProfile(uid, SESSION, { goal: 'maintain' })).rejects.toBeInstanceOf(
       AccountGoneError,
     )
+    expect((await nutritionDocs(uid).get()).size).toBe(0)
+  })
+
+  test('recordPlanInputs — her weight and goal, copied, outlive nothing either (#366)', async () => {
+    const { uid } = await account()
+    deleteBeforeNextTransaction(uid)
+    await expect(recordPlanInputs(uid, SESSION, BASIS)).rejects.toBeInstanceOf(AccountGoneError)
     expect((await nutritionDocs(uid).get()).size).toBe(0)
   })
 
@@ -669,6 +734,12 @@ describe('a write whose session a password reset ends between the gate and the c
       }),
     )
     expect((await nutritionDocs(uid).get()).size).toBe(0)
+  })
+
+  test('GET /me/nutrition/plan: recording its inputs refused, nothing written (#366)', async () => {
+    const { uid, token } = await plannable()
+    await refusedMidWrite(uid, token, () => call(token, 'GET', '/me/nutrition/plan?timeZone=UTC'))
+    expect((await planInputs(uid).get()).exists).toBe(false)
   })
 
   test('GET /me/today: the cache write refused answers 401 like the rest — no card stored', async () => {

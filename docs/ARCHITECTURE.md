@@ -86,12 +86,12 @@ Full rationale: [`superpowers/specs/2026-07-18-email-auth-design.md`](superpower
 
 | `cycle.ts` | The cycle maths (C11, #176): logged flow days in — the periods they group into (#186), counted cycles, the median next-period date, the fertile window, the FIGO irregularity band and the confidence class out | Pure: no Firestore, no clock, no `fetch`, no log line. Holds no constant of its own — every number arrives from `config.ts` and it refuses to answer without them. Every gate fails closed. The one reader of `periodEnd`, for one decision (§4). `periodOngoing` (#100) is the menstrual boundary without the prediction gate, for the Dashboard's first shortcut only — never a card |
 | `nutrition.ts` | The nutrition targets engine (S2, #222): body metrics, goal, target weight and focus areas in — the day's calorie target, the macronutrient split, the clamp that bound it and the timeline that follows out | Pure: no Firestore, no clock, no `fetch`, no log line, and **no import at all**. Holds no dose of its own — every number arrives from `config.ts` and it refuses to answer without them. Takes no cycle phase and no calendar mode, which is what keeps S12 outside it. Every clamp is a floor on calories, and the timeline is derived from the clamped target |
-| `nutrition-profile.ts` | The `users/{uid}/nutrition/` subcollection (#221, S1 of #25): the Nutrition coach's setup answers — goal, focus areas, meal pattern, target weight, the hide-numbers preference — and the setup-progress marker; read, patch, delete-all. Also **the one definition of a finished setup**, `completedSetup` | The only module that touches `nutrition/`. The field list is exactly the setup answers — no disordered-eating field (#212), no score (S8). `complete` is derived on every read, never stored. The PATCH's transaction also reads the account (#286). Logs nothing |
+| `nutrition-profile.ts` | The `users/{uid}/nutrition/` subcollection (#221, S1 of #25): the Nutrition coach's setup answers — goal, focus areas, meal pattern, target weight, the hide-numbers preference — and the setup-progress marker; read, patch, delete-all. Also **the one definition of a finished setup**, `completedSetup`, and the inputs of the last plan served (`lastPlanInputs`, #366) | The only module that touches `nutrition/`. The field list is exactly the setup answers — no disordered-eating field (#212), no score (S8). `complete` is derived on every read, never stored. `lastPlanInputs` holds only what `recalculationReason` compares — no target. Both writes are transactions that also read the account (#286). Logs nothing |
 | `email-tokens.ts` | The `authTokens/` collection: activation and reset tokens — issue, spend, expire, revoke | The only module that touches `authTokens/`; stores hashes, never a token; logs nothing |
 | `email.ts` | Sending the two transactional messages, over Postmark's REST API | The only place `POSTMARK_API_KEY` is used; no address, link or token in a log line |
 | `firebase.ts` | Admin SDK singleton (Application Default Credentials) | Never construct a second app |
 | `config.ts` | Required env vars, fail-fast at boot | Every new env var is declared here **and** in `.env.example` |
-| `data-export.ts` | The body of `GET /me/export` (#58): the account, the nutrition profile (#221) and two page generators in, one JSON document out as a stream | Pure leaf: no Firestore, no clock, no `fetch`, no log line; its imports are `import type`. Reads the first page of each collection before the route sends headers, and writes the closing brackets last, so a truncated body is never valid JSON |
+| `data-export.ts` | The body of `GET /me/export` (#58): the account, the nutrition profile (#221), the last plan's inputs (#366) and two page generators in, one JSON document out as a stream | Pure leaf: no Firestore, no clock, no `fetch`, no log line; its imports are `import type`. Reads the first page of each collection before the route sends headers, and writes the closing brackets last, so a truncated body is never valid JSON |
 | `request-timeout.ts` | The per-request timeout that names a hung request in the log before Bun's `idleTimeout` kills the connection (#225) | Wraps the handler in a timer, reads no clock and no Firestore. Logs only method and the matched route pattern (from `request-log.ts`) — no payload, address, token or id |
 | `request-log.ts` | One `request` line per finished request (#263), and the route pattern both request-level lines carry (`recordRoute`, `routeOf`) | Leaf. Records the pattern Hono matched; writes the line at the server edge, outside `app`. Fields are exactly `method`, `route`, `status`, `ms` — never the path the caller sent |
 
@@ -220,13 +220,13 @@ itself, which the default leaves alone.
 | `POST /auth/password/reset` | Token in the link | `200 { token, user }` — sets the password and signs in |
 | `POST /auth/idp` | — | `200 { token, user }` — Apple or Google; signs up and signs in at once, already activated |
 | `GET /me` | Bearer | `{ user }` |
-| `GET /me/export` | Bearer | `200` JSON attachment `eva-export-YYYY-MM-DD.json` (UTC), `Cache-Control: no-store`, streamed: `{ format: "eva-export", version: 2, exportedAt, account, nutritionProfile, events, today }` — `account` is `GET /me`'s `user`, `nutritionProfile` is `GET /me/nutrition/profile`'s `nutritionProfile` or `null` before setup is started (#221), `events` every stored entry in `GET /me/events`' shape **including soft-deleted ones** (`deletedAt` set), `today` every stored card in `GET /me/today`'s shape (#58). `429 RATE_LIMITED` per account and per IP. §4 "Data export" lists what is left out |
+| `GET /me/export` | Bearer | `200` JSON attachment `eva-export-YYYY-MM-DD.json` (UTC), `Cache-Control: no-store`, streamed: `{ format: "eva-export", version: 2, exportedAt, account, nutritionProfile, lastPlanInputs, events, today }` — `account` is `GET /me`'s `user`, `nutritionProfile` is `GET /me/nutrition/profile`'s `nutritionProfile` or `null` before setup is started (#221), `lastPlanInputs` the stored inputs of the last plan served or `null` before one (#366), `events` every stored entry in `GET /me/events`' shape **including soft-deleted ones** (`deletedAt` set), `today` every stored card in `GET /me/today`'s shape (#58). `429 RATE_LIMITED` per account and per IP. §4 "Data export" lists what is left out |
 | `POST /me/auth/providers` | Bearer | `{ user }` — attaches a provider to *this* account; `409 PROVIDER_ALREADY_LINKED` when its `sub` belongs to another |
 | `DELETE /me` | Bearer | `{ deleted: true }` — the account and all of its data, immediately; an optional `appleAuthorizationCode` also revokes the Apple token. `429 RATE_LIMITED` past `RATE_LIMIT_DELETE_PER_ACCOUNT` calls for one account in a window (#119) |
 | `PUT /me/questionnaire` | Bearer | `{ user }` — behind `requireCollectConsent` (#86): the profile is health data, and nothing about her is written before the collect consent exists |
 | `GET /me/nutrition/profile` | Bearer | `{ nutritionProfile }` — the Nutrition coach's setup answers and progress (#221), with a derived `complete` flag; `404 NOT_FOUND` until setup is started |
 | `PATCH /me/nutrition/profile` | Bearer | `{ nutritionProfile }` — any subset of `goal`, `focusAreas`, `mealPattern`, `targetWeightKg`, `hideNumbers`, `step`; an absent key is left as it was. Creates the document on the first write. `400 VALIDATION` for an unknown key, a fourth focus area (refused, never truncated), `step: "done"` with a required answer missing, or a target weight for a goal that has none; behind `requireCollectConsent` (#86) |
-| `GET /me/nutrition/plan?timeZone=` | Bearer | `{ plan }` — the day's targets for a finished setup (S2 #222, served first here for S3 #223, adjusted by S12 #224): `{ kind: "targets", targets, adjustment: { calorieTargetKcal, reasonId, confidence } }` (the luteal +5% on top of the engine's answer, with the reason id and the phase's confidence class), or `{ kind: "refused", refusal: { reason, lowestSupportedWeightKg } }` (the BMI floor or the per-plan cap), or `{ kind: "qualitative" }` under A28 (Pregnancy Mode / the first six weeks — 42 days, `QUALITATIVE_WINDOW_DAYS` — after a delivery or, by the owner's decision on #367, after a pregnancy loss — no number at all; with no delivery or loss date stored, which is every user until D10, the window stays closed; the qualitative arm wins over a guard refusal, so no `lowestSupportedWeightKg` reaches a no-numbers mode). `timeZone` decides which local day the phase (and her age) is read for, parsed and refused exactly as `GET /me/today` does it, with the same UTC fallback when absent (#365). `400 VALIDATION` for a time zone that is not one, while setup is incomplete, or while the body metrics are; `503 SERVICE_UNAVAILABLE` while the `NUTRITION_*` constants, `LUTEAL_ADJUSTMENT_PERCENT` or the cycle maths' constants are unconfigured |
+| `GET /me/nutrition/plan?timeZone=` | Bearer | `{ plan, recalculationReason }` — the day's targets for a finished setup (S2 #222, served first here for S3 #223, adjusted by S12 #224): `{ kind: "targets", targets, adjustment: { calorieTargetKcal, reasonId, confidence } }` (the luteal +5% on top of the engine's answer, with the reason id and the phase's confidence class), or `{ kind: "refused", refusal: { reason, lowestSupportedWeightKg } }` (the BMI floor or the per-plan cap), or `{ kind: "qualitative" }` under A28 (Pregnancy Mode / the first six weeks — 42 days, `QUALITATIVE_WINDOW_DAYS` — after a delivery or, by the owner's decision on #367, after a pregnancy loss — no number at all; with no delivery or loss date stored, which is every user until D10, the window stays closed; the qualitative arm wins over a guard refusal, so no `lowestSupportedWeightKg` reaches a no-numbers mode). `timeZone` decides which local day the phase (and her age) is read for, parsed and refused exactly as `GET /me/today` does it, with the same UTC fallback when absent (#365). `recalculationReason` (#366) is why the target was recalculated since the last plan served — exactly one of `weight_updated`, `goal_changed`, `cycle_phase_changed`, `calendar_mode_changed`, `activity_band_changed` (PRD line 817's order, which is also the precedence when several moved), or `null` for her first plan and for a read where nothing a trigger names moved; a read that writes, §4 "The last plan's inputs". `400 VALIDATION` for a time zone that is not one, while setup is incomplete, or while the body metrics are; `503 SERVICE_UNAVAILABLE` while the `NUTRITION_*` constants, `LUTEAL_ADJUSTMENT_PERCENT` or the cycle maths' constants are unconfigured — and neither refusal stores anything |
 | `POST /me/profile-nudge/dismiss` | Bearer | `{ user }` — marks the "complete your profile" nudge dismissed (#19); server-side, survives reinstall |
 | `POST /me/nudges/{id}/dismiss` | Bearer | `{ dismissed: true }` — dismisses one nudge (D6, #101); the id never appears in the day's `nudge` again, on any later date; `dismissedNudges` on `users/{uid}` is the one record, shared with #19's profile nudge |
 | `PUT /me/consent/{kind}` | Bearer | `{ user }` — records or withdraws one consent (#86). `kind` is `collect` or `share`; `{ granted: true, version }` records the consent with the version of the text the client showed, `{ granted: false }` withdraws — the freeze: the record keeps its version and `at`, and gains `withdrawnAt`. `share` governs nothing today; it is recorded because the screen offers it. Withdrawing a never-granted consent is a no-op |
@@ -1391,7 +1391,8 @@ The order is the design, because a partial failure has to be safe *and* resumabl
 3. delete the Firebase Auth user — the credentials open nothing and the address is free
    again;
 4. delete every event, soft-deleted ones included, a batch at a time, then every stored
-   Today card, then the nutrition profile (#221);
+   Today card, then the nutrition subcollection — the profile (#221) and the last plan's
+   inputs (#366);
 5. delete `users/{uid}`, the tombstone step 2 wrote.
 
 `today/` is in step 4 rather than forgotten because a filled card is her own logged data
@@ -1419,7 +1420,7 @@ collection it writes to — a document under an account nothing links to and not
 delete. So every write to a per-user subcollection reads the account **inside its own write
 transaction**, through `users.ts`'s `assertAccountLive`, and throws `AccountGoneError` when
 the document is tombstoned or gone: `events.ts` (create — all three paths, the plain one now
-a transaction too — edit, soft delete, restore), `nutrition-profile.ts`'s PATCH, and
+a transaction too — edit, soft delete, restore), `nutrition-profile.ts`'s PATCH and its record of the last plan's inputs (#366), and
 `today.ts`'s card cache. Putting the account in the write's read set is what makes it
 sufficient rather than likelier: if step 2 commits between that read and the commit, the
 transaction retries and sees the tombstone, so a committed write is ordered either before
@@ -1457,14 +1458,14 @@ literal either, only imported by name; and `delete-race.test.ts` fails if any mo
 quiet opt-out. That file forces the reset *inside* the write's transaction, just before its
 account read — the read set would otherwise order the bump after the commit — for each
 `POST /me/events` path, `PATCH`/`DELETE /me/events/:id`, `POST /me/events/:id/restore`,
-`PUT /me/body-signals/:date`, the nutrition PATCH and the Today cache write, and each case fails with the comparison removed.
+`PUT /me/body-signals/:date`, the nutrition PATCH, the Today cache write and the plan route's record of its inputs (#366), and each case fails with the comparison removed.
 
 The cost, from throwaway timing runs made while implementing #286 — a laptop against the
 production Firestore, not a benchmark kept in the repo. **Every write pays one extra billed
 document read.** Round trips depend on whether the writer reads anything of its own:
 
 - A writer that already reads its document — one-per-day create, edit, soft delete, restore,
-  the nutrition PATCH — passes that reference to `assertAccountLive`, which reads it and the
+  the nutrition PATCH, the plan's input record (#366) — passes that reference to `assertAccountLive`, which reads it and the
   account in one `tx.getAll`. No extra round trip. The first version used a separate `tx.get`,
   one round trip more per write, and that alone took `cycle-predictions.test.ts`'s first case
   (22 sequential posts) from the edge of its 20s ceiling to past it: a warm `POST /me/events`
@@ -1504,6 +1505,10 @@ app's decoders and the export cannot drift apart:
   from an export written before the key existed. One document, read whole by the route
   before the headers go, so a failure reading it is an ordinary `500` like the account's.
   Added without a `version` bump: adding a key is not one.
+- `lastPlanInputs` — the stored inputs of the last plan she was served (#366), exactly the
+  document, or **`null`, present,** before her first plan. Her weight, goal, target weight,
+  activity band and mode as of that plan, and whether the phase moved the number — copies
+  and one derived flag, but held, so exported. Added without a `version` bump.
 - `events` — **every document** in `users/{uid}/events/`, in `GET /me/events`' shape. That
   includes soft-deleted entries, marked by a non-null `deletedAt`, and it includes entries
   past their 30-day window that the purge has not reached yet (the purge job does not exist
@@ -1946,6 +1951,54 @@ window (no client ever called or decoded either). A value already stored on a us
 is **dormant**: nothing reads it, nothing writes it, and nothing deletes it — deleting
 stored user data is a human call (AUTONOMY) — so it leaves only with `DELETE /me`. Do not
 read it as a fallback for an unanswered `hideNumbers`; `null` means "not yet asked".
+
+**The last plan's inputs (#366).** `users/{uid}/nutrition/lastPlanInputs`, beside `profile` and
+owned by the same module. It exists so `GET /me/nutrition/plan` can say *why* a target changed
+(PRD lines 815–825: "told why, in one sentence") — `recalculationReason` needs the basis the
+previous plan was computed from, and nothing else stored could give it. Decided on the issue
+(Nick, 2026-10-03): **inputs only**.
+
+```
+weightKg        number                 // the questionnaire's, as the plan read it
+goal            NutritionGoal
+targetWeightKg  number | null          // null for goals 4 and 5
+adjustingPhase  boolean                // whether the phase moved the number (luteal), not the phase
+mode            'cycle' | 'planning' | 'pregnancy' | 'postpartum' | 'loss'
+activityBand    ActivityBand
+```
+
+Exactly `PlanBasis`, and nothing derived: no target, no macro, no timeline — a stored target
+would be a second copy of the engine's answer that could drift from it, and a number nobody
+asked Eva to keep. No timestamps either. Height, age and focus areas move no notification and
+are not here.
+
+- **A read that writes, on `GET /me/today`'s precedent.** Nothing in GUARDRAILS forbids a GET
+  writing, and the Today card is already a GET that stores what it built. The rule that
+  binds such a write is the one every writer follows: `recordPlanInputs` reads the stored
+  basis and writes the new one in **one transaction that also reads the account**
+  (`assertAccountLive`, #286/#294), so a racing `DELETE /me` or password reset is a `401` and
+  never a basis stranded under a deleted account. The same transaction serializes two plan
+  reads racing each other, so a change is reported by exactly one of them. The comparison
+  itself is `recalculationReason`, applied by the route to the basis that transaction read and
+  replaced — pure, so where it runs changes nothing, and the trigger rule stays in
+  `nutrition-adjustment.ts` rather than in the storage module.
+- **Written only when a plan is served** — any of the three arms. A `400` (incomplete setup,
+  missing body metrics) or a `503` stores nothing, so the next plan is compared with the last
+  one she was actually shown. **Not rewritten when nothing moved**, so an ordinary open costs
+  a read, not a write.
+- **Read whole or not at all.** A stored basis with any field outside its vocabulary reads as
+  no previous plan — no reason — and is replaced. A guessed field could name a cause that did
+  not happen; silence cannot.
+- **Not behind `requireCollectConsent`**, as `GET /me/today` is not: every field is a copy of
+  a fact already held (or, for `adjustingPhase`, derived from one), not a new collection.
+- **Two triggers cannot fire on their own yet.** `mode` is `cycle` on every plan until D10
+  stores a calendar mode, so `calendar_mode_changed` is reachable only from a stored basis in
+  another mode (the route test seeds one). `activity_band_changed` fires when she changes her
+  questionnaire band; PRD trigger 5's real source — logged activity shifting the band by one
+  over four weeks — does not exist, and when it does it changes the band the route reads, not
+  this document.
+- Exported (`lastPlanInputs`, §4 "Data export") and deleted by `DELETE /me` with the rest of
+  `nutrition/` — `deleteNutritionProfile` sweeps every document in the subcollection.
 
 **Devices and notifications (#79, A9 — built; §9):**
 

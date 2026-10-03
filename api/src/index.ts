@@ -48,7 +48,9 @@ import {
   SETUP_STEP_CODES,
   completedSetup,
   deleteNutritionProfile,
+  getLastPlanInputs,
   getNutritionProfile,
+  recordPlanInputs,
   saveNutritionProfile,
   type FocusAreaCode,
   type MealPattern,
@@ -63,6 +65,9 @@ import {
 import {
   NutritionAdjustmentUnsetError,
   adjustNutritionPlan,
+  isAdjustingPhase,
+  recalculationReason,
+  type PlanBasis,
   type ServedNutritionPlan,
 } from './nutrition-adjustment'
 import { ProviderError, exchangeGoogleAuthCode, revokeAppleToken } from './providers'
@@ -1767,10 +1772,12 @@ app.get('/me', requireAuth, requireServedAccount, (c) => c.json({ user: c.get('s
  * LAUNCH.md §2.3). Decided on the issue: JSON, delivered as an in-app download — no email,
  * no link, so the export exists nowhere but in this response and on her device.
  *
- * `{ format, version, exportedAt, account, nutritionProfile, events, today }`: `account` is
- * exactly what `GET /me` answers — the same gate, `requireServedAccount`, so the same assembled
- * `authProviders` (#117) — `nutritionProfile` exactly what `GET /me/nutrition/profile` answers,
- * or `null` before setup is started (#221), `events` is every stored entry in `GET /me/events`' shape **including
+ * `{ format, version, exportedAt, account, nutritionProfile, lastPlanInputs, events, today }`:
+ * `account` is exactly what `GET /me` answers — the same gate, `requireServedAccount`, so the
+ * same assembled `authProviders` (#117) — `nutritionProfile` exactly what
+ * `GET /me/nutrition/profile` answers, or `null` before setup is started (#221),
+ * `lastPlanInputs` the inputs the last served plan was computed from, or `null` before one
+ * (#366), `events` is every stored entry in `GET /me/events`' shape **including
  * soft-deleted ones** (their `deletedAt` is what marks them), `today` every stored card in
  * `GET /me/today`'s shape. ARCHITECTURE §4 "Data export" lists what is deliberately left out
  * — credentials, the session generation, cache bookkeeping — and why.
@@ -1802,13 +1809,17 @@ app.get('/me/export', requireAuth, requireServedAccount, async (c) => {
   const exportedAt = new Date().toISOString()
   const pageSize = config.dataExport.pageSize
   // Read whole, here, before a header exists — a failure is an ordinary 500, like the account's.
-  const nutritionProfile = await getNutritionProfile(uid)
+  const [nutritionProfile, lastPlanInputs] = await Promise.all([
+    getNutritionProfile(uid),
+    getLastPlanInputs(uid),
+  ])
   const body = await openExport({
     exportedAt,
     // The served `User`, never the gate's `UserRecord` (#117): `authProviders` assembled
     // from Auth and the stored password fact, and no `passwordChosen` key in her file.
     account: c.get('served'),
     nutritionProfile,
+    lastPlanInputs,
     events: exportEvents(uid, pageSize),
     today: exportTodayCards(uid, pageSize),
     onAbort: (err) => {
@@ -2082,6 +2093,14 @@ app.get('/me/nutrition/profile', requireAuth, requireAccount, async (c) => {
  *
  * `timeZone` (optional, IANA) decides which local day the plan is for, exactly as it does for
  * `GET /me/today` (#365).
+ *
+ * **A read that writes (#366)**, on `GET /me/today`'s precedent: beside the plan it answers
+ * `recalculationReason`, and to know it, it keeps the inputs of the last plan served
+ * (`users/{uid}/nutrition/lastPlanInputs`, inputs only, no target). Reading the stored
+ * inputs and writing the new ones are one transaction that also reads the account
+ * (`recordPlanInputs`, #286/#294), so a racing `DELETE /me` or password reset is answered `401` like any other
+ * write, and two racing reads report a change once. Not behind `requireCollectConsent`, as
+ * `GET /me/today` is not: what it stores is a copy of facts already held, not a new one.
  */
 app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
   // Her day, not the server's (#365): the phase — and so the luteal adjustment — is read for
@@ -2124,14 +2143,31 @@ app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
     // or loss date A28's six-week window counts from — `null` here, which the module reads
     // as "window still open"; the phase is the estimate the Today card already projected, so
     // nothing here re-reads events.
+    const phase = toCycleEstimate(analysis).phase
+    const mode = 'cycle' as const
     const plan: ServedNutritionPlan = adjustNutritionPlan(
       planDailyTargets(input, config.nutrition),
-      toCycleEstimate(analysis).phase,
-      'cycle',
+      phase,
+      mode,
       null,
       config.nutritionAdjustment?.lutealPercent ?? null,
     )
-    return c.json({ plan })
+    // #366: why the target changed since the last plan she was served — exactly one of
+    // PRD line 817's five causes, or `null` (her first plan, or nothing a trigger names
+    // moved). Recorded only once a plan exists: a refusal above (400, 503) stores nothing,
+    // so the next plan is compared with the last one actually served. Two sources cannot
+    // move yet: `mode` is the constant above until D10 stores one, and the activity band is
+    // her questionnaire answer until four weeks of logged activity can shift it.
+    const basis: PlanBasis = {
+      weightKg: profile.weightKg,
+      goal: setup.goal,
+      targetWeightKg: setup.targetWeightKg ?? null,
+      adjustingPhase: isAdjustingPhase(phase),
+      mode,
+      activityBand: profile.lifestyle,
+    }
+    const previous = await recordPlanInputs(uid, tokenVersionOf(c.get('claims')), basis)
+    return c.json({ plan, recalculationReason: recalculationReason(previous, basis) })
   } catch (err) {
     if (err instanceof NutritionRulesUnsetError) return nutritionUnavailable(c)
     if (err instanceof NutritionAdjustmentUnsetError) return nutritionUnavailable(c)

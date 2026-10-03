@@ -349,6 +349,19 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   nothing. `lastNutritionProfileChangeAt` is `today.ts`'s regeneration signal (#102): the
   banner rail ranks by a finished setup's focus areas, so saving the profile is new data for
   the Today document.
+  **It also holds `lastPlanInputs` (#366)**: the inputs of the last plan `GET /me/nutrition/plan`
+  served — exactly `PlanBasis`, the fields `recalculationReason` compares, and no derived target
+  (the owner's decision on #366). `recordPlanInputs` reads the stored basis, writes the new one
+  only when a field moved, and returns the old one — one transaction with `assertAccountLive`,
+  so the plan GET is a read that writes on `GET /me/today`'s terms and two racing reads report
+  a change once. The trigger rule is not imported here: the route applies the pure
+  `recalculationReason` to what the transaction returned. A stored basis with any field outside
+  its vocabulary reads as `null` (no previous plan, no reason) — whole or nothing, unlike
+  `toProfile`, because a guessed field could name a cause that never happened.
+  `getLastPlanInputs` is the export's read; `deleteNutritionProfile` already sweeps every
+  document in the subcollection. Reading a basis back needs the engine's `ACTIVITY_BANDS` — a
+  value import from a leaf with no imports, as `users.ts` takes it — rather than a second edge
+  into `users.ts`; `Mode` and `PlanBasis` arrive as `import type`.
 - `nutrition.ts` — the nutrition targets engine (S2 of #25, #222). Her body metrics, goal,
   target weight and focus areas in; the day's calorie target, the macronutrient split, the
   clamp that bound the target and the timeline that follows from it out. **Pure on the
@@ -389,9 +402,12 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   `import type` only. `NutritionAdjustmentUnsetError` is the refusal the route maps to 503 —
   as are the engine's and C11's (`CycleRulesUnsetError`, reached through `cycleAnalysisFor`),
   each pinned by a booted server in `nutrition-profile.test.ts`.
-  Also holds two rules **with no consumer yet**, each pure and pinned: `recalculationReason`
-  (PRD lines 815–825 — two `PlanBasis` snapshots in, exactly one of five reason ids or `null`
-  out; nothing stores the previous basis yet, so no read can compare against one) and
+  Also holds two rules, each pure and pinned: `recalculationReason` (PRD lines 815–825 — two
+  `PlanBasis` snapshots in, exactly one of five reason ids or `null` out), which
+  `GET /me/nutrition/plan` answers as `recalculationReason` against the basis
+  `nutrition-profile.ts` stored for the previous plan (#366) — `mode` is always `cycle` there
+  until D10, and the band moves only through the questionnaire until four weeks of logged
+  activity can shift it, so those two triggers cannot fire on their own yet — and
   `orderSuggestions` (PRD line 800 — iron-rich first during an *observed* period when focus
   area 3 or a declared `anaemia` says so; a permutation of its input and nothing else, so it
   cannot introduce a supplement, a dose or a deficiency statement; no suggestion list exists
@@ -405,7 +421,8 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   types and `nutrition.ts` imports nothing.
 - `data-export.ts` — the body of `GET /me/export` (#58). Pure leaf: the account (the served
   `User` from `requireServedAccount`, exactly `GET /me`'s — never the gate's `UserRecord`, #117), the
-  nutrition profile (`getNutritionProfile`, read by the route before the headers, #221) and the
+  nutrition profile (`getNutritionProfile`, read by the route before the headers, #221), the last
+  plan's inputs (`getLastPlanInputs`, read beside it, #366 — `null` before her first plan) and the
   page generators `exportEvents` (`events.ts`) and `exportTodayCards` (`today.ts`) in, a
   `ReadableStream` of one JSON document out, pulling the next page only when the response
   wants more bytes. Two properties are the design and each has a test: it reads the **first

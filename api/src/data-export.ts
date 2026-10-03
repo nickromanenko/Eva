@@ -1,4 +1,5 @@
 import type { EvaEvent } from './events'
+import type { PlanBasis } from './nutrition-adjustment'
 import type { NutritionProfile } from './nutrition-profile'
 import type { TodayDocument } from './today'
 import type { User } from './users'
@@ -8,10 +9,10 @@ import type { User } from './users'
  * document written out a page at a time.
  *
  * A pure leaf, like `request-timeout.ts`: no Firestore, no clock, no `fetch`, no log line.
- * The route reads the account and the nutrition profile, hands in the two owning modules'
- * page generators (`exportEvents`, `exportTodayCards`) and the instant it stamps, and this
- * turns them into bytes. Its four imports are `import type`, so it reaches nothing at
- * runtime.
+ * The route reads the account, the nutrition profile and the last plan's inputs, hands in
+ * the two owning modules' page generators (`exportEvents`, `exportTodayCards`) and the
+ * instant it stamps, and this turns them into bytes. Its five imports are `import type`, so
+ * it reaches nothing at runtime.
  *
  * **What a truncated body looks like is the design.** Once the headers are out, a read that
  * fails can no longer become a `{ error }` response. So:
@@ -35,7 +36,8 @@ import type { User } from './users'
 export const EXPORT_FORMAT = 'eva-export'
 
 /** Bumped when a field's meaning changes or a field is removed; adding one is not a bump,
- *  because a reader that ignores unknown keys still reads the old document correctly.
+ *  because a reader that ignores unknown keys still reads the old document correctly —
+ *  which is why `lastPlanInputs` (#366) arrived at 2.
  *  2: `account` lost #252's qualitative-mode flag when `User` did (#283). */
 export const EXPORT_VERSION = 2
 
@@ -54,6 +56,10 @@ export interface ExportSource {
    *  derived `complete` flag — or `null` when she has not started setup. One document, so it
    *  is read whole by the route before the headers go, like the account. */
   nutritionProfile: NutritionProfile | null
+  /** The inputs the last plan she was served was computed from (#366) — `users/{uid}/
+   *  nutrition/lastPlanInputs`, which holds nothing else — or `null` before her first plan.
+   *  One document, read whole by the route before the headers go. */
+  lastPlanInputs: PlanBasis | null
   /** Every event, soft-deleted included, a page at a time (`exportEvents`). */
   events: AsyncGenerator<EvaEvent[], void, undefined>
   /** Every stored Today card, a page at a time (`exportTodayCards`). */
@@ -104,10 +110,11 @@ async function* arrayBody<T>(
  * page is in memory at a time however large the account is.
  *
  * Throws — before any byte exists — if either first read fails. Key order is fixed:
- * `format`, `version`, `exportedAt`, `account`, `nutritionProfile`, `events`, `today`.
+ * `format`, `version`, `exportedAt`, `account`, `nutritionProfile`, `lastPlanInputs`,
+ * `events`, `today`.
  */
 export const openExport = async (source: ExportSource): Promise<ReadableStream<Uint8Array>> => {
-  const { exportedAt, account, nutritionProfile, events, today, onAbort } = source
+  const { exportedAt, account, nutritionProfile, lastPlanInputs, events, today, onAbort } = source
   let firstEvents: Page<EvaEvent>
   let firstToday: Page<TodayDocument>
   try {
@@ -125,6 +132,7 @@ export const openExport = async (source: ExportSource): Promise<ReadableStream<U
     exportedAt,
     account,
     nutritionProfile,
+    lastPlanInputs,
   })
   async function* chunks(): AsyncGenerator<string, void, undefined> {
     yield `${head.slice(0, -1)},"events":[`
