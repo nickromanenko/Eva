@@ -306,10 +306,15 @@ final class AppSession {
     /// The day's plan for a finished setup (#222), served by `GET /me/nutrition/plan`. A
     /// `503` (the `NUTRITION_*` constants unconfigured) reaches the caller as an ordinary
     /// `APIError.server`, and the summary draws no target for it.
-    func nutritionPlan() async throws -> APINutritionPlan {
+    ///
+    /// The zone identifier, as `todayCard` sends it: the plan's cycle phase is read for her
+    /// local date, and without it the server would measure "today" in UTC (#365).
+    func nutritionPlan(timeZone: TimeZone = .current) async throws -> APINutritionPlan {
         try await authorized {
             let response: APINutritionPlanResponse = try await client.get(
-                "/me/nutrition/plan", authorized: true
+                "/me/nutrition/plan",
+                query: [URLQueryItem(name: "timeZone", value: timeZone.identifier)],
+                authorized: true
             )
             return response.plan
         }

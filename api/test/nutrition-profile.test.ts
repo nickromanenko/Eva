@@ -5,6 +5,7 @@ import {
   describe,
   expect,
   setDefaultTimeout,
+  setSystemTime,
   spyOn,
   test,
 } from 'bun:test'
@@ -13,7 +14,7 @@ import { readFileSync } from 'node:fs'
 import { mintToken } from '../src/auth'
 import { config } from '../src/config'
 import * as cycleModule from '../src/cycle'
-import { analyzeCycles } from '../src/cycle'
+import { analyzeCycles, toCycleEstimate } from '../src/cycle'
 import { createEvent } from '../src/events'
 import { adminAuth, firestore } from '../src/firebase'
 import { default as server } from '../src/index'
@@ -960,6 +961,200 @@ describe('GET /me/nutrition/plan: no phase, no adjustment', () => {
       confidence: null,
     })
     expect(JSON.stringify(plan)).not.toMatch(/luteal|follicular|ovulation|menstrual|phase/)
+    expect(logged).toEqual([])
+  })
+})
+
+// ── Her day, not the server's (#365) ─────────────────────────────────────────────────────
+
+/** `YYYY-MM-DD` shifted by whole days — a calendar label, as everywhere else here. */
+const shiftDay = (day: string, by: number): string =>
+  new Date(Date.parse(`${day}T00:00:00.000Z`) + by * 86_400_000).toISOString().slice(0, 10)
+
+/**
+ * The plan's phase is read for her local date, which `timeZone` names exactly as it does for
+ * `GET /me/today`.
+ *
+ * **The instant is pinned, not waited for.** America/Bogota is UTC-5 with no DST, so 04:30
+ * UTC is 23:30 there on the day before: the most recent such instant is set as the system
+ * clock for the requests only — everything written before it is written at the real time.
+ * The session is minted inside the pinned window, because a token issued after the instant
+ * the server believes it is would be refused for its `iat`.
+ *
+ * **The fixture puts a phase boundary on that midnight.** 28-day cycles whose last one opened
+ * 15 days before her local date: at A26's 14-day luteal convention ovulation is the day
+ * before it and the fertile window closes on it, so her local day is `ovulation` (no
+ * adjustment) and the UTC day, one later, is `luteal` (+5%). A route that still measured in
+ * UTC would adjust her plan; the case below would see it.
+ */
+describe('GET /me/nutrition/plan: her local day decides the phase (#365)', () => {
+  const ZONE = 'America/Bogota'
+  const DAY = 86_400_000
+  const eventUids: string[] = []
+  afterAll(async () => {
+    setSystemTime()
+    for (const uid of eventUids) {
+      for (const doc of await userDoc(uid).collection('events').listDocuments()) {
+        await doc.delete().catch(() => {})
+      }
+    }
+  })
+
+  /** The latest 04:30 UTC at or before now — 23:30 the evening before, in `ZONE`. */
+  const lateEvening = (): Date => {
+    const now = Date.now()
+    const at = new Date(now)
+    let instant = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate(), 4, 30)
+    if (instant > now) instant -= DAY
+    return new Date(instant)
+  }
+
+  /** Two logged flow days from each start, `startsBack` counted from `anchor`. */
+  const periodsBefore = async (uid: string, anchor: string, startsBack: readonly number[]) => {
+    const days = startsBack.flatMap((back) => [shiftDay(anchor, -back), shiftDay(anchor, 1 - back)])
+    await Promise.all(
+      days.map((localDate) =>
+        createEvent(uid, 0, {
+          type: 'cycle',
+          localDate,
+          loggedAt: `${localDate}T12:00:00`,
+          note: null,
+          source: 'user',
+          idempotencyKey: null,
+          payload: { flow: 'medium' },
+        }),
+      ),
+    )
+    return days.map((localDate) => ({ localDate, kind: 'flow' }) as const)
+  }
+
+  /** Requests made at `instant`, with a session minted there. */
+  const at = async <T>(instant: Date, uid: string, run: (token: string) => Promise<T>) => {
+    const { email } = (await userDoc(uid).get()).data() as { email: string }
+    setSystemTime(instant)
+    try {
+      return await run(await mintToken(uid, email, 0))
+    } finally {
+      setSystemTime()
+    }
+  }
+
+  test('23:30 local, the next day in UTC: the plan carries her local day’s phase', async () => {
+    const instant = lateEvening()
+    const utcDay = instant.toISOString().slice(0, 10)
+    const localDay = shiftDay(utcDay, -1)
+
+    const { uid, token } = await account({ profile: questionnaire('mostlySitting') })
+    eventUids.push(uid)
+    const days = await periodsBefore(uid, localDay, [183, 155, 127, 99, 71, 43, 15])
+    await finishSetup(token, 60)
+
+    // The fixture does what the comment above says, by the maths the route runs — so a
+    // green case below is about the zone, not about a fixture that never crossed a boundary.
+    const phaseOn = (today: string) =>
+      toCycleEstimate(analyzeCycles({ days, today, profile: null }, config.cycle!)).phase?.code
+    expect(phaseOn(localDay)).toBe('ovulation')
+    expect(phaseOn(utcDay)).toBe('luteal')
+
+    const [local, utc, absent] = await at(instant, uid, async (session) => {
+      // The pinned clock really is 23:30 there and the next day here.
+      expect(
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: ZONE,
+          dateStyle: 'short',
+          timeStyle: 'short',
+          hourCycle: 'h23',
+        }).format(new Date()),
+      ).toBe(`${localDay}, 23:30`)
+      return [
+        await call(session, 'GET', `/me/nutrition/plan?timeZone=${ZONE}`),
+        await call(session, 'GET', '/me/nutrition/plan?timeZone=UTC'),
+        await call(session, 'GET', '/me/nutrition/plan'),
+      ]
+    })
+
+    expect(local.status).toBe(200)
+    expect(local.body.plan.adjustment).toEqual({
+      calorieTargetKcal: local.body.plan.targets.calorieTargetKcal,
+      reasonId: null,
+      confidence: null,
+    })
+
+    // The control: the same account at the same instant, read in UTC, is luteal — so the
+    // unadjusted answer above is the zone moving the day, not a route that never adjusts.
+    const percent = config.nutritionAdjustment!.lutealPercent
+    expect(utc.status).toBe(200)
+    expect(utc.body.plan.adjustment).toEqual({
+      calorieTargetKcal: Math.round(utc.body.plan.targets.calorieTargetKcal * (1 + percent / 100)),
+      reasonId: LUTEAL_REASON,
+      confidence: 'narrow',
+    })
+
+    // Absent is what `GET /me/today` does when it is absent: UTC.
+    expect(absent).toEqual(utc)
+    expect(logged).toEqual([])
+  })
+
+  /**
+   * Her age is measured on the same local day as her phase. The birthday falls on the UTC
+   * day and not on hers, so at 23:30 in `ZONE` she is still a year younger than UTC says —
+   * and the basal rate moves with age (A29's per-year term), so the target says which day
+   * was used. 28 years back keeps a 29 February a real date.
+   */
+  test('23:30 local, the next day in UTC: her age is the local day’s, not the UTC day’s', async () => {
+    const instant = lateEvening()
+    const utcDay = instant.toISOString().slice(0, 10)
+    const dateOfBirth = `${Number(utcDay.slice(0, 4)) - 28}${utcDay.slice(4)}`
+
+    const { uid, token } = await account({
+      profile: { ...questionnaire('mostlySitting'), dateOfBirth },
+    })
+    await finishSetup(token, 60)
+
+    // What the engine answers at each age, for the body the account carries — two different
+    // numbers, or the case below could not tell the days apart.
+    const targetAt = (ageYears: number) => {
+      const plan = nutritionModule.planDailyTargets(
+        {
+          weightKg: 64,
+          heightCm: 168,
+          ageYears,
+          activityBand: 'mostlySitting',
+          focusAreas: [],
+          goal: 'lose',
+          targetWeightKg: 60,
+        },
+        config.nutrition,
+      )
+      if (plan.kind !== 'targets') throw new Error(`expected targets, got ${plan.kind}`)
+      return plan.targets.calorieTargetKcal
+    }
+    expect(targetAt(27)).not.toBe(targetAt(28))
+
+    const [local, utc] = await at(instant, uid, async (session) => [
+      await call(session, 'GET', `/me/nutrition/plan?timeZone=${ZONE}`),
+      await call(session, 'GET', '/me/nutrition/plan?timeZone=UTC'),
+    ])
+    expect(local.status).toBe(200)
+    expect(utc.status).toBe(200)
+    // The day before her 28th birthday where she is; the birthday itself in UTC.
+    expect(local.body.plan.targets.calorieTargetKcal).toBe(targetAt(27))
+    expect(utc.body.plan.targets.calorieTargetKcal).toBe(targetAt(28))
+    expect(logged).toEqual([])
+  })
+
+  test('a time zone that is not one is refused exactly as GET /me/today refuses it', async () => {
+    // No setup on this account: the zone is checked first, as `/me/today` checks it first,
+    // so the answer is the zone's refusal and not "complete your setup".
+    const { token } = await account({ profile: questionnaire('mostlySitting') })
+    for (const zone of ['Mars/Olympus', '', 'UTC+5', '../etc/passwd']) {
+      const query = `timeZone=${encodeURIComponent(zone)}`
+      const plan = await call(token, 'GET', `/me/nutrition/plan?${query}`)
+      const today = await call(token, 'GET', `/me/today?${query}`)
+      expect({ zone, status: plan.status }).toEqual({ zone, status: 400 })
+      expect({ zone, ...plan }).toEqual({ zone, ...today })
+      expect(plan.body.error.code).toBe('VALIDATION')
+    }
     expect(logged).toEqual([])
   })
 })
