@@ -243,6 +243,8 @@ struct SessionExpiryTests {
             // leaked here would tell someone whose calendar read failed that a deletion
             // they never asked for did not happen.
             #expect(session.signedOutReason == nil, "An ordinary 401 left a reason on the signed-out screen")
+            // The sign-out's push-token removal (#79) must land here, not in the next test (#369).
+            await session.deviceRemoval?.value
         }
 
         /// Issue #59, at the session layer: a delete whose credential died.
@@ -268,6 +270,7 @@ struct SessionExpiryTests {
                 session.signedOutReason == .deletionRefusedSessionEnded,
                 "The sign-out after a refused delete says nothing, which reads as a deletion that worked"
             )
+            await session.deviceRemoval?.value
         }
 
         /// The reason describes one sign-out. A new session clears it, so it cannot be
@@ -280,6 +283,8 @@ struct SessionExpiryTests {
             EvaStubURLProtocol.stub(status: 401, body: ClientMapping.deadToken)
             _ = await thrownAPIError { try await session.deleteAccount() }
             #expect(session.signedOutReason == .deletionRefusedSessionEnded, "No reason to clear — the premise failed")
+            // Before re-arming, so the removal is answered by the 401 stub it was fired under.
+            await session.deviceRemoval?.value
 
             EvaStubURLProtocol.stub(
                 status: 200,
@@ -292,6 +297,7 @@ struct SessionExpiryTests {
 
             session.logOut()
             #expect(session.signedOutReason == nil, "A plain log out showed the old reason")
+            await session.deviceRemoval?.value
         }
 
         /// The other direction, on the route #55 added. A failure that is not a dead
@@ -327,6 +333,7 @@ struct SessionExpiryTests {
             #expect(store.token == nil, "The token for a deleted account stayed in the Keychain")
             // #59's banner says the profile was *not* deleted. On this path it was.
             #expect(session.signedOutReason == nil, "A deletion that worked is reported as refused")
+            await session.deviceRemoval?.value
         }
 
         /// The reply is read, not assumed.

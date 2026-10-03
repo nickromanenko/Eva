@@ -17,14 +17,14 @@ enum SyncOutcome: Equatable {
     case paused
 }
 
-/// Classifies one failure into what the engine should do. Pure — no store, no clock beyond
-/// the `Retry-After` the caller already resolved to an interval.
-func syncOutcome(for error: APIError) -> SyncOutcome {
+/// Classifies one failure into what the engine should do. Pure — no store, and the clock is
+/// `now`, so the `Retry-After` wait is exact under test rather than a few microseconds short.
+func syncOutcome(for error: APIError, now: Date = Date()) -> SyncOutcome {
     switch error {
     case .sessionExpired:
         return .paused
     case .rateLimited(_, let retryAt):
-        let interval = retryAt.map { max($0.timeIntervalSinceNow, 0) }
+        let interval = retryAt.map { max($0.timeIntervalSince(now), 0) }
         return .retry(after: interval)
     case .server(_, _, let status) where status >= 500:
         return .retry(after: nil)
@@ -41,6 +41,8 @@ func syncOutcome(for error: APIError) -> SyncOutcome {
 /// number of consecutive failed attempts, so the first retry waits 1 s.
 func syncBackoff(attempts: Int) -> TimeInterval {
     let steps = max(0, attempts)
-    let seconds = Double(1 << min(steps, 8)) // 2^0, 2^1, … capped before the shift overflows
+    // 2^9 = 512 is the first doubling past the cap, so clamping the exponent there keeps the
+    // shift from overflowing without stopping the schedule short at 256.
+    let seconds = Double(1 << min(steps, 9))
     return min(seconds, 300)
 }
