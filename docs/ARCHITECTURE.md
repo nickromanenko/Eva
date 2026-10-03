@@ -2613,14 +2613,23 @@ What the implementation added to the design above, each because the design left 
   re-checks before and after every request, throwing the session's own "paused" error. Without
   that, a request in flight when A's session ended was followed by A's *next* operation,
   sent with whatever token the Keychain then held — B's, if B had signed in (#371 review;
-  `SessionExpiryTests.OfflineSession.noCrossAccountSend`).
+  `SessionExpiryTests.OfflineSession.noCrossAccountSend`, and `noSendAfterA401`, which
+  releases the in-flight answer before anyone signs in and so fails without the guard, #382).
+- **A store file that will not open falls back inside the session.** `AppSession.openStore`
+  builds an in-memory store for the uid instead, so the session closes and wipes it like any
+  other; the in-memory store `CalendarModel` builds when handed none is for previews and tests
+  only (#378 review).
 - **Continue offline needs the consent gate passed on this device.** With no `/me` there is
   no consent record to read, so the button is offered only for a uid that has reached
-  `.ready` here before (a non-health mark in `UserDefaults`, cleared on log out and
-  whenever the server sends her to the consent screen).
+  `.ready` here before (a non-health mark in `UserDefaults`, cleared on log out, whenever
+  the server sends her to the consent screen, when a validated `/me` shows the collect consent
+  withdrawn, and when any request comes back `403 CONSENT_REQUIRED`). Consent withdrawn on
+  another device is therefore seen at the next validated launch or the first queued write the
+  server refuses — not before: until then this device can still offer the button (#378 review).
 - **Files.** The stores live in `Application Support/EvaStore/`, excluded from backup at
   the directory, so SQLite's later `-wal`/`-shm` files are covered too; a uid becomes a file
-  name only if it is `[A-Za-z0-9_-]+`.
+  name only if it is `[A-Za-z0-9_-]+`. Files the first #78 builds wrote into Application
+  Support itself are swept whenever stores are wiped — the signed-in account's included.
 - **The calendar's Log button (#372).** Its first tap in UI tests did nothing, on `main` as
   well (3/3 after a session-keeping relaunch). XCUITest's hit point for `calendar.log` was
   (324, 706) — the tile's top-left corner, outside its rounded hit shape — because the

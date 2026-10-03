@@ -91,17 +91,22 @@ final class AppSession {
     /// Where the "consent gate passed" marks live (`canContinueOffline`). Injectable so the
     /// tests do not share the app's.
     private let defaults: UserDefaults
+    /// Opens an account's store. `nil` is `EvaStore(uid:inMemory:)`; the tests pass one that
+    /// throws, to reach the in-memory fallback a store file that will not open falls to.
+    @ObservationIgnored private let makeStore: (@MainActor (String) throws -> EvaStore)?
 
     init(
         client: APIClient = .default,
         tokenStore: KeychainTokenStore = .shared,
         inMemoryStore: Bool = false,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        openStore makeStore: (@MainActor (String) throws -> EvaStore)? = nil
     ) {
         self.client = client
         self.tokenStore = tokenStore
         self.inMemoryStore = inMemoryStore
         self.defaults = defaults
+        self.makeStore = makeStore
 
         #if DEBUG
         // UI tests need a clean slate (the Keychain survives reinstalls on simulator).
@@ -228,6 +233,9 @@ final class AppSession {
         guard let uid = user?.id else { return }
         var passed = consentGatePassed
         switch state {
+        // A withdrawn consent lands in the app (the freeze is not re-asked), but it is not a
+        // consent on record, and the mark is what lets Continue offline collect (#378).
+        case .ready where user?.consent?.collect?.withdrawnAt != nil: passed.remove(uid)
         case .ready: passed.insert(uid)
         case .needsConsent: passed.remove(uid)
         default: return
@@ -265,9 +273,15 @@ final class AppSession {
         }
         discardPausedStore()
         if !inMemoryStore { EvaStore.wipeAll(keeping: uid) }
-        guard let store = try? EvaStore(uid: uid, inMemory: inMemoryStore) else {
-            // A store that will not open is a device fault with no screen; the app still
-            // works online-only through the in-memory fallback each screen builds.
+        // A store file that will not open is a device fault with no screen. The app still
+        // works — online, nothing kept past this launch — through an in-memory store that is
+        // *this session's*, so a 401 closes it and a log out wipes it like any other (#378
+        // security review: a fallback the calendar built for itself was never closed, and its
+        // queue could drain under the next account's token). Only a uid that is not a plain
+        // identifier, which no Firebase uid is, opens neither.
+        guard let store = (try? makeStore?(uid) ?? EvaStore(uid: uid, inMemory: inMemoryStore))
+            ?? (try? EvaStore(uid: uid, inMemory: true))
+        else {
             eventSync = nil
             return
         }
@@ -925,6 +939,13 @@ final class AppSession {
         } catch let error as APIError {
             if case .sessionExpired = error, generation == sessionGeneration {
                 logOut(reason: signedOutReason)
+            }
+            // The server refused a health write for want of consent — withdrawn on another
+            // device, or never given. Whatever this device remembered, the mark that offers
+            // Continue offline no longer holds (#378 security review).
+            if case .server(let code, _, _) = error, code == "CONSENT_REQUIRED",
+               generation == sessionGeneration {
+                forgetConsentGate(for: user?.id ?? tokenUid)
             }
             throw error
         }

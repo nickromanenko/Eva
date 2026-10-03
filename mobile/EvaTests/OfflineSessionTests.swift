@@ -34,6 +34,12 @@ extension SessionExpiryTests {
             )
         }
 
+        static let consentRequired =
+            #"{"error":{"code":"CONSENT_REQUIRED","message":"Eva stores nothing about your health until you consent to it"}}"#
+
+        static let withdrawnUser =
+            #"{"user":{"id":"u1","email":"e2e+unit@e2e.evaapp.dev","questionnaireCompleted":true,"consent":{"collect":{"version":"\#(ConsentPolicy.version)","at":"2026-09-19T08:00:00.000Z","withdrawnAt":"2026-10-01T08:00:00.000Z"},"share":null}}}"#
+
         /// A JWT for a second account, `u2`. `{"alg":"HS256","typ":"JWT"}.{"sub":"u2"}`
         static let tokenB = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1MiJ9.sig"
         static let signedInAsB =
@@ -46,9 +52,12 @@ extension SessionExpiryTests {
         /// into the app's.
         let defaults = UserDefaults(suiteName: "eva-offline-session-\(UUID().uuidString)")!
 
-        func session() -> AppSession {
+        /// `storeOpens: false` makes every store file refuse to open, the device fault the
+        /// session's in-memory fallback is for (#382).
+        func session(storeOpens: Bool = true) -> AppSession {
             store.clear()
             store.save(Self.token)
+            let refuse: @MainActor (String) throws -> EvaStore = { _ in throw CocoaError(.fileReadCorruptFile) }
             return AppSession(
                 client: APIClient(
                     baseURL: EvaStubURLProtocol.baseURL,
@@ -57,7 +66,8 @@ extension SessionExpiryTests {
                 ),
                 tokenStore: store,
                 inMemoryStore: true,
-                defaults: defaults
+                defaults: defaults,
+                openStore: storeOpens ? nil : refuse
             )
         }
 
@@ -265,6 +275,140 @@ extension SessionExpiryTests {
             #expect(EvaStubURLProtocol.lastAuthorization(for: .post("/me/events")) == "Bearer \(Self.token)")
             #expect(sync.store.operations().isEmpty, "A's queue survived B signing in on this device")
             #expect(EvaStubURLProtocol.unroutedRequests.isEmpty)
+        }
+
+        /// #382: the variant that tests the guard rather than the wipe. `noCrossAccountSend`
+        /// releases A's POST only after B has signed in, and B's sign-in wipes A's queue —
+        /// so it passes with the guard gone. Here nobody signs in: the 401 closes the store
+        /// with A's create on the wire and a second one queued behind it, and the held answer
+        /// arrives to a closed store. Without `ensureOpen()` and the drain-cancel in
+        /// `close()`, the pass acknowledges the first and sends the second (2 POSTs).
+        @Test("a store closed by a 401 sends nothing more when its in-flight answer lands")
+        func noSendAfterA401() async throws {
+            let (session, sync) = try await readySession()
+            defer { store.clear() }
+            let first = Self.write()
+            EvaStubURLProtocol.route {
+                $0.held(.post("/me/events"), status: 201, body: Self.created(key: first.idempotencyKey))
+                $0.responds(.get("/refdata"), status: 401, body: ClientMapping.deadToken)
+                $0.responds(deviceRoute, status: 200, body: #"{"removed":true}"#)
+            }
+            sync.save(first)
+            sync.save(Self.write())
+            await EvaStubURLProtocol.waitForRequestInFlight(.post("/me/events"))
+
+            _ = try? await session.refData()      // A's token is refused: 401, signed out
+            await session.deviceRemoval?.value
+            #expect(session.state.isSignedOut)
+            EvaStubURLProtocol.releaseHeldRequest(.post("/me/events"))
+            // Not `sync.drain()`: with the guard gone the second POST is held by the same
+            // rule, and a drain would wait it out. A second request arrives within
+            // milliseconds of the release when it is going to arrive at all.
+            for _ in 0..<100 where EvaStubURLProtocol.requestCount(for: .post("/me/events")) < 2 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+
+            #expect(EvaStubURLProtocol.requestCount(for: .post("/me/events")) == 1,
+                    "A's queue kept sending after its session ended")
+            #expect(sync.store.operations().count == 2, "A 401 discarded a queued entry")
+            #expect(EvaStubURLProtocol.unroutedRequests.isEmpty)
+        }
+
+        /// Security review follow-up 1 (#378): a store file that will not open used to leave
+        /// `eventSync` nil, and the calendar built an in-memory store of its own that nothing
+        /// ever closed — so a 401 or a log out left A's queue draining under whatever token
+        /// came next. The fallback is the session's now, and ends with the session.
+        @Test("a store that will not open falls back to an in-memory one the session owns")
+        func theFallbackStoreIsTheSessions() async throws {
+            let session = session(storeOpens: false)
+            defer { store.clear() }
+            EvaStubURLProtocol.route { $0.responds(.get("/me"), status: 200, body: ClientMapping.user) }
+            await session.bootstrap()
+            let sync = try #require(session.eventSync, "A store that would not open left no store at all")
+            #expect(sync.store.belongsTo("u1"))
+
+            // A 401 closes it: nothing queued afterwards goes out.
+            EvaStubURLProtocol.route {
+                $0.responds(.get("/refdata"), status: 401, body: ClientMapping.deadToken)
+                $0.responds(.post("/me/events"), status: 201, body: Self.created(key: "unused"))
+                $0.responds(deviceRoute, status: 200, body: #"{"removed":true}"#)
+            }
+            _ = try? await session.refData()
+            await session.deviceRemoval?.value
+            #expect(session.eventSync == nil)
+            sync.save(Self.write())
+            await sync.drain()
+            #expect(EvaStubURLProtocol.requestCount(for: .post("/me/events")) == 0,
+                    "The fallback store kept sending after a 401")
+        }
+
+        @Test("log out wipes and closes the session's fallback store")
+        func logOutClosesTheFallbackStore() async throws {
+            let session = session(storeOpens: false)
+            defer { store.clear() }
+            EvaStubURLProtocol.route {
+                $0.responds(.get("/me"), status: 200, body: ClientMapping.user)
+                $0.fails(.post("/me/events"))
+                $0.responds(deviceRoute, status: 200, body: #"{"removed":true}"#)
+            }
+            await session.bootstrap()
+            let sync = try #require(session.eventSync)
+            sync.save(Self.write())
+            await sync.drain()
+            let attempts = EvaStubURLProtocol.requestCount(for: .post("/me/events"))
+
+            session.logOut()
+            await session.deviceRemoval?.value
+            sync.save(Self.write())
+            await sync.drain()
+
+            #expect(session.eventSync == nil)
+            #expect(EvaStubURLProtocol.requestCount(for: .post("/me/events")) == attempts,
+                    "The fallback store sent after log out")
+        }
+
+        /// Security review follow-up 2 (#378): consent withdrawn on another device. The mark
+        /// says "this account was consented when last seen here"; a queued write the server
+        /// refuses with `CONSENT_REQUIRED` says it no longer is, and the mark goes.
+        @Test("a write refused with CONSENT_REQUIRED withdraws Continue offline")
+        func consentRequiredClearsTheMark() async throws {
+            let session = session()
+            markConsentPassed()
+            defer { store.clear() }
+            EvaStubURLProtocol.route { $0.fails(.get("/me")) }
+            await session.bootstrap()
+            session.continueOffline()
+            let sync = try #require(session.eventSync)
+            #expect(session.canContinueOffline)
+
+            EvaStubURLProtocol.route {
+                $0.responds(.post("/me/events"), status: 403, body: Self.consentRequired)
+                $0.fails(.get("/me"))
+            }
+            sync.save(Self.write())
+            await sync.drain()
+
+            #expect(sync.failedCount == 1)
+            #expect(!session.canContinueOffline,
+                    "Continue offline is still offered after the server refused for want of consent")
+            // The mark is gone from the device, not just from this session object.
+            #expect(self.session().canContinueOffline == false)
+        }
+
+        /// The same follow-up, from the other side: a validated launch that finds the consent
+        /// withdrawn lands in the app (the freeze is not re-asked), and must not record the
+        /// mark that would put Continue offline back.
+        @Test("a validated launch with consent withdrawn does not mark the gate passed")
+        func withdrawnConsentIsNotMarked() async throws {
+            let session = session()
+            markConsentPassed()
+            defer { store.clear() }
+            EvaStubURLProtocol.route { $0.responds(.get("/me"), status: 200, body: Self.withdrawnUser) }
+            await session.bootstrap()
+            #expect(session.state.isReady)
+
+            #expect(!session.canContinueOffline,
+                    "A launch that read a withdrawn consent left Continue offline on offer")
         }
 
         /// Security review 2: after a 401 nothing is discarded — but a launch with no token
