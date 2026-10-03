@@ -165,6 +165,7 @@ struct EvaSpecimenButtonSection: View {
                 EvaAuthButton(provider: .google) {}
                 SecondaryButton(title: "Not now") {}
                 TextButton(title: "Skip for now") {}
+                TextButton(title: "Log out", role: .destructive) {}
                 DestructiveButton(title: "Delete my account") {}
                 DestructiveButton(title: "Remove entry", kind: .row) {}
             }

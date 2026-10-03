@@ -251,7 +251,7 @@ struct EvaTextButtonStyle: ButtonStyle {
 
         return configuration.label
             .evaTextStyle(EvaTextStyle.textButton)
-            .foregroundStyle(Self.label(for: state))
+            .foregroundStyle(Self.label(for: state, role: configuration.role))
             .frame(minHeight: EvaButtonHeight.text)
             .padding(.horizontal, EvaSpacing.sm)
             .contentShape(.rect(cornerRadius: EvaRadius.chip, style: .continuous))
@@ -263,22 +263,32 @@ struct EvaTextButtonStyle: ButtonStyle {
     /// The artboard's `#C95F86` measures 3.68:1 on the warm background — under AA for a
     /// 14pt semibold label. `evaActionPinkTop` is the same decision as the #12 ramp,
     /// applied to a label instead of a fill: 4.57:1, and it is already in the palette.
-    private static func label(for state: EvaButtonState) -> Color {
-        switch state {
-        case .normal, .focused: .evaActionPinkTop
-        case .pressed: Color.evaActionPinkTop.opacity(pressedLabelOpacity)
+    ///
+    /// A `.destructive` role takes `evaDestructiveInk` instead — the `#A9524A` the
+    /// `unreachable` artboard draws its text-button Log out in (#375). Same shape, same
+    /// 14/600 label, only the ink changes; it is ~7:1 on the warm background, so it needs
+    /// no deepening the way the pink did.
+    private static func label(for state: EvaButtonState, role: ButtonRole?) -> Color {
+        let ink: Color = role == .destructive ? .evaDestructiveInk : .evaActionPinkTop
+        return switch state {
+        case .normal, .focused: ink
+        case .pressed: ink.opacity(pressedLabelOpacity)
         case .disabled: .evaDisabledText
         }
     }
 }
 
 /// The DESIGN.md §5 text button — a tertiary action with no surface of its own.
+///
+/// `role: .destructive` draws the label in destructive ink (the `unreachable` artboard's
+/// Log out). The identifier is `text.<title>` either way.
 struct TextButton: View {
     let title: String
+    var role: ButtonRole?
     let action: () -> Void
 
     var body: some View {
-        Button(title, action: action)
+        Button(title, role: role, action: action)
             .buttonStyle(EvaTextButtonStyle())
             .accessibilityIdentifier("text.\(title)")
     }
