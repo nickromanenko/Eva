@@ -2079,14 +2079,23 @@ app.get('/me/nutrition/profile', requireAuth, requireAccount, async (c) => {
  * `CYCLE_*` group are unconfigured (each refusal mapped, and pinned in
  * `nutrition-profile.test.ts`), and `400` for a profile missing the body metrics the maths
  * needs (an unanswered activity band).
+ *
+ * `timeZone` (optional, IANA) decides which local day the plan is for, exactly as it does for
+ * `GET /me/today` (#365).
  */
 app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
+  // Her day, not the server's (#365): the phase — and so the luteal adjustment — is read for
+  // the local date `timeZone` names, parsed and refused exactly as `GET /me/today` does it,
+  // with the same UTC fallback when it is absent.
+  const clock = resolveClock(c.req.query('timeZone'))
+  if (!clock.ok) return c.json(error(clock.code, clock.message), 400)
+  const today = clock.value.today
   const uid = c.get('claims').sub
   try {
     const [nutritionProfile, user, analysis] = await Promise.all([
       getNutritionProfile(uid),
       getUser(uid),
-      cycleAnalysisFor(uid, new Date().toISOString().slice(0, 10)),
+      cycleAnalysisFor(uid, today),
     ])
     if (!nutritionProfile?.complete) {
       return c.json(error('VALIDATION', 'Complete your Nutrition setup first'), 400)
@@ -2099,7 +2108,7 @@ app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
     const body = {
       weightKg: profile.weightKg,
       heightCm: profile.heightCm,
-      ageYears: ageYearsOn(profile.dateOfBirth, new Date().toISOString().slice(0, 10)),
+      ageYears: ageYearsOn(profile.dateOfBirth, today),
       activityBand: profile.lifestyle,
       focusAreas: setup.focusAreas.map((code) => FOCUS_AREA_PRD_ITEM[code]),
     }
