@@ -228,16 +228,32 @@ final class NutritionSetupUITests: EvaUITestCase {
         // MARK: Reversed from Nutrition Settings (canvas `nSet`) — and only from there
 
         relaunch(app)
+        // A fresh account has no stored height or weight; one Profile save gives it the
+        // editor's, so the Body metrics row has a value it could show.
+        saveAProfile(app)
         let setting = openNutritionSettings(app)
         XCTAssertTrue(
             waitUntil { (setting.value as? String) == "1" },
             "Nutrition Settings does not show the stored preference: \(String(describing: setting.value))"
+        )
+        // Hidden numbers: the Body metrics row names Profile, and carries no weight.
+        let bodyRow = app.buttons["nutrition.settings.bodyMetrics"]
+        XCTAssertTrue(bodyRow.exists, "Nutrition Settings has no Body metrics row")
+        XCTAssertTrue(bodyRow.label.contains("Set in Profile"), "Body metrics row: \(bodyRow.label)")
+        XCTAssertNil(
+            bodyRow.label.rangeOfCharacter(from: .decimalDigits),
+            "A height or weight is on Nutrition Settings with the numbers hidden: \(bodyRow.label)"
         )
         capture("nutrition-settings")
         tap(setting, in: app)
         XCTAssertTrue(
             waitUntil { (setting.value as? String) == "0" && setting.isEnabled },
             "The preference did not turn off"
+        )
+        // Turned off by her, the values come back — the control for the check above.
+        XCTAssertTrue(
+            waitUntil { bodyRow.label.contains(" kg") && bodyRow.label.contains(" cm") },
+            "Turning the preference off did not bring the body metrics back: \(bodyRow.label)"
         )
 
         // Turned off by her, the numbers are back — and they stay back across a relaunch.
@@ -258,6 +274,20 @@ final class NutritionSetupUITests: EvaUITestCase {
             waitUntil { (again.value as? String) == "0" },
             "The preference turned itself back on after a relaunch"
         )
+    }
+
+    /// Profile ▸ Medications ▸ None ▸ Save. Every Profile editor re-sends the whole profile,
+    /// so this stores one — with the editor's default height and weight — and medications is
+    /// the editor a fresh account can save (`ProfileActivityUITests`).
+    private func saveAProfile(_ app: XCUIApplication) {
+        let profile = app.buttons["tab.profile"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 20), "No Profile tab")
+        tap(profile, in: app)
+        tap(app.buttons["profile.medications"], in: app)
+        tap(app.buttons["chip.None"], in: app)
+        let save = app.buttons["primary.Save"]
+        tap(save, in: app)
+        XCTAssertTrue(save.waitForNonExistence(timeout: 15), "Saving the profile did not return to Profile")
     }
 
     /// Profile ▸ Eva experience ▸ Nutrition Settings, and its hide-numbers switch once the

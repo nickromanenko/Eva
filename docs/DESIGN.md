@@ -769,7 +769,8 @@ Where the built screens knowingly differ from `s4`, `sGuard`, `sSum`, `sResume` 
   switch, and its description is the setup flow's sentence — the artboard's ("Macros and
   food guidance stay") is not true of it. Water tracking, Meal reminders and the Goal / Focus
   areas / Meal pattern rows are not drawn: nothing behind them exists. The rows the `nSet`
-  note says deep-link to Profile push Profile's own editors.
+  note says deep-link to Profile push Profile's own editors. With the numbers hidden, Body
+  metrics reads "Set in Profile" instead of her height and weight (owner decision, #381).
 - **Step 4 takes no input.** `s4` draws height and weight as editable fields; they are drawn
   in §6's disabled treatment (Step 5's "Current" on the same canvas) because Profile is their
   one editor. The activity radios are drawn and inert. The pistachio note about logged

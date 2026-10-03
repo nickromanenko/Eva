@@ -43,6 +43,25 @@ final class NutritionSettingsModel {
         }
     }
 
+    /// The Body metrics row's value: her height and weight in her units — unless the numbers
+    /// are hidden, when the row says where they live instead (owner decision on #381). Profile
+    /// still shows and edits them; this screen is about nutrition, and a weight on it is a
+    /// number she asked not to be shown.
+    ///
+    /// Also "Set in Profile" until the server's answer is in: the preference is not known yet,
+    /// and showing the weight for the moment it takes to load would be the one thing it
+    /// protects against.
+    func bodyMetricsValue(_ profile: APIProfile?, system: EvaUnitSystem) -> String {
+        guard phase == .ready, !hideNumbers else { return Self.setInProfile }
+        guard let profile else { return Self.setInProfile }
+        let height = EvaHeightInput(centimeters: profile.heightCm, system: system).displayText
+        let weight = EvaMassInput(kilograms: profile.weightKg, system: system).displayText
+        return "\(height) · \(weight)"
+    }
+
+    /// `REVIEW`: the canvas' own words for a row edited in Profile.
+    static let setInProfile = "Set in Profile"
+
     /// Saves her choice, and only her choice.
     func setHideNumbers(_ hide: Bool) async {
         guard hide != hideNumbers, !isSaving else { return }

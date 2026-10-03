@@ -17,7 +17,9 @@ import SwiftUI
 ///   own sentence: the artboard's ("Macros and food guidance stay") is not true of a mode
 ///   that hides the macros too.
 /// * The rows the `nSet` note says deep-link to Profile — body metrics, activity, units,
-///   health conditions — push Profile's own editors: one fact, one editor.
+///   health conditions — push Profile's own editors: one fact, one editor. While the numbers
+///   are hidden, Body metrics says "Set in Profile" rather than her height and weight (owner
+///   decision on #381); Profile still shows and edits them.
 /// * **How targets are calculated** opens the same sheet the plan summary does.
 ///
 /// Not drawn, because nothing behind them exists: Water tracking, Meal reminders, and the
@@ -164,12 +166,9 @@ struct NutritionSettingsView: View {
         .evaCardSurface()
     }
 
-    /// "168 cm · 73 kg", in her units — empty until she has given them.
+    /// "168 cm · 73 kg" in her units, or "Set in Profile" while the numbers are hidden.
     private var bodyMetricsValue: String {
-        guard let profile = session.user?.profile else { return "" }
-        let height = EvaHeightInput(centimeters: profile.heightCm, system: units.system).displayText
-        let weight = EvaMassInput(kilograms: profile.weightKg, system: units.system).displayText
-        return "\(height) · \(weight)"
+        model.bodyMetricsValue(session.user?.profile, system: units.system)
     }
 
     /// A row that opens the sheet rather than pushing a screen — `ProfileSettingsRow`'s look,

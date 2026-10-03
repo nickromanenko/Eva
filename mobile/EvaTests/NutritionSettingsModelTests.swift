@@ -60,3 +60,49 @@ struct NutritionSettingsModelTests {
         #expect(!model.hideNumbers)
     }
 }
+
+/// The Body metrics row on Nutrition Settings (owner decision on #381): no height or weight
+/// while the numbers are hidden.
+@MainActor
+@Suite("Nutrition settings · body metrics row")
+struct NutritionSettingsBodyMetricsTests {
+
+    private let body = APIProfile.body(weightKg: 64, heightCm: 168)
+
+    @Test("Hidden numbers: the row names Profile and carries no value")
+    func hiddenShowsNoValue() async {
+        let model = NutritionSettingsModel(source: RecordingNutritionSource(
+            profile: .partial(goal: .maintain, step: .done, hideNumbers: true)
+        ))
+        await model.load()
+        for system in EvaUnitSystem.allCases {
+            let value = model.bodyMetricsValue(body, system: system)
+            #expect(value == "Set in Profile")
+            #expect(value.rangeOfCharacter(from: .decimalDigits) == nil, "a number on the row: \(value)")
+        }
+    }
+
+    @Test("Turned off by her, the values come back, in her units")
+    func offShowsValues() async {
+        let model = NutritionSettingsModel(source: RecordingNutritionSource(
+            profile: .partial(goal: .maintain, step: .done, hideNumbers: true)
+        ))
+        await model.load()
+        await model.setHideNumbers(false)
+        #expect(model.bodyMetricsValue(body, system: .metric) == "168 cm · 64 kg")
+        #expect(model.bodyMetricsValue(body, system: .imperial) == "5 ft 6 in · 141 lb")
+    }
+
+    @Test("Before the preference has loaded, and when it fails to, no value is shown")
+    func unknownPreferenceShowsNoValue() async {
+        let source = RecordingNutritionSource(
+            profile: .partial(goal: .maintain, step: .done, hideNumbers: true)
+        )
+        let model = NutritionSettingsModel(source: source)
+        #expect(model.bodyMetricsValue(body, system: .metric) == "Set in Profile", "before load")
+        source.failsProfile = true
+        await model.load()
+        #expect(model.phase == .failed)
+        #expect(model.bodyMetricsValue(body, system: .metric) == "Set in Profile", "after a failed load")
+    }
+}
