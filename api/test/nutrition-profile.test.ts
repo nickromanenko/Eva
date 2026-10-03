@@ -9,10 +9,18 @@ import {
   test,
 } from 'bun:test'
 import { Timestamp } from 'firebase-admin/firestore'
+import { readFileSync } from 'node:fs'
 import { mintToken } from '../src/auth'
+import { config } from '../src/config'
+import * as cycleModule from '../src/cycle'
+import { analyzeCycles } from '../src/cycle'
+import { createEvent } from '../src/events'
 import { adminAuth, firestore } from '../src/firebase'
 import { default as server } from '../src/index'
+import * as nutritionModule from '../src/nutrition'
 import { ACTIVITY_BANDS, type ActivityFactors } from '../src/nutrition'
+import * as adjustmentModule from '../src/nutrition-adjustment'
+import { LUTEAL_REASON } from '../src/nutrition-adjustment'
 import {
   FOCUS_AREA_CODES,
   FOCUS_AREA_PRD_ITEM,
@@ -22,6 +30,7 @@ import {
   type NutritionProfile,
 } from '../src/nutrition-profile'
 import { ACTIVITY_BAND_CODES, type ActivityBand, storedLifestyle } from '../src/users'
+import { bootApi } from './support/boot-api'
 import { isRequestLine } from './support/request-line'
 import { testEmail } from './support/test-email'
 
@@ -858,4 +867,217 @@ describe('GET /me/nutrition/plan', () => {
     const res = await call(token, 'GET', '/me/nutrition/plan')
     expect(res.status).toBe(400)
   })
+})
+
+// ── The cycle-phase adjustment through the route (S12, #224) ─────────────────────────────
+
+/** `YYYY-MM-DD`, `days` before today in UTC — the day the route measures from. */
+const daysBack = (days: number): string =>
+  new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+
+/** Two logged flow days from each start, as `cycle-predictions.test.ts` logs a period —
+ *  written through `createEvent` (what `POST /me/events` hands its parsed body to) under the
+ *  token's own session, all at once, because the claim here is about the read. */
+const periodsFrom = async (uid: string, startsBack: readonly number[]) => {
+  const days = startsBack.flatMap((back) => [daysBack(back), daysBack(back - 1)])
+  await Promise.all(
+    days.map((localDate) =>
+      createEvent(uid, 0, {
+        type: 'cycle',
+        localDate,
+        loggedAt: `${localDate}T12:00:00`,
+        note: null,
+        source: 'user',
+        idempotencyKey: null,
+        payload: { flow: 'medium' },
+      }),
+    ),
+  )
+  return days.map((localDate) => ({ localDate, kind: 'flow' }) as const)
+}
+
+/**
+ * Both women's last period opened 22 days ago, so at a 28-day median she is on cycle day 23 —
+ * past the fertile window, in the luteal phase. The only difference is the history before it.
+ *
+ * The regular one is the control: without it, "the irregular plan is unadjusted" would pass
+ * just as well against a route that never adjusts anything.
+ */
+const REGULAR_LUTEAL = [190, 162, 134, 106, 78, 50, 22]
+/** #205's irregular fixture, literally: intervals 28, 60, 28, 60, 28, 60. */
+const ALTERNATING_LUTEAL = [286, 258, 198, 170, 110, 82, 22]
+
+describe('GET /me/nutrition/plan: no phase, no adjustment', () => {
+  const eventUids: string[] = []
+  afterAll(async () => {
+    for (const uid of eventUids) {
+      for (const doc of await userDoc(uid).collection('events').listDocuments()) {
+        await doc.delete().catch(() => {})
+      }
+    }
+  })
+
+  const planFor = async (startsBack: readonly number[]) => {
+    const { uid, token } = await account({ profile: questionnaire('mostlySitting') })
+    eventUids.push(uid)
+    const days = await periodsFrom(uid, startsBack)
+    await finishSetup(token, 60)
+    const res = await call(token, 'GET', '/me/nutrition/plan')
+    expect(res.status).toBe(200)
+    expect(res.body.plan.kind).toBe('targets')
+    return { plan: res.body.plan, days }
+  }
+
+  test('the control: a regular luteal day is adjusted, with its confidence and reason', async () => {
+    const { plan } = await planFor(REGULAR_LUTEAL)
+    const percent = config.nutritionAdjustment!.lutealPercent
+    expect(plan.adjustment).toEqual({
+      calorieTargetKcal: Math.round(plan.targets.calorieTargetKcal * (1 + percent / 100)),
+      reasonId: LUTEAL_REASON,
+      confidence: 'narrow', // six counted cycles: A27's tighter band
+    })
+    // GUARDRAILS 12: a phase, a target or a mode in a log line is a health fact.
+    expect(logged).toEqual([])
+  })
+
+  test('[28, 60, 28, 60, 28, 60] reaches the plan unadjusted, and its reason names no phase', async () => {
+    const { plan, days } = await planFor(ALTERNATING_LUTEAL)
+
+    // The fixture is the issue's, and it is the irregularity gate that closed — not a
+    // shortage of data: the maths this process runs over the same days counts enough cycles
+    // and still withholds.
+    const analysis = analyzeCycles(
+      { days, today: daysBack(0), profile: null },
+      config.cycle!,
+    )
+    expect(analysis.cycles.map((cycle) => cycle.lengthDays)).toEqual([28, 60, 28, 60, 28, 60])
+    expect(analysis.enoughCountedCycles).toBe(true)
+    expect(analysis.withheld).toBe('irregular-cycles')
+
+    expect(plan.adjustment).toEqual({
+      calorieTargetKcal: plan.targets.calorieTargetKcal,
+      reasonId: null,
+      confidence: null,
+    })
+    expect(JSON.stringify(plan)).not.toMatch(/luteal|follicular|ovulation|menstrual|phase/)
+    expect(logged).toEqual([])
+  })
+})
+
+/**
+ * **Every refusal the plan route can meet answers 503, not 500** — #181's lesson, and #224's
+ * criterion that each mapping is pinned by a test.
+ *
+ * One server per refusal, booted with only that group unset, so a green case is evidence
+ * about *that* `instanceof` arm. `config.ts` reads the environment once at import, so a
+ * different configuration needs a different process. The names come from `.env.example`,
+ * the file a deployment copies, so a variable added there is unset here too.
+ */
+describe('GET /me/nutrition/plan refuses rather than failing', () => {
+  const example = readFileSync(`${import.meta.dir}/../.env.example`, 'utf8')
+  const unsetGroup = (prefix: string) => {
+    const names = [...example.matchAll(new RegExp(`^(${prefix}[A-Z_]+)=`, 'gm'))].map((m) => m[1]!)
+    expect(names.length).toBeGreaterThan(0)
+    // Empty rather than absent: an `api/.env` cannot fill an empty value back in.
+    return Object.fromEntries(names.map((name) => [name, '']))
+  }
+
+  const refusedWith = async (env: Record<string, string>) => {
+    const { token } = await account({ profile: questionnaire('mostlySitting') })
+    await finishSetup(token, 60)
+    const server = await bootApi({ env, range: [4300, 4399], label: 'nutrition-profile.test.ts' })
+    try {
+      const res = await fetch(`${server.base}/me/nutrition/plan`, {
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(res.status).toBe(503)
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'SERVICE_UNAVAILABLE',
+      )
+    } finally {
+      server.child.kill()
+    }
+  }
+
+  test('503 while the NUTRITION_* group is unset', async () => {
+    await refusedWith(unsetGroup('NUTRITION_'))
+  }, 60_000)
+
+  test('503 while LUTEAL_ADJUSTMENT_PERCENT is unset — a refusal, not a default', async () => {
+    await refusedWith({ LUTEAL_ADJUSTMENT_PERCENT: '' })
+  }, 60_000)
+
+  test("503 while the cycle maths' constants are unset", async () => {
+    await refusedWith(unsetGroup('CYCLE_'))
+  }, 60_000)
+
+  /** The general rule, derived rather than listed: every refusal the three modules the
+   *  route calls can throw has an arm in its catch — so the next one added fails here until
+   *  it is mapped, before anything can throw it. No Firestore, no server. */
+  test('the route has an arm for every refusal its modules export', async () => {
+    const source = await Bun.file(`${SRC}/index.ts`).text()
+    const route = source.slice(source.indexOf(`app.get('/me/nutrition/plan'`))
+    const body = stripComments(route.slice(0, route.indexOf('\n})')))
+    const refusals = [nutritionModule, adjustmentModule, cycleModule].flatMap((module) =>
+      Object.entries(module)
+        .filter(([, value]) => typeof value === 'function' && value.prototype instanceof Error)
+        .map(([name]) => name),
+    )
+    expect(refusals.sort()).toEqual([
+      'CycleRulesUnsetError',
+      'ImpossibleAgeError',
+      'ImpossibleBodyMetricError', // a 400, not a refusal — but still an arm, never a 500
+      'InvalidCycleDateError',
+      'NutritionAdjustmentUnsetError',
+      'NutritionRulesUnsetError',
+    ])
+    // The two `cycle.ts` says are deliberately 500s on every route that reads the maths:
+    // neither resolves by retrying, and neither is configuration (#187; `InvalidCycleDateError`
+    // is unreachable through the API, as on `/me/cycle/predictions`).
+    const deliberate500 = new Set(['ImpossibleAgeError', 'InvalidCycleDateError'])
+    for (const name of refusals.filter((name) => !deliberate500.has(name))) {
+      expect({ name, mapped: body.includes(`err instanceof ${name}`) }).toEqual({
+        name,
+        mapped: true,
+      })
+    }
+  })
+})
+
+/** `LUTEAL_ADJUSTMENT_PERCENT` as `config.ts` reads it — a boot-time check, so a bare
+ *  subprocess with only the variables `config.ts` requires. No Firestore. */
+describe('the luteal constant at boot', () => {
+  const BASE_ENV = {
+    PATH: process.env.PATH ?? '',
+    FIREBASE_PROJECT_ID: 'demo-eva-nutrition-test',
+    FIREBASE_WEB_API_KEY: 'not-a-real-key',
+    JWT_SECRET: 'not-a-real-secret',
+    EMAIL_TRANSPORT: 'log',
+    NODE_ENV: 'test',
+    POSTMARK_FROM: 'nutrition-test@example.test',
+    PUBLIC_WEB_URL: 'http://localhost:4321',
+  }
+  const bootConfig = async (over: Record<string, string>) => {
+    const proc = Bun.spawn(['bun', 'run', 'src/config.ts'], {
+      cwd: `${import.meta.dir}/..`,
+      env: { ...BASE_ENV, ...over },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()])
+    return { code, stderr }
+  }
+
+  test('a value that is not a percentage from 0 to 20 is refused at boot', async () => {
+    for (const value of ['five', '-1', '25']) {
+      const { code, stderr } = await bootConfig({ LUTEAL_ADJUSTMENT_PERCENT: value })
+      expect({ value, code: code === 0 }).toEqual({ value, code: false })
+      expect(stderr).toContain('LUTEAL_ADJUSTMENT_PERCENT')
+    }
+  }, 30_000)
+
+  test('A30’s 5, and unset, both boot — unset is refused per request, not at boot', async () => {
+    expect((await bootConfig({ LUTEAL_ADJUSTMENT_PERCENT: '5' })).code).toBe(0)
+    expect((await bootConfig({})).code).toBe(0)
+  }, 30_000)
 })

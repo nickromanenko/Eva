@@ -381,7 +381,17 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   returns A28's `{ kind: 'qualitative' }` (no number) for Pregnancy Mode and the first six
   postpartum weeks, and carries the phase's confidence class beside the adjusted number
   (GUARDRAILS 35) plus a reason id the copy store resolves — never a generated sentence. Pure:
-  `import type` only. `NutritionAdjustmentUnsetError` is the refusal the route maps to 503.
+  `import type` only. `NutritionAdjustmentUnsetError` is the refusal the route maps to 503 —
+  as are the engine's and C11's (`CycleRulesUnsetError`, reached through `cycleAnalysisFor`),
+  each pinned by a booted server in `nutrition-profile.test.ts`.
+  Also holds two rules **with no consumer yet**, each pure and pinned: `recalculationReason`
+  (PRD lines 815–825 — two `PlanBasis` snapshots in, exactly one of five reason ids or `null`
+  out; nothing stores the previous basis yet, so no read can compare against one) and
+  `orderSuggestions` (PRD line 800 — iron-rich first during an *observed* period when focus
+  area 3 or a declared `anaemia` says so; a permutation of its input and nothing else, so it
+  cannot introduce a supplement, a dose or a deficiency statement; no suggestion list exists
+  yet). The phase trigger fires on `adjustingPhase` — whether the phase moved the number —
+  not on every phase boundary.
 - `firebase.ts` — Admin SDK singleton. Never initialize a second app.
 - `config.ts` — required env vars, fail-fast. It carries two imports that point *up* this
   list — `cycleRulesProblem` from `cycle.ts` and `nutritionRulesProblem` from `nutrition.ts` —

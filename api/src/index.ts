@@ -2075,9 +2075,10 @@ app.get('/me/nutrition/profile', requireAuth, requireAccount, async (c) => {
  * the app draws is gated on `complete` exactly as the route is. The plan is `planDailyTargets`'
  * own answer — the target and the macros, or `{ kind: 'refused' }` with the lowest weight the
  * guards will accept — so the guard cards and the plan summary render one shape rather than
- * two. A `503` while the `NUTRITION_*` constants are unconfigured (#222's refusal, mapped
- * here before anything can throw it), and `400` for a profile missing the body metrics the
- * maths needs (an unanswered activity band).
+ * two. A `503` while the `NUTRITION_*` constants, `LUTEAL_ADJUSTMENT_PERCENT` or the
+ * `CYCLE_*` group are unconfigured (each refusal mapped, and pinned in
+ * `nutrition-profile.test.ts`), and `400` for a profile missing the body metrics the maths
+ * needs (an unanswered activity band).
  */
 app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
   const uid = c.get('claims').sub
@@ -2122,6 +2123,10 @@ app.get('/me/nutrition/plan', requireAuth, requireAccount, async (c) => {
   } catch (err) {
     if (err instanceof NutritionRulesUnsetError) return nutritionUnavailable(c)
     if (err instanceof NutritionAdjustmentUnsetError) return nutritionUnavailable(c)
+    // The phase is read through `cycleAnalysisFor`, so C11's refusal reaches this route too.
+    // A 503 rather than an unadjusted target: without the maths there is no knowing whether
+    // she is luteal, and a base number served as if checked is the default #181 refused.
+    if (err instanceof CycleRulesUnsetError) return nutritionUnavailable(c)
     if (err instanceof ImpossibleBodyMetricError) {
       return c.json(error('VALIDATION', 'Your body metrics are out of range'), 400)
     }
