@@ -77,7 +77,9 @@ struct ProfileSettingsRow<Destination: View>: View {
 
     var body: some View {
         NavigationLink {
-            destination
+            // A pushed page is hosted apart from the tab, so the tab's own hiding does not
+            // reach it (#379).
+            destination.evaTabPage()
         } label: {
             HStack(spacing: EvaSpacing.sm) {
                 VStack(alignment: .leading, spacing: 2) {
