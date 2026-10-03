@@ -183,8 +183,9 @@ Each rule is stated so a reviewer can check it mechanically.
     first, then the queue), is the regression. Every created event carries the
     device-generated `idempotencyKey` (the row's `clientId`); the API's lookup on it stays a
     pinned test in `api/test/`. The store is excluded from backups and wiped on log-out,
-    account deletion and `EVA_UITEST_RESET` — never on a 401, which pauses the queue and
-    discards nothing.
+    account deletion and `EVA_UITEST_RESET`. A 401 closes it — and a closed store sends
+    nothing more — keeping the queue only for the same account signing back in; another
+    account, or a launch with no token, wipes it.
 
 ## Dependencies & scope
 

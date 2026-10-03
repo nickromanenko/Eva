@@ -68,7 +68,8 @@ final class OfflineSyncUITests: EvaUITestCase {
             row.label.localizedCaseInsensitiveContains(activity),
             "The offline entry does not say what was logged: \(row.label)"
         )
-        XCTAssertEqual(serverEvents(email: email).count, 0, "The entry reached a server that was down")
+        // No "server has 0" check here: the app is pointed at a dead port, so it could not
+        // fail. The claim that matters is the one after reconnecting — exactly one.
 
         // MARK: Back online: the queue drains
         relaunch(app, api: Self.apiBaseURL)
@@ -248,35 +249,15 @@ final class OfflineSyncUITests: EvaUITestCase {
         return label
     }
 
-    /// Opens the log picker once the calendar has settled.
-    ///
-    /// The first tap on the FAB right after a launch is sometimes not delivered — the
-    /// swallowed touch `CalendarLoggingUITests.openPicker` diagnoses (#192). This suite is
-    /// not about the FAB, so it waits for the first load to land and taps a second time if
-    /// the first went nowhere, and says so in the log.
+    /// Opens the log picker with one tap — no retry. A Log button that does not answer
+    /// its first tap is a failure here, not something to tap past (#372).
     private func openPicker(_ app: XCUIApplication) {
         let button = app.buttons["calendar.log"]
         XCTAssertTrue(button.waitForExistence(timeout: 15), "The calendar has no Log button")
-        let settled = ["calendar.empty", "calendar.summary", "calendar.loadError"].map {
-            app.descendants(matching: .any).matching(identifier: $0).firstMatch
-        }
-        let deadline = Date().addingTimeInterval(20)
-        while !settled.contains(where: \.exists) && Date() < deadline {
-            _ = settled[0].waitForExistence(timeout: 1)
-        }
-        tap(button, in: app)
-        if app.staticTexts["log.targetDay"].waitForExistence(timeout: 10) { return }
-        // What runs of this suite established about #192: when the FAB's touch is lost,
-        // every other control on the calendar still answers, and after the grid has been
-        // paged away and back the FAB answers too. So the retry re-lays the screen out
-        // first rather than repeating a tap that has just been shown not to land.
-        print("LOG TAP NOT DELIVERED (#192) — paging the grid and tapping once more")
-        tap(app.buttons["calendar.nextMonth"], in: app)
-        tap(app.buttons["calendar.previousMonth"], in: app)
         tap(button, in: app)
         XCTAssertTrue(
             app.staticTexts["log.targetDay"].waitForExistence(timeout: 10),
-            "Tapping Log did not open the picker, even after the grid was re-laid out"
+            "Tapping Log did not open the picker"
         )
     }
 

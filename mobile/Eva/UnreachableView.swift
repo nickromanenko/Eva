@@ -73,7 +73,11 @@ struct UnreachableView: View {
 
                 // A3 (#78): the canvas' second action. The app runs from the local store
                 // with the token kept and unvalidated; entries queue and sync later.
-                SecondaryButton(title: "Continue offline", action: session.continueOffline)
+                // Only for an account that has passed the consent gate on this device: with
+                // no `/me` there is no consent record to read (#86).
+                if session.canContinueOffline {
+                    SecondaryButton(title: "Continue offline", action: session.continueOffline)
+                }
 
                 // The escape hatch, and the reason it is here: before #61 *every* launch
                 // failure signed the user out, so being stuck was impossible — you were

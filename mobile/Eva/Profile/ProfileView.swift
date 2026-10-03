@@ -90,8 +90,11 @@ struct ProfileView: View {
                 .padding(.horizontal, EvaSpacing.lg)
                 .padding(.top, EvaSpacing.xs)
                 .padding(.bottom, EvaSpacing.xxl)
+                .evaHiddenWhenTabInactive()
             }
+            .evaHiddenWhenTabInactive()
         }
+        .evaHiddenWhenTabInactive()
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         // A cover rather than a sheet: the artboard draws the scrim over the whole

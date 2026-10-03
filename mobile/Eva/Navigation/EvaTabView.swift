@@ -43,6 +43,7 @@ struct EvaTabView: View {
                     .opacity(router.selection == tab ? 1 : 0)
                     .allowsHitTesting(router.selection == tab)
                     .accessibilityHidden(router.selection != tab)
+                    .environment(\.evaTabIsActive, router.selection == tab)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -183,4 +184,36 @@ struct EvaTabBar: View {
 
 #Preview {
     EvaTabView(session: AppSession(), units: EvaUnitPreference(), country: EvaCountrySetting())
+}
+
+// MARK: - Hiding an inactive tab from accessibility (#372)
+
+extension EnvironmentValues {
+    /// Whether the tab this view belongs to is the one on screen. `true` outside the tab
+    /// bar — a preview, the screenshot harness.
+    @Entry var evaTabIsActive: Bool = true
+}
+
+extension View {
+    /// Hides this content from accessibility while its tab is not on screen.
+    ///
+    /// **Needed inside every UIKit-backed container a tab draws** — its `ScrollView`, its
+    /// `NavigationStack`, a pushed screen. `EvaTabView` hides the inactive tabs with
+    /// `.accessibilityHidden`, and that does not reach through a container SwiftUI hosts
+    /// in UIKit: an inactive tab's scroll content stayed in the accessibility tree, at the
+    /// same points as the tab on screen. VoiceOver could land on rows nobody can see, and
+    /// XCUITest judged the calendar's Log button covered by Profile's "Add another way to
+    /// sign in" text, tapped its corner instead, and missed (#372). Applied here, inside
+    /// the container, it does reach.
+    func evaHiddenWhenTabInactive() -> some View {
+        modifier(EvaInactiveTabAccessibility())
+    }
+}
+
+private struct EvaInactiveTabAccessibility: ViewModifier {
+    @Environment(\.evaTabIsActive) private var isActive
+
+    func body(content: Content) -> some View {
+        content.accessibilityHidden(!isActive)
+    }
 }

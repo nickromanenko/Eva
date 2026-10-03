@@ -405,9 +405,22 @@ struct EvaStoreFileTests {
 
         let values = try EvaStore.url(for: uid).resourceValues(forKeys: [.isExcludedFromBackupKey])
         #expect(values.isExcludedFromBackup == true)
-        let attributes = try FileManager.default.attributesOfItem(atPath: EvaStore.url(for: uid).path)
-        if let protection = attributes[.protectionKey] as? FileProtectionType {
-            #expect(protection == .completeUntilFirstUserAuthentication)
+        // The directory carries the exclusion too, so a `-wal` SQLite creates later is
+        // covered without anyone re-applying it.
+        let directory = try EvaStore.directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(directory.isExcludedFromBackup == true)
+        #expect(EvaStore.url(for: uid).deletingLastPathComponent().lastPathComponent == "EvaStore")
+        // File protection is not asserted: the simulator reports no protection class at
+        // all, so a check here would never run where this suite runs. The attribute is
+        // set in `EvaStore.harden`/`prepareDirectory` and is a device-only property.
+    }
+
+    @Test("a uid that is not a plain identifier never becomes a file name")
+    func refusesPathLikeUIDs() {
+        #expect(EvaStore.isValid(uid: "AbC_12-xy"))
+        for bad in ["", "../x", "a/b", "a.b", "a b", "é"] {
+            #expect(!EvaStore.isValid(uid: bad), "accepted \(bad)")
+            #expect(throws: EvaStore.InvalidUID.self) { try EvaStore(uid: bad, inMemory: true) }
         }
     }
 
@@ -454,6 +467,13 @@ struct EvaSessionTokenTests {
         // {"alg":"HS256","typ":"JWT"} . {"sub":"uid-123","iat":1}
         let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1aWQtMTIzIiwiaWF0IjoxfQ.sig"
         #expect(EvaSessionToken.subject(of: token) == "uid-123")
+    }
+
+    @Test("a sub that is not a plain identifier is refused")
+    func refusesPathLikeSub() {
+        // {"sub":"../x"}
+        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIuLi94In0.sig"
+        #expect(EvaSessionToken.subject(of: token) == nil)
     }
 
     @Test("anything that is not a JWT has no subject")

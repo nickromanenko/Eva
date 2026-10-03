@@ -2604,9 +2604,30 @@ What the implementation added to the design above, each because the design left 
   recorded when she logged it (`PendingOperation.timeZone`) — two offline edits go out as
   their latest content, and a Lisbon entry sent from New York is still judged by Lisbon's
   today.
-- **A 401 sign-out does not wipe.** Log out and account deletion wipe (§8.5); a 401 closes
-  the store and keeps the queue (§8.4: nothing is discarded), so the same account signing
-  back in sends it. A different account wipes it on open.
+- **A 401 sign-out closes, it does not wipe — until something else happens.** Log out and
+  account deletion wipe (§8.5). A 401 closes the store and keeps the queue (§8.4: nothing
+  is discarded) so the same account signing back in, in the same run, resumes it. Anything
+  else wipes it: another account signing in, or a launch that finds no token — which is
+  also what an account deleted on another device looks like from here (#371 review).
+- **A closed store sends nothing.** Closing cancels the pass in flight, and `EventSync`
+  re-checks before and after every request, throwing the session's own "paused" error. Without
+  that, a request in flight when A's session ended was followed by A's *next* operation,
+  sent with whatever token the Keychain then held — B's, if B had signed in (#371 review;
+  `OfflineSessionTests.noCrossAccountSend`).
+- **Continue offline needs the consent gate passed on this device.** With no `/me` there is
+  no consent record to read, so the button is offered only for a uid that has reached
+  `.ready` here before (a non-health mark in `UserDefaults`, cleared on log out and
+  whenever the server sends her to the consent screen).
+- **Files.** The stores live in `Application Support/EvaStore/`, excluded from backup at
+  the directory, so SQLite's later `-wal`/`-shm` files are covered too; a uid becomes a file
+  name only if it is `[A-Za-z0-9_-]+`.
+- **An inactive tab is hidden from accessibility inside its own containers (#372).**
+  `EvaTabView`'s `.accessibilityHidden` does not reach through a `ScrollView` or
+  `NavigationStack` SwiftUI hosts in UIKit, so each tab also applies
+  `evaHiddenWhenTabInactive()` inside them. Found because the calendar's Log button failed
+  its first tap in UI tests: XCUITest saw Profile's hidden text and the button's own `plus`
+  glyph over the button's centre and tapped its top-left corner, outside the rounded hit
+  shape. The glyph is now hidden from accessibility and the whole tile takes the touch.
 - **The "Couldn't sync" card** (`EvaErrorCard`, DESIGN.md §7) appears on the calendar when
   any entry is `failed`; **Retry now** queues every refused entry again. Its second sentence
   departs from the artboard's "Eva will retry automatically", which is not true of a 4xx.

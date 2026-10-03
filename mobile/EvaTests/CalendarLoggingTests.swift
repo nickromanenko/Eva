@@ -521,6 +521,23 @@ struct CalendarWriteTests {
         #expect(model.toast?.message.contains("Menstrual cycle saved") == true)
     }
 
+    /// §8.3: "after the queue drains, the engine calls GET /me/events for the visible
+    /// range ±1 month and reconciles".
+    @Test("A drained queue re-reads the visible range")
+    func aDrainedQueueReReadsTheRange() async throws {
+        let source = RecordingCalendarSource()
+        let model = await Self.model(source)
+        let before = source.ranges.count
+
+        try await model.save(Self.write(.cycle(.flow(.medium))))
+        await model.synchronize()
+
+        #expect(source.ranges.count == before + 1, "The drain was not followed by a range read")
+        let reread = try #require(source.ranges.last)
+        #expect(reread.lowerBound == Self.today.evaMonth.previous.firstDay)
+        #expect(reread.upperBound == Self.today.evaMonth.next.lastDay)
+    }
+
     @Test("Body signals go through the day-addressed upsert; the rest through create")
     func bodySignalsUseTheirOwnRoute() async throws {
         let source = RecordingCalendarSource()

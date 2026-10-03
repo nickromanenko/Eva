@@ -113,6 +113,7 @@ struct HomeView: View {
                 .padding(.horizontal, EvaSpacing.lg)
                 .padding(.top, EvaSpacing.xxs)
                 .padding(.bottom, EvaSpacing.xxl)
+                .evaHiddenWhenTabInactive()
             }
             // "Pull-to-refresh asks the sync engine for a newer card; the view re-renders
             // only when the store changes" (#99). The asking is here; the not-changing is
@@ -124,6 +125,7 @@ struct HomeView: View {
             // necessarily this one. The identifier is how `EvaUITests` pulls on the right
             // column (GUARDRAILS 22).
             .accessibilityIdentifier("home.scroll")
+            .evaHiddenWhenTabInactive()
         }
         // Full screen, as Safari presents itself: the article is a different place with its
         // own chrome, not a sheet over Home. Done hands control back — see `ArticleSafariView`.

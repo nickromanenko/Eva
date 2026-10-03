@@ -46,7 +46,9 @@ final class AppSession {
         case deletionRefusedSessionEnded
     }
 
-    private(set) var state: State = .loading
+    private(set) var state: State = .loading {
+        didSet { recordConsentGate() }
+    }
     private(set) var user: APIUser? {
         // Every path that learns who is signed in — launch, sign-in, a consent or profile
         // write — opens that account's store, so no screen can read a store keyed to
@@ -56,6 +58,10 @@ final class AppSession {
     /// The calendar's entries on this device, and the queue that syncs them (A3, #78).
     /// `nil` while signed out; keyed to the signed-in uid.
     private(set) var eventSync: EventSync?
+    /// A store closed by a 401, kept so the same account signing back in resumes its queue
+    /// (§8.4: nothing is discarded) — and wiped the moment anything else happens instead
+    /// (#371 review: an account deleted on another device must not leave its entries here).
+    @ObservationIgnored private var pausedSync: EventSync?
     /// Set only by a sign-out that has a `SignedOutReason`, and cleared by the next
     /// session and by every other sign-out — so it describes the sign-out the user is
     /// looking at, never an earlier one. In memory only: after a relaunch the context
@@ -82,15 +88,20 @@ final class AppSession {
     /// Whether the local store lives in memory rather than in Application Support — the
     /// unit tests, which build many sessions in parallel and must not share store files.
     private let inMemoryStore: Bool
+    /// Where the "consent gate passed" marks live (`canContinueOffline`). Injectable so the
+    /// tests do not share the app's.
+    private let defaults: UserDefaults
 
     init(
         client: APIClient = .default,
         tokenStore: KeychainTokenStore = .shared,
-        inMemoryStore: Bool = false
+        inMemoryStore: Bool = false,
+        defaults: UserDefaults = .standard
     ) {
         self.client = client
         self.tokenStore = tokenStore
         self.inMemoryStore = inMemoryStore
+        self.defaults = defaults
 
         #if DEBUG
         // UI tests need a clean slate (the Keychain survives reinstalls on simulator).
@@ -105,6 +116,7 @@ final class AppSession {
             // The local store wipes too (§8.5): the hook's contract is a fresh install, and a
             // fresh install has no store.
             EvaStore.wipeAll()
+            defaults.removeObject(forKey: Self.consentGateKey)
         }
         #endif
     }
@@ -124,6 +136,11 @@ final class AppSession {
         defer { isBootstrapping = false }
 
         guard tokenStore.token != nil else {
+            // No token means no account on this device: whatever a 401 left closed — or a
+            // store file from an account deleted elsewhere — is an orphaned copy of health
+            // data, and goes (#371 review).
+            discardPausedStore()
+            if !inMemoryStore { EvaStore.wipeAll() }
             state = .signedOut
             return
         }
@@ -176,13 +193,53 @@ final class AppSession {
     /// the token itself — its `sub`, read on the device and trusted for nothing but which
     /// file to open. The server still validates every request the queue makes, and a 401
     /// ends this exactly as it ends a validated session.
+    ///
+    /// Offered only to an account that has passed the consent gate on this device
+    /// (`canContinueOffline`): with no `/me` there is no consent record to check, and the
+    /// app must not collect health entries from someone who has not agreed (#86).
     func continueOffline() {
-        guard state == .unreachable,
-              let token = tokenStore.token,
-              let uid = EvaSessionToken.subject(of: token)
-        else { return }
+        guard state == .unreachable, let uid = tokenUid, canContinueOffline else { return }
         openStore(for: uid)
         state = .offline
+    }
+
+    /// Whether the retry screen may offer **Continue offline**: the token's account has
+    /// reached `.ready` on this device before, so its consent is known to be on record.
+    var canContinueOffline: Bool {
+        guard let uid = tokenUid else { return false }
+        return consentGatePassed.contains(uid)
+    }
+
+    /// The uid in the stored token, if it names one.
+    private var tokenUid: String? {
+        tokenStore.token.flatMap(EvaSessionToken.subject(of:))
+    }
+
+    /// A non-health mark per uid: "this account has been in the app here". Set when a
+    /// validated session lands in `.ready`, cleared when one lands on the consent screen
+    /// and on log out. Not a consent record — the server holds that.
+    static let consentGateKey = "eva.consentGatePassed"
+
+    private var consentGatePassed: Set<String> {
+        Set(defaults.stringArray(forKey: Self.consentGateKey) ?? [])
+    }
+
+    private func recordConsentGate() {
+        guard let uid = user?.id else { return }
+        var passed = consentGatePassed
+        switch state {
+        case .ready: passed.insert(uid)
+        case .needsConsent: passed.remove(uid)
+        default: return
+        }
+        defaults.set(Array(passed).sorted(), forKey: Self.consentGateKey)
+    }
+
+    private func forgetConsentGate(for uid: String?) {
+        guard let uid else { return }
+        var passed = consentGatePassed
+        passed.remove(uid)
+        defaults.set(Array(passed).sorted(), forKey: Self.consentGateKey)
     }
 
     /// The app came back to the foreground: the queue gets an attempt now rather than at
@@ -199,6 +256,14 @@ final class AppSession {
     private func openStore(for uid: String) {
         if let eventSync, eventSync.store.belongsTo(uid) { return }
         eventSync?.close()
+        // The same account back after a 401: its queue resumes where it stopped.
+        if let paused = pausedSync, paused.store.belongsTo(uid) {
+            pausedSync = nil
+            eventSync = paused
+            paused.reopen()
+            return
+        }
+        discardPausedStore()
         if !inMemoryStore { EvaStore.wipeAll(keeping: uid) }
         guard let store = try? EvaStore(uid: uid, inMemory: inMemoryStore) else {
             // A store that will not open is a device fault with no screen; the app still
@@ -209,6 +274,12 @@ final class AppSession {
         let sync = EventSync(store: store, remote: self)
         eventSync = sync
         sync.kick()
+    }
+
+    /// Wipes the store a 401 closed, if there is one.
+    private func discardPausedStore() {
+        pausedSync?.wipe()
+        pausedSync = nil
     }
 
     /// Re-runs the launch validation. The `.unreachable` screen's only action.
@@ -768,8 +839,10 @@ final class AppSession {
     /// that `authorized(_:)` performs on a 401 does *not* wipe — the queue pauses and
     /// nothing is discarded (§8.4), and the same account signing back in picks it up.
     func logOut() {
+        forgetConsentGate(for: user?.id ?? tokenUid)
         eventSync?.wipe()
         eventSync = nil
+        discardPausedStore()
         if !inMemoryStore { EvaStore.wipeAll() }
         logOut(reason: nil)
     }
@@ -791,8 +864,13 @@ final class AppSession {
             // the relaunch that is the only moment it could matter.
             assertionFailureInDebug("Keychain would neither clear nor neutralise the token")
         }
-        // Closed, not wiped, when this is a 401: see `logOut()`.
-        eventSync?.close()
+        // Closed, not wiped, when this is a 401: see `logOut()`. Kept as `pausedSync` until
+        // the next session decides between resuming it and wiping it.
+        if let sync = eventSync {
+            sync.close()
+            discardPausedStore()
+            pausedSync = sync
+        }
         eventSync = nil
         user = nil
         signedOutReason = reason
