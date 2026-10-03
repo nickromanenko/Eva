@@ -240,6 +240,23 @@ extension Color {
     static let evaRadioBorder = Color.white.opacity(0.9)
     /// The unselected mark's ring — `rgba(40,33,38,.25)`.
     static let evaRadioMarkBorder = Color.evaPrimaryText.opacity(0.25)
+
+    // MARK: Toggle (§6)
+    //
+    // The design-system artboard draws three switches side by side (on, off, disabled):
+    // `linear-gradient(180deg,#B7CF86,#8EAD56)` on, `rgba(40,33,38,.16)` off,
+    // `rgba(40,33,38,.08)` at 50% opacity disabled, and a white 26pt knob with
+    // `box-shadow:0 2px 6px rgba(40,33,38,.28)` (none when disabled). Built in #223 for
+    // Nutrition Settings (canvas `nSet`), which draws the same `track()`/`knob()`.
+
+    /// The on track's top stop — `#B7CF86`. The bottom stop is `evaDeepPistachio`.
+    static let evaToggleOnTop = Color(hex: 0xB7CF86)
+    /// The off track — `rgba(40,33,38,.16)`.
+    static let evaToggleTrackOff = Color.evaPrimaryText.opacity(0.16)
+    /// The disabled track — `rgba(40,33,38,.08)`, drawn at 50% opacity.
+    static let evaToggleTrackDisabled = Color.evaPrimaryText.opacity(0.08)
+    /// The knob's shadow — `rgba(40,33,38,.28)`.
+    static let evaToggleKnobShadow = Color.evaPrimaryText.opacity(0.28)
 }
 
 // MARK: - Action pink — the ramp that carries a white label
@@ -405,6 +422,13 @@ extension LinearGradient {
     /// Primary button fill — `linear-gradient(180deg, #EE93B1, #C95F86)` (§5).
     static let evaPrimaryButton = LinearGradient(
         colors: [.evaPrimaryButtonTop, .evaDeepPink],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+
+    /// Toggle track, on — `linear-gradient(180deg, #B7CF86, #8EAD56)` (§6).
+    static let evaToggleOn = LinearGradient(
+        colors: [.evaToggleOnTop, .evaDeepPistachio],
         startPoint: .top,
         endPoint: .bottom
     )

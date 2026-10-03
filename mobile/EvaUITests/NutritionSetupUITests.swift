@@ -69,9 +69,39 @@ final class NutritionSetupUITests: EvaUITestCase {
         // MARK: Abandon and relaunch: Step 4, and still nothing calculated
 
         relaunch(app)
-        openSetup(app, expecting: "nutrition.body.title")
+        // The resume card first (canvas `sResume`): what is done, what remains, no target.
+        openSetup(app, expecting: "nutrition.resume.title")
+        assertNoTarget(in: app, "on the resume card")
+        for (step, done) in [
+            ("goal", true), ("focusAreas", true), ("mealPattern", true),
+            ("bodyMetrics", false), ("targetWeight", false),
+        ] {
+            let row = element("nutrition.resume.step.\(step)", in: app)
+            XCTAssertTrue(row.exists, "The resume card does not list \(step)")
+            XCTAssertEqual(
+                row.label.hasSuffix(", done"), done,
+                "\(step) is shown as \(done ? "not done" : "done"): \(row.label)"
+            )
+        }
+        capture("nutrition-resume-card")
+        tap(element("nutrition.resume.continue", in: app), in: app)
         waitForStep(4, title: "nutrition.body.title", in: app)
         assertNoTarget(in: app, "after resuming a partial setup")
+        // Step 4 confirms her profile rather than asking for it (canvas `s4`).
+        for id in ["nutrition.body.height", "nutrition.body.weight", "nutrition.body.age"] {
+            XCTAssertTrue(element(id, in: app).exists, "Step 4 has no \(id)")
+        }
+        XCTAssertFalse(
+            app.textFields["nutrition.body.weight"].isEnabled,
+            "Step 4 takes input — the weight is edited in Profile"
+        )
+        // A fresh account has answered no activity band, and none is marked for her.
+        for code in ["mostlySitting", "lightlyActive", "active", "veryActive"] {
+            XCTAssertFalse(
+                element("nutrition.body.activity.\(code)", in: app).isSelected,
+                "\(code) is marked although she has given no band"
+            )
+        }
         capture("nutrition-resumed")
 
         // The control: the same assertion fails once setup *is* complete, so it is not
@@ -88,6 +118,27 @@ final class NutritionSetupUITests: EvaUITestCase {
             app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'kcal'")).firstMatch.exists,
             "The finished summary carries no calorie target — the no-target check above proves nothing"
         )
+
+        // MARK: The summary's rows (canvas `sSum`): fibre, target weight, the adjustment status
+
+        for row in ["fibre", "targetWeight", "cycleAdjustment", "calories"] {
+            XCTAssertTrue(
+                element("nutrition.summary.\(row)", in: app).exists,
+                "The summary has no \(row) row"
+            )
+        }
+        // The adjusted number is the one shown (the seeded luteal 1,718), not the engine's 1,636.
+        XCTAssertTrue(
+            element("nutrition.summary.calories", in: app).label.contains("1,718"),
+            "The summary does not show the adjusted target: "
+                + element("nutrition.summary.calories", in: app).label
+        )
+        // The seeded luteal, wide-band adjustment reads as one, with its confidence.
+        let status = element("nutrition.summary.cycleAdjustment", in: app).label
+        XCTAssertTrue(status.contains("On · luteal phase"), "A luteal adjustment does not say so: \(status)")
+        XCTAssertTrue(status.contains("wide estimate"), "A wide-band phase reads as a certainty: \(status)")
+        assertNoReviewClaim(in: app)
+        capture("nutrition-summary")
     }
 
     // MARK: - The guard keeps the field editable and offers a value (canvas `sGuard`)
@@ -114,6 +165,7 @@ final class NutritionSetupUITests: EvaUITestCase {
         let offer = app.buttons["nutrition.guard.offer"]
         XCTAssertTrue(offer.waitForExistence(timeout: 20), "The refusal drew no guard card")
         XCTAssertTrue(element("nutrition.guard.message", in: app).exists, "The guard has no message")
+        XCTAssertTrue(element("nutrition.guard.title", in: app).exists, "The guard has no title")
         // 52.2 kg is 115.08 lb; 115 lb would be refused again, so the offer rounds up.
         XCTAssertTrue(offer.label.contains("116 lb"), "The offered value: \(offer.label)")
         XCTAssertFalse(
@@ -133,7 +185,7 @@ final class NutritionSetupUITests: EvaUITestCase {
     // MARK: - Hide the numbers: asked on the path, survives relaunch (#212)
 
     func testHiddenNumbersStayHiddenAfterRelaunchAndGoalFourSkipsStepFive() throws {
-        let app = launch(locale: "en_GB", language: "en-GB", plan: Self.targetsPlan)
+        let app = launch(locale: "en_GB", language: "en-GB", plan: Self.unadjustedPlan)
         signUpAndActivate(app, email: Self.freshEmail())
         openSetup(app)
 
@@ -161,6 +213,7 @@ final class NutritionSetupUITests: EvaUITestCase {
             "Goal 4 was asked for a target weight"
         )
         assertQualitative(in: app, "with the preference on")
+        assertNoReviewClaim(in: app)
         capture("nutrition-qualitative")
 
         // Relaunch: the preference is the server's, so the numbers stay hidden.
@@ -171,9 +224,72 @@ final class NutritionSetupUITests: EvaUITestCase {
             "After a relaunch the summary is not qualitative — the numbers came back"
         )
         assertQualitative(in: app, "after a relaunch")
+
+        // MARK: Reversed from Nutrition Settings (canvas `nSet`) — and only from there
+
+        relaunch(app)
+        let setting = openNutritionSettings(app)
+        XCTAssertTrue(
+            waitUntil { (setting.value as? String) == "1" },
+            "Nutrition Settings does not show the stored preference: \(String(describing: setting.value))"
+        )
+        capture("nutrition-settings")
+        tap(setting, in: app)
+        XCTAssertTrue(
+            waitUntil { (setting.value as? String) == "0" && setting.isEnabled },
+            "The preference did not turn off"
+        )
+
+        // Turned off by her, the numbers are back — and they stay back across a relaunch.
+        relaunch(app)
+        openSetup(app, expecting: "nutrition.summary.title")
+        XCTAssertTrue(
+            element("nutrition.summary.numbers", in: app).waitForExistence(timeout: 20),
+            "Turning the preference off in Settings did not bring the numbers back"
+        )
+        // The seeded plan was not adjusted: the status must not claim it was.
+        let status = element("nutrition.summary.cycleAdjustment", in: app)
+        XCTAssertTrue(status.exists, "The summary has no cycle-adjustment row")
+        XCTAssertTrue(status.label.contains("Not applied today"), "Unadjusted status: \(status.label)")
+        XCTAssertFalse(status.label.contains("On ·"), "An unadjusted day reads as adjusted: \(status.label)")
+        relaunch(app)
+        let again = openNutritionSettings(app)
+        XCTAssertTrue(
+            waitUntil { (again.value as? String) == "0" },
+            "The preference turned itself back on after a relaunch"
+        )
+    }
+
+    /// Profile ▸ Eva experience ▸ Nutrition Settings, and its hide-numbers switch once the
+    /// server's value has loaded.
+    private func openNutritionSettings(_ app: XCUIApplication) -> XCUIElement {
+        let profile = app.buttons["tab.profile"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 20), "No Profile tab")
+        tap(profile, in: app)
+        tap(app.buttons["profile.nutrition"], in: app)
+        let setting = app.switches["nutrition.settings.hideNumbers"]
+        XCTAssertTrue(setting.waitForExistence(timeout: 20), "Nutrition Settings has no switch")
+        XCTAssertTrue(waitUntil { setting.isEnabled }, "The switch never loaded")
+        return setting
     }
 
     // MARK: - Assertions
+
+    /// #374: the summary once said plans are "reviewed by a registered dietitian", which no
+    /// plan is. The disclaimer is on screen, and nothing on the summary makes that claim.
+    private func assertNoReviewClaim(in app: XCUIApplication) {
+        let sheet = app.scrollViews["nutrition.scroll"]
+        XCTAssertTrue(
+            element("nutrition.summary.disclaimer", in: app).exists,
+            "The summary has no disclaimer — the absence below would prove nothing"
+        )
+        XCTAssertFalse(
+            sheet.staticTexts
+                .containing(NSPredicate(format: "label CONTAINS[c] 'reviewed by a registered dietitian'"))
+                .firstMatch.exists,
+            "The summary still claims a dietitian reviewed the plan"
+        )
+    }
 
     /// PRD line 677: nothing calculated or displayed from partial data.
     private func assertNoTarget(in app: XCUIApplication, _ when: String) {
@@ -293,11 +409,22 @@ final class NutritionSetupUITests: EvaUITestCase {
         add(attachment)
     }
 
-    /// `GET /me/nutrition/plan`'s body for a finished lose-weight setup.
+    /// `GET /me/nutrition/plan`'s body for a finished lose-weight setup, in a luteal phase
+    /// estimated on a wide band — the shape `adjustNutritionPlan` serves (#224).
     private static let targetsPlan = """
         {"plan":{"kind":"targets","targets":{"bmrKcal":1400,"tdeeKcal":1925,\
         "calorieTargetKcal":1636,"macros":{"proteinG":102,"fatG":55,"carbG":180,"fibreG":25},\
-        "weightPlan":{"targetWeightKg":60,"timelineWeeks":16,"paceKgPerWeek":0.4}}}}
+        "weightPlan":{"targetWeightKg":60,"timelineWeeks":16,"paceKgPerWeek":0.4}},\
+        "adjustment":{"calorieTargetKcal":1718,"reasonId":"luteal_adjustment","confidence":"wide"}}}
+        """
+
+    /// A finished goal-4 setup on a day nothing adjusted: no weight plan, and the route's
+    /// empty adjustment — which it serves alike for "not luteal" and "no phase estimate".
+    private static let unadjustedPlan = """
+        {"plan":{"kind":"targets","targets":{"bmrKcal":1400,"tdeeKcal":1925,\
+        "calorieTargetKcal":1925,"macros":{"proteinG":102,"fatG":64,"carbG":230,"fibreG":25},\
+        "weightPlan":null},\
+        "adjustment":{"calorieTargetKcal":1925,"reasonId":null,"confidence":null}}}
         """
 
     /// The route's refusal for a target under BMI 18.5 (`nutrition-profile.test.ts`).

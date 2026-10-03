@@ -745,10 +745,22 @@ class EvaUITestCase: XCTestCase {
             "Missing element: \(element)", file: file, line: line
         )
         var swipes = 0
-        while (!element.isHittable || element.frame.maxY > app.frame.maxY) && swipes < 4 {
+        while (!element.isHittable || element.frame.maxY > visibleBottom(for: element, in: app))
+            && swipes < 4 {
             swipeColumn(in: app)
             swipes += 1
         }
+        // `isHittable` says yes under the floating tab bar, so this is checked on its own. The
+        // keyboard is not accounted for here — that is #380.
+        XCTAssertLessThanOrEqual(
+            element.frame.maxY, visibleBottom(for: element, in: app),
+            """
+            Element is still under the tab bar after \(swipes) swipes, so a tap would land on a tab: \(element)
+              element frame: \(element.frame)
+              tab bar top:   \(visibleBottom(for: element, in: app))
+            """,
+            file: file, line: line
+        )
         XCTAssertTrue(
             element.isHittable,
             """
@@ -759,6 +771,23 @@ class EvaUITestCase: XCTestCase {
             """,
             file: file, line: line
         )
+    }
+
+    /// The lowest point an element can sit at and still take its own tap.
+    ///
+    /// **The tab bar floats over the column**, so `isHittable` and the app's frame both say
+    /// yes to a button drawn underneath it — and the tap lands on a tab. #223 found it: one
+    /// more Profile row left `destructive.Delete profile` at 791–843 after a swipe, under the
+    /// bar's 784–836, and the delete modal never opened. The bar's own buttons are exempt.
+    private func visibleBottom(for element: XCUIElement, in app: XCUIApplication) -> CGFloat {
+        let tab = app.buttons["tab.home"]
+        // A sheet or cover over the tabs leaves the bar in the hierarchy but not on screen;
+        // only a bar that can itself be hit is in the way.
+        guard tab.exists, tab.isHittable, !element.identifier.hasPrefix("tab.") else {
+            return app.frame.maxY
+        }
+        let top = tab.frame.minY
+        return top > 0 ? top : app.frame.maxY
     }
 
     /// One swipe of the screen's scrolling column.

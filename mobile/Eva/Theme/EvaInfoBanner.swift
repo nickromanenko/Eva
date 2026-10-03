@@ -52,9 +52,12 @@ struct EvaInfoBanner<Action: View>: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: EvaSpacing.xxs) {
-                Text(title)
-                    .evaTextStyle(.control)
-                    .fixedSize(horizontal: false, vertical: true)
+                // A banner that only explains may have no title (Nutrition canvas `nSet`).
+                if !title.isEmpty {
+                    Text(title)
+                        .evaTextStyle(.control)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 Text(message)
                     .evaTextStyle(.caption)
@@ -87,6 +90,12 @@ extension EvaInfoBanner where Action == EmptyView {
     /// An information banner with nothing to act on — it only explains.
     init(title: String, message: String) {
         self.init(title: title, message: message) { EmptyView() }
+    }
+
+    /// A one-sentence banner with no title — the Nutrition canvas' `nSet` draws its note
+    /// this way.
+    init(message: String) {
+        self.init(title: "", message: message) { EmptyView() }
     }
 }
 

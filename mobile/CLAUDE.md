@@ -125,10 +125,10 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar, the shortcuts row and its meal-setup prompt (#100), and the "Worth reading" banner rail with its `SFSafariViewController` article view (#102) |
 | `Eva/Calendar/` | `CalendarView`, the month grid, the event model and its glyphs, the prediction overlay (#206) and the summary card |
 | `Eva/Calendar/Logging/` | The log picker sheet and its four forms, the write payloads, the date policy |
-| `Eva/Nutrition/` | The Nutrition coach's setup (S3, #223): `NutritionSetupModel` over a `NutritionSource` (which cannot read logging history — A31), the one qualitative projection, the target entry in her units, the `EVA_NUTRITION_PLAN` hook |
+| `Eva/Nutrition/` | The Nutrition coach's setup (S3, #223): `NutritionSetupModel` over a `NutritionSource` (which cannot read logging history — A31), the one qualitative projection, the target entry in her units, the resume card, the `EVA_NUTRITION_PLAN` hook; Nutrition Settings (`nSet`, reached from Profile) and the shared "How this is calculated" sheet |
 | `Eva/Units/` | The units setting (#82): `EvaUnitSystem`, `EvaUnitPreference`, and the conversion boundary — SI in, feet/inches and stones/pounds out |
 | `Eva/Profile/` | `ProfileView`, the delete modal, and the settings rows it carries — `Eva experience ▸ Units` is the first |
-| `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field, radio row |
+| `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field, radio row, toggle |
 | `Eva/Theme/Specimen/` | DEBUG-only design specimen — see above |
 | `EvaUITests/` | XCUITest — sign-up → activation gate → the tab bar |
 
