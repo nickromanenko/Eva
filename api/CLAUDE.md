@@ -358,7 +358,8 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   `recalculationReason` to what the transaction returned. A stored basis with any field outside
   its vocabulary reads as `null` (no previous plan, no reason) — whole or nothing, unlike
   `toProfile`, because a guessed field could name a cause that never happened.
-  `getLastPlanInputs` is the export's read; `deleteNutritionProfile` already sweeps every
+  `getLastPlanInputs` is the export's read, and serves the stored document verbatim — never
+  through `toPlanBasis`, so one the comparison rejects is still exported rather than `null`; `deleteNutritionProfile` already sweeps every
   document in the subcollection. Reading a basis back needs the engine's `ACTIVITY_BANDS` — a
   value import from a leaf with no imports, as `users.ts` takes it — rather than a second edge
   into `users.ts`; `Mode` and `PlanBasis` arrive as `import type`.

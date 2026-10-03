@@ -475,11 +475,16 @@ const toPlanBasis = (data: FirebaseFirestore.DocumentData): PlanBasis | null => 
 const sameBasis = (a: PlanBasis, b: PlanBasis): boolean =>
   (Object.keys(PLAN_BASIS_FIELDS) as (keyof PlanBasis)[]).every((field) => a[field] === b[field])
 
-/** The inputs of the last plan she was served, or `null` before the first — for
- *  `GET /me/export`, which serves the stored basis as it is. */
-export const getLastPlanInputs = async (uid: string): Promise<PlanBasis | null> => {
+/** The stored last-plan document as it is, for `GET /me/export`; `null` before her first
+ *  plan. **Verbatim, not through `toPlanBasis`**: a document the comparison cannot read is
+ *  still something Eva holds about her, and an export that answered `null` for it would say
+ *  Eva holds nothing. What the plan route writes is exactly `PlanBasis`, so in the ordinary
+ *  case the two are the same object. */
+export const getLastPlanInputs = async (
+  uid: string,
+): Promise<FirebaseFirestore.DocumentData | null> => {
   const snapshot = await documents(uid).doc(PLAN_INPUTS_DOC).get()
-  return snapshot.exists ? toPlanBasis(snapshot.data()!) : null
+  return snapshot.exists ? snapshot.data()! : null
 }
 
 /**
