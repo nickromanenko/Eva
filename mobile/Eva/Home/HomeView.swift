@@ -82,7 +82,7 @@ struct HomeView: View {
                     // whether or not today's card has arrived.
                     HomeShortcutsRow(
                         shortcuts: model.shortcuts ?? .resting,
-                        showsSetupCard: model.shortcuts?.showsMealSetupCard == true,
+                        showsSetupCard: model.showsMealSetupCard,
                         log: { router.openCalendarLogPicker(on: .today) },
                         meals: { showsNutritionSetup = true },
                         openCalendar: { router.show(.calendar) }

@@ -140,6 +140,11 @@ final class HomeModel {
     /// up. The row itself is drawn either way, at rest.
     private(set) var shortcuts: EvaTodayShortcuts?
 
+    /// Whether the "Set up meal tracking" card is drawn: only once a document has said meals
+    /// are not set up. Before the first read it is `false`, not `.resting`'s `true` — a cold
+    /// start must not flash the prompt at someone whose meals are set up (#100, #363).
+    var showsMealSetupCard: Bool { shortcuts?.showsMealSetupCard == true }
+
     var card: EvaTodayCard? {
         if case .card(let card) = state { return card }
         return nil

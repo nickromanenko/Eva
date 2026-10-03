@@ -144,6 +144,11 @@ struct HomeShortcutsRow: View {
 
     // MARK: - The setup prompt
 
+    /// The setup card's two lines, named so `TodayShortcutsTests` can hold them to the same
+    /// no-scores rule as the labels (#363).
+    static let setupTitle = "Set up meal tracking"
+    static let setupBenefit = "See calories and protein at a glance."
+
     /// "Set up meal tracking — See calories and protein at a glance." (`SPEC.home_setup`:
     /// the prompt states the benefit, never a completion percentage or "x of y steps").
     ///
@@ -160,10 +165,10 @@ struct HomeShortcutsRow: View {
                 // `margin-top:2px` on the benefit line — below the 4pt step, and the two lines
                 // are one sentence's title and body.
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Set up meal tracking")
+                    Text(Self.setupTitle)
                         .evaTextStyle(.control)
                         .foregroundStyle(Color.evaPrimaryText)
-                    Text("See calories and protein at a glance.")
+                    Text(Self.setupBenefit)
                         .evaTextStyle(.inputHelper)
                         .foregroundStyle(Color.evaSecondaryText)
                 }
@@ -189,9 +194,8 @@ struct HomeShortcutsRow: View {
         }
         .buttonStyle(.evaUndimmed)
         .disabled(true)
-        .accessibilityLabel(Text(
-            "Set up meal tracking. See calories and protein at a glance. "
-                + EvaTodayCardTarget.unavailableSuffix
+        .accessibilityLabel(Text(verbatim:
+            "\(Self.setupTitle). \(Self.setupBenefit) \(EvaTodayCardTarget.unavailableSuffix)"
         ))
         .accessibilityIdentifier("home.setupMeals")
     }

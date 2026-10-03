@@ -33,6 +33,22 @@ struct TodayShortcutsTests {
         #expect(response.card != nil)
     }
 
+    /// The two Booleans differ, so a decoder that read one key into the other's field fails
+    /// here — `theFactsDecode` sends `true` for both and cannot tell (#363).
+    @Test(
+        "periodOngoing and nutritionSetUp each decode from their own key",
+        arguments: [(true, false), (false, true)]
+    )
+    func theBooleansAreNotSwapped(periodOngoing: Bool, nutritionSetUp: Bool) throws {
+        let response = try decode(
+            #"{"date":"2026-09-25",\#(Self.card),"mode":"cycle","#
+                + #""periodOngoing":\#(periodOngoing),"nutritionSetUp":\#(nutritionSetUp)}"#
+        )
+        #expect(response.shortcuts == EvaTodayShortcuts(
+            mode: .cycle, periodOngoing: periodOngoing, nutritionSetUp: nutritionSetUp
+        ))
+    }
+
     @Test("Every mode the API names decodes", arguments: EvaMode.allCases)
     func everyModeDecodes(mode: EvaMode) throws {
         let response = try decode(#"{"date":"2026-09-25",\#(Self.card),"mode":"\#(mode.rawValue)"}"#)
@@ -125,6 +141,34 @@ struct TodayShortcutsTests {
         #expect(model.shortcuts == facts)
     }
 
+    /// The cold-start rule (#100, pinned by #363): the setup card is drawn only once a
+    /// document has *said* meals are not set up. Reading the unknown as `.resting` would draw
+    /// it before the first read and flash it at someone whose meals are set up.
+    @Test("No setup card before the first read; then exactly as the document says")
+    func theSetupCardWaitsForTheFirstRead() async {
+        let notSetUp = model(RecordingTodayCardSource(response: response(.resting)))
+        #expect(!notSetUp.showsMealSetupCard, "The setup card was drawn before anything was read")
+        await notSetUp.start()
+        #expect(notSetUp.showsMealSetupCard, "The document says meals are not set up")
+
+        let setUp = model(RecordingTodayCardSource(
+            response: response(EvaTodayShortcuts(nutritionSetUp: true))
+        ))
+        #expect(!setUp.showsMealSetupCard, "The setup card was drawn before anything was read")
+        await setUp.start()
+        #expect(!setUp.showsMealSetupCard, "The document says meals are set up")
+    }
+
+    @Test("A first read that fails draws no setup card")
+    func aFailedFirstReadDrawsNoSetupCard() async {
+        let source = RecordingTodayCardSource(response: response(.resting))
+        source.failure = APIError.network
+        let model = model(source)
+        await model.start()
+        #expect(model.shortcuts == nil)
+        #expect(!model.showsMealSetupCard, "Nothing was read, and the setup card was drawn")
+    }
+
     @Test("A failed refresh keeps the facts, as it keeps the card")
     func aFailedRefreshKeepsThem() async {
         let facts = EvaTodayShortcuts(mode: .postpartum, nutritionSetUp: true)
@@ -197,10 +241,13 @@ struct TodayShortcutsTests {
     // MARK: - Tone and framing (PRD §Dashboard, quoted in #100)
 
     /// "No comparison to other users, no scores for the person, no streaks." Every label the
-    /// row can show, checked.
-    @Test("No shortcut label carries a score, a percentage, a count or a streak")
+    /// row can show, checked — and the setup card's two lines, which `SPEC.home_setup` says
+    /// state the benefit, "never a completion percentage or 'x of y steps'" (#363).
+    @Test("No shortcut label or setup-card line carries a score, a percentage, a count or a streak")
     func noLabelScoresAnybody() {
-        var labels: Set<String> = ["Calendar", "Eva Chat"]
+        var labels: Set<String> = [
+            "Calendar", "Eva Chat", HomeShortcutsRow.setupTitle, HomeShortcutsRow.setupBenefit
+        ]
         for mode in EvaMode.allCases {
             for period in [false, true] {
                 for meals in [false, true] {
@@ -214,6 +261,9 @@ struct TodayShortcutsTests {
             for forbidden in ["streak", "score", "%", "of ", "step"] {
                 #expect(!label.lowercased().contains(forbidden), "\(label) contains \"\(forbidden)\"")
             }
+            // A count in any form: "3 meals", "1/5".
+            let hasDigit = label.contains { $0.isNumber }
+            #expect(!hasDigit, "\(label) carries a number")
         }
     }
 }
