@@ -47,12 +47,20 @@ struct EvaSpecimenFeedbackSection: View {
             )
 
             EvaErrorCard(
-                title: "Couldn't sync your last entry",
-                message: EvaSyncCopy.failedMessage
+                title: EvaSyncCopy.failedTitle,
+                message: SyncTrouble.temporary.message
             ) {
                 DestructiveButton(title: "Retry now", kind: .row) {}
             }
             .accessibilityIdentifier("specimen.errorCard")
+
+            EvaErrorCard(
+                title: EvaSyncCopy.failedTitle,
+                message: SyncTrouble.rejected.message
+            ) {
+                DestructiveButton(title: "Retry now", kind: .row) {}
+            }
+            .accessibilityIdentifier("specimen.errorCard.rejected")
 
             EvaSpecimenGroupLabel(title: "Five-point scale")
             EvaSpecimenNote(

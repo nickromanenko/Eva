@@ -2613,7 +2613,7 @@ What the implementation added to the design above, each because the design left 
   re-checks before and after every request, throwing the session's own "paused" error. Without
   that, a request in flight when A's session ended was followed by A's *next* operation,
   sent with whatever token the Keychain then held — B's, if B had signed in (#371 review;
-  `OfflineSessionTests.noCrossAccountSend`).
+  `SessionExpiryTests.OfflineSession.noCrossAccountSend`).
 - **Continue offline needs the consent gate passed on this device.** With no `/me` there is
   no consent record to read, so the button is offered only for a uid that has reached
   `.ready` here before (a non-health mark in `UserDefaults`, cleared on log out and
@@ -2633,10 +2633,18 @@ What the implementation added to the design above, each because the design left 
   as a child element and moved Profile's Delete button's hit point to its corner the same
   way. That the inactive tabs stay in the accessibility tree is a separate, pre-existing
   defect.
+- **The "Couldn't sync" card** (`EvaErrorCard`, DESIGN.md §7) has two variants, chosen by
+  the failure class (`SyncTrouble`, owner decision 2026-10-03): while the queue backs off
+  after a temporary failure (no connection, 5xx, 429) it says "Eva will retry
+  automatically."; when an entry was rejected (a 4xx) it says "This entry couldn't be saved.
+  Check it and try again." A rejection outranks a backoff. **Retry now** queues refused
+  entries again, or cuts the backoff short.
+- **Log out asks first when entries are unsynced** — the platform confirmation dialog, with
+  §8.5's sentence (kept by owner decision, 2026-10-03; the canvas draws none).
 
-The rule → test map is in PR #78's description; the unit tests are `EventSyncTests`,
-`OfflineSessionTests`, `SyncEngineTests` and `EvaStoreTests`, and the UI tests
-`OfflineSyncUITests`.
+The rule → test map is in PR #371's description; the unit tests are `EventSyncTests`,
+`SessionExpiryTests.OfflineSession` (`OfflineSessionTests.swift`), `SyncEngineTests` and
+`EvaStoreTests`, and the UI tests `OfflineSyncUITests`.
 
 ## 9. Push notifications (A9)
 

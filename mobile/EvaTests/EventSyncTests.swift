@@ -234,6 +234,37 @@ struct EventSyncTests {
         #expect(syncBackoff(attempts: 0) == 1 && syncBackoff(attempts: 1) == 2)
     }
 
+    // MARK: - The "Couldn't sync" card's two variants (owner decision, 2026-10-03)
+
+    @Test("the card's wording follows the failure class")
+    func troubleFollowsTheFailureClass() {
+        #expect(SyncTrouble(syncOutcome(for: .network)) == .temporary)
+        #expect(SyncTrouble(syncOutcome(for: .server(code: "INTERNAL", message: "x", status: 503))) == .temporary)
+        #expect(SyncTrouble(syncOutcome(for: .rateLimited(message: "x", retryAt: nil))) == .temporary)
+        #expect(SyncTrouble(syncOutcome(for: .server(code: "VALIDATION", message: "x", status: 400))) == .rejected)
+        #expect(SyncTrouble(syncOutcome(for: .sessionExpired(message: "x"))) == nil)
+        #expect(SyncTrouble.temporary.message.contains("Eva will retry automatically."))
+        #expect(SyncTrouble.rejected.message == "This entry couldn't be saved. Check it and try again.")
+    }
+
+    @Test("a queue backing off shows the temporary card; a refused entry shows the rejected one")
+    func troubleFollowsTheQueue() async {
+        #expect(sync.trouble == nil)
+        source.writeFailure = APIError.network
+        sync.save(Self.write())
+        await sync.drain()
+        #expect(sync.trouble == .temporary)
+
+        source.writeFailure = APIError.server(code: "VALIDATION", message: "x", status: 400)
+        await sync.drain()
+        #expect(sync.trouble == .rejected)
+
+        source.writeFailure = nil
+        sync.retryFailed()
+        await sync.drain()
+        #expect(sync.trouble == nil, "The card stayed up after the entry synced")
+    }
+
     // MARK: - §8.4 · Dates
 
     @Test("§8.4 · a queued entry is sent with the zone it was logged in")

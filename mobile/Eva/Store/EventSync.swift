@@ -23,6 +23,9 @@ final class EventSync {
     /// the store, so one write is one redraw.
     private(set) var revision = 0
 
+    /// Whether the queue is backing off after a temporary failure (no connection, 5xx, 429).
+    private(set) var isBackingOff = false
+
     /// Called after an entry's operation is acknowledged, with its type — the calendar
     /// re-asks for its prediction overlay when a cycle entry reaches the server.
     @ObservationIgnored var onAcknowledged: (@MainActor (EvaEventType) -> Void)?
@@ -77,6 +80,13 @@ final class EventSync {
 
     /// The entries whose last operation the server refused — what "Couldn't sync your last
     /// entry" is about.
+    /// What the "Couldn't sync" card should say, if anything. A rejected entry outranks a
+    /// temporary failure: it is the one that will not fix itself.
+    var trouble: SyncTrouble? {
+        if failedCount > 0 { return .rejected }
+        return isBackingOff && unsyncedCount > 0 ? .temporary : nil
+    }
+
     var failedCount: Int {
         _ = revision
         return store.failedEvents().count
@@ -297,17 +307,20 @@ final class EventSync {
             guard !isClosed else { return }
             switch drain.pass {
             case .drained:
+                isBackingOff = false
                 // Only a pass that had something to send ends in `onDrained`: an empty
                 // queue "draining" on every foreground would re-read the range for nothing,
                 // and a re-read that drains would loop.
                 if drain.sent { onDrained?() }
             case .blocked where drainAgain:
+                isBackingOff = true
                 // Something asked for a drain while this pass was failing — a new entry,
                 // or the app coming back to the foreground. That ask is worth one attempt
                 // now rather than at the end of the backoff.
                 drainAgain = false
                 kick()
             case .blocked(let wait):
+                isBackingOff = true
                 scheduleRetry(after: wait)
             case .paused:
                 break

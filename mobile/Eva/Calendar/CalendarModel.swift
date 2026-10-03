@@ -188,9 +188,12 @@ final class CalendarModel {
     /// How many entries the server has refused — the "Couldn't sync" card's subject (§8.4).
     var failedSyncCount: Int { sync.failedCount }
 
+    /// Which "Couldn't sync" card to show, if any.
+    var syncTrouble: SyncTrouble? { sync.trouble }
+
     /// "Retry now" on that card.
     func retryFailedSync() {
-        sync.retryFailed()
+        if sync.failedCount > 0 { sync.retryFailed() } else { sync.kick() }
     }
 
     /// Drains the queue now and waits for everything that follows from it — foreground, and

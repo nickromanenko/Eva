@@ -85,8 +85,8 @@ struct CalendarView: View {
                         CalendarSummaryCard(summary: summary)
                     }
 
-                    if model.failedSyncCount > 0 {
-                        syncFailureCard
+                    if let trouble = model.syncTrouble {
+                        syncFailureCard(trouble)
                     }
 
                     if case .failed(let message) = model.loadState {
@@ -261,8 +261,8 @@ struct CalendarView: View {
 
     /// An entry the server refused (§8.4): it is still on the grid — it is saved on this
     /// device — and this says it has not reached the server, and offers to send it again.
-    private var syncFailureCard: some View {
-        EvaErrorCard(title: EvaSyncCopy.failedTitle, message: EvaSyncCopy.failedMessage) {
+    private func syncFailureCard(_ trouble: SyncTrouble) -> some View {
+        EvaErrorCard(title: EvaSyncCopy.failedTitle, message: trouble.message) {
             DestructiveButton(title: "Retry now", kind: .row) {
                 model.retryFailedSync()
             }
