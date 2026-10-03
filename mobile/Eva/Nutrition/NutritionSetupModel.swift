@@ -8,6 +8,10 @@ import Observation
 /// numeric field at all — the same `toCycleEstimate` shape, where a screen *cannot* render a
 /// number the type never carried. The two triggers are the hide-numbers preference and A28's
 /// Pregnancy/postpartum mode; both reach this one projection, not two mechanisms.
+///
+/// **A31.** Its only dependency is a `NutritionSource`, which cannot read her logging
+/// history; the preference changes only from the toggle she flips (`hideNumbers`) and is
+/// saved only with the step she finishes. See `NutritionSource`.
 @MainActor
 @Observable
 final class NutritionSetupModel {
@@ -28,16 +32,30 @@ final class NutritionSetupModel {
     /// The current step, from the API's own codes (Edge case 1: resume where she left off).
     private(set) var step: SetupStep = .goal
 
-    /// Step 5's draft answer, and the hide-numbers preference (#212) — asked on the path.
-    var targetWeightText: String = ""
+    /// Step 5's draft answer, in her units (#82), and the hide-numbers preference (#212) —
+    /// asked on the path, on whichever step ends it (Step 5, or Step 4 for goals 4 and 5).
+    var targetEntry: NutritionTargetEntry
     var hideNumbers: Bool = false
 
     var showCalculation = false
 
-    private let session: AppSession
+    /// A28's trigger (Pregnancy, the first six postpartum weeks). Nothing supplies it yet:
+    /// the account has no stored mode until D10, so every caller passes `.none` today. It is
+    /// an input here so the projection is built once and both triggers reach it.
+    let modeGate: NutritionModeGate
 
-    init(session: AppSession) {
-        self.session = session
+    private let source: any NutritionSource
+    private let units: EvaUnitPreference
+
+    init(
+        source: any NutritionSource,
+        units: EvaUnitPreference,
+        modeGate: NutritionModeGate = .none
+    ) {
+        self.source = source
+        self.units = units
+        self.modeGate = modeGate
+        targetEntry = NutritionTargetEntry(system: units.system)
     }
 
     // MARK: Loading
@@ -45,10 +63,16 @@ final class NutritionSetupModel {
     func load() async {
         phase = .loading
         do {
-            let profile = try await session.nutritionProfile()
+            let profile = try await source.nutritionProfile()
             self.profile = profile
             self.hideNumbers = profile?.hideNumbers ?? false
+            self.selectedFocusAreas = profile?.focusAreas ?? []
             self.step = profile.map(Self.step(for:)) ?? .goal
+            // Units follow the setting in force now, not the one she typed in last time.
+            targetEntry = NutritionTargetEntry(system: units.system)
+            if let stored = profile?.targetWeightKg {
+                targetEntry.set(kilograms: stored)
+            }
             if profile?.complete == true {
                 await showSummary()
             } else {
@@ -59,68 +83,122 @@ final class NutritionSetupModel {
         }
     }
 
+    /// Clears the one error line once she acts again.
+    private func clearError() { errorMessage = nil }
+
     // MARK: Steps
 
     func choose(_ goal: APINutritionGoal) async {
-        await save(APINutritionProfilePatch(goal: goal, step: SetupStep.focusAreas.rawValue))
+        // A28 (canvas `sPreg`): a weight-change goal is not offered while it is paused.
+        guard isAvailable(goal) else { return }
+        guard await save(APINutritionProfilePatch(goal: goal, step: SetupStep.focusAreas.rawValue))
+        else { return }
         step = .focusAreas
     }
 
-    var selectedFocusAreas: [String] { profile?.focusAreas ?? [] }
+    /// Whether a goal can be chosen now. Weight-change goals are unavailable in Pregnancy and
+    /// the first six postpartum weeks (PRD line 757); the stored goal is left as it was —
+    /// retained, never cleared and never restored by this model.
+    func isAvailable(_ goal: APINutritionGoal) -> Bool {
+        modeGate == .none || !goal.isWeightChange
+    }
+
+    /// Her focus areas as the screen shows them — updated on the tap, not on the save's
+    /// answer, so two quick taps cannot each start from the list before the other.
+    private(set) var selectedFocusAreas: [String] = []
+    /// The focus-area saves, chained so they reach the server in the order she tapped.
+    private var focusSave: Task<Void, Never>?
+
+    /// The canvas `s2` cap (PRD line 726). At three the rest stay visible and disabled —
+    /// never silently swapped — and the API refuses a fourth as well (#221).
+    static let maxFocusAreas = 3
 
     func isFocusAreaDisabled(_ code: String) -> Bool {
-        !selectedFocusAreas.contains(code) && selectedFocusAreas.count >= 3
+        !selectedFocusAreas.contains(code) && selectedFocusAreas.count >= Self.maxFocusAreas
     }
 
     func toggleFocusArea(_ code: String) {
-        var areas = selectedFocusAreas
-        if let index = areas.firstIndex(of: code) {
-            areas.remove(at: index)
-        } else if areas.count < 3 {
-            areas.append(code)
+        if let index = selectedFocusAreas.firstIndex(of: code) {
+            selectedFocusAreas.remove(at: index)
+        } else if selectedFocusAreas.count < Self.maxFocusAreas {
+            selectedFocusAreas.append(code)
+        } else {
+            return
         }
-        Task {
+        let areas = selectedFocusAreas
+        let previous = focusSave
+        focusSave = Task {
+            await previous?.value
             await save(APINutritionProfilePatch(focusAreas: areas))
         }
     }
 
     func chooseMeals(_ count: Int) async {
-        await save(APINutritionProfilePatch(
+        guard await save(APINutritionProfilePatch(
             mealPattern: APIMealPattern(mealsPerDay: count, snacks: false, mealTimes: nil),
             step: SetupStep.bodyMetrics.rawValue
-        ))
+        )) else { return }
         step = .bodyMetrics
     }
 
     func advance() async {
-        let skipping = isSkippingTargetWeight
-        await save(APINutritionProfilePatch(step: step.next(skippingTargetWeight: skipping).rawValue))
-        step = step.next(skippingTargetWeight: skipping)
+        // A focus-area save still in flight lands before the step marker moves past it.
+        await focusSave?.value
+        let next = step.next(skippingTargetWeight: isSkippingTargetWeight)
+        guard next != .done else {
+            // The last step finishes rather than advancing to an empty `.done` screen.
+            await finish()
+            return
+        }
+        guard await save(APINutritionProfilePatch(step: next.rawValue)) else { return }
+        step = next
     }
 
-    /// Goals 4 and 5 have no target weight (PRD line 745): Step 5 is skipped entirely.
+    /// Goals 4 and 5 have no target weight (PRD line 745): Step 5 is skipped entirely — and
+    /// so is it for every goal while A28 pauses weight change.
     var isSkippingTargetWeight: Bool {
         guard let goal = profile?.goal else { return false }
-        return goal == .maintain || goal == .eatBetter
+        return !goal.isWeightChange || modeGate != .none
     }
 
-    var targetWeightValue: Double? {
-        guard let value = Double(targetWeightText), value > 0 else { return nil }
-        return value
+    /// Whether the current step is the last one, which is where the hide-numbers question is
+    /// asked (#212: on the path, so everyone meets it — including goals 4 and 5, whose path
+    /// ends at Step 4).
+    var isFinalStep: Bool {
+        step == .targetWeight || (step == .bodyMetrics && isSkippingTargetWeight)
     }
 
+    /// Whether the last step's answers are complete enough to send.
+    var canFinish: Bool {
+        isSkippingTargetWeight || targetEntry.kilograms != nil
+    }
+
+    /// Saves the last step — the target in kilograms, whatever she typed it in, and the
+    /// preference exactly as she left the toggle — then reads the plan.
     func finish() async {
-        guard let targetWeightValue else { return }
-        await save(APINutritionProfilePatch(
-            targetWeightKg: targetWeightValue,
-            hideNumbers: hideNumbers,
-            step: SetupStep.done.rawValue
-        ))
+        var patch = APINutritionProfilePatch(hideNumbers: hideNumbers, step: SetupStep.done.rawValue)
+        if !isSkippingTargetWeight {
+            guard let kilograms = targetEntry.kilograms else { return }
+            patch.targetWeightKg = kilograms
+        }
+        guard await save(patch) else { return }
         await showSummary()
     }
 
+    /// A guard's offered value, in her units, into the field — which stays editable.
+    func useOffered(_ refusal: APINutritionRefusal) {
+        targetEntry.set(kilograms: refusal.lowestSupportedWeightKg, atLeast: true)
+    }
+
+    /// The offered value as the guard's button states it, rounded the way `useOffered` fills it.
+    func offeredText(_ refusal: APINutritionRefusal) -> String {
+        targetEntry.display(kilograms: refusal.lowestSupportedWeightKg, atLeast: true)
+    }
+
     func back() {
-        guard let previous = step.previous else { return }
+        clearError()
+        guard var previous = step.previous else { return }
+        if previous == .targetWeight, isSkippingTargetWeight { previous = .bodyMetrics }
         step = previous
     }
 
@@ -131,36 +209,51 @@ final class NutritionSetupModel {
 
     // MARK: Body metrics (Step 4, confirmation)
 
+    // In her units (#82), through the conversion boundary — the stored values are SI.
+
     var heightText: String {
-        guard let profile = session.user?.profile else { return "Height not set" }
-        return String(format: "%.0f cm", profile.heightCm)
+        guard let profile = source.bodyProfile else { return "Height not set" }
+        return EvaHeightInput(centimeters: profile.heightCm, system: units.system).displayText
     }
 
     var weightText: String {
-        guard let profile = session.user?.profile else { return "weight not set" }
-        return String(format: "%.1f kg", profile.weightKg)
+        guard let profile = source.bodyProfile else { return "weight not set" }
+        return EvaMassInput(kilograms: profile.weightKg, system: units.system).displayText
     }
 
+    /// The band's label, never its code.
     var bandText: String {
-        guard let band = session.user?.profile?.lifestyle else { return "activity not set" }
-        return band
+        guard let code = source.bodyProfile?.lifestyle,
+              let option = ProfileEditorModel.lifestyleOptions.first(where: { $0.code == code })
+        else { return "activity not set" }
+        return option.label
+    }
+
+    /// Her current weight, as Step 5's read-only "Current" shows it.
+    var currentWeightText: String? {
+        source.bodyProfile.map {
+            EvaMassInput(kilograms: $0.weightKg, system: units.system).displayText
+        }
     }
 
     // MARK: The plan summary
 
     func showSummary() async {
         do {
-            plan = try await session.nutritionPlan()
+            plan = try await source.nutritionPlan(timeZone: .current)
             if case .refused = plan {
                 // The target the plan refused brings her back to Step 5, with the guard's
                 // offered value on screen and the field still editable (canvas `sGuard`).
                 phase = .editing
                 step = .targetWeight
             } else {
+                errorMessage = nil
                 phase = .summary
             }
         } catch {
             errorMessage = "Your plan couldn't be prepared. Try again."
+            // Reached from `load()`, there is no step on screen to show the error under.
+            if phase == .loading { phase = .failed }
         }
     }
 
@@ -171,12 +264,75 @@ final class NutritionSetupModel {
 
     /// One of two projections (#212, A31): hiding the numbers, or A28's Pregnancy/postpartum
     /// mode, leaves the qualitative arm — which has no numeric field at all.
+    ///
+    /// Driven by the **stored** preference, not the toggle's draft: what hides the numbers is
+    /// what the server holds, so a relaunch cannot show them again.
     var summary: NutritionSummary {
-        guard case .targets(let targets) = plan else {
-            return .qualitative(NutritionQualitative(goal: profile?.goal ?? .maintain, guidance: []))
+        NutritionSummary.project(
+            plan: plan,
+            goal: profile?.goal ?? .maintain,
+            hideNumbers: profile?.hideNumbers == true,
+            modeGate: modeGate
+        )
+    }
+
+    // MARK: Saving
+
+    /// Saves one patch. `false` when it failed, so a step never advances past an answer the
+    /// server does not hold.
+    @discardableResult
+    private func save(_ patch: APINutritionProfilePatch) async -> Bool {
+        do {
+            let saved = try await source.saveNutritionProfile(patch)
+            profile = saved
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = "Your answer couldn't be saved. Try again."
+            return false
         }
-        if hideNumbers {
-            return .qualitative(NutritionQualitative(goal: profile?.goal ?? .maintain, guidance: [
+    }
+
+    private static func step(for profile: APINutritionProfile) -> SetupStep {
+        SetupStep(rawValue: profile.step) ?? .goal
+    }
+}
+
+/// A28's restriction on the Nutrition coach (canvas `sPreg`, PRD line 757): weight-change
+/// goals and the numbers are paused in Pregnancy and the first six postpartum weeks.
+///
+/// Its own type rather than `EvaMode`, because "postpartum" is not the trigger — the first
+/// six weeks are, and nothing on the device knows the week yet. D10 stores the mode; until
+/// then nothing produces anything but `.none`.
+enum NutritionModeGate: Equatable, Sendable {
+    case none
+    case pregnancy
+    case earlyPostpartum
+}
+
+extension APINutritionGoal {
+    /// PRD Step 1 options 1–3, the goals Step 5 asks a target weight for (line 745).
+    var isWeightChange: Bool {
+        switch self {
+        case .lose, .gain, .buildMuscle: true
+        case .maintain, .eatBetter: false
+        }
+    }
+}
+
+extension NutritionSummary {
+    /// The one projection both triggers reach (#212): the preference, or A28's gate.
+    static func project(
+        plan: APINutritionPlan?,
+        goal: APINutritionGoal,
+        hideNumbers: Bool,
+        modeGate: NutritionModeGate
+    ) -> NutritionSummary {
+        guard case .targets(let targets) = plan else {
+            return .qualitative(NutritionQualitative(goal: goal, guidance: []))
+        }
+        if hideNumbers || modeGate != .none {
+            return .qualitative(NutritionQualitative(goal: goal, guidance: [
                 "Focus on your goal and how you feel, not the numbers.",
                 "Log your meals and Eva will keep you on track.",
             ]))
@@ -190,21 +346,6 @@ final class NutritionSetupModel {
             targetWeightKg: targets.weightPlan?.targetWeightKg,
             timelineWeeks: targets.weightPlan?.timelineWeeks
         ))
-    }
-
-    // MARK: Saving
-
-    private func save(_ patch: APINutritionProfilePatch) async {
-        do {
-            let saved = try await session.saveNutritionProfile(patch)
-            profile = saved
-        } catch {
-            errorMessage = "Your answer couldn't be saved. Try again."
-        }
-    }
-
-    private static func step(for profile: APINutritionProfile) -> SetupStep {
-        SetupStep(rawValue: profile.step) ?? .goal
     }
 }
 

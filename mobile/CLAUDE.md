@@ -91,6 +91,21 @@ dates relative to today — and prediction arithmetic in Swift is the one thing 
 DEBUG or not. It seeds the **prediction only**: the entries still come from the API, so a
 predicted cell can be looked at next to a logged one, and the app has to be signed in.
 
+## Nutrition plan (DEBUG)
+
+`GET /me/nutrition/plan` exists (#222) and answers **503 in every environment**: the
+`NUTRITION_*`, `LUTEAL_ADJUSTMENT_PERCENT` and `CYCLE_*` constants are unset until #26 signs
+them off. `EVA_NUTRITION_PLAN` hands the setup flow one response body — the route's own JSON,
+decoded by `APINutritionPlanResponse` — or `unavailable`. It seeds the **plan only**: the
+setup answers, the step marker and the hide-numbers preference still round-trip the API, so
+`NutritionSetupUITests` relaunches against what the server stored.
+
+```sh
+SIMCTL_CHILD_EVA_API_BASE_URL=http://localhost:3003 \
+SIMCTL_CHILD_EVA_NUTRITION_PLAN='{"plan":{"kind":"refused","refusal":{"reason":"below-bmi-floor","lowestSupportedWeightKg":52.2}}}' \
+  xcrun simctl launch --terminate-running-process $UDID com.evaapp.ios
+```
+
 `simctl` cannot scroll. To capture below the fold, drive the simulator with the
 `Claude Code iOS Simulator` MCP (`swipe` from `y: 760` to `y: 180`, ~580pt a time, then
 `screenshot`) — start more than 4pt from any edge or the swipe becomes an OS edge
@@ -110,6 +125,7 @@ Adding a token or a component means adding it to the specimen too.
 | `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar, the shortcuts row and its meal-setup prompt (#100), and the "Worth reading" banner rail with its `SFSafariViewController` article view (#102) |
 | `Eva/Calendar/` | `CalendarView`, the month grid, the event model and its glyphs, the prediction overlay (#206) and the summary card |
 | `Eva/Calendar/Logging/` | The log picker sheet and its four forms, the write payloads, the date policy |
+| `Eva/Nutrition/` | The Nutrition coach's setup (S3, #223): `NutritionSetupModel` over a `NutritionSource` (which cannot read logging history — A31), the one qualitative projection, the target entry in her units, the `EVA_NUTRITION_PLAN` hook |
 | `Eva/Units/` | The units setting (#82): `EvaUnitSystem`, `EvaUnitPreference`, and the conversion boundary — SI in, feet/inches and stones/pounds out |
 | `Eva/Profile/` | `ProfileView`, the delete modal, and the settings rows it carries — `Eva experience ▸ Units` is the first |
 | `Eva/Theme/` | Colors, gradients, type scale, metrics, glass, buttons, input field, radio row |
@@ -151,7 +167,7 @@ Adding a token or a component means adding it to the specimen too.
   screenshot tooling navigate by it. `PrimaryButton` sets `primary.<title>`.
 - Keep the DEBUG hooks working: `EVA_ONBOARDING_STEP`, `EVA_UITEST_RESET`,
   `EVA_API_BASE_URL`, `EVA_SPECIMEN`, `EVA_TODAY_CARD`, `EVA_TODAY_REFRESH`,
-  `EVA_CYCLE_PREDICTION`.
+  `EVA_CYCLE_PREDICTION`, `EVA_NUTRITION_PLAN`.
 - No Firebase iOS SDK. It stays commented out in `project.yml` until it's a decided
   task.
 
