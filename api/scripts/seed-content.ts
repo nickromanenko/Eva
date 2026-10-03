@@ -176,12 +176,14 @@ import {
  */
 export const REVIEW: Review = {
   reviewedBy: 'Nick Romanenko',
-  reviewedAt: '2026-09-19',
+  reviewedAt: '2026-10-03',
   source:
     'docs/design/Eva App.dc.html @ #202 — Dashboard rail (CARDS, NUDGES, banners); ' +
     'plus the reachable-subject audit in api/test/dashboard-copy.test.ts (#177); ' +
     '#200 gives home_e/home_g their titles back ("You logged {signal}") and adds the ' +
-    'signal vocabulary — copy authored here, not yet drawn on the canvas, signed as #200',
+    'signal vocabulary — copy authored here, not yet drawn on the canvas, signed as #200; ' +
+    "#288 re-signs #102's banner selection tags (subjects, focusAreas) as reviewed in the " +
+    'table on #288 — no copy changed, no phase tags',
 }
 
 /** The 14 card variants the canvas' `CARDS` holds, in its order.
