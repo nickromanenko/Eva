@@ -555,6 +555,13 @@ describe('GET /me/export — the download', () => {
       activityBand: 'lightlyActive',
     })
     expect(exported.lastPlanInputs).toEqual(stored as PlanBasis)
+
+    // A stored document the comparison cannot read is still hers: exported verbatim, never
+    // `null` (which would say Eva holds nothing).
+    const unreadable = { ...stored, mode: 'not-a-mode', extra: 'kept' }
+    await userDoc(session.uid).collection('nutrition').doc('lastPlanInputs').set(unreadable)
+    const raw = (await (await exportAs({ email, ...session })).json()) as ExportBody
+    expect(raw.lastPlanInputs as unknown).toEqual(unreadable)
   })
 
   test('a document lacking the fields another ordering would use is still exported', async () => {
@@ -671,7 +678,7 @@ describe('openExport', () => {
       exportedAt: '2026-09-24T10:00:00.000Z',
       account,
       nutritionProfile: profile,
-      lastPlanInputs: BASIS,
+      lastPlanInputs: { ...BASIS },
       events: pages([[ev('a'), ev('b')], [ev('c')], []]),
       today: pages([[card('2026-09-01')], [card('2026-09-02')]]),
       onAbort: () => {

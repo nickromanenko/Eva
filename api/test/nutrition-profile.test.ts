@@ -1082,11 +1082,12 @@ describe('GET /me/nutrition/plan: the recalculation reason (#366)', () => {
 
   test('an unchanged read names no reason and writes nothing', async () => {
     const { uid, token } = await planned()
-    const before = await planInputsDoc(uid).get()
+    // A marker the basis reader ignores, so the stored basis is still unchanged — and one a
+    // rewrite (`set` without merge) would drop. The update time cannot carry this: an
+    // emulator keeps it on an identical write.
+    await planInputsDoc(uid).update({ untouchedMarker: true })
     expect((await plan(token)).recalculationReason).toBeNull()
-    const after = await planInputsDoc(uid).get()
-    // The same write time: an unchanged basis is not rewritten.
-    expect(after.updateTime!.isEqual(before.updateTime!)).toBe(true)
+    expect((await planInputsDoc(uid).get()).get('untouchedMarker')).toBe(true)
   })
 
   test('trigger 1 — her weight is updated: weight_updated, once', async () => {
@@ -1411,7 +1412,7 @@ describe('GET /me/nutrition/plan refuses rather than failing', () => {
   }
 
   const refusedWith = async (env: Record<string, string>, targetWeightKg = 60) => {
-    const { token } = await account({ profile: questionnaire('mostlySitting') })
+    const { uid, token } = await account({ profile: questionnaire('mostlySitting') })
     await finishSetup(token, targetWeightKg)
     const server = await bootApi({ env, range: [4300, 4399], label: 'nutrition-profile.test.ts' })
     try {
@@ -1425,6 +1426,8 @@ describe('GET /me/nutrition/plan refuses rather than failing', () => {
     } finally {
       server.child.kill()
     }
+    // #366: a refusal is not a plan, so no inputs are recorded for the next one to compare.
+    expect((await planInputsDoc(uid).get()).exists).toBe(false)
   }
 
   test('503 while the NUTRITION_* group is unset', async () => {

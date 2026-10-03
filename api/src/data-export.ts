@@ -1,5 +1,4 @@
 import type { EvaEvent } from './events'
-import type { PlanBasis } from './nutrition-adjustment'
 import type { NutritionProfile } from './nutrition-profile'
 import type { TodayDocument } from './today'
 import type { User } from './users'
@@ -11,7 +10,7 @@ import type { User } from './users'
  * A pure leaf, like `request-timeout.ts`: no Firestore, no clock, no `fetch`, no log line.
  * The route reads the account, the nutrition profile and the last plan's inputs, hands in
  * the two owning modules' page generators (`exportEvents`, `exportTodayCards`) and the
- * instant it stamps, and this turns them into bytes. Its five imports are `import type`, so
+ * instant it stamps, and this turns them into bytes. Its four imports are `import type`, so
  * it reaches nothing at runtime.
  *
  * **What a truncated body looks like is the design.** Once the headers are out, a read that
@@ -56,10 +55,11 @@ export interface ExportSource {
    *  derived `complete` flag — or `null` when she has not started setup. One document, so it
    *  is read whole by the route before the headers go, like the account. */
   nutritionProfile: NutritionProfile | null
-  /** The inputs the last plan she was served was computed from (#366) — `users/{uid}/
-   *  nutrition/lastPlanInputs`, which holds nothing else — or `null` before her first plan.
-   *  One document, read whole by the route before the headers go. */
-  lastPlanInputs: PlanBasis | null
+  /** The inputs the last plan she was served was computed from (#366) — the stored
+   *  `users/{uid}/nutrition/lastPlanInputs` document **verbatim**, readable by the
+   *  comparison or not — or `null` before her first plan. One document, read whole by the
+   *  route before the headers go. */
+  lastPlanInputs: Readonly<Record<string, unknown>> | null
   /** Every event, soft-deleted included, a page at a time (`exportEvents`). */
   events: AsyncGenerator<EvaEvent[], void, undefined>
   /** Every stored Today card, a page at a time (`exportTodayCards`). */

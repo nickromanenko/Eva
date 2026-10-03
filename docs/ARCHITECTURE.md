@@ -1506,7 +1506,8 @@ app's decoders and the export cannot drift apart:
   before the headers go, so a failure reading it is an ordinary `500` like the account's.
   Added without a `version` bump: adding a key is not one.
 - `lastPlanInputs` — the stored inputs of the last plan she was served (#366), exactly the
-  document, or **`null`, present,** before her first plan. Her weight, goal, target weight,
+  document — **verbatim, even one the comparison cannot read** (it is still held, and `null`
+  would say it is not) — or **`null`, present,** before her first plan. Her weight, goal, target weight,
   activity band and mode as of that plan, and whether the phase moved the number — copies
   and one derived flag, but held, so exported. Added without a `version` bump.
 - `events` — **every document** in `users/{uid}/events/`, in `GET /me/events`' shape. That
