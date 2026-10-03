@@ -53,7 +53,7 @@ struct EventSyncTests {
         source.writeFailure = APIError.network
         let draft = Self.write()
 
-        let saved = sync.save(draft)
+        let saved = try #require(sync.save(draft))
 
         #expect(entries().map(\.id) == [saved.id])
         let row = try #require(sync.store.row(clientId: draft.idempotencyKey))
@@ -64,7 +64,7 @@ struct EventSyncTests {
 
     @Test("an entry logged here keeps one id on screen before and after the server answers")
     func displayIdIsStable() async throws {
-        let saved = sync.save(Self.write())
+        let saved = try #require(sync.save(Self.write()))
         await sync.drain()
         #expect(entries().map(\.id) == [saved.id], "The row re-identified when the create was acknowledged")
         #expect(sync.store.row(forID: saved.id)?.serverId == source.events.first?.id)
@@ -90,7 +90,7 @@ struct EventSyncTests {
     @Test("§8.4 · create, edit and delete go out in the order they were made")
     func theQueueIsFifo() async throws {
         source.writeFailure = APIError.network
-        let created = sync.save(Self.write())
+        let created = try #require(sync.save(Self.write()))
         sync.save(Self.write(.sport(EvaSportPayload(activity: "run", durationMin: 45, intensity: .hard))),
                   editing: created.id)
         sync.delete(created)
@@ -108,7 +108,7 @@ struct EventSyncTests {
 
     @Test("§8.4 · an edit carries type and localDate, and patches the server's id")
     func anEditCarriesTypeAndDate() async throws {
-        let created = sync.save(Self.write())
+        let created = try #require(sync.save(Self.write()))
         await sync.drain()
         let serverId = try #require(source.events.first?.id)
 
@@ -131,7 +131,7 @@ struct EventSyncTests {
 
     @Test("§8.4 · a delete takes the row off the screen now and sends DELETE later")
     func deleteIsLocalFirst() async throws {
-        let created = sync.save(Self.write())
+        let created = try #require(sync.save(Self.write()))
         await sync.drain()
         let serverId = try #require(source.events.first?.id)
         source.writeFailure = APIError.network
@@ -427,10 +427,30 @@ struct EventSyncTests {
         #expect(source.events.isEmpty, "An operation queued before the wipe was sent after it")
     }
 
-    @Test("§8.5 · log out names how many entries have not synced")
-    func unsyncedCountForLogOut() {
+    /// #389: closing stops collection, not only sending — a sheet still holding the store
+    /// when the session ends must not leave an entry behind on the device.
+    @Test("a closed store accepts no write, and reopening it does")
+    func aClosedStoreRefusesWrites() throws {
         source.writeFailure = APIError.network
-        let first = sync.save(Self.write())
+        let kept = try #require(sync.save(Self.write()))
+        sync.close()
+
+        #expect(sync.save(Self.write(on: Self.day.adding(days: -1))) == nil)
+        sync.delete(kept)
+        #expect(sync.restore(kept) == nil)
+        sync.retryFailed()
+
+        #expect(sync.store.liveEvents().count == 1)
+        #expect(sync.store.operations().map(\.kind) == ["create"])
+
+        sync.reopen()
+        #expect(sync.save(Self.write(on: Self.day.adding(days: -2))) != nil)
+    }
+
+    @Test("§8.5 · log out names how many entries have not synced")
+    func unsyncedCountForLogOut() throws {
+        source.writeFailure = APIError.network
+        let first = try #require(sync.save(Self.write()))
         sync.save(Self.write(.sport(EvaSportPayload(activity: "run", durationMin: 5, intensity: .light))),
                   editing: first.id)
         sync.save(Self.write(on: Self.day.adding(days: -1)))

@@ -395,6 +395,57 @@ extension SessionExpiryTests {
             #expect(self.session().canContinueOffline == false)
         }
 
+        /// #389: the refusal above cleared the mark, but the session stayed `.offline` and
+        /// went on writing entries to the device that the server had said it may not hold.
+        /// It goes back to `.unreachable`, the store stops taking writes, and Continue
+        /// offline — the way back in — is not offered.
+        @Test("a write refused with CONSENT_REQUIRED ends an offline session's collection")
+        func consentRequiredEndsOfflineCollection() async throws {
+            let session = session()
+            markConsentPassed()
+            defer { store.clear() }
+            EvaStubURLProtocol.route { $0.fails(.get("/me")) }
+            await session.bootstrap()
+            session.continueOffline()
+            guard case .offline = session.state else {
+                Issue.record("Continue offline did not go through (\(session.state))")
+                return
+            }
+            let sync = try #require(session.eventSync)
+
+            EvaStubURLProtocol.route {
+                $0.responds(.post("/me/events"), status: 403, body: Self.consentRequired)
+                $0.fails(.get("/me"))
+            }
+            sync.save(Self.write())
+            await sync.drain()
+
+            guard case .unreachable = session.state else {
+                Issue.record("The session stayed \(session.state) after the server refused for want of consent")
+                return
+            }
+            #expect(session.eventSync == nil, "The app still has a store to log into")
+            let rows = sync.store.liveEvents().count
+            let operations = sync.store.operations().count
+            let sent = EvaStubURLProtocol.requestCount(for: .post("/me/events"))
+
+            // A sheet still holding the store logs again.
+            #expect(sync.save(Self.write()) == nil, "A closed store reported a write as saved")
+            await sync.drain()
+
+            #expect(sync.store.liveEvents().count == rows, "A LocalEvent was written after the refusal")
+            #expect(sync.store.operations().count == operations, "A PendingOperation was queued after the refusal")
+            #expect(EvaStubURLProtocol.requestCount(for: .post("/me/events")) == sent)
+
+            #expect(!session.canContinueOffline, "Continue offline is offered after the refusal")
+            session.continueOffline()
+            guard case .unreachable = session.state else {
+                Issue.record("Continue offline went through after the refusal (\(session.state))")
+                return
+            }
+            #expect(session.eventSync == nil)
+        }
+
         /// The same follow-up, from the other side: a validated launch that finds the consent
         /// withdrawn lands in the app (the freeze is not re-asked), and must not record the
         /// mark that would put Continue offline back.
