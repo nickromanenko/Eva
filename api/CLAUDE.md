@@ -381,7 +381,9 @@ events.ts · nutrition-profile.ts ──► users.ts (`assertAccountLive` only, 
   returns A28's `{ kind: 'qualitative' }` (no number) for Pregnancy Mode and for the first six
   weeks after a delivery (`postpartum`) or a pregnancy loss (`loss`, #367) — one window,
   `QUALITATIVE_WINDOW_DAYS` (42), counted from `daysSinceModeEvent`; a `null` day (every user
-  until D10 stores the date) keeps it closed, so a missing date never serves a number. After
+  until D10 stores the date), or one that is not a whole day count, keeps it closed, so a
+  missing date never serves a number; and it is applied before a guard refusal is passed
+  through, so no `lowestSupportedWeightKg` reaches a no-numbers mode. After
   it, numbers return and her `hideNumbers` decides display as in any mode. It carries the
   phase's confidence class beside the adjusted number (GUARDRAILS 35) plus a reason id the copy store resolves — never a generated sentence. Pure:
   `import type` only. `NutritionAdjustmentUnsetError` is the refusal the route maps to 503 —

@@ -66,14 +66,19 @@ export const QUALITATIVE_WINDOW_DAYS = 42
 /**
  * Whether the mode withholds every number (A28). Pregnancy Mode always does. `postpartum`
  * and `loss` do for the window after the event that began them — and when that day is not
- * known (`null`), or is not a day at all, they do too: a number is withheld until the day
- * proves the window is over, never served because the day is missing. That is today's case
+ * known (`null`), or is not a whole day count (`NaN`, `Infinity`, `41.5`), they do too: a
+ * number is withheld until a whole day proves the window is over, never served because the
+ * day is missing or malformed. That is today's case
  * for every user, since nothing stores a delivery or loss date until D10 (#107).
  */
 const withholdsNumbers = (mode: Mode, daysSinceModeEvent: number | null): boolean => {
   if (mode === 'pregnancy') return true
   if (mode !== 'postpartum' && mode !== 'loss') return false
-  return !(daysSinceModeEvent !== null && daysSinceModeEvent >= QUALITATIVE_WINDOW_DAYS)
+  return !(
+    daysSinceModeEvent !== null &&
+    Number.isInteger(daysSinceModeEvent) &&
+    daysSinceModeEvent >= QUALITATIVE_WINDOW_DAYS
+  )
 }
 
 /**
@@ -92,6 +97,11 @@ const withholdsNumbers = (mode: Mode, daysSinceModeEvent: number | null): boolea
  * After the window numbers return, and her own `hideNumbers` still decides whether the
  * client shows them, exactly as in every other mode. Planning keeps numbers, and the luteal
  * adjustment is unaffected.
+ *
+ * **Qualitative before refused.** A guard-refused plan carries `lowestSupportedWeightKg` — a
+ * weight figure — and the qualitative mode shows no weight target either (#223), so A28 is
+ * applied before the refusal is passed through. The unset-constant check stays first (#364):
+ * an unconfigured deployment is a 503 on every arm.
  */
 export const adjustNutritionPlan = (
   plan: NutritionPlan,
@@ -101,8 +111,8 @@ export const adjustNutritionPlan = (
   lutealPercent: number | null,
 ): ServedNutritionPlan => {
   if (lutealPercent === null) throw new NutritionAdjustmentUnsetError()
-  if (plan.kind === 'refused') return plan
   if (withholdsNumbers(mode, daysSinceModeEvent)) return { kind: 'qualitative' }
+  if (plan.kind === 'refused') return plan
 
   const targets = plan.targets
   if (phase?.code === 'luteal') {

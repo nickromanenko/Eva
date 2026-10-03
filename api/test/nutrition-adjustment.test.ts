@@ -128,8 +128,9 @@ describe('adjustNutritionPlan', () => {
   })
 
   test('#367: a loss with no date, or a day that is not one, withholds rather than serves', () => {
-    // A missing day never opens the window: the number waits until a day proves it is over.
-    for (const day of [null, Number.NaN, -1]) {
+    // A missing or malformed day never opens the window: the number waits until a whole day
+    // count proves it is over. A fractional day is malformed — the input is whole local days.
+    for (const day of [null, Number.NaN, -1, Number.POSITIVE_INFINITY, 41.5, 42.5]) {
       expect(adjustNutritionPlan(plan(2000), null, 'loss', day, 5)).toEqual({ kind: 'qualitative' })
     }
   })
@@ -175,6 +176,28 @@ describe('adjustNutritionPlan', () => {
     )
     expect(result.adjustment.calorieTargetKcal).toBe(2100)
     expect(result.adjustment.reasonId).toBe(LUTEAL_REASON)
+  })
+
+  test('a guard-refused plan in a no-numbers mode is qualitative — no weight figure leaks', () => {
+    // The refusal carries `lowestSupportedWeightKg`; the qualitative mode shows no weight
+    // target either (#223), so A28 wins over the guard's answer.
+    for (const reason of ['below-bmi-floor', 'below-plan-cap'] as const) {
+      const refused: NutritionPlan = {
+        kind: 'refused',
+        refusal: { reason, lowestSupportedWeightKg: 52.2 },
+      }
+      for (const [mode, day] of [
+        ['pregnancy', null],
+        ['postpartum', null],
+        ['loss', 10],
+      ] as const) {
+        const served = adjustNutritionPlan(refused, phase('luteal', 'wide'), mode, day, 5)
+        expect(served).toEqual({ kind: 'qualitative' })
+        expect(JSON.stringify(served)).not.toMatch(/\d/)
+      }
+      // After the window the refusal is hers to see again, untouched.
+      expect(adjustNutritionPlan(refused, null, 'loss', 42, 5)).toEqual(refused)
+    }
   })
 
   test('a refused plan is served refused, untouched', () => {
