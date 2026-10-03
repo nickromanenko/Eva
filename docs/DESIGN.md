@@ -151,7 +151,13 @@ Destructive-confirmed stays disabled until `DELETE` is typed.
   `rgba(248,243,240,.8)`, text `#B3A9AE`, border `rgba(40,33,38,.07)`.
 - **Search**: same height, radius 26.
 - **Dropdown**: same as input, caret at trailing edge.
-- **Toggle**: 52×32, pistachio gradient when on.
+- **Toggle**: 52×32, pistachio gradient when on. **Built as `EvaToggleStyle` (`.toggleStyle(.eva)`)
+  in #223**, where Nutrition Settings needed it, from the design-system artboard's three
+  drawn states: on `linear-gradient(180deg,#B7CF86,#8EAD56)` with the knob trailing, off
+  `rgba(40,33,38,.16)` with the knob leading, disabled `rgba(40,33,38,.08)` at 50% with no
+  knob shadow; a white 26pt knob, `0 2px 6px rgba(40,33,38,.28)`. `#B7CF86` is new as
+  `evaToggleOnTop`. It is a `ToggleStyle`, so the control stays a `Toggle` to VoiceOver and to
+  UI tests.
 - **Checkbox**: 22×22, radius 7, `#C95F86` when checked.
 - **Radio row**: min-height 56, radius 18, title + description, selected fill
   `rgba(233,130,165,.14)` with `rgba(201,95,134,.45)` border. **Built as `EvaRadioRow` in
@@ -168,9 +174,8 @@ Destructive-confirmed stays disabled until `DELETE` is typed.
   the App canvas' `scales` — since 2026-08-30 (C6/D2). **Built as `EvaRatingScale` in
   #160**, where body signals needed it first; a scale given no glyphs falls back to the
   artboard's graduated dots.
-- **Toggle** is still unbuilt. #160 needed a binary for an appointment reminder and used a
-  chip rather than build a second design-system component inside a feature change — see
-  §9a.
+- **Toggle**: #160 needed a binary for an appointment reminder before the toggle existed
+  and used a chip (§9a); that chip is unchanged by #223.
 
 ## 7. Surfaces, feedback, states
 
@@ -753,6 +758,43 @@ the first choice to work. The second is yours either way." — kept verbatim) be
 inline message under the cards, because §7 reserves the toast for what *has* happened,
 and this says what will not.
 
+**The Nutrition setup and Nutrition Settings (#223) against `Eva Nutrition Coach.dc.html`.**
+Where the built screens knowingly differ from `s4`, `sGuard`, `sSum`, `sResume` and `nSet`:
+
+- **Nutrition Settings is reached from Profile ▸ Eva experience**, a row the Settings artboard
+  does not draw — the canvas opens it from the coach's Today header gear, which is unbuilt.
+  It takes Profile's detail-screen frame (H1 title) rather than the artboard's 14pt bar title.
+- **One switch, not two.** `nSet` draws "Hide calorie numbers" *and* "Qualitative guidance
+  mode"; #212 decided hiding the numbers *is* the full qualitative mode, so there is one
+  switch, and its description is the setup flow's sentence — the artboard's ("Macros and
+  food guidance stay") is not true of it. Water tracking, Meal reminders and the Goal / Focus
+  areas / Meal pattern rows are not drawn: nothing behind them exists. The rows the `nSet`
+  note says deep-link to Profile push Profile's own editors.
+- **Step 4 takes no input.** `s4` draws height and weight as editable fields; they are drawn
+  in §6's disabled treatment (Step 5's "Current" on the same canvas) because Profile is their
+  one editor. The activity radios are drawn and inert. The pistachio note about logged
+  workouts refining the band is not drawn — that trigger does not exist yet.
+- **The guard card's offer is §5's secondary glass**, where `sGuard` draws a 40-high
+  amber-outlined button that matches no §5 variant. The card itself is §2 Warning: tint,
+  `evaWarningBorder` (.30 against .40), ink for title and body (the body's `#7A5A22` has no
+  token), the "!" rounded square as its mark. The target field does not take the amber ring
+  the artboard gives it — §6's input has no warning state.
+- **The summary's values are single numbers, not the artboard's ranges**, the route serves
+  one value each; "approximately … kcal" is kept. The cycle row states a **status** and no
+  percentage ("+5%" would restate a constant the server owns), with the confidence beside it.
+  "Start my plan" is not drawn (nothing to activate yet), nor the canvas' amber
+  "illustrative numbers" notes. The row table's hairline takes `evaControlBorderDisabled`
+  (.06 against .05).
+- **The summary's disclaimer is the owner's wording (#374)**, on `sSum`'s Information tint:
+  "Eva's plan is a guide. It does not replace personalized advice from a doctor or
+  registered dietitian." The line before it claimed every plan was reviewed by a dietitian,
+  which none is.
+- **The resume card names no date** — "…on August 9" — because the API serves none.
+- **Step titles.** `s4` and the summary take H1 for the artboard's 25/600; Steps 1–3 and 5
+  still use H3 from #360 and have not been moved.
+- **A title-less information banner.** `nSet`'s note is one sentence on §2's Information
+  tint; `EvaInfoBanner(message:)` draws it without a title.
+
 **Settings › Privacy (PrivacySettingsView) states the freeze in place of the canvas'
 undrawn screen.** The canvas names the destination ("Both withdrawable in Settings ›
 Privacy") without drawing it. Its withdrawal dialog carries the consequence the #86
@@ -794,8 +836,8 @@ Real platform limits, not decisions:
 - Buttons have no loading state. The auth buttons do (`#3A3436` with a 60% white label),
   which is the house pattern if one is wanted.
 - Motion is unspecified everywhere. Input focus and error transitions are instant.
-- §6's **toggle** (52×32, pistachio when on) is specified and unbuilt. #160 wanted one and
-  used a chip instead rather than design a component inside a feature change.
+- ~~§6's **toggle** is specified and unbuilt.~~ Built in #223 (`EvaToggleStyle`), from the
+  artboard's three drawn states.
 - The log picker's "Change date" control and the appointment sheet's Date and Time fields
   are drawn with no control behind them (`noop`), and the system has no date or time
   picker. #160 uses the platform's, tinted — see §9a.
@@ -830,7 +872,7 @@ Real platform limits, not decisions:
   canvas' exact points hold at the default content size and scale from there.
 - Controls live beside the tokens: `PrimaryButton.swift` and `EvaButtons.swift`
   (secondary glass, text, destructive, authentication, plus the shared press/focus
-  pieces), `EvaInputField.swift` (with `EvaInputRevealButton`), `EvaInfoBanner.swift`,
+  pieces), `EvaInputField.swift` (with `EvaInputRevealButton`), `EvaToggleStyle.swift`, `EvaInfoBanner.swift`,
   `EvaScreenBackground.swift`, and `Onboarding/Components/ChipToggleButton.swift`.
   Heights and the focus-ring width come from `EvaControl` in `EvaMetrics.swift` — one
   home, so the buttons and the inputs cannot drift apart.

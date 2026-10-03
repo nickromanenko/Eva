@@ -18,6 +18,9 @@ final class NutritionSetupModel {
 
     enum Phase {
         case loading
+        /// A setup she started and left (canvas `sResume`): what is done, what remains, and
+        /// nothing calculated from it until she continues.
+        case resuming
         case editing
         case summary
         case failed
@@ -75,12 +78,30 @@ final class NutritionSetupModel {
             }
             if profile?.complete == true {
                 await showSummary()
+            } else if let profile, Self.step(for: profile) != .goal {
+                // Started and left: say where she is before putting her back in a step.
+                phase = .resuming
             } else {
                 phase = .editing
             }
         } catch {
             phase = .failed
         }
+    }
+
+    // MARK: Resuming (canvas `sResume`)
+
+    /// The steps on her path, each with whether it is behind her. Step 5 is left out when
+    /// her goal has no target weight (PRD line 745) — it is not a step that remains.
+    var resumeSteps: [ResumeStep] {
+        SetupStep.allCases
+            .filter { $0 != .done && !($0 == .targetWeight && isSkippingTargetWeight) }
+            .map { ResumeStep(step: $0, isDone: $0.ordinal < step.ordinal) }
+    }
+
+    /// Back into the step she left, with her answers as they were saved.
+    func continueSetup() {
+        phase = .editing
     }
 
     /// Clears the one error line once she acts again.
@@ -202,14 +223,21 @@ final class NutritionSetupModel {
         step = previous
     }
 
-    func editInProfile() {
-        // The body metrics live on the Sign Up profile, edited from Profile (#19). Nothing
-        // to write here — this is a navigation seam the caller wires.
-    }
-
     // MARK: Body metrics (Step 4, confirmation)
 
     // In her units (#82), through the conversion boundary — the stored values are SI.
+
+    /// Her age, from the date of birth on the Sign Up profile — never asked twice (canvas
+    /// `s4`). `nil` when there is no profile or the date does not parse.
+    var ageYears: Int? {
+        guard let wire = source.bodyProfile?.dateOfBirth,
+              let birth = ProfileEditorModel.date(fromWire: wire)
+        else { return nil }
+        return Calendar.current.dateComponents([.year], from: birth, to: .now).year
+    }
+
+    /// Her band's code, so Step 4 can mark it among the four.
+    var bandCode: String? { source.bodyProfile?.lifestyle }
 
     var heightText: String {
         guard let profile = source.bodyProfile else { return "Height not set" }
@@ -217,7 +245,7 @@ final class NutritionSetupModel {
     }
 
     var weightText: String {
-        guard let profile = source.bodyProfile else { return "weight not set" }
+        guard let profile = source.bodyProfile else { return "Weight not set" }
         return EvaMassInput(kilograms: profile.weightKg, system: units.system).displayText
     }
 
@@ -298,6 +326,14 @@ final class NutritionSetupModel {
     }
 }
 
+/// One line of the resume card: a step on her path, and whether it is behind her.
+struct ResumeStep: Identifiable, Equatable {
+    let step: SetupStep
+    let isDone: Bool
+
+    var id: SetupStep { step }
+}
+
 /// A28's restriction on the Nutrition coach (canvas `sPreg`, PRD line 757): weight-change
 /// goals and the numbers are paused in Pregnancy and the first six postpartum weeks.
 ///
@@ -328,24 +364,52 @@ extension NutritionSummary {
         hideNumbers: Bool,
         modeGate: NutritionModeGate
     ) -> NutritionSummary {
-        guard case .targets(let targets) = plan else {
+        let qualitative = NutritionQualitative(goal: goal, guidance: [
+            "Focus on your goal and how you feel, not the numbers.",
+            "Log your meals and Eva will keep you on track.",
+        ])
+        switch plan {
+        case .targets(let targets) where !hideNumbers && modeGate == .none:
+            return .numbers(numbers(from: targets))
+        case .targets, .qualitative:
+            // The route's own A28 answer and her preference reach the same arm.
+            return .qualitative(qualitative)
+        case .refused, nil:
             return .qualitative(NutritionQualitative(goal: goal, guidance: []))
         }
-        if hideNumbers || modeGate != .none {
-            return .qualitative(NutritionQualitative(goal: goal, guidance: [
-                "Focus on your goal and how you feel, not the numbers.",
-                "Log your meals and Eva will keep you on track.",
-            ]))
-        }
-        return .numbers(NutritionNumbers(
-            calorieTargetKcal: targets.calorieTargetKcal,
+    }
+
+    private static func numbers(from targets: APINutritionTargets) -> NutritionNumbers {
+        NutritionNumbers(
+            // The adjusted number is the one the UI shows (`NutritionAdjustment`'s own
+            // contract); the engine's stands when the route served no adjustment.
+            calorieTargetKcal: targets.adjustment?.calorieTargetKcal ?? targets.calorieTargetKcal,
             proteinG: targets.macros.proteinG,
             fatG: targets.macros.fatG,
             carbG: targets.macros.carbG,
             fibreG: targets.macros.fibreG,
             targetWeightKg: targets.weightPlan?.targetWeightKg,
-            timelineWeeks: targets.weightPlan?.timelineWeeks
-        ))
+            timelineWeeks: targets.weightPlan?.timelineWeeks,
+            cycleAdjustment: targets.adjustment.map(NutritionCycleAdjustment.init)
+        )
+    }
+}
+
+/// The summary's cycle-adjustment **status** (canvas `sSum`, "Cycle-aware adjustment") — a
+/// state, never the number it moved.
+///
+/// Two states, because the route serves two: an adjustment with a reason and the phase
+/// confidence it was read with, or none. `none` covers both "not luteal today" and "no phase
+/// estimate at all" — the route answers both the same way (`APINutritionAdjustment`), so
+/// the copy for it must be true of either.
+enum NutritionCycleAdjustment: Equatable, Sendable {
+    case luteal(confidence: String?)
+    case none
+
+    init(_ adjustment: APINutritionAdjustment) {
+        self = adjustment.reasonId == APINutritionAdjustment.lutealReason
+            ? .luteal(confidence: adjustment.confidence)
+            : .none
     }
 }
 
@@ -402,6 +466,8 @@ struct NutritionNumbers {
     let fibreG: Double
     let targetWeightKg: Double?
     let timelineWeeks: Int?
+    /// `nil` when the route served no adjustment (a body from before #361).
+    var cycleAdjustment: NutritionCycleAdjustment?
 }
 
 /// Qualitative guidance — sentences, never a calorie total, a macro gram, a weight target or

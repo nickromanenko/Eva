@@ -29,6 +29,8 @@ struct EvaSpecimenInputSection: View {
     @State private var revealed = "evaprime26"
     @State private var weak = "evaprime"
     @State private var isRevealed = true
+    @State private var toggleOn = true
+    @State private var toggleOff = false
 
     /// The rule the sign-up screen states, and the specimen string §3 uses for the Input
     /// helper row.
@@ -206,6 +208,27 @@ struct EvaSpecimenInputSection: View {
                     isSelected: false
                 ) {}
             }
+
+            EvaSpecimenGroupLabel(title: "Toggle")
+            EvaSpecimenNote(
+                text: "52×32 track, 26pt white knob. On is the pistachio gradient with the "
+                    + "knob trailing; off is a 16% ink track with the knob leading; disabled "
+                    + "is an 8% track at half opacity with no knob shadow. Position as well "
+                    + "as fill, so on and off never differ by colour alone. Built for "
+                    + "Nutrition Settings (#223)."
+            )
+            VStack(spacing: EvaSpacing.xs) {
+                Toggle("On", isOn: $toggleOn)
+                    .accessibilityIdentifier("specimen.toggle.on")
+                Toggle("Off", isOn: $toggleOff)
+                    .accessibilityIdentifier("specimen.toggle.off")
+                Toggle("Disabled", isOn: .constant(false))
+                    .disabled(true)
+                    .accessibilityIdentifier("specimen.toggle.disabled")
+            }
+            .toggleStyle(.eva)
+            .evaTextStyle(.bodyMedium)
+            .foregroundStyle(Color.evaPrimaryText)
         }
     }
 }

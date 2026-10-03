@@ -462,10 +462,13 @@ struct APINutritionPlanResponse: Decodable, Sendable {
 
 enum APINutritionPlan: Decodable, Sendable {
     case refused(APINutritionRefusal)
+    /// A28 (#224): Pregnancy or the first six postpartum weeks — the route serves no number at
+    /// all. Unreachable until D10 stores a mode, but decoded rather than mistaken for targets.
+    case qualitative
     case targets(APINutritionTargets)
 
     private enum CodingKeys: String, CodingKey {
-        case kind, refusal, targets
+        case kind, refusal, targets, adjustment
     }
 
     init(from decoder: Decoder) throws {
@@ -473,8 +476,15 @@ enum APINutritionPlan: Decodable, Sendable {
         switch try container.decode(String.self, forKey: .kind) {
         case "refused":
             self = .refused(try container.decode(APINutritionRefusal.self, forKey: .refusal))
+        case "qualitative":
+            self = .qualitative
         default:
-            self = .targets(try container.decode(APINutritionTargets.self, forKey: .targets))
+            var targets = try container.decode(APINutritionTargets.self, forKey: .targets)
+            // A sibling of `targets` on the wire (`ServedNutritionPlan`), carried with them.
+            targets.adjustment = try container.decodeIfPresent(
+                APINutritionAdjustment.self, forKey: .adjustment
+            )
+            self = .targets(targets)
         }
     }
 }
@@ -492,6 +502,10 @@ struct APINutritionTargets: Decodable, Sendable {
     let calorieTargetKcal: Double
     let macros: APIMacroTargets
     let weightPlan: APIWeightPlan?
+    /// S12's cycle-phase adjustment (#224), served **beside** `targets` rather than inside
+    /// them and attached here by `APINutritionPlan`'s decoder. `nil` for a body from before
+    /// #361; the summary then states no status rather than guessing one.
+    var adjustment: APINutritionAdjustment? = nil
 
     struct APIMacroTargets: Decodable, Sendable {
         let proteinG: Double
@@ -505,4 +519,21 @@ struct APINutritionTargets: Decodable, Sendable {
         let timelineWeeks: Int?
         let paceKgPerWeek: Double
     }
+}
+
+/// `nutrition-adjustment.ts`' `NutritionAdjustment`: the calorie target the UI shows (the
+/// engine's, plus the luteal 5% when the phase is luteal), the reason as an id, and the
+/// phase confidence that travelled with it (GUARDRAILS 35).
+///
+/// **`reasonId == nil` does not say why.** The route serves the same empty adjustment for a
+/// phase that is not luteal and for a phase C11 withheld, so the app cannot tell "no phase"
+/// from "not luteal" — and must not claim either.
+struct APINutritionAdjustment: Decodable, Sendable {
+    let calorieTargetKcal: Double
+    let reasonId: String?
+    /// A27's vocabulary: `wide` or `narrow` when an adjustment applied, `nil` otherwise.
+    let confidence: String?
+
+    /// The one reason the route serves today (`LUTEAL_REASON`).
+    static let lutealReason = "luteal_adjustment"
 }

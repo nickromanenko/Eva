@@ -296,7 +296,8 @@ struct ProfileView: View {
         return EvaAuthProvider.allCases.filter { !user.isConnected($0) }
     }
 
-    /// The artboard's **Eva experience** section, with the one row #82 builds.
+    /// The artboard's **Eva experience** section, with the row #82 builds and the Nutrition
+    /// Settings door #223 adds.
     ///
     /// The section title, the row label and its meta line are the artboard's own strings.
     /// Everything else in the section — Pregnancy Mode, Language, Personalization,
@@ -311,6 +312,18 @@ struct ProfileView: View {
                 identifier: "profile.units"
             ) {
                 UnitsSettingsView(units: units)
+            }
+
+            // Not on the canvas' Settings artboard, which reaches Nutrition Settings (`nSet`)
+            // from the coach's Today header — unbuilt. This is the door until it is (#223), so
+            // the one place the hide-numbers preference is reversed is somewhere she can get
+            // to. The label is the screen's own title; `REVIEW`: the meta line is new copy.
+            ProfileSettingsRow(
+                label: "Nutrition Settings",
+                meta: "Calorie numbers, how targets are calculated",
+                identifier: "profile.nutrition"
+            ) {
+                NutritionSettingsView(session: session, units: units, editor: editor)
             }
         }
     }

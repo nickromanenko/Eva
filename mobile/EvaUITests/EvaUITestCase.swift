@@ -745,7 +745,8 @@ class EvaUITestCase: XCTestCase {
             "Missing element: \(element)", file: file, line: line
         )
         var swipes = 0
-        while (!element.isHittable || element.frame.maxY > app.frame.maxY) && swipes < 4 {
+        while (!element.isHittable || element.frame.maxY > visibleBottom(for: element, in: app))
+            && swipes < 4 {
             swipeColumn(in: app)
             swipes += 1
         }
@@ -759,6 +760,19 @@ class EvaUITestCase: XCTestCase {
             """,
             file: file, line: line
         )
+    }
+
+    /// The lowest point an element can sit at and still take its own tap.
+    ///
+    /// **The tab bar floats over the column**, so `isHittable` and the app's frame both say
+    /// yes to a button drawn underneath it — and the tap lands on a tab. #223 found it: one
+    /// more Profile row left `destructive.Delete profile` at 791–843 after a swipe, under the
+    /// bar's 784–836, and the delete modal never opened. The bar's own buttons are exempt.
+    private func visibleBottom(for element: XCUIElement, in app: XCUIApplication) -> CGFloat {
+        let tab = app.buttons["tab.home"]
+        guard tab.exists, !element.identifier.hasPrefix("tab.") else { return app.frame.maxY }
+        let top = tab.frame.minY
+        return top > 0 ? top : app.frame.maxY
     }
 
     /// One swipe of the screen's scrolling column.

@@ -351,6 +351,99 @@ struct NutritionSetupModelTests {
         }
     }
 
+    // MARK: - The plan route's adjustment (#224) and the summary's status row (canvas `sSum`)
+
+    @Test("The adjustment is read beside the targets, and the adjusted number is the one shown")
+    func adjustmentDecodesBesideTargets() throws {
+        let body = Data("""
+            {"plan":{"kind":"targets","targets":{"bmrKcal":1400,"tdeeKcal":1925,\
+            "calorieTargetKcal":1636,"macros":{"proteinG":102,"fatG":55,"carbG":180,"fibreG":25},\
+            "weightPlan":null},"adjustment":{"calorieTargetKcal":1718,\
+            "reasonId":"luteal_adjustment","confidence":"narrow"}}}
+            """.utf8)
+        let plan = try JSONDecoder().decode(APINutritionPlanResponse.self, from: body).plan
+        guard case .numbers(let numbers) = NutritionSummary.project(
+            plan: plan, goal: .maintain, hideNumbers: false, modeGate: .none
+        ) else {
+            Issue.record("targets did not project to numbers")
+            return
+        }
+        #expect(numbers.calorieTargetKcal == 1718, "the engine's number was shown, not the adjusted one")
+        #expect(numbers.cycleAdjustment == .luteal(confidence: "narrow"))
+    }
+
+    @Test(
+        "The status says what the route served, and no number",
+        arguments: [
+            (APINutritionAdjustment(calorieTargetKcal: 1718, reasonId: "luteal_adjustment", confidence: "wide"),
+             NutritionCycleAdjustment.luteal(confidence: "wide")),
+            (APINutritionAdjustment(calorieTargetKcal: 1636, reasonId: nil, confidence: nil),
+             NutritionCycleAdjustment.none),
+        ]
+    )
+    func adjustmentStatus(adjustment: APINutritionAdjustment, expected: NutritionCycleAdjustment) {
+        let status = NutritionCycleAdjustment(adjustment)
+        #expect(status == expected)
+        #expect(status.status.rangeOfCharacter(from: .decimalDigits) == nil, "the status restates a number")
+        if case .luteal(confidence: "wide") = status {
+            #expect(status.status.contains("wide"), "a wide-band phase reads as a certainty")
+        }
+    }
+
+    @Test("A28's qualitative plan decodes as one, never as targets")
+    func qualitativePlanDecodes() throws {
+        let body = Data(#"{"plan":{"kind":"qualitative"}}"#.utf8)
+        let plan = try JSONDecoder().decode(APINutritionPlanResponse.self, from: body).plan
+        guard case .qualitative = NutritionSummary.project(
+            plan: plan, goal: .eatBetter, hideNumbers: false, modeGate: .none
+        ) else {
+            Issue.record("the route's qualitative answer drew numbers")
+            return
+        }
+    }
+
+    // MARK: - The disclaimer (#374)
+
+    @Test("The summary's disclaimer claims no dietitian review, and points to one instead")
+    func disclaimerClaimsNoReview() {
+        let line = NutritionSetupView.disclaimer
+        #expect(!line.localizedCaseInsensitiveContains("reviewed by"), "the review claim is back")
+        #expect(line.contains("does not replace personalized advice from a doctor or registered dietitian"))
+    }
+
+    // MARK: - Resume (canvas `sResume`)
+
+    @Test("A started setup resumes on the card, listing what is done and what remains")
+    func startedSetupResumesOnTheCard() async {
+        let source = RecordingNutritionSource(profile: .partial(goal: .lose, step: .bodyMetrics))
+        let model = NutritionSetupModel(source: source, units: .fixed(.metric))
+        await model.load()
+        #expect(model.phase == .resuming)
+        #expect(!source.calls.contains(.plan), "a partial setup asked for a plan")
+        #expect(model.resumeSteps.map(\.isDone) == [true, true, true, false, false])
+        #expect(
+            NutritionSetupView.resumeSentence(model.resumeSteps)
+                .hasSuffix("Two steps remain before Eva can show any targets.")
+        )
+        model.continueSetup()
+        #expect(model.phase == .editing)
+        #expect(model.step == .bodyMetrics)
+    }
+
+    @Test("Goals without a target weight do not list it as remaining; a fresh setup has no card")
+    func resumeListsOnlyHerPath() async {
+        let model = NutritionSetupModel(
+            source: RecordingNutritionSource(profile: .partial(goal: .maintain, step: .mealPattern)),
+            units: .fixed(.metric)
+        )
+        await model.load()
+        #expect(model.resumeSteps.map(\.step) == [.goal, .focusAreas, .mealPattern, .bodyMetrics])
+
+        let fresh = NutritionSetupModel(source: RecordingNutritionSource(), units: .fixed(.metric))
+        await fresh.load()
+        #expect(fresh.phase == .editing, "nothing started, nothing to resume")
+    }
+
     // MARK: - Support
 
     /// Yields until `condition` holds, bounded so a broken chain fails rather than hangs.
