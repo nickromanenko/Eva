@@ -129,6 +129,9 @@ extension SessionExpiryTests {
                 Issue.record("A 401 on the export left the app in \(session.state)")
             }
             #expect(store.token == nil, "A dead token was left in the Keychain")
+            // The sign-out's device removal is fire-and-forget; let it land here rather than
+            // in whichever serialized test runs next (#369).
+            await session.deviceRemoval?.value
         }
 
         @Test("a 429 is .rateLimited with its window, like every other route")
