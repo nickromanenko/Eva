@@ -806,7 +806,9 @@ describe('hideNumbers is never inferred (A31, #212, #283)', () => {
       })
       expect(signals.status).toBe(200)
       // Every read a heuristic could hang off, between every entry.
-      await call(token, 'GET', '/me/nutrition/plan')
+      // 200: a read that failed could not have fed a heuristic, and the test would prove
+      // nothing about one.
+      expect((await call(token, 'GET', '/me/nutrition/plan')).status).toBe(200)
       await call(token, 'GET', '/me/today?timeZone=UTC')
       await call(token, 'GET', '/me')
       expect((await read(token)).body.nutritionProfile.hideNumbers).toBe(false)

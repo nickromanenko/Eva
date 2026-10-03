@@ -177,6 +177,11 @@ final class NutritionSetupUITests: EvaUITestCase {
 
     /// PRD line 677: nothing calculated or displayed from partial data.
     private func assertNoTarget(in app: XCUIApplication, _ when: String) {
+        // Searched below; absent, the kcal search would pass for want of anything to search.
+        XCTAssertTrue(
+            app.scrollViews["nutrition.scroll"].exists,
+            "The setup's column is not on screen \(when)"
+        )
         XCTAssertFalse(element("nutrition.summary.title", in: app).exists, "A summary showed \(when)")
         XCTAssertFalse(element("nutrition.summary.numbers", in: app).exists, "Targets showed \(when)")
         XCTAssertFalse(

@@ -235,7 +235,132 @@ struct NutritionSetupModelTests {
         }
     }
 
+    /// The case the loop above cannot see: a **default**. A fresh load at the last step, with
+    /// no preference stored yet and every signal a heuristic would key on — a low weight, a
+    /// falling one, a plan at the floor — must still start the toggle off. Nothing is set by
+    /// the test before the check.
+    @Test(
+        "A31: with no stored preference, heuristic bait does not turn the toggle on",
+        arguments: [
+            (APINutritionGoal.lose, SetupStep.targetWeight),
+            (.maintain, .bodyMetrics),
+        ]
+    )
+    func a31TheDefaultIsNotInferred(goal: APINutritionGoal, step: SetupStep) async {
+        let source = RecordingNutritionSource(
+            profile: .partial(goal: goal, step: step, hideNumbers: nil),
+            body: .body(weightKg: 48, heightCm: 168)
+        )
+        source.plan = .targets(.floor)
+        for weight in [58.0, 54.0, 50.0, 48.0] {
+            source.body = .body(weightKg: weight, heightCm: 168)
+            let model = NutritionSetupModel(source: source, units: .fixed(.metric))
+            await model.load()
+            #expect(model.isFinalStep, "the preference is not asked on this step")
+            #expect(model.hideNumbers == false, "the toggle started on at \(weight) kg — inferred")
+        }
+        // Finished untouched, what is saved is her untouched answer: off.
+        let model = NutritionSetupModel(source: source, units: .fixed(.metric))
+        await model.load()
+        model.targetEntry.kilogramsText = "50"
+        await model.finish()
+        #expect(source.patches.last?.hideNumbers == false)
+    }
+
+    // MARK: - Failures
+
+    @Test("A failed plan read on resume shows the retry state, never an endless spinner")
+    func failedPlanOnResumeShowsRetry() async {
+        let source = RecordingNutritionSource(
+            profile: .partial(goal: .lose, step: .done, targetWeightKg: 60, hideNumbers: false)
+        )
+        source.failsPlan = true
+        let model = NutritionSetupModel(source: source, units: .fixed(.metric))
+        await model.load()
+        #expect(model.phase == .failed)
+
+        // And the retry works once the plan does.
+        source.failsPlan = false
+        await model.load()
+        #expect(model.phase == .summary)
+    }
+
+    @Test("A failed save does not advance the step, and says so")
+    func failedSaveDoesNotAdvance() async {
+        let source = RecordingNutritionSource()
+        source.failsSave = true
+        let model = NutritionSetupModel(source: source, units: .fixed(.metric))
+        await model.load()
+
+        await model.choose(.lose)
+        #expect(model.step == .goal, "advanced past an answer the server does not hold")
+        #expect(model.errorMessage != nil)
+
+        source.stored = .partial(goal: .lose, step: .mealPattern)
+        await model.load()
+        await model.chooseMeals(3)
+        #expect(model.step == .mealPattern)
+    }
+
+    @Test("Focus-area saves are chained: the second starts only after the first finishes")
+    func focusSavesKeepTheirOrder() async {
+        let source = RecordingNutritionSource(profile: .partial(goal: .lose, step: .focusAreas))
+        let model = NutritionSetupModel(source: source, units: .fixed(.metric))
+        await model.load()
+        source.holdsSaves = true
+        let codes = NutritionFocusArea.all.map(\.code)
+
+        model.toggleFocusArea(codes[0])
+        model.toggleFocusArea(codes[1])
+        await Self.settle { source.heldSaveCount == 1 }
+        // Give an unchained second save every chance to start before checking it has not.
+        for _ in 0..<20 { await Task.yield() }
+        #expect(source.patches.count == 1, "the second save started while the first was open")
+
+        source.releaseSave()
+        await Self.settle { source.heldSaveCount == 1 && source.patches.count == 2 }
+        source.releaseSave()
+        source.holdsSaves = false
+        await model.advance()
+
+        #expect(source.patches.compactMap(\.focusAreas) == [[codes[0]], [codes[0], codes[1]]])
+        #expect(source.stored.focusAreas == [codes[0], codes[1]])
+    }
+
+    @Test(
+        "Resume shows her stored target in her units",
+        arguments: [
+            (EvaUnitSystem.metric, ["kilograms": "68"]),
+            (.imperial, ["pounds": "150"]),
+            (.stonesAndPounds, ["stones": "10", "pounds": "10"]),
+        ]
+    )
+    func resumeRestoresTheTarget(system: EvaUnitSystem, shown: [String: String]) async {
+        let stored = EvaBodyUnits.kilograms(fromPounds: 150)  // 68.04 kg, typed as 150 lb
+        let source = RecordingNutritionSource(
+            profile: .partial(goal: .lose, step: .targetWeight, targetWeightKg: stored)
+        )
+        let model = NutritionSetupModel(source: source, units: .fixed(system))
+        await model.load()
+        #expect(model.targetEntry.kilogramsText == shown["kilograms"] ?? "")
+        #expect(model.targetEntry.stonesText == shown["stones"] ?? "")
+        #expect(model.targetEntry.poundsText == shown["pounds"] ?? "")
+        // Imperial round-trips exactly; metric shows whole kilograms of the same value.
+        if system != .metric {
+            #expect(model.targetEntry.kilograms == stored)
+        }
+    }
+
     // MARK: - Support
+
+    /// Yields until `condition` holds, bounded so a broken chain fails rather than hangs.
+    private static func settle(_ condition: () -> Bool) async {
+        var spins = 0
+        while !condition() && spins < 1_000 {
+            await Task.yield()
+            spins += 1
+        }
+    }
 
     private static func isNumeric(_ value: Any) -> Bool {
         if value is Double || value is Int || value is Float { return true }
@@ -264,6 +389,25 @@ final class RecordingNutritionSource: NutritionSource {
     var plan: APINutritionPlan = .targets(.sample)
     private var started: Bool
 
+    /// Make the next calls fail the way an offline or 503 answer does.
+    var failsProfile = false
+    var failsSave = false
+    var failsPlan = false
+    /// While set, each save suspends after it is recorded until `releaseSave()` — so a test
+    /// can see whether a second save *started* while the first was still open.
+    var holdsSaves = false
+    private var heldSaves: [CheckedContinuation<Void, Never>] = []
+
+    struct Unavailable: Error {}
+
+    /// Lets the oldest held save finish.
+    func releaseSave() {
+        guard !heldSaves.isEmpty else { return }
+        heldSaves.removeFirst().resume()
+    }
+
+    var heldSaveCount: Int { heldSaves.count }
+
     init(profile: APINutritionProfile? = nil, body: APIProfile? = .body(weightKg: 64, heightCm: 168)) {
         started = profile != nil
         stored = profile ?? .partial(goal: nil, step: .goal)
@@ -277,12 +421,17 @@ final class RecordingNutritionSource: NutritionSource {
 
     func nutritionProfile() async throws -> APINutritionProfile? {
         calls.append(.profile)
+        if failsProfile { throw Unavailable() }
         return started ? stored : nil
     }
 
     func saveNutritionProfile(_ patch: APINutritionProfilePatch) async throws -> APINutritionProfile {
         calls.append(.save)
         patches.append(patch)
+        if holdsSaves {
+            await withCheckedContinuation { heldSaves.append($0) }
+        }
+        if failsSave { throw Unavailable() }
         started = true
         stored = APINutritionProfile(
             goal: patch.goal ?? stored.goal,
@@ -298,6 +447,7 @@ final class RecordingNutritionSource: NutritionSource {
 
     func nutritionPlan(timeZone: TimeZone) async throws -> APINutritionPlan {
         calls.append(.plan)
+        if failsPlan { throw Unavailable() }
         return plan
     }
 }
