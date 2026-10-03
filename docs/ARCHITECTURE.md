@@ -2621,18 +2621,18 @@ What the implementation added to the design above, each because the design left 
 - **Files.** The stores live in `Application Support/EvaStore/`, excluded from backup at
   the directory, so SQLite's later `-wal`/`-shm` files are covered too; a uid becomes a file
   name only if it is `[A-Za-z0-9_-]+`.
-- **An inactive tab is hidden from accessibility inside its own containers (#372).**
-  `EvaTabView`'s `.accessibilityHidden` does not reach through a `ScrollView` or
-  `NavigationStack` SwiftUI hosts in UIKit, so each tab also applies
-  `evaHiddenWhenTabInactive()` inside them. Found because the calendar's Log button failed
-  its first tap in UI tests: XCUITest saw Profile's hidden text and the button's own `plus`
-  glyph over the button's centre and tapped its top-left corner, outside the rounded hit
-  shape. The glyph is now hidden from accessibility and the whole tile takes the touch.
-- **The "Couldn't sync" card** (`EvaErrorCard`, DESIGN.md §7) appears on the calendar when
-  any entry is `failed`; **Retry now** queues every refused entry again. Its second sentence
-  departs from the artboard's "Eva will retry automatically", which is not true of a 4xx.
-- **Log out asks first when entries are unsynced** — the platform confirmation dialog, with
-  §8.5's sentence; the canvas draws no log-out confirmation.
+- **The calendar's Log button (#372).** Its first tap in UI tests did nothing, on `main` as
+  well (3/3 after a session-keeping relaunch). XCUITest's hit point for `calendar.log` was
+  (324, 706) — the tile's top-left corner, outside its rounded hit shape — because the
+  button's own `plus` glyph was a separate accessibility element over its centre, and
+  XCUITest taps the first point of an element nothing else covers. The glyph is now hidden
+  from accessibility (the button carries "Log an event") and the whole 60pt tile takes the
+  touch; the hit point is the centre and the first tap opens the picker 3/3.
+  Hiding the *inactive tabs'* content inside their scroll views was tried as well and
+  reverted: an `.accessibilityHidden(false)` on the active tab exposed every button's label
+  as a child element and moved Profile's Delete button's hit point to its corner the same
+  way. That the inactive tabs stay in the accessibility tree is a separate, pre-existing
+  defect.
 
 The rule → test map is in PR #78's description; the unit tests are `EventSyncTests`,
 `OfflineSessionTests`, `SyncEngineTests` and `EvaStoreTests`, and the UI tests

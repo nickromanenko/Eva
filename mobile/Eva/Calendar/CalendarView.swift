@@ -105,14 +105,12 @@ struct CalendarView: View {
 
                     CalendarLegend()
                 }
-                .evaHiddenWhenTabInactive()
                 .padding(.horizontal, EvaSpacing.lg)
                 .padding(.top, EvaSpacing.xs)
                 // Room for the log button and a toast to float over without covering the
                 // legend.
                 .padding(.bottom, EvaCalendarMetrics.fabSize + EvaSpacing.xxl)
             }
-            .evaHiddenWhenTabInactive()
 
             VStack(alignment: .trailing, spacing: EvaSpacing.sm) {
                 if let toast = model.toast {

@@ -77,9 +77,7 @@ struct ProfileSettingsRow<Destination: View>: View {
 
     var body: some View {
         NavigationLink {
-            // A pushed screen is a new UIKit-hosted page: the tab's own hiding does not
-            // reach it (#372).
-            destination.evaHiddenWhenTabInactive()
+            destination
         } label: {
             HStack(spacing: EvaSpacing.sm) {
                 VStack(alignment: .leading, spacing: 2) {
