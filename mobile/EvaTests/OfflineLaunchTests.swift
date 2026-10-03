@@ -76,7 +76,8 @@ extension SessionExpiryTests {
                     token: { KeychainTokenStore.shared.token },
                     session: EvaStubURLProtocol.session
                 ),
-                tokenStore: store
+                tokenStore: store,
+                inMemoryStore: true
             )
         }
 
@@ -182,7 +183,8 @@ extension SessionExpiryTests {
                     token: { KeychainTokenStore.shared.token },
                     session: EvaStubURLProtocol.session
                 ),
-                tokenStore: store
+                tokenStore: store,
+                inMemoryStore: true
             )
             // Armed to *succeed*, so a bootstrap that asked anyway would end `.ready` and
             // fail loudly rather than fall through to the same `.signedOut` by accident.

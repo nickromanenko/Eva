@@ -51,6 +51,9 @@ struct ProfileView: View {
     @State private var editor: ProfileEditorModel
 
     @State private var isConfirmingDeletion = false
+    /// Log out asked while entries are still queued (§8.5): log out wipes the store, so the
+    /// entries that have not reached the server would go with it.
+    @State private var isConfirmingLogOut = false
 
     init(session: AppSession, units: EvaUnitPreference, country: EvaCountrySetting) {
         self.session = session
@@ -362,8 +365,12 @@ struct ProfileView: View {
     /// artboard puts log out on this screen, and two of them would be two answers to the
     /// same question. Its identifier moved with it, `dashboard.logout` → `profile.logout`;
     /// `EvaUITests` never used the old one.
+    ///
+    /// Log out wipes the local store (ARCHITECTURE §8.5). When entries are still queued it
+    /// asks first and says how many — the platform confirmation dialog, as Privacy's
+    /// withdrawal uses, since the artboard draws no log-out confirmation.
     private var logOutCard: some View {
-        Button(action: session.logOut) {
+        Button(action: logOut) {
             HStack(spacing: 0) {
                 Text("Log out")
                     .evaTextStyle(.textButton)
@@ -379,6 +386,30 @@ struct ProfileView: View {
         .buttonStyle(.evaUndimmed)
         .evaCardSurface()
         .accessibilityIdentifier("profile.logout")
+        .confirmationDialog(
+            Self.unsyncedTitle(session.unsyncedEntryCount),
+            isPresented: $isConfirmingLogOut,
+            titleVisibility: .visible
+        ) {
+            Button("Log out", role: .destructive, action: session.logOut)
+                .accessibilityIdentifier("profile.logout.confirm")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Logging out removes them from this device before they reach Eva.")
+        }
+    }
+
+    private func logOut() {
+        if session.unsyncedEntryCount > 0 {
+            isConfirmingLogOut = true
+        } else {
+            session.logOut()
+        }
+    }
+
+    /// §8.5's sentence: "2 entries have not synced yet".
+    static func unsyncedTitle(_ count: Int) -> String {
+        count == 1 ? "1 entry has not synced yet" : "\(count) entries have not synced yet"
     }
 
     /// The artboard's danger card — the point of #55.

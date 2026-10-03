@@ -33,9 +33,16 @@ struct CalendarView: View {
         // the real entries; only the prediction comes from the hook. See
         // `EvaCyclePredictionLaunch`.
         let source = EvaCyclePredictionLaunch.source(wrapping: session) ?? session
-        _model = State(initialValue: CalendarModel(source: source, today: today))
+        _model = State(initialValue: CalendarModel(
+            source: source, today: today, sync: session.eventSync
+        ))
         #else
-        _model = State(initialValue: CalendarModel(source: session, today: today))
+        // The session's store (#78): the entries this screen draws, and the queue its
+        // writes go to. `nil` only outside a session — a preview — where the model builds
+        // an in-memory one.
+        _model = State(initialValue: CalendarModel(
+            source: session, today: today, sync: session.eventSync
+        ))
         #endif
         _pickerYear = State(initialValue: today.year)
     }
@@ -76,6 +83,10 @@ struct CalendarView: View {
                         // The artboard's `notEmpty` slot — the same place the empty-state
                         // card sits, and never both.
                         CalendarSummaryCard(summary: summary)
+                    }
+
+                    if model.failedSyncCount > 0 {
+                        syncFailureCard
                     }
 
                     if case .failed(let message) = model.loadState {
@@ -124,7 +135,10 @@ struct CalendarView: View {
             )
         ) { _ in model.refreshToday() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { model.refreshToday() }
+            guard phase == .active else { return }
+            model.refreshToday()
+            // §8.3: on foreground the visible range is re-read and reconciled.
+            Task { await model.reloadVisibleRange() }
         }
         // The Today card's `Log now` / `Log period` / `Log test` (#99) and the Dashboard's
         // first shortcut (#100). Each selects this tab and bumps the counter. The card's
@@ -243,6 +257,18 @@ struct CalendarView: View {
             }
         }
         .accessibilityIdentifier("calendar.loadError")
+    }
+
+    /// An entry the server refused (§8.4): it is still on the grid — it is saved on this
+    /// device — and this says it has not reached the server, and offers to send it again.
+    private var syncFailureCard: some View {
+        EvaErrorCard(title: EvaSyncCopy.failedTitle, message: EvaSyncCopy.failedMessage) {
+            DestructiveButton(title: "Retry now", kind: .row) {
+                model.retryFailedSync()
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("calendar.syncFailed")
     }
 
     // MARK: - Toast

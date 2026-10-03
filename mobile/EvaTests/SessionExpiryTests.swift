@@ -213,7 +213,8 @@ struct SessionExpiryTests {
                     token: { KeychainTokenStore.shared.token },
                     session: EvaStubURLProtocol.session
                 ),
-                tokenStore: store
+                tokenStore: store,
+                inMemoryStore: true
             )
             EvaStubURLProtocol.stub(status: 200, body: ClientMapping.user)
             await session.bootstrap()

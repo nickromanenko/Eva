@@ -384,6 +384,7 @@ struct CalendarPredictionTests {
             localDate: Self.today,
             idempotencyKey: "k1"
         ))
+        await model.synchronize()
 
         #expect(source.predictionRanges.count == afterLoad + 1,
                 "A logged period left the old estimate on screen")
@@ -398,6 +399,7 @@ struct CalendarPredictionTests {
             localDate: Self.today,
             idempotencyKey: "k2"
         ))
+        await model.synchronize()
         #expect(source.predictionRanges.count == before,
                 "A sport entry re-asked for a prediction it cannot have changed")
     }
@@ -414,6 +416,7 @@ struct CalendarPredictionTests {
 
         source.prediction = Self.answer(withheld: .noFlowLogged)
         await model.delete(logged)
+        await model.synchronize()
 
         #expect(source.predictionRanges.count == afterLoad + 1)
         #expect(model.predictions(on: Self.day(18)).isEmpty,

@@ -26,6 +26,12 @@ final class AppSession {
         /// the session or hanging on a spinner: the token stays, and `retry()` is offered
         /// (#61).
         case unreachable
+        /// She chose **Continue offline** from `.unreachable` (A3, #78): the token is still
+        /// unvalidated and kept, and the app runs from the local store. Anything she logs
+        /// is written there and queued, and syncs when the API answers again — the first
+        /// request that gets through re-runs `bootstrap()`, which moves this to `.ready`.
+        /// A 401 still ends it like any other session.
+        case offline
     }
 
     /// Why the session ended, when the signed-out screen owes the user an explanation (#59).
@@ -41,7 +47,15 @@ final class AppSession {
     }
 
     private(set) var state: State = .loading
-    private(set) var user: APIUser?
+    private(set) var user: APIUser? {
+        // Every path that learns who is signed in — launch, sign-in, a consent or profile
+        // write — opens that account's store, so no screen can read a store keyed to
+        // somebody else (§8.5).
+        didSet { if let user { openStore(for: user.id) } }
+    }
+    /// The calendar's entries on this device, and the queue that syncs them (A3, #78).
+    /// `nil` while signed out; keyed to the signed-in uid.
+    private(set) var eventSync: EventSync?
     /// Set only by a sign-out that has a `SignedOutReason`, and cleared by the next
     /// session and by every other sign-out — so it describes the sign-out the user is
     /// looking at, never an earlier one. In memory only: after a relaunch the context
@@ -65,9 +79,18 @@ final class AppSession {
     private let client: APIClient
     private let tokenStore: KeychainTokenStore
 
-    init(client: APIClient = .default, tokenStore: KeychainTokenStore = .shared) {
+    /// Whether the local store lives in memory rather than in Application Support — the
+    /// unit tests, which build many sessions in parallel and must not share store files.
+    private let inMemoryStore: Bool
+
+    init(
+        client: APIClient = .default,
+        tokenStore: KeychainTokenStore = .shared,
+        inMemoryStore: Bool = false
+    ) {
         self.client = client
         self.tokenStore = tokenStore
+        self.inMemoryStore = inMemoryStore
 
         #if DEBUG
         // UI tests need a clean slate (the Keychain survives reinstalls on simulator).
@@ -140,8 +163,52 @@ final class AppSession {
             // server saying the credential is finished, so the token stays exactly as it
             // is and the user keeps their session.
             guard generation == sessionGeneration else { return }
+            // Already working offline: a revalidation that fails again leaves her where
+            // she is, in the app, rather than back on the retry screen.
+            if state == .offline { return }
             state = .unreachable
         }
+    }
+
+    /// **Continue offline** on the retry screen (A3, #78; the `unreachable` artboard).
+    ///
+    /// The store is keyed to the uid, and with no `/me` the only place the uid is known is
+    /// the token itself — its `sub`, read on the device and trusted for nothing but which
+    /// file to open. The server still validates every request the queue makes, and a 401
+    /// ends this exactly as it ends a validated session.
+    func continueOffline() {
+        guard state == .unreachable,
+              let token = tokenStore.token,
+              let uid = EvaSessionToken.subject(of: token)
+        else { return }
+        openStore(for: uid)
+        state = .offline
+    }
+
+    /// The app came back to the foreground: the queue gets an attempt now rather than at
+    /// the end of its backoff, and an offline session tries to become a validated one.
+    func foregrounded() {
+        eventSync?.kick()
+        if state == .offline {
+            Task { await bootstrap() }
+        }
+    }
+
+    /// Opens `uid`'s store, wiping any other account's first (§8.5). A no-op when it is
+    /// already open.
+    private func openStore(for uid: String) {
+        if let eventSync, eventSync.store.belongsTo(uid) { return }
+        eventSync?.close()
+        if !inMemoryStore { EvaStore.wipeAll(keeping: uid) }
+        guard let store = try? EvaStore(uid: uid, inMemory: inMemoryStore) else {
+            // A store that will not open is a device fault with no screen; the app still
+            // works online-only through the in-memory fallback each screen builds.
+            eventSync = nil
+            return
+        }
+        let sync = EventSync(store: store, remote: self)
+        eventSync = sync
+        sync.kick()
     }
 
     /// Re-runs the launch validation. The `.unreachable` screen's only action.
@@ -495,13 +562,37 @@ final class AppSession {
 
     /// The option catalogues that turn an event's stored codes into words.
     ///
-    /// No `version` is sent, so this is always a `200` and never the `304` the route also
-    /// serves. Revalidating against a cached copy needs somewhere to cache it, which is
-    /// the local store in #78; until then the catalogue is fetched once per launch and
-    /// held in memory by `CalendarModel`.
+    /// Cached in the local store with its `version` (§8.3, #78). The cached version goes
+    /// out as `?version=`, a `304` keeps the copy, and an unreachable API answers from the
+    /// copy — so the pickers still offer their options offline. Taken as bytes and decoded
+    /// here, so the store holds the server's own document rather than a re-encoding of it.
     func refData() async throws -> EvaRefData {
-        try await authorized {
-            try await client.get("/refdata", authorized: true)
+        let cached = eventSync?.store.refdata()
+        do {
+            let download = try await authorized {
+                try await client.download(
+                    "/refdata",
+                    query: cached.map { [URLQueryItem(name: "version", value: $0.version)] } ?? [],
+                    authorized: true
+                )
+            }
+            let refData = try JSONDecoder().decode(EvaRefData.self, from: download.data)
+            eventSync?.store.saveRefdata(version: refData.version, data: download.data)
+            return refData
+        } catch APIError.server(_, _, let status) where status == 304 {
+            // Unchanged: keep the copy (§8.3's version handshake).
+            guard let cached else { throw APIError.decoding }
+            return try JSONDecoder().decode(EvaRefData.self, from: cached.data)
+        } catch let error as APIError {
+            // Unreachable: the cached catalogue is still the catalogue (§8.1 — a screen
+            // never blocks on the network). A dead session is not swallowed.
+            if case .sessionExpired = error { throw error }
+            if let cached, let refData = try? JSONDecoder().decode(EvaRefData.self, from: cached.data) {
+                return refData
+            }
+            throw error
+        } catch {
+            throw APIError.decoding
         }
     }
 
@@ -671,9 +762,21 @@ final class AppSession {
     ///
     /// Clears any `signedOutReason` left from an earlier sign-out: a log out the user asked
     /// for explains itself.
+    ///
+    /// **Wipes the local store and the queue (§8.5).** Entries that had not synced are
+    /// lost; the log-out confirmation says how many first (`unsyncedEntryCount`). A sign-out
+    /// that `authorized(_:)` performs on a 401 does *not* wipe — the queue pauses and
+    /// nothing is discarded (§8.4), and the same account signing back in picks it up.
     func logOut() {
+        eventSync?.wipe()
+        eventSync = nil
+        if !inMemoryStore { EvaStore.wipeAll() }
         logOut(reason: nil)
     }
+
+    /// How many logged entries have not reached the server yet — what log out has to
+    /// mention before it discards them (§8.5).
+    var unsyncedEntryCount: Int { eventSync?.unsyncedCount ?? 0 }
 
     /// `logOut()`, leaving `reason` for the signed-out screen to show (#59). Private: the
     /// only sign-out with something to explain is one `authorized(_:)` performs.
@@ -688,6 +791,9 @@ final class AppSession {
             // the relaunch that is the only moment it could matter.
             assertionFailureInDebug("Keychain would neither clear nor neutralise the token")
         }
+        // Closed, not wiped, when this is a 401: see `logOut()`.
+        eventSync?.close()
+        eventSync = nil
         user = nil
         signedOutReason = reason
         state = .signedOut
@@ -731,7 +837,13 @@ final class AppSession {
         // out the *new* session — clearing a token it never saw.
         let generation = sessionGeneration
         do {
-            return try await work()
+            let result = try await work()
+            // An offline session whose request just got through: the API is back, so
+            // validate the session now rather than at the next launch.
+            if state == .offline, generation == sessionGeneration {
+                Task { await bootstrap() }
+            }
+            return result
         } catch let error as APIError {
             if case .sessionExpired = error, generation == sessionGeneration {
                 logOut(reason: signedOutReason)

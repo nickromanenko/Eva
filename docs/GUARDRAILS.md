@@ -168,7 +168,8 @@ Each rule is stated so a reviewer can check it mechanically.
     the Claude Design canvas, not the drifted existing screens (DESIGN.md §9), and
     user-facing copy follows the voice rules in DESIGN.md §8.
 21. Keep the DEBUG hooks working: `EVA_ONBOARDING_STEP`, `EVA_UITEST_RESET`,
-    `EVA_API_BASE_URL`. Tooling and e2e depend on them.
+    `EVA_API_BASE_URL`, `EVA_SYNC_DROP_ACKS`. Tooling and e2e depend on them.
+    `EVA_UITEST_RESET` wipes the local store as well as the Keychain (#78).
 22. Interactive elements need a stable `accessibilityIdentifier`. Renaming one means
     updating `EvaUITests`.
 23. Never pass `CODE_SIGNING_ALLOWED=NO` to an xcodebuild **test** run. Unsigned apps
@@ -176,6 +177,14 @@ Each rule is stated so a reviewer can check it mechanically.
     request silently 401s.
 24. `AppSession` is the only owner of auth state; `KeychainTokenStore` the only place
     the token is persisted. No `@AppStorage` flag for `questionnaireCompleted`.
+24a. **Screens read the local store; only the sync engine calls `/me/events`,
+    `/me/body-signals` and `/refdata`** (ARCHITECTURE §8, #78). A view or view model that
+    fetches events for display, or writes one without going through `EventSync` (store
+    first, then the queue), is the regression. Every created event carries the
+    device-generated `idempotencyKey` (the row's `clientId`); the API's lookup on it stays a
+    pinned test in `api/test/`. The store is excluded from backups and wiped on log-out,
+    account deletion and `EVA_UITEST_RESET` — never on a 401, which pauses the queue and
+    discards nothing.
 
 ## Dependencies & scope
 

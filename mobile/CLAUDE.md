@@ -104,7 +104,7 @@ Adding a token or a component means adding it to the specimen too.
 |---|---|
 | `Eva/Networking/` | `APIClient` (async JSON), `APIError`, `APIModels` (wire types) |
 | `Eva/Session/` | `AppSession` (all auth/session state), `KeychainTokenStore` (token + device id + device token), `NotificationRegistrationDelegate` (APNs token → Keychain, #79) |
-| `Eva/Store/` | `LocalEvent` + `PendingOperation` (SwiftData, #78), `EvaStore` (the uid-keyed container), `SyncEngine` + `SyncOutcome` (the queue's drain semantics) |
+| `Eva/Store/` | `LocalEvent`, `PendingOperation` and `LocalRefdata` (SwiftData, #78), `EvaStore` (the uid-keyed container), `EventSync` (what the Calendar reads and writes through: store first, then the queue, plus the reconcile), `SyncEngine` + `SyncOutcome` (the queue's drain semantics) |
 | `Eva/Onboarding/` | `OnboardingModel` state machine, `Steps/`, `Components/` |
 | `Eva/Navigation/` | The tab bar (`EvaTabView`) and `EvaTabRouter` — the tab selection, and the one request a tab makes of another |
 | `Eva/Home/` | The Home tab (#99): `HomeModel` + `TodayCardSource`, the `GET /me/today` wire types, the Today card in four tones, the header and the offline bar, the shortcuts row and its meal-setup prompt (#100), and the "Worth reading" banner rail with its `SFSafariViewController` article view (#102) |
@@ -151,7 +151,12 @@ Adding a token or a component means adding it to the specimen too.
   screenshot tooling navigate by it. `PrimaryButton` sets `primary.<title>`.
 - Keep the DEBUG hooks working: `EVA_ONBOARDING_STEP`, `EVA_UITEST_RESET`,
   `EVA_API_BASE_URL`, `EVA_SPECIMEN`, `EVA_TODAY_CARD`, `EVA_TODAY_REFRESH`,
-  `EVA_CYCLE_PREDICTION`.
+  `EVA_CYCLE_PREDICTION`, `EVA_SYNC_DROP_ACKS`.
+- **Screens read the local store** (ARCHITECTURE §8, #78). The calendar's entries come from
+  `EventSync`, and a write goes to the store and the queue — never straight to `AppSession`.
+  `EVA_UITEST_RESET` wipes the store; `EVA_SYNC_DROP_ACKS=1` discards every server answer so
+  a queued entry is replayed (the idempotency UI test). Offline in a UI test is a relaunch
+  against a dead `EVA_API_BASE_URL` and **Continue offline** — see `OfflineSyncUITests`.
 - No Firebase iOS SDK. It stays commented out in `project.yml` until it's a decided
   task.
 

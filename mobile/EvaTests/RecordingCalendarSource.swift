@@ -32,6 +32,9 @@ final class RecordingCalendarSource: CalendarEventSource {
     private(set) var patchedIds: [String] = []
     private(set) var deletedIds: [String] = []
     private(set) var restoredIds: [String] = []
+    /// Every write, delete and restore in the order it arrived — what the queue's FIFO
+    /// claim (§8.4) is asserted against.
+    private(set) var log: [String] = []
 
     // MARK: What it answers with
 
@@ -130,6 +133,7 @@ final class RecordingCalendarSource: CalendarEventSource {
     /// Stores the way the route does, including the part that matters most to #50: a
     /// one-per-day type **replaces** the day's entry rather than adding to it.
     func createEvent(_ write: EvaEventWrite) async throws -> EvaEvent {
+        log.append("create")
         writes.append(write)
         if let writeFailure { throw writeFailure }
         let id = write.type.isOnePerDay
@@ -164,6 +168,7 @@ final class RecordingCalendarSource: CalendarEventSource {
     }
 
     func updateEvent(id: String, _ write: EvaEventWrite) async throws -> EvaEvent {
+        log.append("patch")
         patchedIds.append(id)
         writes.append(write)
         if let writeFailure { throw writeFailure }
@@ -181,12 +186,14 @@ final class RecordingCalendarSource: CalendarEventSource {
     }
 
     func deleteEvent(id: String) async throws {
+        log.append("delete")
         deletedIds.append(id)
         if let writeFailure { throw writeFailure }
         events.removeAll { $0.id == id }
     }
 
     func restoreEvent(id: String) async throws -> EvaEvent {
+        log.append("restore")
         restoredIds.append(id)
         if let writeFailure { throw writeFailure }
         guard let event = restorable[id] else {
