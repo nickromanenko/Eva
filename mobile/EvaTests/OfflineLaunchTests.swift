@@ -55,6 +55,12 @@ extension SessionExpiryTests {
 
         let store = KeychainTokenStore.shared
 
+        /// The push-token removal every sign-out with a token fires (#79). A test that signs
+        /// out routes it, because the call is correct behaviour rather than noise, and awaits
+        /// `deviceRemoval` before it ends so the call cannot land in the next test (#369).
+        var deviceRemoval: EvaStubURLProtocol.Route { .delete("/me/devices/\(store.deviceId)") }
+        static let deviceRemoved = #"{"removed":true}"#
+
         /// The state a launch actually starts from: a token in the Keychain, nothing yet
         /// asked of the network.
         ///
@@ -161,6 +167,7 @@ extension SessionExpiryTests {
                 EvaStubURLProtocol.lastAuthorization == "Bearer \(Self.token)",
                 "The 401 came back on a request that never presented the credential"
             )
+            await session.deviceRemoval?.value
         }
 
         /// Nothing stored is not a failure to reach anything — it is a user who has not
@@ -238,6 +245,7 @@ extension SessionExpiryTests {
 
             #expect(store.token == nil, "Logging out of the unreachable screen kept the token")
             #expect(session.state.isSignedOut, "Logging out left the app in \(session.state)")
+            await session.deviceRemoval?.value
         }
 
         // MARK: - What happens while a launch is still in flight
@@ -303,6 +311,7 @@ extension SessionExpiryTests {
             )
             #expect(store.token == nil, "The token the log out cleared came back")
             #expect(session.user == nil, "A signed-out session is still carrying the user the late reply named")
+            await session.deviceRemoval?.value
         }
 
 
@@ -326,6 +335,7 @@ extension SessionExpiryTests {
             EvaStubURLProtocol.route {
                 $0.held(.get("/me"), status: 401, body: ClientMapping.deadToken)
                 $0.responds(.post("/auth/signin"), status: 200, body: signedInAgain)
+                $0.responds(deviceRemoval, status: 200, body: Self.deviceRemoved)
             }
 
             async let launch: Void = session.bootstrap()
@@ -358,6 +368,11 @@ extension SessionExpiryTests {
             #expect(
                 session.user?.email == "e2e+again@e2e.evaapp.dev",
                 "The new session is carrying the wrong user"
+            )
+            await session.deviceRemoval?.value
+            #expect(
+                EvaStubURLProtocol.requestCount(for: deviceRemoval) == 1,
+                "The log out did not ask the API to drop this device's push token"
             )
             #expect(
                 EvaStubURLProtocol.unroutedRequests.isEmpty,
@@ -445,6 +460,7 @@ extension SessionExpiryTests {
                 $0.responds(.get("/me"), status: 200, body: ClientMapping.user)
                 $0.held(.delete("/me"), status: 200, body: #"{"deleted":true}"#)
                 $0.responds(.post("/auth/signin"), status: 200, body: signedInAgain)
+                $0.responds(deviceRemoval, status: 200, body: Self.deviceRemoved)
             }
             let session = await signedIn()
             defer { store.clear() }
@@ -475,6 +491,11 @@ extension SessionExpiryTests {
                 "A delete for the abandoned account left the new session in \(session.state)"
             )
             #expect(session.user?.email == "e2e+again@e2e.evaapp.dev", "The new session lost its user")
+            await session.deviceRemoval?.value
+            #expect(
+                EvaStubURLProtocol.requestCount(for: deviceRemoval) == 1,
+                "The log out did not ask the API to drop this device's push token"
+            )
             #expect(
                 EvaStubURLProtocol.unroutedRequests.isEmpty,
                 "A rule was armed on the wrong path, so this test proved something else: \(EvaStubURLProtocol.unroutedRequests)"
@@ -495,6 +516,7 @@ extension SessionExpiryTests {
                 $0.responds(.get("/me"), status: 200, body: ClientMapping.user)
                 $0.held(.put("/me/questionnaire"), status: 200, body: unfinishedUser)
                 $0.responds(.post("/auth/signin"), status: 200, body: signedInAgain)
+                $0.responds(deviceRemoval, status: 200, body: Self.deviceRemoved)
             }
             let session = await signedIn()
             defer { store.clear() }
@@ -519,6 +541,11 @@ extension SessionExpiryTests {
             #expect(
                 session.user?.email == "e2e+again@e2e.evaapp.dev",
                 "The abandoned questionnaire replaced the signed-in user with the account it was answering for"
+            )
+            await session.deviceRemoval?.value
+            #expect(
+                EvaStubURLProtocol.requestCount(for: deviceRemoval) == 1,
+                "The log out did not ask the API to drop this device's push token"
             )
             #expect(
                 EvaStubURLProtocol.unroutedRequests.isEmpty,

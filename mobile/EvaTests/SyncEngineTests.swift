@@ -23,8 +23,11 @@ struct SyncEngineTests {
 
     @Test("a 429 carries the server's Retry-After as the wait")
     func rateLimitedCarriesRetryAfter() {
-        let at = Date().addingTimeInterval(30)
-        #expect(syncOutcome(for: .rateLimited(message: "x", retryAt: at)) == .retry(after: 30))
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let at = now.addingTimeInterval(30)
+        #expect(syncOutcome(for: .rateLimited(message: "x", retryAt: at), now: now) == .retry(after: 30))
+        // A Retry-After already in the past is "now", never a negative sleep.
+        #expect(syncOutcome(for: .rateLimited(message: "x", retryAt: now.addingTimeInterval(-5)), now: now) == .retry(after: 0))
     }
 
     @Test("a network failure is retried")

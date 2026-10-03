@@ -56,6 +56,12 @@ final class AppSession {
     /// apply its result afterwards — see the note where it is captured.
     private var sessionGeneration = 0
 
+    /// The last sign-out's best-effort `DELETE /me/devices/{deviceId}` (#79), kept so a
+    /// caller can wait for it. Nothing in the app does — sign-out never blocks on the
+    /// network — but a test that signs out has to, or the call lands in whichever test runs
+    /// next and is counted there (#369). Not observed: no view draws from it.
+    @ObservationIgnored private(set) var deviceRemoval: Task<Void, Never>?
+
     private let client: APIClient
     private let tokenStore: KeychainTokenStore
 
@@ -684,7 +690,7 @@ final class AppSession {
         // after the state has flipped, with the token captured above so the cleared Keychain
         // does not matter. A failure leaves a row the sender job drops when APNs answers 410.
         if let token {
-            Task { [client] in
+            deviceRemoval = Task { [client] in
                 var removalClient = client
                 removalClient.token = { token }
                 let _: DeviceRemovedResponse? = try? await removalClient.delete(

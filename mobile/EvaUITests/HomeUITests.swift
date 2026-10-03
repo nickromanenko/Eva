@@ -284,14 +284,18 @@ final class HomeUITests: EvaUITestCase {
             app.buttons["home.setupMeals"].exists,
             "home_d has meals set up and still drew the setup card"
         )
-        // Drawn and disabled until #25 and Eva Chat exist, and saying why.
-        for (name, button) in [("meals", meals), ("chat", chat)] {
-            XCTAssertFalse(button.isEnabled, "The \(name) shortcut is live — its screen does not exist")
-            XCTAssertTrue(
-                button.label.contains("Not available yet"),
-                "The disabled \(name) shortcut does not say why: \(button.label)"
-            )
-        }
+        // The meal shortcut reaches the Nutrition coach's setup since #223 (S3) — the scan
+        // (S9) replaces it later. Eva Chat is still drawn and disabled, and says why.
+        XCTAssertTrue(meals.isEnabled, "The meals shortcut is disabled, but S3's setup exists")
+        XCTAssertFalse(
+            meals.label.contains("Not available yet"),
+            "The live meals shortcut still says it is unavailable: \(meals.label)"
+        )
+        XCTAssertFalse(chat.isEnabled, "The chat shortcut is live — its screen does not exist")
+        XCTAssertTrue(
+            chat.label.contains("Not available yet"),
+            "The disabled chat shortcut does not say why: \(chat.label)"
+        )
         XCTAssertTrue(chat.label.hasPrefix("Eva Chat"), "The fourth shortcut: \(chat.label)")
         capture("shortcuts-home_d")
 
@@ -300,7 +304,7 @@ final class HomeUITests: EvaUITestCase {
         relaunch(app, card: "home_setup")
         XCTAssertTrue(meals.waitForExistence(timeout: 20), "home_setup removed the meals shortcut")
         XCTAssertTrue(meals.label.hasPrefix("Set up meals"), "home_setup's meals shortcut: \(meals.label)")
-        XCTAssertFalse(meals.isEnabled, "Set up meals is live — #25's setup does not exist")
+        XCTAssertTrue(meals.isEnabled, "Set up meals is disabled, but S3's setup exists (#223)")
         let setupCard = app.buttons["home.setupMeals"]
         XCTAssertTrue(setupCard.exists, "home_setup drew no setup card")
         XCTAssertFalse(setupCard.isEnabled, "The setup card is live — #25's setup does not exist")
@@ -314,6 +318,17 @@ final class HomeUITests: EvaUITestCase {
         )
         XCTAssertGreaterThan(setupCard.frame.minY, meals.frame.maxY, "The setup card is not below the row")
         capture("shortcuts-home_setup")
+
+        // And it goes there: the setup flow's first step, for an account with no answers yet.
+        tap(meals, in: app)
+        XCTAssertTrue(
+            app.staticTexts["nutrition.step"].waitForExistence(timeout: 20),
+            "Set up meals did not open the Nutrition coach's setup"
+        )
+        XCTAssertTrue(
+            app.staticTexts["nutrition.goal.title"].exists,
+            "The setup did not open on its first step for an account with no answers"
+        )
 
         // The first label, from the payload: a running period, and postpartum.
         relaunch(app, card: "home_f")
