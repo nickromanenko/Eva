@@ -95,6 +95,13 @@ final class NutritionSetupUITests: EvaUITestCase {
             app.textFields["nutrition.body.weight"].isEnabled,
             "Step 4 takes input — the weight is edited in Profile"
         )
+        // A fresh account has answered no activity band, and none is marked for her.
+        for code in ["mostlySitting", "lightlyActive", "active", "veryActive"] {
+            XCTAssertFalse(
+                element("nutrition.body.activity.\(code)", in: app).isSelected,
+                "\(code) is marked although she has given no band"
+            )
+        }
         capture("nutrition-resumed")
 
         // The control: the same assertion fails once setup *is* complete, so it is not
@@ -126,6 +133,10 @@ final class NutritionSetupUITests: EvaUITestCase {
             "The summary does not show the adjusted target: "
                 + element("nutrition.summary.calories", in: app).label
         )
+        // The seeded luteal, wide-band adjustment reads as one, with its confidence.
+        let status = element("nutrition.summary.cycleAdjustment", in: app).label
+        XCTAssertTrue(status.contains("On · luteal phase"), "A luteal adjustment does not say so: \(status)")
+        XCTAssertTrue(status.contains("wide estimate"), "A wide-band phase reads as a certainty: \(status)")
         assertNoReviewClaim(in: app)
         capture("nutrition-summary")
     }
@@ -174,7 +185,7 @@ final class NutritionSetupUITests: EvaUITestCase {
     // MARK: - Hide the numbers: asked on the path, survives relaunch (#212)
 
     func testHiddenNumbersStayHiddenAfterRelaunchAndGoalFourSkipsStepFive() throws {
-        let app = launch(locale: "en_GB", language: "en-GB", plan: Self.targetsPlan)
+        let app = launch(locale: "en_GB", language: "en-GB", plan: Self.unadjustedPlan)
         signUpAndActivate(app, email: Self.freshEmail())
         openSetup(app)
 
@@ -236,6 +247,11 @@ final class NutritionSetupUITests: EvaUITestCase {
             element("nutrition.summary.numbers", in: app).waitForExistence(timeout: 20),
             "Turning the preference off in Settings did not bring the numbers back"
         )
+        // The seeded plan was not adjusted: the status must not claim it was.
+        let status = element("nutrition.summary.cycleAdjustment", in: app)
+        XCTAssertTrue(status.exists, "The summary has no cycle-adjustment row")
+        XCTAssertTrue(status.label.contains("Not applied today"), "Unadjusted status: \(status.label)")
+        XCTAssertFalse(status.label.contains("On ·"), "An unadjusted day reads as adjusted: \(status.label)")
         relaunch(app)
         let again = openNutritionSettings(app)
         XCTAssertTrue(
@@ -400,6 +416,15 @@ final class NutritionSetupUITests: EvaUITestCase {
         "calorieTargetKcal":1636,"macros":{"proteinG":102,"fatG":55,"carbG":180,"fibreG":25},\
         "weightPlan":{"targetWeightKg":60,"timelineWeeks":16,"paceKgPerWeek":0.4}},\
         "adjustment":{"calorieTargetKcal":1718,"reasonId":"luteal_adjustment","confidence":"wide"}}}
+        """
+
+    /// A finished goal-4 setup on a day nothing adjusted: no weight plan, and the route's
+    /// empty adjustment — which it serves alike for "not luteal" and "no phase estimate".
+    private static let unadjustedPlan = """
+        {"plan":{"kind":"targets","targets":{"bmrKcal":1400,"tdeeKcal":1925,\
+        "calorieTargetKcal":1925,"macros":{"proteinG":102,"fatG":64,"carbG":230,"fibreG":25},\
+        "weightPlan":null},\
+        "adjustment":{"calorieTargetKcal":1925,"reasonId":null,"confidence":null}}}
         """
 
     /// The route's refusal for a target under BMI 18.5 (`nutrition-profile.test.ts`).

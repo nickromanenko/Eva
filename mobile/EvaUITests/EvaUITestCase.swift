@@ -750,6 +750,17 @@ class EvaUITestCase: XCTestCase {
             swipeColumn(in: app)
             swipes += 1
         }
+        // `isHittable` says yes under the floating tab bar, so this is checked on its own. The
+        // keyboard is not accounted for here — that is #380.
+        XCTAssertLessThanOrEqual(
+            element.frame.maxY, visibleBottom(for: element, in: app),
+            """
+            Element is still under the tab bar after \(swipes) swipes, so a tap would land on a tab: \(element)
+              element frame: \(element.frame)
+              tab bar top:   \(visibleBottom(for: element, in: app))
+            """,
+            file: file, line: line
+        )
         XCTAssertTrue(
             element.isHittable,
             """
@@ -770,7 +781,11 @@ class EvaUITestCase: XCTestCase {
     /// bar's 784–836, and the delete modal never opened. The bar's own buttons are exempt.
     private func visibleBottom(for element: XCUIElement, in app: XCUIApplication) -> CGFloat {
         let tab = app.buttons["tab.home"]
-        guard tab.exists, !element.identifier.hasPrefix("tab.") else { return app.frame.maxY }
+        // A sheet or cover over the tabs leaves the bar in the hierarchy but not on screen;
+        // only a bar that can itself be hit is in the way.
+        guard tab.exists, tab.isHittable, !element.identifier.hasPrefix("tab.") else {
+            return app.frame.maxY
+        }
         let top = tab.frame.minY
         return top > 0 ? top : app.frame.maxY
     }

@@ -226,7 +226,7 @@ struct NutritionSetupView: View {
                     EvaRadioRow(
                         title: option.label,
                         detail: Self.activityDetail[option.code] ?? "",
-                        isSelected: model.bandCode == option.code
+                        isSelected: model.isActivityMarked(option.code)
                     ) {}
                     // Read here, changed in Profile ▸ Activity — the same band the plan uses.
                     .disabled(true)
@@ -687,6 +687,8 @@ extension NutritionCycleAdjustment {
         switch self {
         case .luteal(confidence: "wide"): "On · luteal phase (wide estimate)"
         case .luteal: "On · luteal phase (estimated)"
+        case .adjusted(confidence: "wide"): "Adjusted today (wide estimate)"
+        case .adjusted: "Adjusted today (estimated)"
         case .none: "Not applied today · needs an estimated luteal phase"
         }
     }

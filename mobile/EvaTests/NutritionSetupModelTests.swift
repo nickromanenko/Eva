@@ -373,20 +373,33 @@ struct NutritionSetupModelTests {
     }
 
     @Test(
-        "The status says what the route served, and no number",
+        "The status says what the route served, in words that match it, and no number",
         arguments: [
-            (APINutritionAdjustment(calorieTargetKcal: 1718, reasonId: "luteal_adjustment", confidence: "wide"),
-             NutritionCycleAdjustment.luteal(confidence: "wide")),
-            (APINutritionAdjustment(calorieTargetKcal: 1636, reasonId: nil, confidence: nil),
-             NutritionCycleAdjustment.none),
-        ]
+            ("luteal_adjustment", "wide", NutritionCycleAdjustment.luteal(confidence: "wide"),
+             "On · luteal phase (wide estimate)"),
+            ("luteal_adjustment", "narrow", .luteal(confidence: "narrow"),
+             "On · luteal phase (estimated)"),
+            (nil, nil, .none, "Not applied today · needs an estimated luteal phase"),
+            // A reason this build does not know still moved the number the calories row
+            // shows — the status must not say "not applied" beside it.
+            ("a_future_reason", "narrow", .adjusted(confidence: "narrow"), "Adjusted today (estimated)"),
+            ("a_future_reason", "wide", .adjusted(confidence: "wide"), "Adjusted today (wide estimate)"),
+        ] as [(String?, String?, NutritionCycleAdjustment, String)]
     )
-    func adjustmentStatus(adjustment: APINutritionAdjustment, expected: NutritionCycleAdjustment) {
-        let status = NutritionCycleAdjustment(adjustment)
+    func adjustmentStatus(
+        reasonId: String?, confidence: String?, expected: NutritionCycleAdjustment, wording: String
+    ) {
+        let status = NutritionCycleAdjustment(APINutritionAdjustment(
+            calorieTargetKcal: 1718, reasonId: reasonId, confidence: confidence
+        ))
         #expect(status == expected)
+        #expect(status.status == wording)
         #expect(status.status.rangeOfCharacter(from: .decimalDigits) == nil, "the status restates a number")
-        if case .luteal(confidence: "wide") = status {
-            #expect(status.status.contains("wide"), "a wide-band phase reads as a certainty")
+        if reasonId == nil {
+            #expect(!status.status.hasPrefix("On"), "an unadjusted day reads as adjusted")
+        } else {
+            #expect(!status.status.localizedCaseInsensitiveContains("not applied"),
+                    "an adjusted number is described as not applied")
         }
     }
 
@@ -409,6 +422,49 @@ struct NutritionSetupModelTests {
         let line = NutritionSetupView.disclaimer
         #expect(!line.localizedCaseInsensitiveContains("reviewed by"), "the review claim is back")
         #expect(line.contains("does not replace personalized advice from a doctor or registered dietitian"))
+    }
+
+    // MARK: - Step 4 (canvas `s4`): age and the activity band, read from the profile
+
+    @Test(
+        "Age counts whole years, and a birthday counts from its own day",
+        arguments: [
+            ("2026-02-28", 31),  // the day before her birthday
+            ("2026-03-01", 32),  // the birthday itself
+            ("2026-03-02", 32),
+        ]
+    )
+    func ageTurnsOnTheBirthday(today: String, years: Int) throws {
+        // `.body` is born 1994-03-01.
+        let model = NutritionSetupModel(source: RecordingNutritionSource(), units: .fixed(.metric))
+        let date = try #require(ProfileEditorModel.date(fromWire: today))
+        #expect(model.age(on: date) == years)
+    }
+
+    @Test("Age is absent without a profile, never guessed")
+    func ageWithoutAProfile() {
+        let model = NutritionSetupModel(
+            source: RecordingNutritionSource(body: nil), units: .fixed(.metric)
+        )
+        #expect(model.ageYears == nil)
+    }
+
+    @Test(
+        "Step 4 marks her stored band, and only hers — none while unanswered",
+        arguments: [String?.none, "mostlySitting", "lightlyActive", "active", "veryActive"]
+    )
+    func stepFourMarksHerBand(stored: String?) {
+        let body = APIProfile(
+            dateOfBirth: "1994-03-01", weightKg: 64, heightCm: 168,
+            goals: [], conditions: [], medications: "", lifestyle: stored, sports: []
+        )
+        let model = NutritionSetupModel(
+            source: RecordingNutritionSource(body: body), units: .fixed(.metric)
+        )
+        let marked = ProfileEditorModel.lifestyleOptions
+            .filter { model.isActivityMarked($0.code) }
+            .map(\.code)
+        #expect(marked == (stored.map { [$0] } ?? []))
     }
 
     // MARK: - Resume (canvas `sResume`)
@@ -442,6 +498,20 @@ struct NutritionSetupModelTests {
         let fresh = NutritionSetupModel(source: RecordingNutritionSource(), units: .fixed(.metric))
         await fresh.load()
         #expect(fresh.phase == .editing, "nothing started, nothing to resume")
+    }
+
+    /// A profile can exist with nothing answered — Nutrition Settings saves `hideNumbers`
+    /// alone before setup has begun. That is not a setup she left part-way.
+    @Test("A profile still at `goal` opens on Step 1, not the resume card")
+    func profileAtGoalIsNotResumed() async {
+        let source = RecordingNutritionSource(
+            profile: .partial(goal: nil, step: .goal, hideNumbers: true)
+        )
+        let model = NutritionSetupModel(source: source, units: .fixed(.metric))
+        await model.load()
+        #expect(model.phase == .editing)
+        #expect(model.step == .goal)
+        #expect(model.hideNumbers, "the preference saved from Settings was not carried in")
     }
 
     // MARK: - Support

@@ -229,15 +229,20 @@ final class NutritionSetupModel {
 
     /// Her age, from the date of birth on the Sign Up profile — never asked twice (canvas
     /// `s4`). `nil` when there is no profile or the date does not parse.
-    var ageYears: Int? {
+    var ageYears: Int? { age(on: .now) }
+
+    /// Her age in whole years on `date` — a birthday counts from its own day, not the next.
+    func age(on date: Date, calendar: Calendar = .current) -> Int? {
         guard let wire = source.bodyProfile?.dateOfBirth,
               let birth = ProfileEditorModel.date(fromWire: wire)
         else { return nil }
-        return Calendar.current.dateComponents([.year], from: birth, to: .now).year
+        return calendar.dateComponents([.year], from: birth, to: date).year
     }
 
-    /// Her band's code, so Step 4 can mark it among the four.
-    var bandCode: String? { source.bodyProfile?.lifestyle }
+    /// Whether Step 4 marks this band as hers — the stored code, never a default.
+    func isActivityMarked(_ code: String) -> Bool {
+        source.bodyProfile?.lifestyle == code
+    }
 
     var heightText: String {
         guard let profile = source.bodyProfile else { return "Height not set" }
@@ -398,18 +403,28 @@ extension NutritionSummary {
 /// The summary's cycle-adjustment **status** (canvas `sSum`, "Cycle-aware adjustment") — a
 /// state, never the number it moved.
 ///
-/// Two states, because the route serves two: an adjustment with a reason and the phase
-/// confidence it was read with, or none. `none` covers both "not luteal today" and "no phase
-/// estimate at all" — the route answers both the same way (`APINutritionAdjustment`), so
-/// the copy for it must be true of either.
+/// The route serves an adjustment with a reason and the phase confidence it was read with,
+/// or none. `none` covers both "not luteal today" and "no phase estimate at all" — the route
+/// answers both the same way (`APINutritionAdjustment`), so the copy for it must be true of
+/// either.
+///
+/// `adjusted` is a reason this build does not know. The calories row already shows the
+/// adjusted number, so "not applied" would contradict the row above it; the status says the
+/// number was adjusted and claims no reason it cannot name.
 enum NutritionCycleAdjustment: Equatable, Sendable {
     case luteal(confidence: String?)
+    case adjusted(confidence: String?)
     case none
 
     init(_ adjustment: APINutritionAdjustment) {
-        self = adjustment.reasonId == APINutritionAdjustment.lutealReason
-            ? .luteal(confidence: adjustment.confidence)
-            : .none
+        switch adjustment.reasonId {
+        case APINutritionAdjustment.lutealReason?:
+            self = .luteal(confidence: adjustment.confidence)
+        case nil:
+            self = .none
+        case _?:
+            self = .adjusted(confidence: adjustment.confidence)
+        }
     }
 }
 
